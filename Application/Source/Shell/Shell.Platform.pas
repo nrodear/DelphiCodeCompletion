@@ -41,6 +41,7 @@ type
   TDelphiInstallation = dpcc.Windows.Projects.DelphiInstallation.TDelphiInstallation;
   TDebugOutput = dpcc.Windows.Diagnostics.DebugOutput.TDebugOutput;
   TProcessInfo = dpcc.Windows.Diagnostics.ProcessInfo.TProcessInfo;
+  TProcessMemory = dpcc.Windows.Diagnostics.ProcessInfo.TProcessMemory;
 {$ELSE}
   TProcessInstances = dpcc.Linux.Process.Instances.TProcessInstances;
   TFileWatcherChanged = dpcc.Linux.Documents.FileWatcher.TFileWatcherChanged;
@@ -50,6 +51,7 @@ type
   TDebugOutput = dpcc.Linux.Diagnostics.DebugOutput.TDebugOutput;
   TStackTrace = dpcc.Linux.Diagnostics.StackTrace.TStackTrace;
   TProcessInfo = dpcc.Linux.Diagnostics.ProcessInfo.TProcessInfo;
+  TProcessMemory = dpcc.Linux.Diagnostics.ProcessInfo.TProcessMemory;
 {$ENDIF}
 
   TShellPlatform = record

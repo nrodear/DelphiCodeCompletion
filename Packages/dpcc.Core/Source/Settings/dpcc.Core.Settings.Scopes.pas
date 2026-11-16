@@ -124,6 +124,8 @@ begin
     Setting('CodeLensMetrics', 'codeLens.metrics', True),
     Setting('Metrics', 'metrics', True),
     Setting('ExperimentalEnabled', 'experimental.enabled', True),
+    // Speicher-Optimierung c1: Office-Typbibliotheken und WinRT vorab indizieren; der Server liest denselben Wert.
+    Setting('IndexOfficeAndWinRt', 'index.officeAndWinRt', True),
     Setting('CompileOnSave', 'compiler.onSave', True),
     // Architekturübersicht (#1118): Server (Fenster, Bericht, get_architecture) und Plugin lesen denselben Wert.
     Setting('ArchitectureEnabled', 'architecture.enabled', True),

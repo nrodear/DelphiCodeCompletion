@@ -46,14 +46,16 @@ type
     FService: TIndexService;
     FProgress: TLspWorkDoneProgress;
     FEncodings: TShellEncodingReport;
-    FResolver: TUnitResolver;
-    /// <summary>Frühere Resolver: Der alte Builder bedient EnsureUnit, bis der neue veröffentlicht ist,
-    /// und ruft sie dabei noch auf. Freigabe erst mit dem Arbeitsbereich.</summary>
-    FRetiredResolvers: TObjectList<TUnitResolver>;
     /// <summary>Schlüssel und Unit-Listen des letzten Aufbaus; gleich = nicht neu starten.</summary>
     FSignature: string;
     /// <summary>Beim nächsten Aufbau den Cache verwerfen (#49).</summary>
     FDiscardCache: Boolean;
+    /// <summary>index.officeAndWinRt des letzten Aufbaus (c1).</summary>
+    FOfficeAndWinRt: Boolean;
+    /// <summary>Nimmt die Bibliotheks-Units unter TShellIndexRequests.RarelyUsedRoots aus dem Index, wenn
+    /// index.officeAndWinRt eben ausgeschaltet wurde (c1): Sonst schlüge „+ Unit“ sie bis zum Neustart weiter vor.
+    /// Über uses erreichte liest der Aufbau gleich wieder ein.</summary>
+    procedure DropRarelyUsed(const ALoaded: TShellLoadedProject);
     procedure Attach;
     procedure ProjectReady(const AResult: TIndexBuildResult; AElapsedMs: Int64);
     procedure Finished(const AResult: TIndexBuildResult; AElapsedMs: Int64);
@@ -64,7 +66,9 @@ type
     procedure IndexEvent(const AText: string);
     /// <summary>Package-Locator und Unit-Suche des Projekts in den Zustand (#46, #1016).</summary>
     function PublishLookups(const ALoaded: TShellLoadedProject): TPackageLocator;
-    function NewResolver(const ALoaded: TShellLoadedProject): TUnitResolver;
+    /// <summary>Resolver des neuen Aufbaus; er lebt, solange Auftrag und Builder ihn über den Rückruf halten (a3).
+    /// </summary>
+    function NewResolver(const ALoaded: TShellLoadedProject): TUnitFileResolver;
     /// <summary>Sperre, Warten auf den Schreiber (#62) und Verwerfen (#49) des Caches.</summary>
     procedure PrepareCache(const ALoaded: TShellLoadedProject; const ASettings: TServerSettings;
       var ARequest: TIndexRequest);
@@ -103,7 +107,8 @@ uses
   dpcc.Common.Index.Processes,
   dpcc.Common.Index.ProjectFiles,
   dpcc.Common.Projects.UnitAliases,
-  dpcc.Common.Diagnostics.ShutdownLeaks,
+  Shell.Platform,
+  Shell.Diagnostics,
   Shell.Workspace.Listings,
   Shell.Workspace.Packages,
   dpcc.Text.LogMarks,
@@ -123,7 +128,21 @@ const
   /// <summary>So lange wartet ein lesender Prozess höchstens auf den Cache des schreibenden (#62).</summary>
   cCacheWaitMs = 120000;
 
-/// <summary>Neu eingelesene Units nach Grund und belegter Speicher, fürs Diagnoselog (Rückmeldung
+/// <summary>Private Bytes des Prozesses in MB (a0); 0, wenn die Abfrage scheitert. GetMemoryManagerState meldete in
+/// der IDE immer 0 (gemeinsamer Speichermanager borlndmm.dll).</summary>
+function PrivateMegaBytes: Int64;
+var
+  mMemory: TProcessMemory;
+begin
+  mMemory := TProcessInfo.Memory;
+  Result := 0;
+  if mMemory.Valid then
+  begin
+    Result := mMemory.PrivateBytes div (1024 * 1024);
+  end;
+end;
+
+/// <summary>Neu eingelesene Units nach Grund und belegter Speicher (Private Bytes), fürs Diagnoselog (Rückmeldung
 /// 22.10.2026).</summary>
 function MissText(const AResult: TIndexBuildResult): string;
 begin
@@ -131,7 +150,7 @@ begin
     [AResult.Misses[TIndexCacheMiss.NoEntry], AResult.Misses[TIndexCacheMiss.Changed],
      AResult.Misses[TIndexCacheMiss.Includes], AResult.Misses[TIndexCacheMiss.Usages],
      AResult.Misses[TIndexCacheMiss.Compact], AResult.Misses[TIndexCacheMiss.Damaged],
-     TShutdownLeaks.AllocatedBytes div (1024 * 1024)]);
+     PrivateMegaBytes]);
 end;
 
 /// <summary>Art des Caches an seinem Ordner: AProject, ALibrary oder ASearch.</summary>
@@ -148,13 +167,49 @@ begin
   end;
 end;
 
-/// <summary>Rückruf für TIndexRequest.ResolveUnit; fängt nur den Resolver ein.</summary>
-function ResolveUnitOf(AResolver: TUnitResolver): TUnitFileResolver;
+type
+  /// <summary>Hält einen TUnitResolver für den Rückruf TIndexRequest.ResolveUnit (a3): Der alte Builder bedient
+  /// EnsureUnit, bis der neue veröffentlicht ist, und ruft ihn dabei noch auf. Frei wird er mit dem letzten Halter,
+  /// also wenn der nächste Aufbau den alten Builder und Auftrag freigibt; vorher blieben alle früheren bis zur
+  /// Freigabe des Arbeitsbereichs.</summary>
+  IUnitResolverHold = interface
+    ['{B3E1A6F2-5C47-4D9B-8E21-7F0A4C3D9B56}']
+    function Resolver: TUnitResolver;
+  end;
+
+  TUnitResolverHold = class(TInterfacedObject, IUnitResolverHold)
+  private
+    FResolver: TUnitResolver;
+  public
+    constructor Create(AResolver: TUnitResolver);
+    destructor Destroy; override;
+    function Resolver: TUnitResolver;
+  end;
+
+constructor TUnitResolverHold.Create(AResolver: TUnitResolver);
+begin
+  inherited Create;
+  FResolver := AResolver;
+end;
+
+destructor TUnitResolverHold.Destroy;
+begin
+  FResolver.Free;
+  inherited;
+end;
+
+function TUnitResolverHold.Resolver: TUnitResolver;
+begin
+  Result := FResolver;
+end;
+
+/// <summary>Rückruf für TIndexRequest.ResolveUnit; fängt nur den Halter ein.</summary>
+function ResolveUnitOf(const AHold: IUnitResolverHold): TUnitFileResolver;
 begin
   Result :=
     function(const AUnitName: string): string
     begin
-      Result := AResolver.Resolve(AUnitName);
+      Result := AHold.Resolver.Resolve(AUnitName);
     end;
 end;
 
@@ -174,9 +229,9 @@ constructor TShellWorkspaceIndexing.Create(const AParts: TShellIndexingParts);
 begin
   inherited Create;
   FParts := AParts;
-  FRetiredResolvers := TObjectList<TUnitResolver>.Create(True);
   FEncodings := TShellEncodingReport.Create(AParts.Name, AParts.Root, AParts.Logger, AParts.Transport, AParts.Index);
-  FService := TIndexService.Create(AParts.Index, TDiskIndexFileSystem.Create);
+  // Eine Platte für alle Arbeitsbereiche (b1): Nur so teilen sie den gelesenen Bibliotheks-Cache und seinen Stand.
+  FService := TIndexService.Create(AParts.Index, TDiskIndexFileSystem.Shared);
   FProgress := TLspWorkDoneProgress.Create(AParts.Transport, AParts.ProgressToken);
   Attach;
 end;
@@ -185,8 +240,6 @@ destructor TShellWorkspaceIndexing.Destroy;
 begin
   FService.Free;
   FProgress.Free;
-  FResolver.Free;
-  FRetiredResolvers.Free;
   FEncodings.Free;
   FParts := Default(TShellIndexingParts);
   inherited;
@@ -220,6 +273,13 @@ begin
     begin
       CacheNotWritten(AFileName, AReason);
     end;
+  // b1: Der Index hielt den Stand des gemeinsamen Caches schon; nicht noch einmal gelesen.
+  FService.OnCacheSkipped :=
+    procedure(const AFileName: string)
+    begin
+      IndexEvent(Format('index project#%d cache skipped %s', [FParts.Setup.Priority,
+        CacheKindOf(AFileName, 'project', 'library', 'search')]));
+    end;
   FService.OnError :=
     procedure(const AError: Exception)
     begin
@@ -251,9 +311,10 @@ begin
   IndexEvent(Format('index project#%d done %d ms parsed %d cached %d missing %d units %d resolve %d ms parse %d ms%s',
     [FParts.Setup.Priority, AElapsedMs, AResult.Parsed, AResult.FromCache, AResult.Missing, FParts.Index.UnitCount,
      AResult.ResolveMs, AResult.ParseMs, IfThen(AResult.Cancelled, ' cancelled', '')]) + MissText(AResult));
-  FParts.Logger.Info(Format('Symbolindex für %s fertig in %d ms: %d Units, %d Symbole (%d neu eingelesen, %d aus dem Cache, %d fehlen)%s',
+  FParts.Logger.Info(Format('Symbolindex für %s fertig in %d ms: %d Units, %d Symbole (%d neu eingelesen, %d aus dem Cache, %d fehlen)%s; Speicher: %s',
     [TLogMarks.Name(FParts.Name), AElapsedMs, FParts.Index.UnitCount, FParts.Index.SymbolCount, AResult.Parsed,
-     AResult.FromCache, AResult.Missing, IfThen(AResult.Cancelled, ', abgebrochen', '')]));
+     AResult.FromCache, AResult.Missing, IfThen(AResult.Cancelled, ', abgebrochen', ''),
+     TShellMemoryReport.Take(FParts.Index, nil, -1).LogText]));
   if AResult.Cancelled then
   begin
     Exit;
@@ -281,7 +342,7 @@ begin
   // jede Speicherzeile trifft.
   IndexEvent(Format('index project#%d cacheWrite %s units %d %d kb %d ms mem %d MB',
     [FParts.Setup.Priority, IfThen(ALibrary, 'library', 'project'), AUnits, ABytes div 1024, AElapsedMs,
-     TShutdownLeaks.AllocatedBytes div (1024 * 1024)]));
+     PrivateMegaBytes]));
 end;
 
 procedure TShellWorkspaceIndexing.CacheRejected(const AFileName, AReason: string);
@@ -349,17 +410,15 @@ begin
   FParts.State.SetLookups(mSource.Packages, TShellPackageLookups.UnitLookupFor(mSource));
 end;
 
-function TShellWorkspaceIndexing.NewResolver(const ALoaded: TShellLoadedProject): TUnitResolver;
+function TShellWorkspaceIndexing.NewResolver(const ALoaded: TShellLoadedProject): TUnitFileResolver;
+var
+  mResolver: TUnitResolver;
 begin
-  Result := TUnitResolver.Create(ALoaded.Project, ALoaded.LibraryPaths, TShellFileAccess.ExistsFunc());
+  mResolver := TUnitResolver.Create(ALoaded.Project, ALoaded.LibraryPaths, TShellFileAccess.ExistsFunc());
   // Ordner einmal auflisten, über alle Projekte geteilt (CPU beim Start).
-  Result.ListUnits := TSharedUnitListings.ListFunc();
-  // Nicht freigeben: Anfragen können den alten Builder noch nutzen (EnsureUnit ohne Sperre, #647).
-  if FResolver <> nil then
-  begin
-    FRetiredResolvers.Add(FResolver);
-  end;
-  FResolver := Result;
+  mResolver.ListUnits := TSharedUnitListings.ListFunc();
+  // Anfragen können den alten Builder noch nutzen (EnsureUnit ohne Sperre, #647): Er hält seinen Resolver selbst.
+  Result := ResolveUnitOf(TUnitResolverHold.Create(mResolver));
 end;
 
 procedure TShellWorkspaceIndexing.PrepareCache(const ALoaded: TShellLoadedProject; const ASettings: TServerSettings;
@@ -418,11 +477,17 @@ begin
     Exit;
   end;
   FSignature := mKey;
+  if FOfficeAndWinRt and not ASettings.IndexOfficeAndWinRt then
+  begin
+    DropRarelyUsed(ALoaded);
+  end;
+  FOfficeAndWinRt := ASettings.IndexOfficeAndWinRt;
   mTarget.CacheRoot := FParts.Setup.CacheRoot;
   mTarget.Priority := FParts.Setup.Priority;
   mTarget.Usages := ASettings.IndexUsages;
+  mTarget.OfficeAndWinRt := ASettings.IndexOfficeAndWinRt;
   mRequest := TShellIndexRequests.RequestOf(ALoaded, mFiles, mTarget);
-  mRequest.ResolveUnit := ResolveUnitOf(NewResolver(ALoaded));
+  mRequest.ResolveUnit := NewResolver(ALoaded);
   FService.Scheduler := FParts.Setup.Scheduler;
   PrepareCache(ALoaded, ASettings, mRequest);
   Publish(ALoaded, mRequest);
@@ -430,11 +495,39 @@ begin
     [TLogMarks.Path(ALoaded.ProjectFile),
       TLogMarks.Name(ALoaded.Project.Config), TLogMarks.Name(ALoaded.Project.Platform), Length(mRequest.Files),
      Length(mRequest.SearchFiles), Length(mRequest.LibraryFiles), TLogMarks.Path(mRequest.CacheFile)]));
+  FParts.Logger.Info('Speicher beim Start des Aufbaus: ' + TShellMemoryReport.Take(FParts.Index, nil, -1).LogText);
   IndexEvent(Format('index project#%d start files %d search %d library %d cache %s',
     [FParts.Setup.Priority, Length(mRequest.Files), Length(mRequest.SearchFiles), Length(mRequest.LibraryFiles),
      IfThen(mRequest.ReadOnlyCache, 'readOnly', 'write')]));
   FParts.State.ProjectPending := True;
   FService.Start(mRequest);
+end;
+
+procedure TShellWorkspaceIndexing.DropRarelyUsed(const ALoaded: TShellLoadedProject);
+var
+  mRoots: TArray<string>;
+  mUnit: TUnitIndex;
+  mDropped: Integer;
+begin
+  mRoots := TShellIndexRequests.RarelyUsedRoots(ALoaded);
+  if Length(mRoots) = 0 then
+  begin
+    Exit;
+  end;
+  mDropped := 0;
+  for mUnit in FParts.Index.Units do
+  begin
+    if mUnit.Library_ and TShellIndexRequests.IsRarelyUsed(mUnit.FileName, mRoots) then
+    begin
+      FParts.Index.RemoveFile(mUnit.FileName);
+      Inc(mDropped);
+    end;
+  end;
+  if mDropped > 0 then
+  begin
+    FParts.Logger.Info(Format('%s: index.officeAndWinRt aus, %d Units aus OCX\Servers und WinRT aus dem Index genommen',
+      [TLogMarks.Name(FParts.Name), mDropped]));
+  end;
 end;
 
 procedure TShellWorkspaceIndexing.Forget;

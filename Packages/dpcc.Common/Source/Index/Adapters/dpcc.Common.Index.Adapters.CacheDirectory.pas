@@ -3,7 +3,8 @@
 // Cache-Ordner auf der Platte (#184, #492):
 // - Ablage: <Wurzel>\Index\<IDE-Version>\<Projekt-Hash>\index-<Format>.dpccidx,
 //   der Bibliotheks-Index getrennt unter <Wurzel>\Index\<IDE-Version>\Bibliothek\
-//   <Hash>\index-<Format>.dpccidx. Die Wurzel ist %LOCALAPPDATA%\dpcc.
+//   <Hash>\index-<Format>.dpccidx. Die Wurzel ist %LOCALAPPDATA%\dpcc, mit der Umgebungsvariablen
+//   DPCC_CACHE_ROOT ein eigener Ordner (Messprogramm, Tests).
 // - Die Formatversion im Dateinamen trennt Server verschiedener dpcc-Versionen:
 //   Laufen etwa ein installierter und ein neuer Server nebeneinander, schrieben
 //   sie sonst abwechselnd dieselbe Datei, und jeder verwarf beim nächsten Start
@@ -58,11 +59,14 @@ type
     cArchitectureFileName = 'architecture-last.json';
     /// <summary>Marke der letzten Benutzung neben jedem Cache.</summary>
     cUseMarkerFileName = 'benutzt.stamp';
+    /// <summary>Umgebungsvariable mit einem eigenen Ordner statt %LOCALAPPDATA%\dpcc (Messprogramm, Tests).</summary>
+    cRootVariable = 'DPCC_CACHE_ROOT';
   public
     /// <summary>Name der Cache-Datei mit der Formatversion (index-29.dpccidx), damit Server verschiedener
     /// Versionen sich die Caches nicht gegenseitig überschreiben.</summary>
     class function CacheFileName: string; static;
-    /// <summary>Ordner der Caches unter dem Benutzerprofil (Windows: %LOCALAPPDATA%\dpcc).</summary>
+    /// <summary>Ordner der Caches und Logs des Servers: DPCC_CACHE_ROOT, sonst %LOCALAPPDATA%\dpcc (die Variable
+    /// aus der Umgebung des Prozesses, ohne sie der Shell-Ordner).</summary>
     class function DefaultRoot: string; static;
     /// <summary>Kurzer, stabiler Hash (16 Hex-Zeichen, ohne Groß-/Kleinschreibung) eines Schlüssels.</summary>
     class function KeyHash(const AKey: string): string; static;
@@ -141,8 +145,23 @@ begin
 end;
 
 class function TIndexCacheDirectory.DefaultRoot: string;
+var
+  mLocal: string;
 begin
-  Result := TPath.Combine(TPath.GetCachePath, 'dpcc');
+  // Einstellbar (Messprogramm, Tests): DPCC_CACHE_ROOT ersetzt den ganzen Ordner, sonst gilt LOCALAPPDATA aus der
+  // Umgebung. TPath.GetCachePath fragt den Shell-Ordner ab und übersah beides; so lasen Tests mit eigenem
+  // LOCALAPPDATA den echten Bibliotheks-Cache und erneuerten dort Sperre und Benutzungsmarke.
+  Result := Trim(GetEnvironmentVariable(cRootVariable));
+  if Result <> '' then
+  begin
+    Exit(ExcludeTrailingPathDelimiter(Result));
+  end;
+  mLocal := Trim(GetEnvironmentVariable('LOCALAPPDATA'));
+  if mLocal = '' then
+  begin
+    mLocal := TPath.GetCachePath;
+  end;
+  Result := TPath.Combine(mLocal, 'dpcc');
 end;
 
 // FNV-1a rechnet modulo 2^64: die Überlaufprüfung ist nur hier aus, danach wie vorher (#972).

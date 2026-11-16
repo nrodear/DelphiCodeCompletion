@@ -113,6 +113,7 @@ begin
     TFlagOption.Create('searchPaths', ASettings.IndexSearchPaths),
     TFlagOption.Create('libraryPaths', ASettings.IndexLibraryPaths),
     TFlagOption.Create('usages', ASettings.IndexUsages),
+    TFlagOption.Create('officeAndWinRt', ASettings.IndexOfficeAndWinRt),
     TFlagOption.Create('removeOrphans', ASettings.IndexRemoveOrphans)], cIndexMembers, ASettings);
   // Umfang und Verwendungen sind seit S4 fest; die Schlüssel bleiben bis R8 bekannt, damit alte Dateien ohne
   // Warnung laden.
@@ -125,6 +126,7 @@ begin
   ATarget.IndexSearchPaths := ASource.IndexSearchPaths;
   ATarget.IndexLibraryPaths := ASource.IndexLibraryPaths;
   ATarget.IndexUsages := ASource.IndexUsages;
+  ATarget.IndexOfficeAndWinRt := ASource.IndexOfficeAndWinRt;
   ATarget.IndexExclude := ASource.IndexExclude;
   ATarget.IndexRemoveOrphans := ASource.IndexRemoveOrphans;
   ATarget.IndexCacheMaxAgeDays := ASource.IndexCacheMaxAgeDays;

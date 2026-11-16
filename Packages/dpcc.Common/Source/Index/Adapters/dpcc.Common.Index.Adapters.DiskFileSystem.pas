@@ -11,6 +11,11 @@
 // Bibliotheks-Cache nur, wer TryLockWrite erhalten hat. WriteBytes muss darum
 // keine Wettläufe zweier Schreiber mehr ausgleichen; scheitert es, meldet es
 // den Grund, statt ihn zu verschlucken.
+//
+// Eine Instanz für alle Dienste des Prozesses (Shared, Speicher-Optimierung b1): Die gemeinsamen Caches
+// (TSharedCacheReads, TSharedCacheWrites im Index-Dienst) erkennen eine Datei an Dateisystem und Name. Mit einer
+// eigenen Instanz je Arbeitsbereich las jedes Projekt einer Gruppe den Bibliotheks-Cache selbst (neun Kopien beim
+// Start der Gruppe dpcc_d13), und der gemerkte Stand jeder Datei kam bei jedem Serverstart einmal hinzu.
 
 interface
 
@@ -20,7 +25,11 @@ uses
 
 type
   TDiskIndexFileSystem = class(TInterfacedObject, IIndexFileSystem)
+  private
+    class var FShared: IIndexFileSystem;
   public
+    /// <summary>Die Platte für alle Dienste des Prozesses; die Klasse hält keinen Zustand.</summary>
+    class function Shared: IIndexFileSystem; static;
     function FileStamp(const AFileName: string; out AStamp: Int64): Boolean;
     function ReadText(const AFileName: string; out AText: string): Boolean;
     function WriteText(const AFileName, AText: string): Boolean;
@@ -86,6 +95,11 @@ begin
 end;
 
 { TDiskIndexFileSystem }
+
+class function TDiskIndexFileSystem.Shared: IIndexFileSystem;
+begin
+  Result := FShared;
+end;
 
 function TDiskIndexFileSystem.FileStamp(const AFileName: string; out AStamp: Int64): Boolean;
 var
@@ -229,5 +243,9 @@ end;
 
 initialization
   TDpccTextTables.Add('dpcc.Common.Index.Adapters.DiskFileSystem', cTexts);
+  TDiskIndexFileSystem.FShared := TDiskIndexFileSystem.Create;
+
+finalization
+  TDiskIndexFileSystem.FShared := nil;
 
 end.

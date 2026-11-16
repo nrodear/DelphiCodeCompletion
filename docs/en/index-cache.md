@@ -14,7 +14,8 @@ The scope is fixed:
 
 - all projects of the open project group, the active one first;
 - all units in the search paths of the projects;
-- the library and search paths of the installation (RTL, VCL, components).
+- the library and search paths of the installation (RTL, VCL, components), without the Office type libraries and
+  WinRT (see [below](#office-type-libraries-and-winrt)).
 
 In addition:
 
@@ -24,6 +25,20 @@ In addition:
   of every session.
 
 The index contains declarations, not usages. Its memory limit is fixed (768 MB).
+
+### Office type libraries and WinRT
+
+dpcc does not read `$(BDS)\OCX\Servers` (type libraries of Excel, Word, Outlook and Access, plus MSHTML) and
+`$(BDS)\source\rtl\win\winrt` in advance. Together they are a good 40 % of the library's symbols and about 140 MB
+in the index, and they are rarely needed.
+
+- The units remain reachable through `uses`: completion, hover and parameter help know them as soon as a unit uses
+  them.
+- “+ Unit” does not suggest their symbols.
+- The switch “Pre-index Office type libraries and WinRT” on the **General** page (`index.officeAndWinRt` in
+  `settings.json`) brings them back. See [Settings](settings.md#general).
+- Each position has its own library cache. The first time you switch, dpcc reads the library once more; after that it
+  comes from the respective cache. When switched off, the server removes the units from the index immediately.
 
 ## When the index is built
 
@@ -55,6 +70,14 @@ The cache is located under `%LOCALAPPDATA%\dpcc\Index`:
 | `…\benutzt.stamp` | time of last use |
 
 The format version is part of the file name. This way, different versions of dpcc do not interfere with each other.
+
+The environment variable `DPCC_CACHE_ROOT` moves the server's whole `%LOCALAPPDATA%\dpcc` folder (caches and
+diagnostic log), for example for tests with a copy of the cache. Without it, `LOCALAPPDATA` from the process
+environment applies.
+
+If the index already holds every unit of the library or search path cache in the same state, a new build does not
+read the cache again (for example after saving a `.dproj`). The diagnostic log reports this as
+“index project#n cache skipped library”.
 
 ### Cleanup
 
@@ -107,3 +130,4 @@ credentials and absolute paths. It watches both files itself; changes take effec
 
 The server still reads the index keys `index.projectGroup`, `index.searchPaths`, `index.libraryPaths`, `index.usages`
 and `memoryBudgetMb`, so that older files load without a warning. They no longer have any effect; the scope is fixed.
+Only `index.officeAndWinRt` takes effect (see [above](#office-type-libraries-and-winrt)).

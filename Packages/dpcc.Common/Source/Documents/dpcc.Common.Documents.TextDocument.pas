@@ -23,8 +23,12 @@ type
     /// <summary>Zeilenanfänge und -enden; immer mindestens eine Zeile.</summary>
     FLines: TLineTable;
     /// <summary>Abgeleitete Daten (Derived), erst beim ersten Zugriff angelegt; geschützt über
-    /// TMonitor(Self).</summary>
+    /// TMonitor(Self). Schlüssel der Form "Art|Stand" sind Fassungen derselben Art (Syntaxbaum je Symbole und
+    /// Include-Stand): Eine neue ersetzt die früheren (a6), sonst blieb je Konfigurationswechsel und gespeicherter
+    /// .inc ein weiterer Baum am Dokument.</summary>
     FDerived: TDictionary<string, IInterface>;
+    /// <summary>Entfernt die Einträge derselben Art wie AKey ("Art|…"), außer AKey; unter TMonitor(Self).</summary>
+    procedure DropVariantsOf(const AKey: string);
   public
     constructor Create(const AUri, ALanguageId: string; AVersion: Integer; const AText: string);
     destructor Destroy; override;
@@ -120,6 +124,27 @@ begin
   inherited;
 end;
 
+procedure TTextDocument.DropVariantsOf(const AKey: string);
+var
+  mBar: Integer;
+  mPrefix, mKey: string;
+begin
+  mBar := Pos('|', AKey);
+  if (mBar <= 1) or (FDerived = nil) then
+  begin
+    Exit;
+  end;
+  mPrefix := Copy(AKey, 1, mBar);
+  for mKey in FDerived.Keys.ToArray do
+  begin
+    if (mKey <> AKey) and (Copy(mKey, 1, mBar) = mPrefix) then
+    begin
+      // Wer die frühere Fassung noch nutzt, hält sie selbst (Schnittstelle mit Referenzzähler).
+      FDerived.Remove(mKey);
+    end;
+  end;
+end;
+
 function TTextDocument.Derived(const AKey: string; const AFactory: TFunc<IInterface>): IInterface;
 begin
   // Die Sperre gilt auch während AFactory: weitere Aufrufer warten, statt selbst zu erzeugen.
@@ -136,6 +161,7 @@ begin
       begin
         FDerived := TDictionary<string, IInterface>.Create;
       end;
+      DropVariantsOf(AKey);
       FDerived.Add(AKey, Result);
     end;
   finally

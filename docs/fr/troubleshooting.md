@@ -133,6 +133,41 @@ Pour un dépannage précis, dpcc journalise les appels de l'IDE à son gestionna
 
 Les chemins et le nom d'utilisateur y sont remplacés. Pour désactiver, supprimer la valeur ou la mettre à 0.
 
+### Journal de diagnostic du serveur
+
+Le serveur écrit un journal anonyme de ses requêtes et de ses constructions d'index dans
+`%LOCALAPPDATA%\dpcc\Logs\Diagnose\diag-<date>-<processus>.log`, un fichier par jour et par processus, conservé
+7 jours (`diagnostics.log`, `diagnostics.logDays` dans `settings.json`).
+
+Il indique la mémoire du processus de l'IDE dans des lignes « mem » : au début et à la fin de chaque construction de
+l'index et au moins toutes les 10 minutes, dès qu'une requête se termine. Exemple :
+
+```
+14:02:10.521 mem indexDone private 778 MB peak 2011 MB ws 790 MB free 1294 MB index 376 MB units 2131 lib 1557 docs 0 trees 0 0 MB dcp 4 27 kb
+```
+
+| Champ | Signification |
+|---|---|
+| `indexStart`, `indexDone`, `periodic` | occasion : début ou fin d'une construction, ligne régulière |
+| `private` | octets privés de tout le processus de l'IDE (mémoire privée engagée) |
+| `peak` | valeur la plus haute de `private` depuis le démarrage de l'IDE |
+| `ws` | working set (mémoire en RAM ; baisse lors de la pagination, `private` non) |
+| `free` | plus grande zone libre contiguë de l'espace d'adressage ; si elle devient petite, « Out of memory » menace malgré la RAM libre |
+| `index` | mémoire estimée de l'index de symboles |
+| `units`, `lib` | unités dans l'index, dont celles de la bibliothèque |
+| `docs` | documents ouverts auprès du serveur |
+| `trees` | arbres syntaxiques et leur mémoire estimée |
+| `dcp` | paquets compilés (`.dcp`) mémorisés et leurs noms en Ko |
+
+« run start … mem n MB » et les lignes « index … mem n MB » indiquent eux aussi les octets privés du processus.
+
+## L'IDE consomme beaucoup de mémoire
+
+- Les lignes « mem » du journal de diagnostic du serveur montrent la part de l'index (voir plus haut).
+- Sans l'interrupteur « Pre-index Office type libraries and WinRT » (pré-indexer les bibliothèques de types Office et
+  WinRT), les bibliothèques de types Office et WinRT ne sont pas dans l'index. Voir
+  [Index et cache](index-cache.md#bibliothèques-de-types-office-et-winrt).
+
 ## Réglages par défaut
 
 - Une option : clic droit, « Reset to default » (rétablir la valeur par défaut).

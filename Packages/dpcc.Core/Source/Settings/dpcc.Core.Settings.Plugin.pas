@@ -406,6 +406,9 @@ type
     property SymbolPath: Boolean read FEditorNavigation.SymbolPath write FEditorNavigation.SymbolPath;
     property ExperimentalEnabled: Boolean read FGeneralServer.ExperimentalEnabled
       write FGeneralServer.ExperimentalEnabled;
+    /// <summary>index.officeAndWinRt (c1): OCX\Servers und WinRT vorab indizieren; Vorgabe aus.</summary>
+    property IndexOfficeAndWinRt: Boolean read FGeneralServer.IndexOfficeAndWinRt
+      write FGeneralServer.IndexOfficeAndWinRt;
     property SetupChecklist: Boolean read FGeneral.SetupChecklist write FGeneral.SetupChecklist;
     property SetupChecklistSeen: Boolean read FGeneral.SetupChecklistSeen write FGeneral.SetupChecklistSeen;
     property KeyOverview: Boolean read FNavigationKeys.KeyOverview write FNavigationKeys.KeyOverview;

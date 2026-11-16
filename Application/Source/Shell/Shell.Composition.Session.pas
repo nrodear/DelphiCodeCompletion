@@ -69,13 +69,21 @@ type
 implementation
 
 uses
-  dpcc.Common.Diagnostics.ShutdownLeaks,
   dpcc.Common.Product.Version,
   dpcc.Text.LogMarks;
 
+/// <summary>Private Bytes des Prozesses für Start- und Endzeile (a0). GetMemoryManagerState sah in der IDE nichts
+/// (gemeinsamer Speichermanager borlndmm.dll), die Zeilen meldeten immer „mem 0 MB“.</summary>
 function AllocatedBytes: Int64;
+var
+  mMemory: TProcessMemory;
 begin
-  Result := TShutdownLeaks.AllocatedBytes;
+  mMemory := TProcessInfo.Memory;
+  Result := -1;
+  if mMemory.Valid then
+  begin
+    Result := mMemory.PrivateBytes;
+  end;
 end;
 
 constructor TShellSession.Create(const AServices: TShellSessionServices; ARequestTimeoutMs: Cardinal);

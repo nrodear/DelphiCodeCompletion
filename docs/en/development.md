@@ -64,10 +64,33 @@ Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --exclude:Benchmark --exitbehav
 | `Tests\Common\Lsp` | server side: completion, hover, parameter hint |
 | `Tests\IDE` | plugin side without ToolsAPI: flow of the list, ranking, favorites, set mode, placeholders, settings, texts |
 | `Tests\Application\Shell` | shell of the server |
+| `Tests\Common` | memory: self-measurement, names of the `.dcp`, shared cache, Office type libraries and WinRT |
+| `Tests\Memory` | memory benchmark (category `Benchmark`) |
 | `Tests\Support` | helpers: fixed data source, leak monitoring |
 
 The tests link the DCUs of the packages statically. Parts that use the ToolsAPI (`dpcc.IDE.Base`) can only be checked
 in the IDE.
+
+### Measuring memory
+
+`dpcc.Memory.Bench.Tests` starts the server inside its own process like the plugin does, opens a project group with
+the library of the installation and writes private bytes, peak, working set and the largest free region of the address
+space to a CSV file every second. Measuring points: start, index ready, after the requests, after every rebuild
+(`.dproj` saved) and after a server restart. Without the variable `DPCC_MEMBENCH_OUT` the test ends at once.
+
+| Variable | Meaning |
+|---|---|
+| `DPCC_MEMBENCH_OUT` | CSV file; the measuring points are in `<file>-points.csv` |
+| `DPCC_MEMBENCH_GROUP` | `.groupproj` whose projects form the workspace |
+| `DPCC_MEMBENCH_REQUESTS`, `DPCC_MEMBENCH_REBUILDS`, `DPCC_MEMBENCH_RESTARTS`, `DPCC_MEMBENCH_BETWEEN` | requests (2000), rebuilds (5), restarts (1), requests between two rebuilds (100) |
+| `DPCC_CACHE_ROOT` or `LOCALAPPDATA`, `APPDATA` | own folders so that the user's cache stays untouched; for a warm start, put a copy of the library cache there |
+
+```
+Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --run:dpcc.Memory.Bench.Tests --exitbehavior:Continue
+```
+
+Like `bds.exe`, the test program is LARGEADDRESSAWARE (4 GB address space). Measurement data does not belong in the
+repository.
 
 ## Conventions
 

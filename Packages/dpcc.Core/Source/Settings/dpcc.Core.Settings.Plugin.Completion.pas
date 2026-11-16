@@ -48,7 +48,7 @@ type
     OpenDelayMs: Integer;
     /// <summary>Lernende Gewichtung (#418).</summary>
     Learning: Boolean;
-    /// <summary>Favoriten anheften (#458): Strg+D bzw. Stern in der Liste, angeheftete Einträge stehen oben;
+    /// <summary>Favoriten anheften (#458): Strg+D in der Liste, angeheftete Einträge stehen oben;
     /// gespeichert in %APPDATA%\dpcc\favorites.json.</summary>
     Favorites: Boolean;
     /// <summary>Geerbte Member nachrangig und gruppiert (#419).</summary>

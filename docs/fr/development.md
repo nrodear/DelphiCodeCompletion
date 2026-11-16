@@ -66,10 +66,34 @@ Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --exclude:Benchmark --exitbehav
 | `Tests\Common\Lsp` | côté serveur : complétion, survol, aide aux paramètres |
 | `Tests\IDE` | côté plugin sans ToolsAPI : déroulement de la liste, classement, favoris, mode ensemble, espaces réservés, réglages, textes |
 | `Tests\Application\Shell` | enveloppe du serveur |
+| `Tests\Common` | mémoire : auto-mesure, noms des `.dcp`, cache partagé, bibliothèques de types Office et WinRT |
+| `Tests\Memory` | programme de mesure de la mémoire (catégorie `Benchmark`) |
 | `Tests\Support` | utilitaires : source de données fixe, surveillance des fuites |
 
 Les tests lient statiquement les DCU des paquets. Les parties utilisant la ToolsAPI (`dpcc.IDE.Base`) ne peuvent être
 vérifiées que dans l'IDE.
+
+### Mesurer la mémoire
+
+`dpcc.Memory.Bench.Tests` démarre le serveur dans son propre processus comme le plugin, ouvre un groupe de projets
+avec la bibliothèque de l'installation et écrit chaque seconde les octets privés, le pic, le working set et la plus
+grande zone libre de l'espace d'adressage dans un fichier CSV. Points de mesure : démarrage, index prêt, après les
+requêtes, après chaque reconstruction (`.dproj` enregistré) et après un redémarrage du serveur. Sans la variable
+`DPCC_MEMBENCH_OUT`, le test se termine aussitôt.
+
+| Variable | Signification |
+|---|---|
+| `DPCC_MEMBENCH_OUT` | fichier CSV ; les points de mesure figurent dans `<fichier>-points.csv` |
+| `DPCC_MEMBENCH_GROUP` | `.groupproj` dont les projets forment l'espace de travail |
+| `DPCC_MEMBENCH_REQUESTS`, `DPCC_MEMBENCH_REBUILDS`, `DPCC_MEMBENCH_RESTARTS`, `DPCC_MEMBENCH_BETWEEN` | requêtes (2000), reconstructions (5), redémarrages (1), requêtes entre deux reconstructions (100) |
+| `DPCC_CACHE_ROOT` ou `LOCALAPPDATA`, `APPDATA` | dossiers propres pour que le cache de l'utilisateur reste intact ; pour un démarrage à chaud, y placer une copie du cache de la bibliothèque |
+
+```
+Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --run:dpcc.Memory.Bench.Tests --exitbehavior:Continue
+```
+
+Comme `bds.exe`, le programme de test est LARGEADDRESSAWARE (4 Go d'espace d'adressage). Les données de mesure
+n'ont pas leur place dans le dépôt.
 
 ## Conventions
 

@@ -127,6 +127,40 @@ For detailed troubleshooting, dpcc logs the IDE's calls to its Code Insight mana
 
 Paths and the user name are replaced in it. To switch it off, delete the value or set it to 0.
 
+### Server diagnostic log
+
+The server writes an anonymous log of its requests and index builds to
+`%LOCALAPPDATA%\dpcc\Logs\Diagnose\diag-<date>-<process>.log`, one file per day and process, kept for 7 days
+(`diagnostics.log`, `diagnostics.logDays` in `settings.json`).
+
+It reports the memory of the IDE process in “mem” lines: at the start and at the end of every index build and at least
+every 10 minutes, as soon as a request ends. Example:
+
+```
+14:02:10.521 mem indexDone private 778 MB peak 2011 MB ws 790 MB free 1294 MB index 376 MB units 2131 lib 1557 docs 0 trees 0 0 MB dcp 4 27 kb
+```
+
+| Field | Meaning |
+|---|---|
+| `indexStart`, `indexDone`, `periodic` | occasion: start or end of a build, regular line |
+| `private` | private bytes of the whole IDE process (committed private memory) |
+| `peak` | highest value of `private` since the IDE started |
+| `ws` | working set (memory in RAM; drops when paged out, `private` does not) |
+| `free` | largest contiguous free region of the address space; if it gets small, “Out of memory” looms despite free RAM |
+| `index` | estimated memory of the symbol index |
+| `units`, `lib` | units in the index, of which from the library |
+| `docs` | documents open at the server |
+| `trees` | syntax trees and their estimated memory |
+| `dcp` | remembered compiled packages (`.dcp`) and their names in KB |
+
+“run start … mem n MB” and the “index … mem n MB” lines also give the private bytes of the process.
+
+## The IDE uses a lot of memory
+
+- The “mem” lines of the server diagnostic log show how much of it is due to the index (see above).
+- Without the switch “Pre-index Office type libraries and WinRT”, the Office type libraries and WinRT are not in the
+  index. See [Index and cache](index-cache.md#office-type-libraries-and-winrt).
+
 ## Settings back to default
 
 - One option: right-click, “Reset to default”.

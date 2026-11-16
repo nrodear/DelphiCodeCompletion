@@ -126,6 +126,40 @@ Für genaue Fehlersuche protokolliert dpcc die Aufrufe der IDE an seinen Code-In
 
 Pfade und der Benutzername sind darin ersetzt. Zum Abschalten den Wert löschen oder auf 0 setzen.
 
+### Diagnoselog des Servers
+
+Der Server schreibt ein anonymes Protokoll seiner Anfragen und Indexaufbauten nach
+`%LOCALAPPDATA%\dpcc\Logs\Diagnose\diag-<Datum>-<Prozess>.log`, eine Datei je Tag und Prozess, 7 Tage lang
+(`diagnostics.log`, `diagnostics.logDays` in `settings.json`).
+
+Den Speicher des IDE-Prozesses meldet es in Zeilen „mem“: beim Start und am Ende jedes Indexaufbaus und spätestens alle
+10 Minuten, sobald eine Anfrage endet. Beispiel:
+
+```
+14:02:10.521 mem indexDone private 778 MB peak 2011 MB ws 790 MB free 1294 MB index 376 MB units 2131 lib 1557 docs 0 trees 0 0 MB dcp 4 27 kb
+```
+
+| Feld | Bedeutung |
+|---|---|
+| `indexStart`, `indexDone`, `periodic` | Anlass: Start bzw. Ende eines Aufbaus, regelmäßige Zeile |
+| `private` | Private Bytes des ganzen IDE-Prozesses (zugesagter privater Speicher) |
+| `peak` | höchster Stand von `private` seit dem Start der IDE |
+| `ws` | Working Set (Speicher im RAM; sinkt beim Auslagern, `private` nicht) |
+| `free` | größter zusammenhängender freier Bereich im Adressraum; wird er klein, droht „Out of memory“ trotz freiem RAM |
+| `index` | geschätzter Speicher des Symbolindex |
+| `units`, `lib` | Units im Index, davon aus der Bibliothek |
+| `docs` | geöffnete Dokumente beim Server |
+| `trees` | Syntaxbäume und ihr geschätzter Speicher |
+| `dcp` | gemerkte übersetzte Packages (`.dcp`) und ihre Namen in KB |
+
+Auch „run start … mem n MB“ und die Zeilen „index … mem n MB“ nennen die Private Bytes des Prozesses.
+
+## Die IDE braucht viel Speicher
+
+- Das Diagnoselog des Servers zeigt in den Zeilen „mem“, wie viel davon auf den Index entfällt (siehe oben).
+- Die Office-Typbibliotheken und WinRT sind ohne den Schalter „Office-Typbibliotheken und WinRT vorab indizieren“ nicht
+  im Index. Siehe [Index und Cache](index-cache.md#office-typbibliotheken-und-winrt).
+
 ## Einstellungen auf Vorgabe
 
 - Eine Option: Rechtsklick, „Auf Standard zurücksetzen“.

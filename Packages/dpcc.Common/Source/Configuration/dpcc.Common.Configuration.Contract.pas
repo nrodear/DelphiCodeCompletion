@@ -805,6 +805,11 @@ type
     /// <summary>Verwendungen der Bezeichner in Projekt-Units mit indizieren (#492, für #470). Seit S4 fest False:
     /// Vervollständigung, Hover, Parameterhilfe und „+ Unit“ brauchen nur die Deklarationen.</summary>
     IndexUsages: Boolean;
+    /// <summary>Office-Typbibliotheken (OCX\Servers, mit MSHTML) und WinRT (source\rtl\win\winrt) der Installation
+    /// vorab indizieren (index.officeAndWinRt, Speicher-Optimierung c1). Vorgabe aus: Zusammen gut 40 % der
+    /// Bibliotheks-Symbole und über 120 MB im Index, gebraucht selten. Über uses bleiben sie erreichbar; nur
+    /// „+ Unit“ schlägt ihre Symbole dann nicht vor.</summary>
+    IndexOfficeAndWinRt: Boolean;
     /// <summary>Glob-Muster gegen den vollen Pfad ("/" oder ""), die nicht indiziert werden, z. B.
     /// **/Demos/**.</summary>
     IndexExclude: TArray<string>;
@@ -1522,6 +1527,8 @@ begin
   ASettings.McpPromptLanguage := 'de';
   ASettings.McpCustomPrompts := nil;
   ASettings.IndexExclude := nil;
+  // c1: OCX\Servers und WinRT nicht vorab indizieren.
+  ASettings.IndexOfficeAndWinRt := False;
   ASettings.IndexRemoveOrphans := True;
   ASettings.IndexCacheMaxAgeDays := 14;
   // Ein Bibliotheks-Cache allein hat rund 85 MB (RTL, VCL, FMX je Plattform), ein Projekt 1-10 MB. Mit 256 MB

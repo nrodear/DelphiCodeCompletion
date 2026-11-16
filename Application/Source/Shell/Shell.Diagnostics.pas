@@ -9,7 +9,12 @@
 //   der Map-Datei, ohne Dateinamen).
 // - Läufe, die ohne Endzeile aufhörten (Prozess von der IDE beendet oder
 //   abgestürzt), meldet der nächste Start; im Server-Log ebenso (#175).
-// Ordner: %LOCALAPPDATA%\dpcc\Logs\Diagnose, eine Datei je Tag und Prozess.
+// - Selbstmessung (a0): Private Bytes, Spitze, Working Set und größte freie Region des Prozesses
+//   (GetProcessMemoryInfo, VirtualQuery) mit den Anteilen von dpcc (geschätzter Index, Units, Dokumente,
+//   Syntaxbäume, .dcp) als Zeile „mem …“: bei Indexstart und -ende und spätestens alle 10 Minuten, sobald eine
+//   Anfrage endet. Die Speicherangaben „mem n MB“ der übrigen Zeilen sind ebenfalls Private Bytes; vorher kamen sie
+//   aus GetMemoryManagerState, das in der IDE (gemeinsamer Speichermanager borlndmm.dll) immer 0 meldete.
+// Ordner: %LOCALAPPDATA%\dpcc\Logs\Diagnose (TIndexCacheDirectory.DefaultRoot), eine Datei je Tag und Prozess.
 
 interface
 
@@ -25,7 +30,40 @@ uses
   dpcc.Common.Diagnostics.Contract,
   dpcc.Common.Diagnostics.Anonymizer,
   dpcc.Common.Diagnostics.Providers.Log,
-  dpcc.Common.Diagnostics.Adapters.LogFolder;
+  dpcc.Common.Diagnostics.Adapters.LogFolder,
+  Shell.Platform;
+
+type
+  /// <summary>Selbstmessung (a0): Speicher des Prozesses und die Anteile von dpcc, soweit bekannt (-1 =
+  /// unbekannt).</summary>
+  TShellMemoryReport = record
+  public
+    Process: TProcessMemory;
+    /// <summary>Geschätzter Bedarf des Symbolindex (ISymbolIndex.MemoryBytes).</summary>
+    IndexBytes: Int64;
+    Units: Integer;
+    LibraryUnits: Integer;
+    Documents: Integer;
+    /// <summary>Lebende gemeinsame Syntaxbäume und ihr geschätzter Speicher.</summary>
+    Trees: Integer;
+    TreeBytes: Int64;
+    /// <summary>Gemerkte übersetzte Packages (.dcp) und was davon im Speicher liegt.</summary>
+    PackageFiles: Integer;
+    PackageBytes: Int64;
+    /// <summary>Misst jetzt und merkt den Stand für Latest; AIndex und ADocuments dürfen nil sein, ALibraryUnits -1 (dann gezählt).</summary>
+    class function Take(const AIndex: ISymbolIndex; const ADocuments: IDocumentStore;
+      ALibraryUnits: Integer): TShellMemoryReport; static;
+    /// <summary>Zuletzt gemessener Stand (Messprogramm); Process.Valid = False vor der ersten Messung.</summary>
+    class function Latest: TShellMemoryReport; static;
+    /// <summary>Die nächste beendete Anfrage misst und schreibt die Zeile, auch vor Ablauf der 10 Minuten.</summary>
+    class procedure Request; static;
+    /// <summary>"private 210 MB peak 260 MB ws 180 MB free 900 MB index 120 MB units 2192 lib 1557 docs 5 trees
+    /// 3 2 MB dcp 4 1 MB".</summary>
+    function Text: string;
+    /// <summary>Kurz fürs Server-Log: "privat 210 MB, Spitze 260 MB, größter freier Block 900 MB, Index ~120 MB".
+    /// </summary>
+    function LogText: string;
+  end;
 
 type
   TShellDiagnostics = class(TInterfacedObject, IJsonRpcRequestObserver)
@@ -47,6 +85,11 @@ type
     FTimeoutMs: TFunc<Cardinal>;
     /// <summary>Endzeile geschrieben; danach keine Zeilen mehr.</summary>
     FEnded: Boolean;
+    /// <summary>Letzte Zeile „mem“ (TThread.GetTickCount64); 0 = noch keine.</summary>
+    FMemoryTicks: UInt64;
+    /// <summary>Schreibt die Zeile „mem“, wenn sie fällig ist (10 Minuten oder TShellMemoryReport.Request).
+    /// </summary>
+    procedure LogMemoryWhenDue;
     class function ShortMethod(const AMethod: string): string; static;
     function LibraryCount: Integer;
     procedure DescribeDocument(const AParams: TJSONValue; var ARequest: TDiagnosticRequest);
@@ -82,6 +125,13 @@ type
     /// <summary>Anonymes Kennzeichen einer Quelldatei für das Diagnoselog (#1094): "unit#N", unter einem
     /// Bibliothekspfad der Unit-Name.</summary>
     function FileLabel(const AFileName: string): string;
+    /// <summary>Speicher jetzt (a0) mit Index und Dokumenten dieses Servers.</summary>
+    function MemoryReport: TShellMemoryReport;
+    /// <summary>Zeile "mem &lt;AReason&gt; private … MB …" ins Diagnoselog (a0).</summary>
+    procedure LogMemory(const AReason: string);
+    /// <summary>Ereignis des Indexaufbaus ins Diagnoselog; nach Start und Ende eines Aufbaus („index project#n
+    /// start …“ bzw. „… done …“) dazu die Zeile „mem“ (a0).</summary>
+    procedure IndexEvent(const AText: string);
     property Log: IDiagnosticLog read FLog;
     /// <summary>Fortschritt des Indexaufbaus in Prozent, -1 ohne Aufbau.</summary>
     property IndexLoading: TFunc<Integer> read FIndexLoading write FIndexLoading;
@@ -92,18 +142,123 @@ type
 implementation
 
 uses
+  System.Classes,
   System.IOUtils,
   System.Hash,
   System.StrUtils,
   dpcc.Common.JsonRpc.Contract,
   dpcc.Common.Documents.Uris,
   dpcc.Common.Diagnostics.RequestScope,
-  Shell.Platform,
+  dpcc.Common.Index.Adapters.CacheDirectory,
+  dpcc.Common.Pascal.TreeCache,
+  dpcc.Common.Projects.PackageLocator,
   dpcc.Text.LogMarks;
 
 threadvar
   /// <summary>Rechenzeit des Handler-Threads beim Start der Anfrage.</summary>
   StartCpuMs: Int64;
+
+const
+  /// <summary>Abstand der Zeile „mem“ im Diagnoselog (a0), sobald eine Anfrage endet.</summary>
+  cMemoryIntervalMs = 10 * 60 * 1000;
+
+var
+  /// <summary>Zuletzt gemessener Stand und Wunsch nach einer Messung (TShellMemoryReport.Latest/Request).</summary>
+  MemoryLock: TObject;
+  LatestMemory: TShellMemoryReport;
+  MemoryRequested: Boolean;
+
+function MegaBytes(ABytes: Int64): Int64;
+begin
+  Result := -1;
+  if ABytes >= 0 then
+  begin
+    Result := (ABytes + 512 * 1024) div (1024 * 1024);
+  end;
+end;
+
+{ TShellMemoryReport }
+
+class function TShellMemoryReport.Take(const AIndex: ISymbolIndex; const ADocuments: IDocumentStore;
+  ALibraryUnits: Integer): TShellMemoryReport;
+var
+  mUnit: TUnitIndex;
+  mTrees: TSyntaxTreeCacheStats;
+begin
+  Result := Default(TShellMemoryReport);
+  Result.Process := TProcessInfo.Memory;
+  Result.IndexBytes := -1;
+  Result.Units := -1;
+  Result.LibraryUnits := ALibraryUnits;
+  Result.Documents := -1;
+  if AIndex <> nil then
+  begin
+    Result.IndexBytes := AIndex.MemoryBytes;
+    Result.Units := AIndex.UnitCount;
+    if Result.LibraryUnits < 0 then
+    begin
+      Result.LibraryUnits := 0;
+      for mUnit in AIndex.Units do
+      begin
+        if mUnit.Library_ then
+        begin
+          Inc(Result.LibraryUnits);
+        end;
+      end;
+    end;
+  end;
+  if ADocuments <> nil then
+  begin
+    Result.Documents := Length(ADocuments.Documents);
+  end;
+  mTrees := TSyntaxTreeCache.Stats;
+  Result.Trees := mTrees.Trees;
+  Result.TreeBytes := mTrees.Bytes;
+  Result.PackageFiles := TPackageCompiledFiles.Count;
+  Result.PackageBytes := TPackageCompiledFiles.Bytes;
+  TMonitor.Enter(MemoryLock);
+  try
+    LatestMemory := Result;
+  finally
+    TMonitor.Exit(MemoryLock);
+  end;
+end;
+
+class function TShellMemoryReport.Latest: TShellMemoryReport;
+begin
+  TMonitor.Enter(MemoryLock);
+  try
+    Result := LatestMemory;
+  finally
+    TMonitor.Exit(MemoryLock);
+  end;
+end;
+
+class procedure TShellMemoryReport.Request;
+begin
+  TMonitor.Enter(MemoryLock);
+  try
+    MemoryRequested := True;
+  finally
+    TMonitor.Exit(MemoryLock);
+  end;
+end;
+
+function TShellMemoryReport.Text: string;
+begin
+  // Kleinbuchstaben und Zahlen, ohne "/" (der Filter des Diagnoselogs verwirft Zeilen mit Schrägstrich).
+  Result := Format('private %d MB peak %d MB ws %d MB free %d MB index %d MB units %d lib %d docs %d ' +
+    'trees %d %d MB dcp %d %d kb', [MegaBytes(Process.PrivateBytes), MegaBytes(Process.PeakPrivateBytes),
+    MegaBytes(Process.WorkingSetBytes), MegaBytes(Process.LargestFreeBytes), MegaBytes(IndexBytes), Units,
+    LibraryUnits, Documents, Trees, MegaBytes(TreeBytes), PackageFiles, PackageBytes div 1024]);
+end;
+
+function TShellMemoryReport.LogText: string;
+begin
+  Result := Format('privat %d MB, Spitze %d MB, größter freier Block %d MB, Index ~%d MB (%d Units)',
+    [MegaBytes(Process.PrivateBytes), MegaBytes(Process.PeakPrivateBytes), MegaBytes(Process.LargestFreeBytes),
+     MegaBytes(IndexBytes), Units]);
+end;
 
 { TShellDiagnostics }
 
@@ -139,7 +294,76 @@ end;
 
 class function TShellDiagnostics.DefaultFolder: string;
 begin
-  Result := TPath.Combine(TPath.Combine(TPath.Combine(TPath.GetCachePath, 'dpcc'), 'Logs'), 'Diagnose');
+  // Wie die Index-Caches (DPCC_CACHE_ROOT bzw. LOCALAPPDATA der Umgebung): Tests und Messprogramm schreiben so
+  // nicht in das Diagnoselog des Benutzers.
+  Result := TPath.Combine(TPath.Combine(TIndexCacheDirectory.DefaultRoot, 'Logs'), 'Diagnose');
+end;
+
+function TShellDiagnostics.MemoryReport: TShellMemoryReport;
+var
+  mLibrary: Integer;
+begin
+  mLibrary := -1;
+  if FIndex <> nil then
+  begin
+    mLibrary := LibraryCount;
+  end;
+  Result := TShellMemoryReport.Take(FIndex, FDocuments, mLibrary);
+end;
+
+procedure TShellDiagnostics.LogMemory(const AReason: string);
+var
+  mReport: TShellMemoryReport;
+begin
+  mReport := MemoryReport;
+  TMonitor.Enter(FLock);
+  try
+    FMemoryTicks := TThread.GetTickCount64;
+  finally
+    TMonitor.Exit(FLock);
+  end;
+  if not FEnded then
+  begin
+    FLog.LogEvent('mem ' + AReason + ' ' + mReport.Text);
+  end;
+end;
+
+procedure TShellDiagnostics.LogMemoryWhenDue;
+var
+  mDue: Boolean;
+begin
+  TMonitor.Enter(MemoryLock);
+  try
+    mDue := MemoryRequested;
+    MemoryRequested := False;
+  finally
+    TMonitor.Exit(MemoryLock);
+  end;
+  TMonitor.Enter(FLock);
+  try
+    mDue := mDue or (FMemoryTicks = 0) or (TThread.GetTickCount64 - FMemoryTicks >= cMemoryIntervalMs);
+  finally
+    TMonitor.Exit(FLock);
+  end;
+  if mDue then
+  begin
+    LogMemory('periodic');
+  end;
+end;
+
+procedure TShellDiagnostics.IndexEvent(const AText: string);
+begin
+  if FEnded then
+  begin
+    Exit;
+  end;
+  FLog.LogEvent(AText);
+  // Feste Zeilenform aus Shell.Workspace.Indexing: "index project#n start files …" und "index project#n done …".
+  if StartsText('index project#', AText) and (ContainsText(AText, ' start files ') or
+    ContainsText(AText, ' done ')) then
+  begin
+    LogMemory(IfThen(ContainsText(AText, ' start files '), 'indexStart', 'indexDone'));
+  end;
 end;
 
 procedure TShellDiagnostics.AllowMethods(const AMethods: TArray<string>);
@@ -511,6 +735,16 @@ begin
   DescribeDocument(AParams, mRequest);
   AddIndexState(mRequest);
   FLog.LogRequest(mRequest);
+  LogMemoryWhenDue;
 end;
+
+initialization
+  MemoryLock := TObject.Create;
+  // Den Monitor gleich anlegen: TMonitor belegt ihn beim ersten Enter, im Test zählte das als Leck.
+  TMonitor.Enter(MemoryLock);
+  TMonitor.Exit(MemoryLock);
+
+finalization
+  FreeAndNil(MemoryLock);
 
 end.

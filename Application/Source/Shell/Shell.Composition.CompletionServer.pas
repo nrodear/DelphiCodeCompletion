@@ -372,7 +372,8 @@ begin
       // Absicherung: Beim Beenden ist das Diagnoselog schon fort.
       if Session <> nil then
       begin
-        Session.Diagnostics.Log.LogEvent(AText);
+        // Mit der Zeile „mem“ nach Start und Ende eines Aufbaus (a0).
+        Session.Diagnostics.IndexEvent(AText);
       end;
     end;
   Result.SettingsChanged := SettingsChanged;

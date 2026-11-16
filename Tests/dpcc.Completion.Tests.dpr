@@ -7,6 +7,9 @@
 {$APPTYPE CONSOLE}
 {$ENDIF}
 {$STRONGLINKTYPES ON}
+// 4 GB Adressraum wie bds.exe (LARGEADDRESSAWARE): Das Messprogramm (dpcc.Memory.Bench.Tests) misst sonst gegen eine
+// Grenze von 2 GB, die es in der IDE nicht gibt.
+{$SETPEFLAGS $20}
 
 uses
   // Muss als erste Unit stehen: zählt den Speicherrest beim Beenden (#177).
@@ -187,7 +190,10 @@ uses
   dpcc.Core.Lsp.AccessChains in '..\Packages\dpcc.Core\Source\Lsp\dpcc.Core.Lsp.AccessChains.pas',
   dpcc.Core.Settings.VisualizerKinds in '..\Packages\dpcc.Core\Source\Settings\dpcc.Core.Settings.VisualizerKinds.pas',
   dpcc.Core.Settings.EventBreakNames in '..\Packages\dpcc.Core\Source\Settings\dpcc.Core.Settings.EventBreakNames.pas',
-  dpcc.Core.Lsp.Client.MethodNotFound.Tests in 'IDE\dpcc.Core.Lsp.Client.MethodNotFound.Tests.pas';
+  dpcc.Core.Lsp.Client.MethodNotFound.Tests in 'IDE\dpcc.Core.Lsp.Client.MethodNotFound.Tests.pas',
+  dpcc.Common.Memory.Tests in 'Common\dpcc.Common.Memory.Tests.pas',
+  dpcc.Common.Memory.Phase1.Tests in 'Common\dpcc.Common.Memory.Phase1.Tests.pas',
+  dpcc.Memory.Bench.Tests in 'Memory\dpcc.Memory.Bench.Tests.pas';
 
 // Speicherrest beim Beenden in den Testbericht (Konsole) statt in einen Dialog (#177).
 procedure ReportShutdownLeak(ABytes: Int64);

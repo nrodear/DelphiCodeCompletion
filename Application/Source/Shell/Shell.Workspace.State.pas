@@ -58,10 +58,10 @@ type
     /// <summary>Unit-Suche wie beim Compiler für uses-unit-not-found (#1016), je Indexaufbau neu.</summary>
     FUnitLookup: IRuleUnitLookup;
     // Der Locator lebt, solange ihn ein Halter hat (#1220): Arbeitsbereich und die Unit-Suche, die Prüfungen in
-    // Anfrage-Threads noch über die Freigabe des Arbeitsbereichs hinaus benutzen können. Frühere bleiben bis zur
-    // Freigabe des Arbeitsbereichs.
+    // Anfrage-Threads noch über die Freigabe des Arbeitsbereichs hinaus benutzen können. Den früheren gibt
+    // SetLookups ab (a3): Wer ihn noch nutzt, hält ihn selbst über den Halter; vorher blieb jeder bis zur Freigabe
+    // des Arbeitsbereichs, samt den gelesenen Packages.
     FPackages: IPackageLocatorHold;
-    FRetiredPackages: TList<IPackageLocatorHold>;
     FStats: TShellIndexStats;
     /// <summary>Antworten zum Index über alle Units des Arbeitsbereichs (TIndexNameFacts); lebt mit ihm.</summary>
     FNameFacts: IIndexNameFacts;
@@ -120,7 +120,6 @@ begin
   FSetup := ASetup;
   FLock := TObject.Create;
   FOwnFiles := TDictionary<string, Boolean>.Create;
-  FRetiredPackages := TList<IPackageLocatorHold>.Create;
   FNameFacts := TIndexNameFacts.Create;
   FStats.LastIndexMs := -1;
 end;
@@ -129,7 +128,6 @@ destructor TShellProjectState.Destroy;
 begin
   FUnitLookup := nil;
   FPackages := nil;
-  FRetiredPackages.Free;
   FOwnFiles.Free;
   FLock.Free;
   inherited;
@@ -151,10 +149,6 @@ procedure TShellProjectState.SetLookups(const APackages: IPackageLocatorHold; co
 begin
   TMonitor.Enter(FLock);
   try
-    if FPackages <> nil then
-    begin
-      FRetiredPackages.Add(FPackages);
-    end;
     FPackages := APackages;
     FUnitLookup := AUnitLookup;
   finally

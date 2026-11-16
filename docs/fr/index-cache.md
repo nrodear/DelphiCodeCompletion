@@ -14,7 +14,8 @@ Le périmètre est fixe :
 
 - tous les projets du groupe de projets ouvert, le projet actif en premier ;
 - toutes les unités des chemins de recherche des projets ;
-- les chemins de bibliothèque et de recherche de l'installation (RTL, VCL, composants).
+- les chemins de bibliothèque et de recherche de l'installation (RTL, VCL, composants), sans les bibliothèques de types
+  Office et WinRT (voir [plus bas](#bibliothèques-de-types-office-et-winrt)).
 
 S'y ajoutent :
 
@@ -25,6 +26,21 @@ S'y ajoutent :
   chaque session.
 
 L'index contient des déclarations, pas des utilisations. Sa limite de mémoire est fixe (768 Mo).
+
+### Bibliothèques de types Office et WinRT
+
+dpcc ne lit pas à l'avance `$(BDS)\OCX\Servers` (bibliothèques de types d'Excel, Word, Outlook et Access, plus
+MSHTML) ni `$(BDS)\source\rtl\win\winrt`. Ensemble, elles représentent un bon 40 % des symboles de la bibliothèque
+et environ 140 Mo dans l'index, et elles servent rarement.
+
+- Les unités restent accessibles par les `uses` : la complétion, le survol et l'aide aux paramètres les connaissent dès
+  qu'une unité les inclut.
+- « + Unit » ne propose pas leurs symboles.
+- L'interrupteur « Pre-index Office type libraries and WinRT » (pré-indexer les bibliothèques de types Office et
+  WinRT) de la page **General** (`index.officeAndWinRt` dans `settings.json`) les réintègre. Voir
+  [Réglages](settings.md#general).
+- Chaque position a son propre cache de bibliothèque. Au premier basculement, dpcc relit une fois la bibliothèque ;
+  ensuite, elle vient du cache correspondant. À la désactivation, le serveur retire aussitôt les unités de l'index.
 
 ## Quand l'index est créé
 
@@ -58,6 +74,14 @@ Le cache se trouve sous `%LOCALAPPDATA%\dpcc\Index` :
 
 La version du format figure dans le nom du fichier. Ainsi, différentes versions de dpcc ne se gênent pas
 mutuellement.
+
+La variable d'environnement `DPCC_CACHE_ROOT` déplace tout le dossier `%LOCALAPPDATA%\dpcc` du serveur (caches et
+journal de diagnostic), par exemple pour des tests avec une copie du cache. Sans elle, c'est `LOCALAPPDATA` de
+l'environnement du processus qui s'applique.
+
+Si l'index contient déjà chaque unité du cache de la bibliothèque ou des chemins de recherche dans le même état, une
+nouvelle construction ne relit pas le cache (par exemple après l'enregistrement d'un `.dproj`). Le journal de
+diagnostic le signale par « index project#n cache skipped library ».
 
 ### Nettoyage
 
@@ -117,4 +141,5 @@ agissent sans redémarrage.
 
 Le serveur lit encore les clés d'index `index.projectGroup`, `index.searchPaths`, `index.libraryPaths`,
 `index.usages` et `memoryBudgetMb`, afin que les fichiers plus anciens se chargent sans avertissement. Elles n'ont
-plus d'effet ; le périmètre est fixe.
+plus d'effet ; le périmètre est fixe. Seule `index.officeAndWinRt` agit (voir
+[plus haut](#bibliothèques-de-types-office-et-winrt)).

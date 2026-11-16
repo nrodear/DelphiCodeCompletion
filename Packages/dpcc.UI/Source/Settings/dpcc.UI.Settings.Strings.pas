@@ -25,7 +25,9 @@ type
     SettingsOverviewTitle, SettingsOverviewDetails, SettingsCompletionVariantBranch, SettingsFormatPlaceholders,
     SettingsDpccNoHits, SettingsSearchPrompt, SettingsSearchOtherNode, SettingsSearchHint,
     // Werte im Hover beim Debuggen (#891, seit S3b auf der Seite „Hints“).
-    SettingsDebugHoverValues);
+    SettingsDebugHoverValues,
+    // Speicher-Optimierung c1 (index.officeAndWinRt) auf der Seite „Allgemein“.
+    SettingsIndexOfficeWinRt);
 
   TDpccSettingsStrings = class
   public
@@ -68,7 +70,7 @@ const
      '%d Index-Caches gelöscht; der Index wird beim nächsten Start der Code Completion neu aufgebaut.',
      'Index-Cache konnte nicht gelöscht werden: %s',
      '%d Index-Caches gelöscht; der Index wird neu aufgebaut.',
-     'Favoriten anheften (Strg+D oder Stern in der Liste)',
+     'Favoriten anheften (Strg+D)',
      'Entfernen',
      'Alle entfernen',
      'Keine Favoriten angeheftet.',
@@ -100,7 +102,8 @@ const
      'Einstellung suchen …',
      'in %s',
      'Enter springt zum ersten Treffer, Pfeil runter in die Liste.',
-     'Werte im Hover beim Debuggen (schaltet dafür den Wert-Tooltip der IDE ab)'),
+     'Werte im Hover beim Debuggen (schaltet dafür den Wert-Tooltip der IDE ab)',
+     'Office-Typbibliotheken und WinRT vorab indizieren (mehr Speicher; „+ Unit“ schlägt ihre Symbole vor)'),
     ('Completion, parameter hint and tooltip by dpcc',
      'Code Insight by dpcc (off: built-in Code Insight of the IDE)',
      'Visible rows of the list:',
@@ -128,7 +131,7 @@ const
      '%d index caches deleted; the index is rebuilt the next time code completion starts.',
      'Index cache could not be deleted: %s',
      '%d index caches deleted; the index is being rebuilt.',
-     'Pin favorites (Ctrl+D or star in the list)',
+     'Pin favorites (Ctrl+D)',
      'Remove',
      'Remove all',
      'No pinned favorites.',
@@ -160,7 +163,8 @@ const
      'Search settings …',
      'in %s',
      'Enter jumps to the first hit, arrow down moves into the list.',
-     'Values in the hover while debugging (turns off the IDE''s value tooltip)'));
+     'Values in the hover while debugging (turns off the IDE''s value tooltip)',
+     'Pre-index Office type libraries and WinRT (more memory; “+ Unit” suggests their symbols)'));
 
 { TDpccSettingsStrings }
 

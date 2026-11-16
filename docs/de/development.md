@@ -64,10 +64,33 @@ Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --exclude:Benchmark --exitbehav
 | `Tests\Common\Lsp` | Server-Seite: Vervollständigung, Hover, Parameterhilfe |
 | `Tests\IDE` | Plugin-Seite ohne ToolsAPI: Ablauf der Liste, Rangfolge, Favoriten, Mengenmodus, Platzhalter, Einstellungen, Texte |
 | `Tests\Application\Shell` | Hülle des Servers |
+| `Tests\Common` | Speicher: Selbstmessung, Namen der `.dcp`, gemeinsamer Cache, Office-Typbibliotheken und WinRT |
+| `Tests\Memory` | Messprogramm für den Speicher (Kategorie `Benchmark`) |
 | `Tests\Support` | Hilfen: feste Datenquelle, Leck-Überwachung |
 
 Die Tests linken die DCUs der Packages statisch. Teile mit ToolsAPI (`dpcc.IDE.Base`) lassen sich nur in der IDE
 prüfen.
+
+### Speicher messen
+
+`dpcc.Memory.Bench.Tests` startet den Server im eigenen Prozess wie das Plugin, öffnet eine Projektgruppe mit der
+Bibliothek der Installation und schreibt jede Sekunde Private Bytes, Spitze, Working Set und die größte freie Region
+des Adressraums in eine CSV-Datei. Messpunkte: Start, Index fertig, nach den Anfragen, nach jedem Neuaufbau
+(`.dproj` gespeichert) und nach einem Neustart des Servers. Ohne die Variable `DPCC_MEMBENCH_OUT` endet der Test
+sofort.
+
+| Variable | Bedeutung |
+|---|---|
+| `DPCC_MEMBENCH_OUT` | CSV-Datei; die Messpunkte stehen in `<Datei>-points.csv` |
+| `DPCC_MEMBENCH_GROUP` | `.groupproj`, deren Projekte den Arbeitsbereich bilden |
+| `DPCC_MEMBENCH_REQUESTS`, `DPCC_MEMBENCH_REBUILDS`, `DPCC_MEMBENCH_RESTARTS`, `DPCC_MEMBENCH_BETWEEN` | Anfragen (2000), Neuaufbauten (5), Neustarts (1), Anfragen zwischen zwei Neuaufbauten (100) |
+| `DPCC_CACHE_ROOT` bzw. `LOCALAPPDATA`, `APPDATA` | eigene Ordner, damit der Cache des Benutzers unberührt bleibt; für einen warmen Start eine Kopie des Bibliotheks-Caches hineinlegen |
+
+```
+Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --run:dpcc.Memory.Bench.Tests --exitbehavior:Continue
+```
+
+Das Testprogramm ist wie `bds.exe` LARGEADDRESSAWARE (4 GB Adressraum). Messdaten gehören nicht ins Repository.
 
 ## Konventionen
 

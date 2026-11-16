@@ -25,7 +25,7 @@ function DpccPluginSchemaJson: string;
 implementation
 
 const
-  cChunks: array[0..374] of string = (
+  cChunks: array[0..375] of string = (
     '{' + #10 + '  "$schema": "http://json-schema.org/draft-07/schema#",' + #10 + '  "title": "dpcc-Plugin-Einstellungen",' + #10,
     '  "description": "Katalog der Einstellungen des IDE-Plugins (#227, #604, #723). Schlüssel = Name in TDpccPluginSettings.Load/Save (Registry HKCU\\Software\\dpcc\\IdePlugin; ein Teil liegt in %APPDATA%' +
       '\\dpcc\\settings.json). x-key: Schlüssel in Doku und Exportdatei dpcc-settings.json; x-area: Bereich für Export, Import und Zurücksetzen (x-areas); x-page: Seite; x-state: interner Zustand (nicht expo' +
@@ -103,6 +103,10 @@ const
       '    "ExperimentalEnabled": {' + #10 + '      "type": "boolean",' + #10 + '      "default": false,' + #10 + '      "x-key": "experimental.enabled",' + #10 + '      "x-area": "general",' + #10 + '      "x-page": "Allgemein",' + #10 + '      "x-quickToggle": true,' + #10 + '      "x-caption": "Experimentelle Funktionen erlauben",' + #10 + '      "x-captionEn": "Allow experimental features",' +
       #10 + '      "x-issue": "#834",' + #10,
     '      "x-keywords": [' + #10 + '        "Beta",' + #10 + '        "Vorschau",' + #10 + '        "Preview"' + #10 + '      ]' + #10 + '    },' + #10,
+    '    "IndexOfficeAndWinRt": {' + #10 + '      "type": "boolean",' + #10 + '      "default": false,' + #10 +
+      '      "description": "Office-Typbibliotheken (OCX\\Servers, mit MSHTML) und WinRT der Installation vorab indizieren. Aus: weniger Speicher; über uses bleiben sie erreichbar, nur „+ Unit“ schlägt ihre Symbole nicht vor.",' + #10 +
+      '      "x-key": "index.officeAndWinRt",' + #10 + '      "x-area": "general",' + #10 + '      "x-page": "Allgemein",' + #10 + '      "x-keywords": [' + #10 + '        "Office",' + #10 + '        "WinRT",' + #10 +
+      '        "MSHTML",' + #10 + '        "Speicher",' + #10 + '        "Memory"' + #10 + '      ]' + #10 + '    },' + #10,
     '    "RecursionMarkers": {' + #10 + '      "type": "boolean",' + #10 + '      "default": true,' + #10 + '      "x-key": "editor.recursionMarkers",' + #10,
     '      "x-area": "editor",' + #10 + '      "x-feature": "RecursionMarkers",' + #10 + '      "x-page": "Editor",' + #10 + '      "x-quickToggle": true,' + #10 + '      "x-drawing": true,' + #10 + '      "x-caption": "Rekursionssymbole",' + #10 + '      "x-captionEn": "Recursion markers",' + #10 + '      "x-issue": "#623"' + #10 + '    },' + #10 + '    "RecursionMarkersDepth": {' + #10 +
       '      "type": "integer",' + #10 + '      "default": 4,' + #10 + '      "description": "Höchstens so viele Methoden auf einem Kreis über andere Methoden derselben Unit (1 bis 16; 1 = nur direkte Rekursion).",' + #10 + '      "x-key": "editor.recursionMarkers.depth",' + #10 + '      "x-area": "editor",' + #10 + '      "x-page": "Editor",' + #10 + '      "x-issue": "#623"' + #10 + '    },' +

@@ -14,7 +14,8 @@ Der Umfang ist fest:
 
 - alle Projekte der geöffneten Projektgruppe, das aktive zuerst;
 - alle Units der Suchpfade der Projekte;
-- die Bibliotheks- und Suchpfade der Installation (RTL, VCL, Komponenten).
+- die Bibliotheks- und Suchpfade der Installation (RTL, VCL, Komponenten), ohne die Office-Typbibliotheken und WinRT
+  (siehe [unten](#office-typbibliotheken-und-winrt)).
 
 Dazu kommen:
 
@@ -24,6 +25,20 @@ Dazu kommen:
   Sitzung an den Server.
 
 Der Index enthält Deklarationen, keine Verwendungen. Seine Speichergrenze ist fest (768 MB).
+
+### Office-Typbibliotheken und WinRT
+
+`$(BDS)\OCX\Servers` (Typbibliotheken von Excel, Word, Outlook und Access, dazu MSHTML) und
+`$(BDS)\source\rtl\win\winrt` liest dpcc nicht vorab ein. Zusammen sind das gut 40 % der Symbole der Bibliothek und
+rund 140 MB im Index, gebraucht werden sie selten.
+
+- Über `uses` bleiben die Units erreichbar: Vervollständigung, Hover und Parameterhilfe kennen sie, sobald eine Unit
+  sie einbindet.
+- „+ Unit“ schlägt ihre Symbole nicht vor.
+- Der Schalter „Office-Typbibliotheken und WinRT vorab indizieren“ auf der Seite **Allgemein** (`index.officeAndWinRt`
+  in `settings.json`) nimmt sie wieder auf. Siehe [Einstellungen](settings.md#allgemein).
+- Jede Stellung hat ihren eigenen Bibliotheks-Cache. Beim ersten Umschalten liest dpcc die Bibliothek einmal neu ein;
+  danach kommt sie aus dem jeweiligen Cache. Beim Ausschalten nimmt der Server die Units sofort aus dem Index.
 
 ## Wann der Index entsteht
 
@@ -55,6 +70,13 @@ Der Cache liegt unter `%LOCALAPPDATA%\dpcc\Index`:
 | `…\benutzt.stamp` | Zeitpunkt der letzten Benutzung |
 
 Die Formatversion steht im Dateinamen. So stören sich verschiedene Versionen von dpcc nicht gegenseitig.
+
+Die Umgebungsvariable `DPCC_CACHE_ROOT` verlegt den ganzen Ordner `%LOCALAPPDATA%\dpcc` des Servers (Caches und
+Diagnoselog), etwa für Tests mit einer Kopie des Caches. Ohne sie gilt `LOCALAPPDATA` aus der Umgebung des Prozesses.
+
+Hält der Index schon jede Unit des Bibliotheks- bzw. Suchpfad-Caches im selben Stand, liest ein neuer Aufbau den
+Cache nicht noch einmal (etwa nach dem Speichern einer `.dproj`). Das Diagnoselog meldet das als
+„index project#n cache skipped library“.
 
 ### Aufräumen
 
@@ -108,4 +130,4 @@ Zugangsdaten und absolute Pfade. Er beobachtet beide Dateien selbst; Änderungen
 
 Die Index-Schlüssel `index.projectGroup`, `index.searchPaths`, `index.libraryPaths`, `index.usages` und
 `memoryBudgetMb` liest der Server noch, damit ältere Dateien ohne Warnung laden. Sie wirken nicht mehr; der Umfang
-ist fest.
+ist fest. Nur `index.officeAndWinRt` wirkt (siehe [oben](#office-typbibliotheken-und-winrt)).

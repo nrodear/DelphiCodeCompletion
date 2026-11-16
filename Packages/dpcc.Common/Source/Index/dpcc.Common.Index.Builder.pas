@@ -176,6 +176,10 @@ type
     procedure ReleaseCache;
     /// <summary>Zahl der gehaltenen Cache-Einträge (für Tests).</summary>
     function CachedCount: Integer;
+    /// <summary>Übernähme dieser Aufbau AUnit aus dem Index unverändert (gleiche Defines, Verwendungen und Art wie
+    /// AlreadyIndexed, ohne Blick auf Datei und Includes)? Dann braucht er ihren Cache-Eintrag nicht (b1). Erst nach
+    /// LibraryRoots, LibraryDefines und Usages gültig.</summary>
+    function Keeps(const AUnit: TUnitIndex): Boolean;
     function Build(const AFiles: TArray<string>; const AProgress: TIndexProgressEvent;
       const ACancelled: TIndexCancelled): TIndexBuildResult; overload;
     /// <summary>Aufbau in Stufen (#648): AFiles samt über uses erreichbarer Units, dann ASearchFiles (Projekt),
@@ -514,10 +518,14 @@ begin
   // geparst) und ersetzte die des vorigen; die Namenslisten des Index behielten die ersetzten Einträge, bis es
   // mehr tote als lebende gab (Speicher, Rückmeldung 01.11.2026). Bedingungen wie bei CacheFits.
   Result := FIndex.FindFile(AFileName, mExisting) and (mExisting.Stamp = AStamp) and
-    (mExisting.DefinesKey <> '') and (mExisting.DefinesKey = FDefines.KeyOf(AFileName)) and
-    (mExisting.Library_ = ALibrary) and IncludesUnchanged(FFileSystem, mExisting) and
-    (mExisting.UsagesIndexed or not WantsUsages(ALibrary)) and
-    (not mExisting.Compact or (ALibrary and (FIndex.Budget > 0)));
+    (mExisting.Library_ = ALibrary) and Keeps(mExisting) and IncludesUnchanged(FFileSystem, mExisting);
+end;
+
+function TIndexBuilder.Keeps(const AUnit: TUnitIndex): Boolean;
+begin
+  Result := (AUnit.DefinesKey <> '') and (AUnit.DefinesKey = FDefines.KeyOf(AUnit.FileName)) and
+    (AUnit.UsagesIndexed or not WantsUsages(AUnit.Library_)) and
+    (not AUnit.Compact or (AUnit.Library_ and (FIndex.Budget > 0)));
 end;
 
 destructor TIndexBuilder.Destroy;
