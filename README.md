@@ -7,8 +7,8 @@ mit, die im IDE-Prozess einen eigenen Index über Projekt, Suchpfade und Bibliot
 
 ## Funktionen
 
-- **Vervollständigung mit Strg+Leertaste**: Liste der passenden Bezeichner mit Detailpanel (Signatur, Unit,
-  Kurztext aus der XML-Dokumentation). Steht ein Bezeichner in einer Unit, die noch nicht im `uses`-Abschnitt
+- **Vervollständigung mit Strg+Leertaste**: schlichte Liste der passenden Bezeichner (Art, Name, Signatur).
+  Steht ein Bezeichner in einer Unit, die noch nicht im `uses`-Abschnitt
   steht, zeigt die Liste „+ Unit“ und trägt die Unit beim Übernehmen ein.
 - **Parameterhilfe mit Strg+Umschalt+Leertaste**: Signaturen der aufgerufenen Routine, der aktuelle Parameter
   ist hervorgehoben.
@@ -48,16 +48,42 @@ Die Ausgabe landet unter `Output\Win32\Debug` (BPLs in `Bpl`, das Testprogramm i
    `Output\Win32\Debug\Bpl\dpcc.IDE.Base370.bpl` hinzufügen.
 2. `dpcc.IDE.Base370.bpl` braucht zur Laufzeit die sieben Laufzeit-BPLs `dpcc.Text`, `dpcc.WinBase`,
    `dpcc.Common`, `dpcc.Windows`, `dpcc.Server`, `dpcc.Core` und `dpcc.UI` (je `.bpl`, ohne Versionsendung).
-   Installiert wird nur `dpcc.IDE.Base370.bpl`; die übrigen lädt die IDE mit. Der Ordner `Output\Win32\Debug\Bpl`
-   muss deshalb im PATH der IDE stehen. Das Skript `Tools\IdePath.ps1` prüft und setzt den Eintrag in den
-   Umgebungsvariablen der IDE:
+   Installiert wird nur `dpcc.IDE.Base370.bpl`; die übrigen lädt die IDE mit. Windows sucht diese BPLs nicht
+   im Ordner der Plugin-BPL, sondern über den PATH. Der Ordner `Output\Win32\Debug\Bpl` muss deshalb im PATH
+   der IDE stehen.
 
-   ```powershell
-   powershell -NoProfile -File Tools\IdePath.ps1              # Zustand anzeigen
-   powershell -NoProfile -File Tools\IdePath.ps1 -Action Add  # Eintrag setzen
-   ```
+### PATH der IDE setzen
 
-   Der Eintrag wirkt beim nächsten Start der IDE.
+Der Eintrag gehört in die PATH-Überschreibung der IDE, nicht in den Windows-PATH. Beispiel, wenn das Repo unter
+`D:\src\DelphiCodeCompletion` liegt:
+
+```
+D:\src\DelphiCodeCompletion\Output\Win32\Debug\Bpl;$(PATH)
+```
+
+**Von Hand in der IDE:**
+
+1. **Tools › Optionen › IDE › Umgebungsvariablen** öffnen.
+2. Unter **Benutzerdefinierte Überschreibungen** auf **Neu** klicken (oder einen vorhandenen Eintrag `PATH`
+   bearbeiten).
+3. Variable `PATH`, Wert: der BPL-Ordner vorne, danach `;$(PATH)` (siehe Beispiel). Ein bestehender Wert bleibt
+   erhalten, der BPL-Ordner wird nur vorangestellt.
+4. Mit OK schließen und die IDE neu starten.
+
+Die IDE speichert die Überschreibung in der Registry unter
+`HKCU\Software\Embarcadero\BDS\37.0\Environment Variables`, Wert `PATH`.
+
+**Per Skript:** `Tools\IdePath.ps1` prüft und setzt denselben Eintrag (aus dem Repo-Ordner aufrufen, die IDE
+vorher schließen):
+
+```powershell
+powershell -NoProfile -File Tools\IdePath.ps1                 # Zustand anzeigen
+powershell -NoProfile -File Tools\IdePath.ps1 -Action Add     # BPL-Ordner vor $(PATH) eintragen
+powershell -NoProfile -File Tools\IdePath.ps1 -Action Remove  # Eintrag wieder entfernen
+```
+
+`-Action Add` sichert den bisherigen Wert unter `HKCU\Software\dpcc\IdePlugin`. Der Eintrag wirkt beim nächsten
+Start der IDE.
 
 Die Optionen stehen unter **Tools › Optionen › Drittanbieter › dpcc**.
 
