@@ -477,7 +477,8 @@ begin
   Assert.AreEqual(2, mIndex.LazyStats.Evictions, 'dafür eine weitere verdrängt');
   Assert.IsTrue(mIndex.FindUnitHeader('UBig3', mUnit) and (Length(mUnit.Symbols) = 0), 'UBig3 verdrängt');
   mUnit := Default(TUnitIndex);
-  // Eine Projekt-Unit nennt UBig3: Sie bleibt geladen, auch wenn sie am wenigsten genutzt ist.
+  // Eine Projekt-Unit nennt UBig3: Sie bleibt geladen, auch wenn sie am wenigsten genutzt ist. Seit Phase 4 zählt sie
+  // wie eine gepinnte nicht gegen das Budget: UBig1 und UBig2 (26 MB) passen daneben, keine wird verdrängt.
   mProject := Default(TUnitIndex);
   mProject.UnitName := 'Haupt';
   mProject.FileName := 'C:\P\Haupt.pas';
@@ -487,7 +488,10 @@ begin
   Assert.IsTrue(mIndex.FindUnit('UBig2', mUnit), 'UBig2 wieder geladen');
   mUnit := Default(TUnitIndex);
   Assert.IsTrue(mIndex.FindUnitHeader('UBig3', mUnit) and (Length(mUnit.Symbols) > 0), 'aus den uses gepinnt');
-  Assert.IsTrue(mIndex.FindUnitHeader('UBig1', mUnit) and (Length(mUnit.Symbols) = 0), 'dafür UBig1 verdrängt');
+  Assert.IsTrue(mIndex.FindUnitHeader('UBig1', mUnit) and (Length(mUnit.Symbols) > 0),
+    'UBig1 bleibt: UBig3 zählt nicht gegen das Budget');
+  Assert.AreEqual(2, mIndex.LazyStats.Evictions, 'keine weitere verdrängt');
+  Assert.IsTrue(mIndex.LazyStats.EvictableBytes <= TSymbolIndex.cEvictableBudget, 'verdrängbare im Budget');
   mUnit := Default(TUnitIndex);
   TImportNames.Clear;
 end;

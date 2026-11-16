@@ -44,11 +44,13 @@ aus ihrem Block im Cache. Das dauert meist unter 5 ms, bei sehr großen Units bi
 
 Belegen die so nachgeladenen Units zusammen geschätzt mehr als 32 MB, gibt dpcc die am seltensten genutzte wieder frei, bei
 Gleichstand die am längsten nicht genutzte. Es gibt immer die ganze Unit frei; ihr Katalogeintrag bleibt. Die Grenze
-ist fest und keine Einstellung.
+ist fest und keine Einstellung. Units aus den `uses` einer Projekt-Unit und oft genutzte zählen dabei nicht mit; sie
+sind gepinnt (siehe oben).
 
 Einschränkung: Aktionen, die einen Namen in allen Units suchen (etwa beim Anlegen von Zugriffsmethoden oder bei
-Feldnamen aus Datenmodulen), finden Symbole oberster Ebene aller Units und laden die Units dafür nach. Mitglieder von
-Klassen und Records finden sie nur in geladenen Units.
+Feldnamen aus Datenmodulen), finden Symbole oberster Ebene aller Units und laden die Units dafür nach. Solange eine
+solche Suche lädt, gibt dpcc keine Unit frei, damit sie alle Treffer sieht; danach gilt wieder die Grenze. Mitglieder
+von Klassen und Records finden sie nur in geladenen Units.
 
 #### Nutzungsstatistik
 
@@ -111,6 +113,11 @@ offenes Handle; eine andere Instanz kann die Datei trotzdem ersetzen. Ein besch�
 dpcc liest sie dann aus der Quelldatei neu. Caches älterer Formate (etwa `index-33.dpccidx`) liest dpcc nicht mehr:
 Der erste Start nach dem Update baut den Index einmal neu auf. Die alte Datei bleibt liegen, bis das Aufräumen nach
 Größe sie entfernt; „Index neu aufbauen“ (siehe [unten](#index-neu-aufbauen)) löscht sie sofort.
+
+Beim ersten Aufbau ohne Cache schreibt dpcc den Bibliotheks-Cache zwischendurch, damit die neu gelesenen Units den
+Speicher wieder verlassen dürfen. Dabei hängt es nur die neuen Blöcke und ein neues Verzeichnis an die Datei an; den
+Projekt-Cache und die ganze Datei schreibt es erst am Ende des Aufbaus. Bricht das Anhängen ab, gilt der vorige Stand
+weiter. Die Zeilen „cacheWrite library“ des Diagnoselogs nennen bei den Zwischenständen nur die angehängten KB.
 
 Die Umgebungsvariable `DPCC_CACHE_ROOT` verlegt den ganzen Ordner `%LOCALAPPDATA%\dpcc` des Servers (Caches und
 Diagnoselog), etwa für Tests mit einer Kopie des Caches. Ohne sie gilt `LOCALAPPDATA` aus der Umgebung des Prozesses.

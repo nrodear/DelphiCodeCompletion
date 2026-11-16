@@ -139,9 +139,10 @@ type
 
   TIndexBuilder = class
   public const
-    /// <summary>Ab so vielen (geschätzten) Bytes neu gelesener Units ruft die Bibliotheksstufe OnLibraryFlush.
-    /// </summary>
-    cFlushBytes = 32 * 1024 * 1024;
+    /// <summary>Ab so vielen (geschätzten) Bytes neu gelesener Units ruft die Bibliotheksstufe OnLibraryFlush. Seit
+    /// Phase 4 hängt ein Zwischenstand nur die neuen Blöcke an: halb so viel wie vorher (32 MB), das senkt die Spitze
+    /// des ersten Aufbaus, ohne dass die Datei öfter ganz geschrieben wird.</summary>
+    cFlushBytes = 16 * 1024 * 1024;
   private
     FIndex: ISymbolIndex;
     FFileSystem: IIndexFileSystem;

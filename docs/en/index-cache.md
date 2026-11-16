@@ -44,11 +44,13 @@ when completion, hover, parameter help or go to definition need them. This usual
 
 If the units loaded this way take more than an estimated 32 MB together, dpcc releases the least frequently used one, on a tie the
 one unused for the longest time. It always releases the whole unit; its catalog entry stays. The limit is fixed and not
-a setting.
+a setting. Units from the `uses` of a project unit and frequently used units do not count; they are pinned (see
+above).
 
 Limitation: actions that search a name in all units (for example when creating accessor methods or for field names
-from data modules) find top-level symbols of all units and load those units for it. They find members of classes and
-records only in loaded units.
+from data modules) find top-level symbols of all units and load those units for it. While such a search is loading,
+dpcc releases no unit, so that it sees all matches; afterwards the limit applies again. They find members of classes
+and records only in loaded units.
 
 #### Usage statistics
 
@@ -111,6 +113,11 @@ through an open handle; another instance can still replace the file. A damaged b
 reads it again from the source file. dpcc no longer reads caches of older formats (for example `index-33.dpccidx`): the
 first start after the update builds the index once more. The old file stays until the size-based cleanup removes it;
 “Rebuild index” (see [below](#rebuilding-the-index)) deletes it at once.
+
+During the first build without a cache, dpcc writes the library cache in between so that the newly read units may
+leave memory again. It only appends the new blocks and a new directory to the file; it writes the project cache and the
+whole file only at the end of the build. If appending is interrupted, the previous state stays valid. For these
+intermediate states, the “cacheWrite library” lines of the diagnostic log give only the appended KB.
 
 The environment variable `DPCC_CACHE_ROOT` moves the server's whole `%LOCALAPPDATA%\dpcc` folder (caches and
 diagnostic log), for example for tests with a copy of the cache. Without it, `LOCALAPPDATA` from the process

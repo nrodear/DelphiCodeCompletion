@@ -48,11 +48,14 @@ les très grandes unités.
 
 Si les unités ainsi chargées occupent ensemble, selon l'estimation, plus de 32 Mo, dpcc libère la moins souvent utilisée, à égalité celle
 qui n'a pas servi depuis le plus longtemps. Il libère toujours l'unité entière ; son entrée de catalogue reste. La
-limite est fixe et n'est pas un réglage.
+limite est fixe et n'est pas un réglage. Les unités nommées dans les `uses` d'une unité du projet et les unités souvent
+utilisées ne comptent pas ; elles sont épinglées (voir plus haut).
 
 Limite : les actions qui cherchent un nom dans toutes les unités (par exemple lors de la création de méthodes d'accès
 ou pour les noms de champs des modules de données) trouvent les symboles de premier niveau de toutes les unités et
-chargent ces unités pour cela. Elles ne trouvent les membres des classes et des records que dans les unités chargées.
+chargent ces unités pour cela. Tant qu'une telle recherche charge des unités, dpcc n'en libère aucune, afin qu'elle
+voie tous les résultats ; ensuite, la limite s'applique de nouveau. Elles ne trouvent les membres des classes et des
+records que dans les unités chargées.
 
 #### Statistiques d'utilisation
 
@@ -119,6 +122,12 @@ le fichier. Un bloc endommagé ne concerne que son unité ; dpcc la relit alors
 les caches des formats plus anciens (par exemple `index-33.dpccidx`) : le premier démarrage après la mise à jour
 reconstruit l'index une fois. L'ancien fichier reste jusqu'à ce que le nettoyage par taille le supprime ;
 « Reconstruire l'index » (voir [plus bas](#reconstruire-lindex)) le supprime aussitôt.
+
+Lors de la première construction sans cache, dpcc écrit le cache de la bibliothèque en cours de route, afin que les
+unités nouvellement lues puissent quitter la mémoire. Il ajoute seulement les nouveaux blocs et un nouveau répertoire à
+la fin du fichier ; il n'écrit le cache du projet et le fichier entier qu'à la fin de la construction. Si l'ajout est
+interrompu, l'état précédent reste valable. Pour ces états intermédiaires, les lignes « cacheWrite library » du
+journal de diagnostic n'indiquent que les Ko ajoutés.
 
 La variable d'environnement `DPCC_CACHE_ROOT` déplace tout le dossier `%LOCALAPPDATA%\dpcc` du serveur (caches et
 journal de diagnostic), par exemple pour des tests avec une copie du cache. Sans elle, c'est `LOCALAPPDATA` de

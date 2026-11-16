@@ -55,6 +55,25 @@
 // - Laden und Verdrängen ändern Generation nicht: Katalog, Namensindex der Import-Vorschläge (TImportNames) und
 //   gemerkte Antworten (TIndexNameFacts) bleiben gültig. Leser halten referenzgezählte Kopien der Symbole; eine
 //   Unit zu verdrängen gibt nur die Verweise des Index frei.
+//
+// Speicher-Optimierung Phase 4 (Korrektheit, Verdrängen ohne Flattern, kürzere Sperren):
+// - FindSymbols und HasSymbol schieben das Verdrängen auf, solange sie die kalten Units eines Namens laden und die
+//   Verweise lesen (FEvictDefer); erst danach geht der Index wieder ins Budget. Vorher konnte das Laden der letzten
+//   Unit eine eben geladene desselben Namens wieder verdrängen, und die Antwort war unvollständig.
+// - Units aus den uses einer Projekt-Unit und oft genutzte (Nutzungsstatistik) gelten als geschützt (Guarded) und
+//   zählen wie gepinnte nicht gegen cEvictableBudget; das Budget gilt nur für die tatsächlich verdrängbaren
+//   (FCandidateBytes). Vorher zählten sie mit, wurden aber nie verdrängt: Lagen sie über 32 MB, verdrängte jedes
+//   Nachladen alle übrigen. Ändern sich die uses, prüft der nächste Verdrängungslauf den Schutz neu (FGuardDirty).
+// - Verdrängen sammelt die Kandidaten einmal, sortiert sie (seltener genutzt, länger nicht genutzt) und verdrängt dann
+//   in einem Durchgang; ohne Überschreitung kostet es nichts.
+// - Die Verweise einer verdrängbaren Unit merkt sich ihr Platz (Knotennummern). Verdrängen markiert sie tot, räumt
+//   kurze Ketten gleich auf und lange beim nächsten Lesen (statt jede Namenskette wie Create oder Count ganz zu
+//   durchlaufen); der Platz wird wiederverwendet.
+// - Das Namensverzeichnis der kalten Units (FNameHashes) hängt an der Menge der verdrängbaren Einträge
+//   (FNameMembership), nicht an Generation: Tippen in einer Projekt-Unit baut es nicht neu. Gebaut wird es außerhalb
+//   der Sperre.
+// - Lädt ein zweiter Thread dieselbe kalte Unit, wartet er auf das Ergebnis des ersten (TIndexLoadSignal), statt den
+//   Block ein zweites Mal zu lesen. Größe und Katalog einer Unit entstehen vor der Sperre und nur einmal.
 
 interface
 
@@ -96,6 +115,9 @@ type
   private const
     /// <summary>Knoten je Block (12 Byte je Knoten).</summary>
     cNodeChunk = 16384;
+    /// <summary>Ketten bis zu dieser Länge räumt das Verdrängen sofort auf; längere beim nächsten Lesen (Phase 4).
+    /// </summary>
+    cShortChain = 32;
   private
     // Name → Verweise; Vorfahr ohne Unit-Präfix und Typargumente → Verweise; beide ohne Groß-/Kleinschreibung.
     FByName: TSymbolTable;
@@ -105,18 +127,46 @@ type
     FNodeCount: Integer;
     // Freiliste (Phase 3): Knoten entfernter Units, verkettet über Next; -1 = leer.
     FFreeNode: Integer;
-    // Platz → Dateischlüssel ('' = Unit ersetzt oder entfernt) und Zahl seiner Verweise.
+    // Platz → Dateischlüssel ('' = Unit ersetzt oder entfernt) und Zahl seiner Verweise (bei ersetzten: der noch in
+    // den Ketten stehenden).
     FSlotKeys: TList<string>;
     FSlotRefs: TList<Integer>;
     // Platz → Unit für die Suche (Known = False, wenn ersetzt oder entfernt); parallel zu FSlotKeys.
     FSlotUnits: TList<TSlotUnit>;
+    // Platz → Knoten seiner Verweise, nur bei verdrängbaren Units (Phase 4: gezielt tot markieren); sonst nil.
+    FSlotNodes: TList<TArray<Integer>>;
+    // Freie Plätze (Phase 4): Kein Knoten verweist mehr auf sie.
+    FFreeSlots: TList<Integer>;
+    // Tote Knoten verdrängter Units je langer Kette (Phase 4); erreichen sie die Hälfte, wird die Kette aufgeräumt.
+    FNameDead: TDictionary<string, Integer>;
+    FAncestorDead: TDictionary<string, Integer>;
     // Dateischlüssel → aktueller Platz.
     FFileSlots: TDictionary<string, Integer>;
     FLiveRefs: Integer;
+    // Tote Verweise, die noch in Ketten stehen (ersetzte Units, verdrängte in langen Ketten).
     FDeadRefs: Integer;
-    procedure AddRef(ATable: TSymbolTable; const AKey: string; ASlot, APosition: Integer);
+    function AddRef(ATable: TSymbolTable; const AKey: string; ASlot, APosition: Integer): Integer;
     function NodeAt(AIndex: Integer): TSymbolRef; inline;
     procedure SetNext(AIndex, ANext: Integer); inline;
+    function NewSlot(const AKey: string; const ASlotUnit: TSlotUnit): Integer;
+    /// <summary>Knoten in die Freiliste.</summary>
+    procedure FreeNode(AIndex: Integer);
+    /// <summary>Hängt den Knoten ANode (Vorgänger APrevious, -1 = Anfang) aus AChain aus und gibt ihn frei; war er
+    /// tot, zählt er nicht mehr als tot, und ein ersetzter Platz ohne Verweise wird frei.</summary>
+    procedure UnlinkDead(var AChain: TSymbolChain; APrevious, ANode: Integer);
+    /// <summary>Ist der Verweis tot (verdrängte oder ersetzte Unit)?</summary>
+    function IsDead(const ARef: TSymbolRef): Boolean; inline;
+    procedure StoreChain(ATable: TSymbolTable; const AKey: string; const AChain: TSymbolChain);
+    /// <summary>Zähler der toten Knoten zu ATable.</summary>
+    function DeadOf(ATable: TSymbolTable): TDictionary<string, Integer>;
+    /// <summary>Hängt alle toten Verweise aus der Kette von AKey aus.</summary>
+    procedure CompactChain(ATable: TSymbolTable; const AKey: string);
+    /// <summary>Ein Knoten der Kette von AKey ist eben tot geworden: kurze Ketten gleich aufräumen, lange, sobald die
+    /// Hälfte tot ist (Kosten je totem Knoten gleichbleibend).</summary>
+    procedure NoteDead(ATable: TSymbolTable; const AKey: string);
+    /// <summary>Verdrängt den Platz einer verdrängbaren Unit: Knoten tot, kurze Ketten gleich aufgeräumt, Platz frei.
+    /// </summary>
+    procedure KillSlot(ASlot: Integer);
     function Locations(ATable: TSymbolTable; const AKey: string): TArray<TSymbolLocation>;
     /// <summary>Entfernt aus der Kette von AKey alle Verweise auf ASlot.</summary>
     procedure Unlink(ATable: TSymbolTable; const AKey: string; ASlot: Integer);
@@ -124,13 +174,19 @@ type
     constructor Create;
     destructor Destroy; override;
     procedure Clear;
-    /// <summary>Trägt die Symbole von AUnit (Dateischlüssel AKey) auf einem neuen Platz ein.</summary>
-    procedure Add(const AKey: string; const AUnit: TUnitIndex);
+    /// <summary>Trägt die Symbole von AUnit (Dateischlüssel AKey) auf einem neuen oder frei gewordenen Platz ein.
+    /// ATrack (verdrängbare Units): Der Platz merkt sich seine Knoten, damit Remove sie ohne Durchlauf der Ketten
+    /// findet.</summary>
+    procedure Add(const AKey: string; const AUnit: TUnitIndex; ATrack: Boolean = False);
     /// <summary>Macht die Verweise der Unit AKey tot.</summary>
     procedure Drop(const AKey: string);
-    /// <summary>Entfernt die Verweise der Unit AKey mit den Symbolen ASymbols ganz (Verdrängen, Phase 3): keine
-    /// toten Verweise, die Knoten kommen in die Freiliste.</summary>
+    /// <summary>Entfernt die Verweise der Unit AKey mit den Symbolen ASymbols (Verdrängen, Phase 3); mit gemerkten
+    /// Knoten (Phase 4) ohne Durchlauf der Ketten.</summary>
     procedure Remove(const AKey: string; const ASymbols: TArray<TIndexSymbol>);
+    /// <summary>Belegte Plätze samt freier (Tests).</summary>
+    function SlotCount: Integer;
+    /// <summary>Belegte Knoten samt freier (Tests).</summary>
+    property NodeCount: Integer read FNodeCount;
     /// <summary>Symbole mit dem Namen AName (ohne Groß-/Kleinschreibung).</summary>
     function ByName(const AName: string): TArray<TSymbolLocation>;
     /// <summary>Symbole mit dem Vorfahren AName (ohne Unit-Präfix und Typargumente, ohne Groß-/Kleinschreibung).
@@ -150,8 +206,22 @@ type
     LibraryBytes: Int64;
     CompactCount: Integer;
     OffloadedCount: Integer;
-    /// <summary>Zählt AUnit hinzu (ASign = 1) oder heraus (ASign = -1).</summary>
-    procedure Count(const AUnit: TUnitIndex; ASign: Integer);
+    /// <summary>Zählt AUnit hinzu (ASign = 1) oder heraus (ASign = -1); ABytes und AUsageBytes sind ihre geschätzten
+    /// Größen (TIndexMemory.UnitBytes, UsageBytes), einmal berechnet (Phase 4).</summary>
+    procedure Count(const AUnit: TUnitIndex; ASign: Integer; ABytes, AUsageBytes: Int64);
+  end;
+
+  /// <summary>Ein Ladevorgang einer kalten Unit (Phase 4): Ein zweiter Leser derselben Unit wartet darauf, statt ihren
+  /// Block noch einmal zu lesen. Referenzgezählt, damit der Wartende ihn auch hält, wenn der Eintrag inzwischen
+  /// ersetzt ist.</summary>
+  TIndexLoadSignal = class(TInterfacedObject)
+  private
+    FDone: TEvent;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    procedure Signal;
+    procedure WaitFor;
   end;
 
   /// <summary>Eine Unit im Index (Phase 3): Kopf oder volle Unit, Katalog, Block und Zähler für das Verdrängen.
@@ -168,8 +238,14 @@ type
     Source: IIndexUnitSource;
     Loaded: Boolean;
     Pinned: Boolean;
-    /// <summary>Geschätzter Bedarf der geladenen Unit (TIndexMemory.UnitBytes).</summary>
+    /// <summary>Geschätzter Bedarf der geladenen Unit (TIndexMemory.UnitBytes) und davon der Verwendungen.</summary>
     Bytes: Int64;
+    UsageBytes: Int64;
+    /// <summary>Aus den uses einer Projekt-Unit oder oft genutzt (Phase 4): wird nicht verdrängt und zählt nicht gegen
+    /// das Budget; nur bei geladenen, nicht gepinnten Units gepflegt.</summary>
+    Guarded: Boolean;
+    /// <summary>Laufender Ladevorgang (TIndexLoadSignal) oder nil.</summary>
+    Loading: IInterface;
     SymbolCount: Integer;
     UnavailableCount: Integer;
     UsageCount: Integer;
@@ -228,7 +304,16 @@ type
     FClock: Int64;
     FEpoch: Integer;
     FLoadsInEpoch: Integer;
+    // Geladene, nicht gepinnte Units mit Block; davon die nicht geschützten (nur sie zählen gegen das Budget).
     FEvictableBytes: Int64;
+    FCandidateBytes: Int64;
+    // Phase 4: uses der Projekt-Units haben sich geändert bzw. Stand der Alterung (FEpoch) beim letzten Prüfen des
+    // Schutzes; der nächste Verdrängungslauf prüft ihn neu.
+    FGuardDirty: Boolean;
+    FGuardEpoch: Integer;
+    // Phase 4: > 0, solange FindSymbols oder HasSymbol die kalten Units eines Namens laden und lesen.
+    FEvictDefer: Integer;
+    FEvictionRuns: Integer;
     FCatalogBytes: Int64;
     FColdSymbols: Integer;
     FLoads: Integer;
@@ -240,20 +325,34 @@ type
     FLargestLoadMs: Double;
     // uses der Projekt-Units (Name groß → Anzahl): Units dieses Namens bleiben geladen.
     FUsesPins: TDictionary<string, Integer>;
-    // Name (Hash) → Eintrag mit diesem Symbol im Katalog, für FindSymbols über verdrängte Units; bis zur nächsten
-    // Generation.
+    // Name (Hash) → Eintrag mit diesem Symbol im Katalog, für FindSymbols über verdrängte Units; gilt für den Stand
+    // FNameBuiltFor der Mitgliedschaft (Phase 4: nicht gepinnte Einträge mit Block, FNameMembership).
     FNameHashes: TArray<UInt64>;
     FNameKeys: TArray<string>;
-    FNameGeneration: Int64;
+    FNameMembership: Int64;
+    FNameBuiltFor: Int64;
+    FNameBuilds: Integer;
     FUsage: IIndexUsage;
     function NewEntry: TIndexEntry;
     procedure Account(AEntry: TIndexEntry; ASign: Integer);
+    /// <summary>Gehört AEntry zum Namensverzeichnis der kalten Units (nicht gepinnt, mit Block)?</summary>
+    class function NameRelevant(AEntry: TIndexEntry): Boolean; static; inline;
     procedure AddLocked(const AKey: string; const AUnit: TUnitIndex; APinned: Boolean;
       const ASource: IIndexUnitSource);
-    /// <summary>Trägt die geladene Unit von AEntry in Tabellen und Zähler ein.</summary>
-    procedure InstallLocked(const AKey: string; AEntry: TIndexEntry);
+    /// <summary>Wie AddLocked mit vorab (außerhalb der Sperre) berechnetem Katalog und Größen.</summary>
+    procedure AddPreparedLocked(const AKey: string; const AUnit: TUnitIndex; const ACatalog: TCatalogUnit;
+      ABytes, AUsageBytes: Int64; APinned: Boolean; const ASource: IIndexUnitSource);
+    /// <summary>Trägt die geladene Unit von AEntry mit ihren Größen in Tabellen und Zähler ein.</summary>
+    procedure InstallLocked(const AKey: string; AEntry: TIndexEntry; ABytes, AUsageBytes: Int64);
     procedure ChangeUsesPins(const AUnit: TUnitIndex; ASign: Integer);
     function UsesPinned(AEntry: TIndexEntry): Boolean;
+    /// <summary>Soll die geladene, nicht gepinnte Unit geschützt sein (uses einer Projekt-Unit, oft genutzt)?</summary>
+    function ShouldGuardLocked(AEntry: TIndexEntry): Boolean;
+    procedure SetGuardedLocked(AEntry: TIndexEntry; AValue: Boolean);
+    /// <summary>Prüft den Schutz aller geladenen, nicht gepinnten Units neu.</summary>
+    procedure RefreshGuardsLocked;
+    /// <summary>Beendet ein aufgeschobenes Verdrängen (FindSymbols, HasSymbol) und geht wieder ins Budget.</summary>
+    procedure EndDeferLocked;
     procedure ShrinkLocked;
     function OverBudgetLocked: Boolean;
     /// <summary>Verkleinert die Unit AKey im Durchgang APass: 0 Bibliothek kompakt halten, 1 Verwendungen der
@@ -270,9 +369,12 @@ type
     /// <summary>Verdrängt, bis die verdrängbaren Units wieder ins Budget passen; AKeep bleibt.</summary>
     procedure EvictLocked(AKeep: TIndexEntry);
     procedure UnloadLocked(const AKey: string; AEntry: TIndexEntry);
-    /// <summary>Lädt die verdrängten Units, in deren Katalog ein Symbol AName steht.</summary>
-    procedure LoadColdNamed(const AName: string);
-    procedure BuildNameLookupLocked;
+    /// <summary>Lädt die verdrängten Units, in deren Katalog ein Symbol AName steht. True: Es gab welche, und das
+    /// Verdrängen ist aufgeschoben, bis der Aufrufer die Verweise gelesen hat und EndDeferLocked ruft.</summary>
+    function LoadColdNamed(const AName: string): Boolean;
+    /// <summary>Namensverzeichnis der kalten Units für die Mitgliedschaft FNameMembership; baut es außerhalb der Sperre
+    /// neu, wenn es nicht mehr gilt.</summary>
+    procedure NameLookup(out AHashes: TArray<UInt64>; out AKeys: TArray<string>);
     procedure NoteLoad(AMs: Double; ABytes: Int64);
     /// <summary>Nutzungsstatistik: Namen, die eine Projekt-Unit neu in ihre uses aufnimmt (angenommenes "+ Unit").
     /// </summary>
@@ -313,6 +415,13 @@ type
     function LazyStats: TIndexLazyStats;
     procedure SetUsage(const AUsage: IIndexUsage);
     function Usage: IIndexUsage;
+    /// <summary>So oft wurde das Namensverzeichnis der kalten Units gebaut (Tests, Phase 4).</summary>
+    function NameLookupBuilds: Integer;
+    /// <summary>So oft suchte der Index Units zum Verdrängen (Tests, Phase 4).</summary>
+    function EvictionRuns: Integer;
+    /// <summary>Belegte Plätze und Knoten der Verweistabellen (Tests, Phase 4).</summary>
+    function RefSlots: Integer;
+    function RefNodes: Integer;
   end;
 
 implementation
@@ -324,6 +433,7 @@ uses
   System.StrUtils,
   System.Generics.Defaults,
   dpcc.Common.Projects.UnitAliases,
+  dpcc.Common.Index.Cache,
   dpcc.Common.Index.NameIndex;
 
 var
@@ -366,6 +476,30 @@ begin
   Result := Loaded and not Pinned and (Source <> nil);
 end;
 
+{ TIndexLoadSignal }
+
+constructor TIndexLoadSignal.Create;
+begin
+  inherited Create;
+  FDone := TEvent.Create(nil, True, False, '');
+end;
+
+destructor TIndexLoadSignal.Destroy;
+begin
+  FDone.Free;
+  inherited;
+end;
+
+procedure TIndexLoadSignal.Signal;
+begin
+  FDone.SetEvent;
+end;
+
+procedure TIndexLoadSignal.WaitFor;
+begin
+  FDone.WaitFor(INFINITE);
+end;
+
 { TSymbolIndex }
 
 constructor TSymbolIndex.Create;
@@ -383,7 +517,7 @@ begin
   FUsesPins := TDictionary<string, Integer>.Create;
   FAliases := TUnitAliases.Defaults;
   SetLength(FLoadMs, cLoadSamples);
-  FNameGeneration := -1;
+  FNameBuiltFor := -1;
 end;
 
 destructor TSymbolIndex.Destroy;
@@ -415,7 +549,17 @@ begin
   if AEntry.Evictable then
   begin
     Inc(FEvictableBytes, ASign * AEntry.Bytes);
+    // Nur nicht geschützte zählen gegen das Budget (Phase 4).
+    if not AEntry.Guarded then
+    begin
+      Inc(FCandidateBytes, ASign * AEntry.Bytes);
+    end;
   end;
+end;
+
+class function TSymbolIndex.NameRelevant(AEntry: TIndexEntry): Boolean;
+begin
+  Result := not AEntry.Pinned and (AEntry.Source <> nil);
 end;
 
 procedure TSymbolIndex.ChangeUsesPins(const AUnit: TUnitIndex; ASign: Integer);
@@ -438,13 +582,54 @@ begin
     Inc(mCount, ASign);
     if mCount <= 0 then
     begin
-      FUsesPins.Remove(mKey);
+      // Ein Name fällt aus den uses: Der Schutz der Units gilt nicht mehr (Phase 4, beim nächsten Verdrängen geprüft).
+      if FUsesPins.ContainsKey(mKey) then
+      begin
+        FUsesPins.Remove(mKey);
+        FGuardDirty := True;
+      end;
     end
     else
     begin
+      if mCount = 1 then
+      begin
+        FGuardDirty := True;
+      end;
       FUsesPins.AddOrSetValue(mKey, mCount);
     end;
   end;
+end;
+
+function TSymbolIndex.ShouldGuardLocked(AEntry: TIndexEntry): Boolean;
+begin
+  Result := UsesPinned(AEntry) or ((FUsage <> nil) and AEntry.Unit_.Library_ and
+    (FUsage.Score(AEntry.Unit_.UnitName) >= cHotScore));
+end;
+
+procedure TSymbolIndex.SetGuardedLocked(AEntry: TIndexEntry; AValue: Boolean);
+begin
+  if AEntry.Guarded = AValue then
+  begin
+    Exit;
+  end;
+  Account(AEntry, -1);
+  AEntry.Guarded := AValue;
+  Account(AEntry, 1);
+end;
+
+procedure TSymbolIndex.RefreshGuardsLocked;
+var
+  mEntry: TIndexEntry;
+begin
+  for mEntry in FFiles.Values do
+  begin
+    if mEntry.Loaded and not mEntry.Pinned then
+    begin
+      SetGuardedLocked(mEntry, ShouldGuardLocked(mEntry));
+    end;
+  end;
+  FGuardDirty := False;
+  FGuardEpoch := FEpoch;
 end;
 
 function TSymbolIndex.UsesPinned(AEntry: TIndexEntry): Boolean;
@@ -480,13 +665,17 @@ begin
   Account(mExisting, -1);
   if mExisting.Loaded then
   begin
-    FTotals.Count(mExisting.Unit_, -1);
+    FTotals.Count(mExisting.Unit_, -1, mExisting.Bytes, mExisting.UsageBytes);
     FRefs.Drop(AFileKey);
     ChangeUsesPins(mExisting.Unit_, -1);
   end
   else
   begin
     Dec(FColdSymbols, mExisting.SymbolCount);
+  end;
+  if NameRelevant(mExisting) then
+  begin
+    Inc(FNameMembership);
   end;
   Dec(FCatalogBytes, mExisting.CatalogBytes);
   FUnitsSnapshot := nil;
@@ -501,13 +690,15 @@ begin
   FFiles.Remove(AFileKey);
 end;
 
-procedure TSymbolIndex.InstallLocked(const AKey: string; AEntry: TIndexEntry);
+procedure TSymbolIndex.InstallLocked(const AKey: string; AEntry: TIndexEntry; ABytes, AUsageBytes: Int64);
 begin
   // Jede abgelegte Fassung bekommt ihre eigene Namenstabelle (Diagnoselog 15.10.2026); FindUnit und
-  // FindFile geben sie mit, die Namensauflösung sucht darüber statt linear.
+  // FindFile geben sie mit, die Namensauflösung sucht darüber statt linear. Anlegen kostet nur das leere Objekt;
+  // gebaut wird sie beim ersten Zugriff.
   AEntry.Unit_.PrepareNames;
   AEntry.Loaded := True;
-  AEntry.Bytes := TIndexMemory.UnitBytes(AEntry.Unit_);
+  AEntry.Bytes := ABytes;
+  AEntry.UsageBytes := AUsageBytes;
   AEntry.SymbolCount := Length(AEntry.Unit_.Symbols);
   AEntry.UnavailableCount := Length(AEntry.Unit_.Unavailable);
   AEntry.UsageCount := Length(AEntry.Unit_.Usages);
@@ -516,18 +707,27 @@ begin
   begin
     FUnavailable.AddOrSetValue(AKey, True);
   end;
-  FTotals.Count(AEntry.Unit_, 1);
+  FTotals.Count(AEntry.Unit_, 1, ABytes, AUsageBytes);
   if not AEntry.Unit_.Compact or (Length(AEntry.Unit_.Usages) > 0) then
   begin
     FShrinkable.AddOrSetValue(AKey, True);
   end;
-  FRefs.Add(AKey, AEntry.Unit_);
+  // Verdrängbare merken sich ihre Knoten (Phase 4).
+  FRefs.Add(AKey, AEntry.Unit_, not AEntry.Pinned);
   ChangeUsesPins(AEntry.Unit_, 1);
+  AEntry.Guarded := not AEntry.Pinned and ShouldGuardLocked(AEntry);
   Account(AEntry, 1);
 end;
 
 procedure TSymbolIndex.AddLocked(const AKey: string; const AUnit: TUnitIndex; APinned: Boolean;
   const ASource: IIndexUnitSource);
+begin
+  AddPreparedLocked(AKey, AUnit, TCatalogUnit.FromUnit(AUnit), TIndexMemory.UnitBytes(AUnit),
+    TIndexMemory.UsageBytes(AUnit), APinned, ASource);
+end;
+
+procedure TSymbolIndex.AddPreparedLocked(const AKey: string; const AUnit: TUnitIndex; const ACatalog: TCatalogUnit;
+  ABytes, AUsageBytes: Int64; APinned: Boolean; const ASource: IIndexUnitSource);
 var
   mEntry: TIndexEntry;
 begin
@@ -535,26 +735,30 @@ begin
   mEntry.Unit_ := AUnit;
   mEntry.Pinned := APinned;
   mEntry.Source := ASource;
-  mEntry.Catalog := TCatalogUnit.FromUnit(AUnit);
+  mEntry.Catalog := ACatalog;
   mEntry.CatalogBytes := mEntry.Catalog.Bytes;
   FFiles.Add(AKey, mEntry);
   Inc(FCatalogBytes, mEntry.CatalogBytes);
   FCatalogSnapshot := nil;
   Inc(FGeneration);
+  if NameRelevant(mEntry) then
+  begin
+    Inc(FNameMembership);
+  end;
   FUnitFiles.AddOrSetValue(UpperCase(AUnit.UnitName), AKey);
-  InstallLocked(AKey, mEntry);
+  InstallLocked(AKey, mEntry, ABytes, AUsageBytes);
 end;
 
 { TSymbolIndexTotals }
 
-procedure TSymbolIndexTotals.Count(const AUnit: TUnitIndex; ASign: Integer);
+procedure TSymbolIndexTotals.Count(const AUnit: TUnitIndex; ASign: Integer; ABytes, AUsageBytes: Int64);
 begin
   Inc(SymbolCount, ASign * Length(AUnit.Symbols));
-  Inc(Bytes, ASign * TIndexMemory.UnitBytes(AUnit));
-  Inc(UsageBytes, ASign * TIndexMemory.UsageBytes(AUnit));
+  Inc(Bytes, ASign * ABytes);
+  Inc(UsageBytes, ASign * AUsageBytes);
   if AUnit.Library_ then
   begin
-    Inc(LibraryBytes, ASign * (TIndexMemory.UnitBytes(AUnit) - TIndexMemory.UsageBytes(AUnit)));
+    Inc(LibraryBytes, ASign * (ABytes - AUsageBytes));
   end;
   if AUnit.Compact then
   begin
@@ -610,6 +814,10 @@ begin
   FSlotKeys := TList<string>.Create;
   FSlotRefs := TList<Integer>.Create;
   FSlotUnits := TList<TSlotUnit>.Create;
+  FSlotNodes := TList<TArray<Integer>>.Create;
+  FFreeSlots := TList<Integer>.Create;
+  FNameDead := TDictionary<string, Integer>.Create(NameComparer);
+  FAncestorDead := TDictionary<string, Integer>.Create(NameComparer);
   FFileSlots := TDictionary<string, Integer>.Create;
   FFreeNode := -1;
 end;
@@ -617,6 +825,10 @@ end;
 destructor TSymbolRefTables.Destroy;
 begin
   FFileSlots.Free;
+  FAncestorDead.Free;
+  FNameDead.Free;
+  FFreeSlots.Free;
+  FSlotNodes.Free;
   FSlotUnits.Free;
   FSlotRefs.Free;
   FSlotKeys.Free;
@@ -635,9 +847,18 @@ begin
   FSlotKeys.Clear;
   FSlotRefs.Clear;
   FSlotUnits.Clear;
+  FSlotNodes.Clear;
+  FFreeSlots.Clear;
+  FNameDead.Clear;
+  FAncestorDead.Clear;
   FFileSlots.Clear;
   FLiveRefs := 0;
   FDeadRefs := 0;
+end;
+
+function TSymbolRefTables.SlotCount: Integer;
+begin
+  Result := FSlotKeys.Count;
 end;
 
 function TSymbolRefTables.NodeAt(AIndex: Integer): TSymbolRef;
@@ -650,21 +871,21 @@ begin
   FNodes[AIndex div cNodeChunk][AIndex mod cNodeChunk].Next := ANext;
 end;
 
-procedure TSymbolRefTables.AddRef(ATable: TSymbolTable; const AKey: string; ASlot, APosition: Integer);
+function TSymbolRefTables.AddRef(ATable: TSymbolTable; const AKey: string; ASlot, APosition: Integer): Integer;
 var
   mChain: TSymbolChain;
-  mNode, mBlock: Integer;
+  mBlock: Integer;
 begin
   // Erst die Freiliste (Knoten verdrängter Units), dann ein neuer Knoten.
   if FFreeNode >= 0 then
   begin
-    mNode := FFreeNode;
-    FFreeNode := NodeAt(mNode).Next;
+    Result := FFreeNode;
+    FFreeNode := NodeAt(Result).Next;
   end
   else
   begin
-    mNode := FNodeCount;
-    mBlock := mNode div cNodeChunk;
+    Result := FNodeCount;
+    mBlock := Result div cNodeChunk;
     if mBlock >= Length(FNodes) then
     begin
       SetLength(FNodes, mBlock + 1);
@@ -672,20 +893,20 @@ begin
     end;
     Inc(FNodeCount);
   end;
-  FNodes[mNode div cNodeChunk][mNode mod cNodeChunk].Slot := ASlot;
-  FNodes[mNode div cNodeChunk][mNode mod cNodeChunk].Position := APosition;
-  FNodes[mNode div cNodeChunk][mNode mod cNodeChunk].Next := -1;
+  FNodes[Result div cNodeChunk][Result mod cNodeChunk].Slot := ASlot;
+  FNodes[Result div cNodeChunk][Result mod cNodeChunk].Position := APosition;
+  FNodes[Result div cNodeChunk][Result mod cNodeChunk].Next := -1;
   if ATable.TryGetValue(AKey, mChain) then
   begin
-    SetNext(mChain.Last, mNode);
-    mChain.Last := mNode;
+    SetNext(mChain.Last, Result);
+    mChain.Last := Result;
     Inc(mChain.Count);
     ATable[AKey] := mChain;
   end
   else
   begin
-    mChain.First := mNode;
-    mChain.Last := mNode;
+    mChain.First := Result;
+    mChain.Last := Result;
     mChain.Count := 1;
     ATable.Add(AKey, mChain);
   end;
@@ -709,35 +930,265 @@ begin
   end;
 end;
 
-procedure TSymbolRefTables.Add(const AKey: string; const AUnit: TUnitIndex);
+function TSymbolRefTables.NewSlot(const AKey: string; const ASlotUnit: TSlotUnit): Integer;
+begin
+  // Phase 4: Plätze verdrängter Units wiederverwenden; vorher kam bei jedem Laden ein neuer hinzu.
+  if FFreeSlots.Count > 0 then
+  begin
+    Result := FFreeSlots[FFreeSlots.Count - 1];
+    FFreeSlots.Delete(FFreeSlots.Count - 1);
+    FSlotKeys[Result] := AKey;
+    FSlotRefs[Result] := 0;
+    FSlotUnits[Result] := ASlotUnit;
+    FSlotNodes[Result] := nil;
+  end
+  else
+  begin
+    Result := FSlotKeys.Add(AKey);
+    FSlotRefs.Add(0);
+    FSlotUnits.Add(ASlotUnit);
+    FSlotNodes.Add(nil);
+  end;
+end;
+
+procedure TSymbolRefTables.Add(const AKey: string; const AUnit: TUnitIndex; ATrack: Boolean);
 var
   mSlot, mPosition, mCount: Integer;
   mKey: string;
   mSlotUnit: TSlotUnit;
+  mNodes: TArray<Integer>;
+
+  procedure Track(ANode: Integer);
+  begin
+    if mCount >= Length(mNodes) then
+    begin
+      SetLength(mNodes, Length(mNodes) * 2 + 16);
+    end;
+    mNodes[mCount] := ANode;
+  end;
+
 begin
-  mSlot := FSlotKeys.Add(AKey);
-  FSlotRefs.Add(0);
   mSlotUnit.Known := True;
   mSlotUnit.UnitName := AUnit.UnitName;
   mSlotUnit.FileName := AUnit.FileName;
   mSlotUnit.Symbols := AUnit.Symbols;
-  FSlotUnits.Add(mSlotUnit);
+  mSlot := NewSlot(AKey, mSlotUnit);
   FFileSlots.AddOrSetValue(AKey, mSlot);
   mCount := 0;
+  mNodes := nil;
+  if ATrack then
+  begin
+    SetLength(mNodes, Length(AUnit.Symbols));
+  end;
   // Zugriff über den Index, damit die Symbol-Records nicht kopiert werden.
   for mPosition := 0 to High(AUnit.Symbols) do
   begin
     // Der Name selbst ist der Schlüssel (geteilter Puffer, keine Kopie).
-    AddRef(FByName, AUnit.Symbols[mPosition].Name, mSlot, mPosition);
+    if ATrack then
+    begin
+      Track(AddRef(FByName, AUnit.Symbols[mPosition].Name, mSlot, mPosition));
+    end
+    else
+    begin
+      AddRef(FByName, AUnit.Symbols[mPosition].Name, mSlot, mPosition);
+    end;
     Inc(mCount);
     for mKey in AncestorKeys(AUnit.Symbols[mPosition]) do
     begin
-      AddRef(FByAncestor, mKey, mSlot, mPosition);
+      if ATrack then
+      begin
+        Track(AddRef(FByAncestor, mKey, mSlot, mPosition));
+      end
+      else
+      begin
+        AddRef(FByAncestor, mKey, mSlot, mPosition);
+      end;
       Inc(mCount);
     end;
   end;
+  if ATrack then
+  begin
+    SetLength(mNodes, mCount);
+    // Leere Unit: ein leeres, aber gesetztes Feld kennzeichnet den Platz trotzdem als verfolgt.
+    if mCount = 0 then
+    begin
+      mNodes := [-1];
+    end;
+    FSlotNodes[mSlot] := mNodes;
+  end;
   FSlotRefs[mSlot] := mCount;
   Inc(FLiveRefs, mCount);
+end;
+
+function TSymbolRefTables.IsDead(const ARef: TSymbolRef): Boolean;
+begin
+  // Slot -1: Knoten einer verdrängten Unit; sonst ein Platz, dessen Unit ersetzt oder entfernt ist. Über List ohne
+  // Kopie des Eintrags (verwaltete Felder).
+  Result := (ARef.Slot < 0) or not FSlotUnits.List[ARef.Slot].Known;
+end;
+
+procedure TSymbolRefTables.FreeNode(AIndex: Integer);
+begin
+  // Slot -1 hält den Knoten aus jeder Suche heraus.
+  FNodes[AIndex div cNodeChunk][AIndex mod cNodeChunk].Slot := -1;
+  SetNext(AIndex, FFreeNode);
+  FFreeNode := AIndex;
+end;
+
+procedure TSymbolRefTables.UnlinkDead(var AChain: TSymbolChain; APrevious, ANode: Integer);
+var
+  mRef: TSymbolRef;
+begin
+  mRef := NodeAt(ANode);
+  if APrevious < 0 then
+  begin
+    AChain.First := mRef.Next;
+  end
+  else
+  begin
+    SetNext(APrevious, mRef.Next);
+  end;
+  if AChain.Last = ANode then
+  begin
+    AChain.Last := APrevious;
+  end;
+  Dec(AChain.Count);
+  Dec(FDeadRefs);
+  // Verweis auf einen ersetzten Platz: Ist es sein letzter, wird der Platz frei.
+  if mRef.Slot >= 0 then
+  begin
+    FSlotRefs[mRef.Slot] := FSlotRefs[mRef.Slot] - 1;
+    if FSlotRefs[mRef.Slot] = 0 then
+    begin
+      FFreeSlots.Add(mRef.Slot);
+    end;
+  end;
+  FreeNode(ANode);
+end;
+
+procedure TSymbolRefTables.StoreChain(ATable: TSymbolTable; const AKey: string; const AChain: TSymbolChain);
+begin
+  if AChain.Count <= 0 then
+  begin
+    ATable.Remove(AKey);
+  end
+  else
+  begin
+    ATable[AKey] := AChain;
+  end;
+end;
+
+function TSymbolRefTables.DeadOf(ATable: TSymbolTable): TDictionary<string, Integer>;
+begin
+  if ATable = FByName then
+  begin
+    Result := FNameDead;
+  end
+  else
+  begin
+    Result := FAncestorDead;
+  end;
+end;
+
+procedure TSymbolRefTables.CompactChain(ATable: TSymbolTable; const AKey: string);
+var
+  mChain: TSymbolChain;
+  mNode, mPrevious, mNext: Integer;
+  mChanged: Boolean;
+begin
+  DeadOf(ATable).Remove(AKey);
+  if not ATable.TryGetValue(AKey, mChain) then
+  begin
+    Exit;
+  end;
+  mChanged := False;
+  mPrevious := -1;
+  mNode := mChain.First;
+  while mNode >= 0 do
+  begin
+    mNext := NodeAt(mNode).Next;
+    if IsDead(NodeAt(mNode)) then
+    begin
+      UnlinkDead(mChain, mPrevious, mNode);
+      mChanged := True;
+    end
+    else
+    begin
+      mPrevious := mNode;
+    end;
+    mNode := mNext;
+  end;
+  if mChanged then
+  begin
+    StoreChain(ATable, AKey, mChain);
+  end;
+end;
+
+procedure TSymbolRefTables.NoteDead(ATable: TSymbolTable; const AKey: string);
+var
+  mChain: TSymbolChain;
+  mDead: TDictionary<string, Integer>;
+  mCount: Integer;
+begin
+  if not ATable.TryGetValue(AKey, mChain) then
+  begin
+    Exit;
+  end;
+  if mChain.Count <= cShortChain then
+  begin
+    CompactChain(ATable, AKey);
+    Exit;
+  end;
+  mDead := DeadOf(ATable);
+  if not mDead.TryGetValue(AKey, mCount) then
+  begin
+    mCount := 0;
+  end;
+  Inc(mCount);
+  if mCount * 2 >= mChain.Count then
+  begin
+    CompactChain(ATable, AKey);
+  end
+  else
+  begin
+    mDead.AddOrSetValue(AKey, mCount);
+  end;
+end;
+
+procedure TSymbolRefTables.KillSlot(ASlot: Integer);
+var
+  mNodes: TArray<Integer>;
+  mSymbols: TArray<TIndexSymbol>;
+  mIndex, mPosition: Integer;
+  mKey: string;
+begin
+  mNodes := FSlotNodes[ASlot];
+  mSymbols := FSlotUnits[ASlot].Symbols;
+  // Erst alle Knoten tot (Slot -1): Danach verweist keiner mehr auf den Platz, er ist sofort wieder frei.
+  for mIndex := 0 to High(mNodes) do
+  begin
+    if mNodes[mIndex] >= 0 then
+    begin
+      FNodes[mNodes[mIndex] div cNodeChunk][mNodes[mIndex] mod cNodeChunk].Slot := -1;
+      Inc(FDeadRefs);
+    end;
+  end;
+  Dec(FLiveRefs, FSlotRefs[ASlot]);
+  FSlotKeys[ASlot] := '';
+  FSlotUnits[ASlot] := Default(TSlotUnit);
+  FSlotNodes[ASlot] := nil;
+  FSlotRefs[ASlot] := 0;
+  FFreeSlots.Add(ASlot);
+  // Kurze Ketten gleich aufräumen; lange (Create, Count …) erst, wenn die Hälfte tot ist, oder beim nächsten Lesen,
+  // statt sie hier jedes Mal ganz zu durchlaufen. Je Knoten einmal gezählt, in derselben Reihenfolge wie Add.
+  for mPosition := 0 to High(mSymbols) do
+  begin
+    NoteDead(FByName, mSymbols[mPosition].Name);
+    for mKey in AncestorKeys(mSymbols[mPosition]) do
+    begin
+      NoteDead(FByAncestor, mKey);
+    end;
+  end;
 end;
 
 procedure TSymbolRefTables.Drop(const AKey: string);
@@ -749,11 +1200,21 @@ begin
     Exit;
   end;
   FFileSlots.Remove(AKey);
+  if FSlotNodes[mSlot] <> nil then
+  begin
+    KillSlot(mSlot);
+    Exit;
+  end;
+  // Ohne gemerkte Knoten: Die Verweise bleiben tot in den Ketten, bis Lesen oder Neuaufbau sie entfernen; der Platz
+  // wird frei, sobald keiner mehr auf ihn verweist.
   FSlotKeys[mSlot] := '';
   FSlotUnits[mSlot] := Default(TSlotUnit);
   Dec(FLiveRefs, FSlotRefs[mSlot]);
   Inc(FDeadRefs, FSlotRefs[mSlot]);
-  FSlotRefs[mSlot] := 0;
+  if FSlotRefs[mSlot] = 0 then
+  begin
+    FFreeSlots.Add(mSlot);
+  end;
 end;
 
 procedure TSymbolRefTables.Unlink(ATable: TSymbolTable; const AKey: string; ASlot: Integer);
@@ -787,10 +1248,7 @@ begin
         mChain.Last := mPrevious;
       end;
       Dec(mChain.Count);
-      // In die Freiliste; Slot -1 hält ihn aus jeder Suche heraus.
-      FNodes[mNode div cNodeChunk][mNode mod cNodeChunk].Slot := -1;
-      SetNext(mNode, FFreeNode);
-      FFreeNode := mNode;
+      FreeNode(mNode);
     end
     else
     begin
@@ -798,14 +1256,7 @@ begin
     end;
     mNode := mNext;
   end;
-  if mChain.Count <= 0 then
-  begin
-    ATable.Remove(AKey);
-  end
-  else
-  begin
-    ATable[AKey] := mChain;
-  end;
+  StoreChain(ATable, AKey, mChain);
 end;
 
 procedure TSymbolRefTables.Remove(const AKey: string; const ASymbols: TArray<TIndexSymbol>);
@@ -818,7 +1269,14 @@ begin
   begin
     Exit;
   end;
-  // Jeden Schlüssel der Unit einmal: seine Kette verliert alle Verweise auf diesen Platz.
+  FFileSlots.Remove(AKey);
+  // Phase 4: Mit gemerkten Knoten ohne Durchlauf der Ketten.
+  if FSlotNodes[mSlot] <> nil then
+  begin
+    KillSlot(mSlot);
+    Exit;
+  end;
+  // Sonst jeden Schlüssel der Unit einmal: seine Kette verliert alle Verweise auf diesen Platz.
   mNames := TDictionary<string, Boolean>.Create(NameComparer);
   mAncestors := TDictionary<string, Boolean>.Create(NameComparer);
   try
@@ -842,19 +1300,20 @@ begin
     mAncestors.Free;
     mNames.Free;
   end;
-  FFileSlots.Remove(AKey);
   FSlotKeys[mSlot] := '';
   FSlotUnits[mSlot] := Default(TSlotUnit);
   Dec(FLiveRefs, FSlotRefs[mSlot]);
   FSlotRefs[mSlot] := 0;
+  FFreeSlots.Add(mSlot);
 end;
 
 function TSymbolRefTables.Locations(ATable: TSymbolTable; const AKey: string): TArray<TSymbolLocation>;
 var
   mChain: TSymbolChain;
-  mNode, mCount, mLastSlot: Integer;
+  mNode, mNext, mPrevious, mCount, mLastSlot: Integer;
   mRef: TSymbolRef;
   mOwner: TSlotUnit;
+  mChanged: Boolean;
 begin
   Result := nil;
   if not ATable.TryGetValue(AKey, mChain) then
@@ -867,18 +1326,30 @@ begin
   mCount := 0;
   mLastSlot := -1;
   mOwner := Default(TSlotUnit);
+  mPrevious := -1;
+  mChanged := False;
   mNode := mChain.First;
   while mNode >= 0 do
   begin
     mRef := NodeAt(mNode);
-    mNode := mRef.Next;
+    mNext := mRef.Next;
+    // Tote Verweise (Phase 4: verdrängte Units in langen Ketten, ersetzte Units) beim Lesen aushängen.
+    if IsDead(mRef) then
+    begin
+      UnlinkDead(mChain, mPrevious, mNode);
+      mChanged := True;
+      mNode := mNext;
+      Continue;
+    end;
+    mPrevious := mNode;
+    mNode := mNext;
     // Verweise einer Unit stehen beieinander: den Platz nur beim Wechsel lesen.
     if mRef.Slot <> mLastSlot then
     begin
       mLastSlot := mRef.Slot;
       mOwner := FSlotUnits[mRef.Slot];
     end;
-    if not mOwner.Known or (mRef.Position > High(mOwner.Symbols)) then
+    if mRef.Position > High(mOwner.Symbols) then
     begin
       Continue;
     end;
@@ -890,6 +1361,11 @@ begin
     end;
     Result[mCount].Symbol := mOwner.Symbols[mRef.Position];
     Inc(mCount);
+  end;
+  if mChanged then
+  begin
+    StoreChain(ATable, AKey, mChain);
+    DeadOf(ATable).Remove(AKey);
   end;
   SetLength(Result, mCount);
 end;
@@ -907,9 +1383,10 @@ end;
 function TSymbolRefTables.HasName(const AName: string; const AMatch: TSymbolMatch): Boolean;
 var
   mChain: TSymbolChain;
-  mNode, mLastSlot: Integer;
+  mNode, mNext, mPrevious, mLastSlot: Integer;
   mRef: TSymbolRef;
   mOwner: TSlotUnit;
+  mChanged: Boolean;
 begin
   Result := False;
   if not FByName.TryGetValue(AName, mChain) then
@@ -918,21 +1395,38 @@ begin
   end;
   mLastSlot := -1;
   mOwner := Default(TSlotUnit);
+  mPrevious := -1;
+  mChanged := False;
   mNode := mChain.First;
   while mNode >= 0 do
   begin
     mRef := NodeAt(mNode);
-    mNode := mRef.Next;
+    mNext := mRef.Next;
+    if IsDead(mRef) then
+    begin
+      UnlinkDead(mChain, mPrevious, mNode);
+      mChanged := True;
+      mNode := mNext;
+      Continue;
+    end;
+    mPrevious := mNode;
+    mNode := mNext;
     // Wie Locations: der Eintrag des Platzes, nicht der ganze TUnitIndex aus FFiles.
     if mRef.Slot <> mLastSlot then
     begin
       mLastSlot := mRef.Slot;
       mOwner := FSlotUnits[mRef.Slot];
     end;
-    if mOwner.Known and (mRef.Position <= High(mOwner.Symbols)) and AMatch(mOwner.Symbols[mRef.Position]) then
+    if (mRef.Position <= High(mOwner.Symbols)) and AMatch(mOwner.Symbols[mRef.Position]) then
     begin
-      Exit(True);
+      Result := True;
+      Break;
     end;
+  end;
+  if mChanged then
+  begin
+    StoreChain(FByName, AName, mChain);
+    FNameDead.Remove(AName);
   end;
 end;
 
@@ -951,7 +1445,7 @@ begin
   begin
     if mPair.Value.Loaded then
     begin
-      FRefs.Add(mPair.Key, mPair.Value.Unit_);
+      FRefs.Add(mPair.Key, mPair.Value.Unit_, not mPair.Value.Pinned);
     end;
   end;
 end;
@@ -1049,6 +1543,12 @@ begin
     begin
       AEntry.LastNote := mNow;
       FUsage.Note(AEntry.Unit_.UnitName, 1);
+      // Phase 4: Ist sie damit oft genutzt, zählt sie ab jetzt wie gepinnt nicht mehr gegen das Budget.
+      if AEntry.Loaded and not AEntry.Pinned and not AEntry.Guarded and
+        (FUsage.Score(AEntry.Unit_.UnitName) >= cHotScore) then
+      begin
+        SetGuardedLocked(AEntry, True);
+      end;
     end;
   end;
 end;
@@ -1075,21 +1575,20 @@ begin
   end;
 end;
 
-/// <summary>Seltener genutzt (Zähler nach Alterung), bei Gleichstand länger nicht genutzt?</summary>
-function UsedLess(AEntry, AOther: TIndexEntry; AEpoch: Integer): Boolean;
-var
-  mHits, mOther: Integer;
-begin
-  mHits := AEntry.Hits shr Integer(Min(30, AEpoch - AEntry.HitEpoch));
-  mOther := AOther.Hits shr Integer(Min(30, AEpoch - AOther.HitEpoch));
-  Result := (mHits < mOther) or ((mHits = mOther) and (AEntry.LastUse < AOther.LastUse));
-end;
+type
+  /// <summary>Kandidat beim Verdrängen: Zähler nach Alterung und letzte Nutzung, einmal je Lauf ermittelt.</summary>
+  TEvictCandidate = record
+    Key: string;
+    Entry: TIndexEntry;
+    Hits: Integer;
+    LastUse: Int64;
+  end;
 
 procedure TSymbolIndex.UnloadLocked(const AKey: string; AEntry: TIndexEntry);
 begin
   Account(AEntry, -1);
   FRefs.Remove(AKey, AEntry.Unit_.Symbols);
-  FTotals.Count(AEntry.Unit_, -1);
+  FTotals.Count(AEntry.Unit_, -1, AEntry.Bytes, AEntry.UsageBytes);
   ChangeUsesPins(AEntry.Unit_, -1);
   AEntry.SymbolCount := Length(AEntry.Unit_.Symbols);
   AEntry.UnavailableCount := Length(AEntry.Unit_.Unavailable);
@@ -1098,6 +1597,8 @@ begin
   AEntry.Unit_ := HeaderOf(AEntry.Unit_);
   AEntry.Loaded := False;
   AEntry.Bytes := 0;
+  AEntry.UsageBytes := 0;
+  AEntry.Guarded := False;
   FUnavailable.Remove(AKey);
   FShrinkable.Remove(AKey);
   FUnitsSnapshot := nil;
@@ -1107,31 +1608,66 @@ end;
 procedure TSymbolIndex.EvictLocked(AKeep: TIndexEntry);
 var
   mPair: TPair<string, TIndexEntry>;
-  mVictim: TIndexEntry;
-  mVictimKey: string;
+  mCandidates: TList<TEvictCandidate>;
+  mCandidate: TEvictCandidate;
 begin
-  while FEvictableBytes > cEvictableBudget do
+  // Aufgeschoben (FindSymbols liest gerade) oder ohne Überschreitung: nichts zu tun. Die Summe aller verdrängbaren
+  // begrenzt die der nicht geschützten nach oben; erst darüber lohnt das Prüfen.
+  if (FEvictDefer > 0) or (FEvictableBytes <= cEvictableBudget) then
   begin
-    mVictim := nil;
+    Exit;
+  end;
+  if FGuardDirty or (FGuardEpoch <> FEpoch) then
+  begin
+    RefreshGuardsLocked;
+  end;
+  if FCandidateBytes <= cEvictableBudget then
+  begin
+    Exit;
+  end;
+  Inc(FEvictionRuns);
+  // Phase 4: Kandidaten einmal sammeln und sortieren, dann in einem Durchgang verdrängen (vorher je Opfer ein Lauf
+  // über alle Units samt uses-Prüfung und Nutzungsstatistik).
+  mCandidates := TList<TEvictCandidate>.Create;
+  try
     for mPair in FFiles do
     begin
-      if not mPair.Value.Evictable or (mPair.Value = AKeep) or UsesPinned(mPair.Value) or
-        ((FUsage <> nil) and (FUsage.Score(mPair.Value.Unit_.UnitName) >= cHotScore)) then
+      if mPair.Value.Evictable and not mPair.Value.Guarded and (mPair.Value <> AKeep) then
       begin
-        Continue;
-      end;
-      if (mVictim = nil) or UsedLess(mPair.Value, mVictim, FEpoch) then
-      begin
-        mVictim := mPair.Value;
-        mVictimKey := mPair.Key;
+        mCandidate.Key := mPair.Key;
+        mCandidate.Entry := mPair.Value;
+        mCandidate.Hits := mPair.Value.Hits shr Min(30, FEpoch - mPair.Value.HitEpoch);
+        mCandidate.LastUse := mPair.Value.LastUse;
+        mCandidates.Add(mCandidate);
       end;
     end;
-    if mVictim = nil then
+    // Zuerst die am seltensten genutzte (Zähler nach Alterung), bei Gleichstand die am längsten nicht genutzte.
+    mCandidates.Sort(TComparer<TEvictCandidate>.Construct(
+      function(const ALeft, ARight: TEvictCandidate): Integer
+      begin
+        Result := CompareValue(ALeft.Hits, ARight.Hits);
+        if Result = 0 then
+        begin
+          Result := CompareValue(ALeft.LastUse, ARight.LastUse);
+        end;
+      end));
+    for mCandidate in mCandidates do
     begin
-      Break;
+      if FCandidateBytes <= cEvictableBudget then
+      begin
+        Break;
+      end;
+      UnloadLocked(mCandidate.Key, mCandidate.Entry);
     end;
-    UnloadLocked(mVictimKey, mVictim);
+  finally
+    mCandidates.Free;
   end;
+end;
+
+procedure TSymbolIndex.EndDeferLocked;
+begin
+  Dec(FEvictDefer);
+  EvictLocked(nil);
 end;
 
 function TSymbolIndex.LoadKey(const AKey: string; out AUnit: TUnitIndex): Boolean;
@@ -1140,164 +1676,263 @@ var
   mSerial: Int64;
   mSource: IIndexUnitSource;
   mHeader, mFull: TUnitIndex;
-  mLoaded: Boolean;
+  mLoaded, mSettled: Boolean;
   mWatch: TStopwatch;
   mMs: Double;
+  mBytes, mUsageBytes: Int64;
+  mWait, mOwn: IInterface;
 begin
   AUnit := Default(TUnitIndex);
-  FLock.Enter;
-  try
-    if not FFiles.TryGetValue(AKey, mEntry) then
-    begin
-      Exit(False);
-    end;
-    if mEntry.Loaded then
-    begin
-      TouchLocked(mEntry);
-      AUnit := mEntry.Unit_;
-      Exit(True);
-    end;
-    mSerial := mEntry.Serial;
-    mSource := mEntry.Source;
-    mHeader := mEntry.Unit_;
-  finally
-    FLock.Leave;
-  end;
-  // Block lesen und dekodieren ohne die Sperre: Andere Anfragen warten nicht auf große Units.
-  mWatch := TStopwatch.StartNew;
-  mLoaded := (mSource <> nil) and mSource.Load(mFull);
-  mMs := mWatch.Elapsed.TotalMilliseconds;
-  FLock.Enter;
-  try
-    if not FFiles.TryGetValue(AKey, mEntry) or (mEntry.Serial <> mSerial) then
-    begin
-      // Inzwischen ersetzt: der neue Stand gilt (falls geladen).
-      Result := (mEntry <> nil) and mEntry.Loaded;
-      if Result then
+  mSerial := 0;
+  mBytes := 0;
+  mUsageBytes := 0;
+  // Lädt schon ein anderer Thread dieselbe Unit, auf ihn warten und sein Ergebnis übernehmen (Phase 4); vorher lasen
+  // und dekodierten beide den Block.
+  repeat
+    mWait := nil;
+    FLock.Enter;
+    try
+      if not FFiles.TryGetValue(AKey, mEntry) then
       begin
-        AUnit := mEntry.Unit_;
+        Exit(False);
       end;
-      Exit;
+      if mEntry.Loaded then
+      begin
+        TouchLocked(mEntry);
+        AUnit := mEntry.Unit_;
+        Exit(True);
+      end;
+      if mEntry.Loading <> nil then
+      begin
+        mWait := mEntry.Loading;
+      end
+      else
+      begin
+        mOwn := TIndexLoadSignal.Create;
+        mEntry.Loading := mOwn;
+        mSerial := mEntry.Serial;
+        mSource := mEntry.Source;
+        mHeader := mEntry.Unit_;
+      end;
+    finally
+      FLock.Leave;
     end;
-    if mEntry.Loaded then
+    if mWait <> nil then
     begin
-      // Ein anderer Thread war schneller.
+      (mWait as TIndexLoadSignal).WaitFor;
+    end;
+  until mWait = nil;
+  mSettled := False;
+  try
+    // Block lesen und dekodieren ohne die Sperre: Andere Anfragen warten nicht auf große Units.
+    mWatch := TStopwatch.StartNew;
+    // Verwendungen nur, wenn die Unit sie führt (Phase 4: sonst überlesen statt dekodiert und verworfen).
+    mLoaded := TIndexCache.LoadFrom(mSource, mFull, mHeader.UsagesIndexed);
+    mMs := mWatch.Elapsed.TotalMilliseconds;
+    if mLoaded then
+    begin
+      // Stand, Art und Defines des Eintrags gelten (der Block trägt den Stand beim Schreiben).
+      mFull.FileName := mHeader.FileName;
+      mFull.Stamp := mHeader.Stamp;
+      mFull.Library_ := mHeader.Library_;
+      mFull.DefinesKey := mHeader.DefinesKey;
+      if not mHeader.UsagesIndexed then
+      begin
+        mFull.Usages := nil;
+        mFull.UsagesIndexed := False;
+        mFull.UsagesOffloaded := False;
+      end;
+      // Größen vor der Sperre und nur einmal (Phase 4).
+      mBytes := TIndexMemory.UnitBytes(mFull);
+      mUsageBytes := TIndexMemory.UsageBytes(mFull);
+    end;
+    FLock.Enter;
+    try
+      mSettled := True;
+      if FFiles.TryGetValue(AKey, mEntry) and (mEntry.Loading = mOwn) then
+      begin
+        mEntry.Loading := nil;
+      end;
+      if not FFiles.TryGetValue(AKey, mEntry) or (mEntry.Serial <> mSerial) then
+      begin
+        // Inzwischen ersetzt: der neue Stand gilt (falls geladen).
+        Result := (mEntry <> nil) and mEntry.Loaded;
+        if Result then
+        begin
+          AUnit := mEntry.Unit_;
+        end;
+        Exit;
+      end;
+      if mEntry.Loaded then
+      begin
+        TouchLocked(mEntry);
+        AUnit := mEntry.Unit_;
+        Exit(True);
+      end;
+      if not mLoaded then
+      begin
+        // Block fehlt oder ist beschädigt: Die Unit fällt aus dem Index; EnsureUnit liest sie aus der Datei neu.
+        RemoveFileLocked(AKey);
+        Exit(False);
+      end;
+      Dec(FColdSymbols, mEntry.SymbolCount);
+      mEntry.Unit_ := mFull;
+      InstallLocked(AKey, mEntry, mBytes, mUsageBytes);
+      NoteLoad(mMs, mBytes);
       TouchLocked(mEntry);
+      EvictLocked(mEntry);
       AUnit := mEntry.Unit_;
-      Exit(True);
+      Result := True;
+    finally
+      FLock.Leave;
     end;
-    if not mLoaded then
-    begin
-      // Block fehlt oder ist beschädigt: Die Unit fällt aus dem Index; EnsureUnit liest sie aus der Datei neu.
-      RemoveFileLocked(AKey);
-      Exit(False);
-    end;
-    // Stand, Art und Defines des Eintrags gelten (der Block trägt den Stand beim Schreiben).
-    mFull.FileName := mHeader.FileName;
-    mFull.Stamp := mHeader.Stamp;
-    mFull.Library_ := mHeader.Library_;
-    mFull.DefinesKey := mHeader.DefinesKey;
-    if not mHeader.UsagesIndexed then
-    begin
-      mFull.Usages := nil;
-      mFull.UsagesIndexed := False;
-      mFull.UsagesOffloaded := False;
-    end;
-    Dec(FColdSymbols, mEntry.SymbolCount);
-    mEntry.Unit_ := mFull;
-    InstallLocked(AKey, mEntry);
-    NoteLoad(mMs, mEntry.Bytes);
-    TouchLocked(mEntry);
-    EvictLocked(mEntry);
-    AUnit := mEntry.Unit_;
-    Result := True;
   finally
-    FLock.Leave;
+    if not mSettled then
+    begin
+      // Ausnahme beim Lesen: Ohne das hier warteten spätere Leser für immer auf diesen Ladevorgang.
+      FLock.Enter;
+      try
+        if FFiles.TryGetValue(AKey, mEntry) and (mEntry.Loading = mOwn) then
+        begin
+          mEntry.Loading := nil;
+        end;
+      finally
+        FLock.Leave;
+      end;
+    end;
+    (mOwn as TIndexLoadSignal).Signal;
   end;
 end;
 
-procedure TSymbolIndex.BuildNameLookupLocked;
+type
+  /// <summary>Katalogsymbole eines Eintrags für das Namensverzeichnis (referenzgezählt, ohne Kopie der Symbole).
+  /// </summary>
+  TCatalogNames = record
+    Key: string;
+    Symbols: TArray<TCatalogSymbol>;
+  end;
+
+procedure TSymbolIndex.NameLookup(out AHashes: TArray<UInt64>; out AKeys: TArray<string>);
 var
   mPair: TPair<string, TIndexEntry>;
-  mHashes: TList<UInt64>;
-  mKeys: TList<string>;
-  mIndex: Integer;
+  mUnits: TArray<TCatalogNames>;
+  mMembership: Int64;
+  mCount, mUnit, mIndex, mAt: Integer;
 begin
-  if FNameGeneration = FGeneration then
-  begin
-    Exit;
-  end;
-  mHashes := TList<UInt64>.Create;
-  mKeys := TList<string>.Create;
+  FLock.Enter;
   try
+    if FNameBuiltFor = FNameMembership then
+    begin
+      AHashes := FNameHashes;
+      AKeys := FNameKeys;
+      Exit;
+    end;
+    // Nur verdrängbare Units (nicht gepinnt, mit Block): Gepinnte sind immer geladen. Unter der Sperre nur die
+    // Verweise auf die Kataloge sammeln (Phase 4).
+    mMembership := FNameMembership;
+    SetLength(mUnits, FFiles.Count);
+    mCount := 0;
     for mPair in FFiles do
     begin
-      // Nur verdrängbare Units: Gepinnte sind immer geladen.
-      if mPair.Value.Pinned or (mPair.Value.Source = nil) then
+      if NameRelevant(mPair.Value) then
       begin
-        Continue;
+        mUnits[mCount].Key := mPair.Key;
+        mUnits[mCount].Symbols := mPair.Value.Catalog.Symbols;
+        Inc(mCount);
       end;
-      for mIndex := 0 to High(mPair.Value.Catalog.Symbols) do
-      begin
-        mHashes.Add((UInt64(Cardinal(NameHash(mPair.Value.Catalog.Symbols[mIndex].Name))) shl 32) or
-          UInt64(mKeys.Count));
-      end;
-      mKeys.Add(mPair.Key);
     end;
-    mHashes.Sort;
-    FNameHashes := mHashes.ToArray;
-    FNameKeys := mKeys.ToArray;
-    FNameGeneration := FGeneration;
   finally
-    mKeys.Free;
-    mHashes.Free;
+    FLock.Leave;
+  end;
+  // Hashen und Sortieren außerhalb der Sperre: Hash (obere 32 Bit) und Nummer des Eintrags (untere).
+  mAt := 0;
+  for mUnit := 0 to mCount - 1 do
+  begin
+    Inc(mAt, Length(mUnits[mUnit].Symbols));
+  end;
+  SetLength(AHashes, mAt);
+  SetLength(AKeys, mCount);
+  mAt := 0;
+  for mUnit := 0 to mCount - 1 do
+  begin
+    AKeys[mUnit] := mUnits[mUnit].Key;
+    for mIndex := 0 to High(mUnits[mUnit].Symbols) do
+    begin
+      AHashes[mAt] := (UInt64(Cardinal(NameHash(mUnits[mUnit].Symbols[mIndex].Name))) shl 32) or UInt64(mUnit);
+      Inc(mAt);
+    end;
+  end;
+  mUnits := nil;
+  TArray.Sort<UInt64>(AHashes);
+  FLock.Enter;
+  try
+    Inc(FNameBuilds);
+    // Hat sich die Mitgliedschaft inzwischen wieder geändert, gilt das Ergebnis nur für diesen Aufruf.
+    if FNameMembership = mMembership then
+    begin
+      FNameHashes := AHashes;
+      FNameKeys := AKeys;
+      FNameBuiltFor := mMembership;
+    end;
+  finally
+    FLock.Leave;
   end;
 end;
 
-procedure TSymbolIndex.LoadColdNamed(const AName: string);
+function TSymbolIndex.LoadColdNamed(const AName: string): Boolean;
 var
+  mHashes: TArray<UInt64>;
+  mNameKeys, mCandidates, mKeys: TArray<string>;
   mHash: UInt64;
-  mLow, mHigh, mMiddle, mFrom, mTo, mPosition, mSymbol: Integer;
-  mKeys: TArray<string>;
+  mLow, mHigh, mMiddle, mPosition, mSymbol: Integer;
   mKey: string;
   mEntry: TIndexEntry;
   mUnit: TUnitIndex;
   mFound: Boolean;
 begin
+  Result := False;
+  NameLookup(mHashes, mNameKeys);
+  if Length(mHashes) = 0 then
+  begin
+    Exit;
+  end;
+  // Erster Eintrag mit diesem Hash (obere 32 Bit), dann alle gleichen; ohne Sperre auf dem eigenen Stand.
+  mHash := UInt64(Cardinal(NameHash(AName))) shl 32;
+  mLow := 0;
+  mHigh := Length(mHashes);
+  while mLow < mHigh do
+  begin
+    mMiddle := (mLow + mHigh) shr 1;
+    if mHashes[mMiddle] < mHash then
+    begin
+      mLow := mMiddle + 1;
+    end
+    else
+    begin
+      mHigh := mMiddle;
+    end;
+  end;
+  mCandidates := nil;
+  mPosition := mLow;
+  while (mPosition < Length(mHashes)) and ((mHashes[mPosition] shr 32) = (mHash shr 32)) do
+  begin
+    mKey := mNameKeys[Integer(mHashes[mPosition] and $FFFFFFFF)];
+    if IndexText(mKey, mCandidates) < 0 then
+    begin
+      mCandidates := mCandidates + [mKey];
+    end;
+    Inc(mPosition);
+  end;
+  if Length(mCandidates) = 0 then
+  begin
+    Exit;
+  end;
   mKeys := nil;
   FLock.Enter;
   try
-    BuildNameLookupLocked;
-    if Length(FNameHashes) = 0 then
+    for mKey in mCandidates do
     begin
-      Exit;
-    end;
-    // Erster Eintrag mit diesem Hash (obere 32 Bit), dann alle gleichen.
-    mHash := UInt64(Cardinal(NameHash(AName))) shl 32;
-    mLow := 0;
-    mHigh := Length(FNameHashes);
-    while mLow < mHigh do
-    begin
-      mMiddle := (mLow + mHigh) shr 1;
-      if FNameHashes[mMiddle] < mHash then
-      begin
-        mLow := mMiddle + 1;
-      end
-      else
-      begin
-        mHigh := mMiddle;
-      end;
-    end;
-    mFrom := mLow;
-    mTo := mFrom;
-    while (mTo < Length(FNameHashes)) and ((FNameHashes[mTo] shr 32) = (mHash shr 32)) do
-    begin
-      Inc(mTo);
-    end;
-    for mPosition := mFrom to mTo - 1 do
-    begin
-      mKey := FNameKeys[Integer(FNameHashes[mPosition] and $FFFFFFFF)];
-      if not FFiles.TryGetValue(mKey, mEntry) or mEntry.Loaded or (IndexText(mKey, mKeys) >= 0) then
+      if not FFiles.TryGetValue(mKey, mEntry) or mEntry.Loaded then
       begin
         Continue;
       end;
@@ -1316,12 +1951,30 @@ begin
         mKeys := mKeys + [mKey];
       end;
     end;
+    if Length(mKeys) = 0 then
+    begin
+      Exit;
+    end;
+    // Phase 4: Bis der Aufrufer die Verweise gelesen hat, verdrängt der Index nichts. Sonst konnte das Laden der
+    // letzten Unit eine eben geladene desselben Namens wieder verdrängen, und die Antwort war unvollständig.
+    Inc(FEvictDefer);
+    Result := True;
   finally
     FLock.Leave;
   end;
-  for mKey in mKeys do
-  begin
-    LoadKey(mKey, mUnit);
+  try
+    for mKey in mKeys do
+    begin
+      LoadKey(mKey, mUnit);
+    end;
+  except
+    FLock.Enter;
+    try
+      EndDeferLocked;
+    finally
+      FLock.Leave;
+    end;
+    raise;
   end;
 end;
 
@@ -1354,6 +2007,8 @@ var
   mKey: string;
   mPooled: TUnitIndex;
   mOld: TIndexEntry;
+  mCatalog: TCatalogUnit;
+  mBytes, mUsageBytes: Int64;
 begin
   mKey := AnsiUpperCase(AUnit.FileName);
   mPooled := AUnit;
@@ -1370,6 +2025,10 @@ begin
   finally
     FPoolLock.Leave;
   end;
+  // Katalog und Größen ebenfalls vor der Sperre und nur einmal (Phase 4).
+  mCatalog := TCatalogUnit.FromUnit(mPooled);
+  mBytes := TIndexMemory.UnitBytes(mPooled);
+  mUsageBytes := TIndexMemory.UsageBytes(mPooled);
   FLock.Enter;
   try
     // Eine Projekt-Unit ändert sich (Tippen, Speichern): neue uses zählen in der Nutzungsstatistik (Phase 3).
@@ -1377,8 +2036,15 @@ begin
     begin
       NoteAddedUsesLocked(mOld.Unit_, mPooled);
     end;
-    RemoveFileLocked(mKey);
-    AddLocked(mKey, mPooled, True, nil);
+    // Die uses der neuen Fassung zählen schon, bevor die alte herausfällt: Namen in beiden Fassungen fallen so nicht
+    // kurz aus den uses, und der Schutz ihrer Units muss nicht neu geprüft werden (Tippen, Phase 4).
+    ChangeUsesPins(mPooled, 1);
+    try
+      RemoveFileLocked(mKey);
+      AddPreparedLocked(mKey, mPooled, mCatalog, mBytes, mUsageBytes, True, nil);
+    finally
+      ChangeUsesPins(mPooled, -1);
+    end;
     ShrinkLocked;
     CleanRefsLocked;
   finally
@@ -1390,6 +2056,8 @@ procedure TSymbolIndex.AddEvictable(const AUnit: TUnitIndex; const ASource: IInd
 var
   mKey: string;
   mPooled: TUnitIndex;
+  mCatalog: TCatalogUnit;
+  mBytes, mUsageBytes: Int64;
 begin
   mKey := AnsiUpperCase(AUnit.FileName);
   mPooled := AUnit;
@@ -1402,10 +2070,13 @@ begin
   finally
     FPoolLock.Leave;
   end;
+  mCatalog := TCatalogUnit.FromUnit(mPooled);
+  mBytes := TIndexMemory.UnitBytes(mPooled);
+  mUsageBytes := TIndexMemory.UsageBytes(mPooled);
   FLock.Enter;
   try
     RemoveFileLocked(mKey);
-    AddLocked(mKey, mPooled, False, ASource);
+    AddPreparedLocked(mKey, mPooled, mCatalog, mBytes, mUsageBytes, False, ASource);
     EvictLocked(nil);
     CleanRefsLocked;
   finally
@@ -1436,6 +2107,10 @@ begin
     Inc(FColdSymbols, ASymbolCount);
     FCatalogSnapshot := nil;
     Inc(FGeneration);
+    if NameRelevant(mEntry) then
+    begin
+      Inc(FNameMembership);
+    end;
     FUnitFiles.AddOrSetValue(UpperCase(AHeader.UnitName), mKey);
     CleanRefsLocked;
   finally
@@ -1459,8 +2134,14 @@ begin
       Exit(False);
     end;
     AWasPinned := mEntry.Pinned;
+    // Gepinnte gehören nicht mehr ins Namensverzeichnis der kalten Units (Phase 4).
+    if NameRelevant(mEntry) then
+    begin
+      Inc(FNameMembership);
+    end;
     Account(mEntry, -1);
     mEntry.Pinned := True;
+    mEntry.Guarded := False;
     Account(mEntry, 1);
     mLoaded := mEntry.Loaded;
   finally
@@ -1487,6 +2168,12 @@ begin
         Continue;
       end;
       Account(mEntry, -1);
+      // Eine nicht gepinnte Unit bekommt ihren ersten Block: Ab jetzt gehört sie ins Namensverzeichnis der kalten
+      // Units (Phase 4; vorher fehlte sie dort, war sie einmal verdrängt).
+      if (mEntry.Source = nil) and not mEntry.Pinned then
+      begin
+        Inc(FNameMembership);
+      end;
       mEntry.Source := ASources[mIndex];
       Account(mEntry, 1);
       Inc(Result);
@@ -1635,23 +2322,42 @@ begin
 end;
 
 function TSymbolIndex.FindSymbols(const AName: string): TArray<TSymbolLocation>;
+var
+  mDeferred: Boolean;
 begin
-  // Symbole oberster Ebene verdrängter Units kennt der Katalog: diese Units zuerst laden.
-  LoadColdNamed(AName);
+  // Symbole oberster Ebene verdrängter Units kennt der Katalog: diese Units zuerst laden. Bis die Verweise gelesen
+  // sind, verdrängt der Index nichts (Phase 4).
+  mDeferred := LoadColdNamed(AName);
   FLock.Enter;
   try
-    Result := FRefs.ByName(AName);
+    try
+      Result := FRefs.ByName(AName);
+    finally
+      if mDeferred then
+      begin
+        EndDeferLocked;
+      end;
+    end;
   finally
     FLock.Leave;
   end;
 end;
 
 function TSymbolIndex.HasSymbol(const AName: string; const AMatch: TSymbolMatch): Boolean;
+var
+  mDeferred: Boolean;
 begin
-  LoadColdNamed(AName);
+  mDeferred := LoadColdNamed(AName);
   FLock.Enter;
   try
-    Result := FRefs.HasName(AName, AMatch);
+    try
+      Result := FRefs.HasName(AName, AMatch);
+    finally
+      if mDeferred then
+      begin
+        EndDeferLocked;
+      end;
+    end;
   finally
     FLock.Leave;
   end;
@@ -1900,6 +2606,11 @@ begin
   try
     Result.CatalogUnits := FFiles.Count;
     Result.CatalogBytes := FCatalogBytes;
+    // Geschützte (uses einer Projekt-Unit, oft genutzt) zählen wie gepinnte (Phase 4).
+    if FGuardDirty then
+    begin
+      RefreshGuardsLocked;
+    end;
     for mEntry in FFiles.Values do
     begin
       if not mEntry.Loaded then
@@ -1908,7 +2619,7 @@ begin
         Continue;
       end;
       Inc(Result.Loaded);
-      if mEntry.Pinned or (mEntry.Source = nil) then
+      if mEntry.Pinned or (mEntry.Source = nil) or mEntry.Guarded then
       begin
         Inc(Result.Pinned);
       end
@@ -1917,7 +2628,7 @@ begin
         Inc(Result.Evictable);
       end;
     end;
-    Result.EvictableBytes := FEvictableBytes;
+    Result.EvictableBytes := FCandidateBytes;
     Result.Loads := FLoads;
     Result.Evictions := FEvictions;
     Result.LoadMaxMs := FLoadMaxMs;
@@ -1950,6 +2661,46 @@ begin
   FLock.Enter;
   try
     Result := FUsage;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function TSymbolIndex.NameLookupBuilds: Integer;
+begin
+  FLock.Enter;
+  try
+    Result := FNameBuilds;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function TSymbolIndex.EvictionRuns: Integer;
+begin
+  FLock.Enter;
+  try
+    Result := FEvictionRuns;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function TSymbolIndex.RefSlots: Integer;
+begin
+  FLock.Enter;
+  try
+    Result := FRefs.SlotCount;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function TSymbolIndex.RefNodes: Integer;
+begin
+  FLock.Enter;
+  try
+    Result := FRefs.NodeCount;
   finally
     FLock.Leave;
   end;

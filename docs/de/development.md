@@ -64,7 +64,7 @@ Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --exclude:Benchmark --exitbehav
 | `Tests\Common\Lsp` | Server-Seite: Vervollständigung, Hover, Parameterhilfe |
 | `Tests\IDE` | Plugin-Seite ohne ToolsAPI: Ablauf der Liste, Rangfolge, Favoriten, Mengenmodus, Platzhalter, Einstellungen, Texte |
 | `Tests\Application\Shell` | Hülle des Servers |
-| `Tests\Common` | Speicher: Selbstmessung, Namen der `.dcp`, gemeinsamer Cache, Office-Typbibliotheken und WinRT, Freigabe nach dem Ende des Servers, Dokumente, Namens- und Verweistabellen, Signaturen im Cache, Cache-Format 34, Katalog, Nachladen und Verdrängen, Nutzungsstatistik |
+| `Tests\Common` | Speicher: Selbstmessung, Namen der `.dcp`, gemeinsamer Cache, Office-Typbibliotheken und WinRT, Freigabe nach dem Ende des Servers, Dokumente, Namens- und Verweistabellen, Signaturen im Cache, Cache-Format 34, Katalog, Nachladen und Verdrängen, Nutzungsstatistik, Suche über nicht geladene Units, geschützte Units, Wiederverwendung der Verweistabellen, gleichzeitiges Nachladen, Anhängen an den Cache |
 | `Tests\Memory` | Messprogramm für den Speicher (Kategorie `Benchmark`) |
 | `Tests\Support` | Hilfen: feste Datenquelle, Leck-Überwachung |
 
@@ -78,7 +78,9 @@ Bibliothek der Installation und schreibt jede Sekunde Private Bytes, Spitze, Wor
 des Adressraums in eine CSV-Datei. Messpunkte: Start, Index fertig, nach den Anfragen, nach jedem Neuaufbau
 (`.dproj` gespeichert) und nach einem Neustart des Servers. Ohne die Variable `DPCC_MEMBENCH_OUT` endet der Test
 sofort. Auf Wunsch folgen nach den Anfragen Vervollständigungen auf zufällige Units der Bibliothek, die das Nachladen
-und Verdrängen messen (`DPCC_MEMBENCH_COLD`).
+und Verdrängen messen (`DPCC_MEMBENCH_COLD`), Tippen in einer Projekt-Unit mit gleichzeitigen Anfragen, das die
+Antwortzeiten misst (`DPCC_MEMBENCH_TYPING`), und große Units in den `uses` einer Projekt-Unit, gefolgt von
+Vervollständigungen auf zufällige Units, die Nachladen und Verdrängen zählen (`DPCC_MEMBENCH_PINNED`).
 
 | Variable | Bedeutung |
 |---|---|
@@ -86,6 +88,8 @@ und Verdrängen messen (`DPCC_MEMBENCH_COLD`).
 | `DPCC_MEMBENCH_GROUP` | `.groupproj`, deren Projekte den Arbeitsbereich bilden |
 | `DPCC_MEMBENCH_REQUESTS`, `DPCC_MEMBENCH_REBUILDS`, `DPCC_MEMBENCH_RESTARTS`, `DPCC_MEMBENCH_BETWEEN` | Anfragen (2000), Neuaufbauten (5), Neustarts (1), Anfragen zwischen zwei Neuaufbauten (100) |
 | `DPCC_MEMBENCH_COLD`, `DPCC_MEMBENCH_LIBDIR` | Zahl der Vervollständigungen „Unit.“ auf zufällige Units der Bibliothek (0) und der Ordner ihrer Quellen (`source` von Delphi 13) |
+| `DPCC_MEMBENCH_TYPING` | Tipp-Runden (0): je vier Tastendrücke, dann die Tipp-Pause; ein zweiter Thread fragt währenddessen an. Zeile „[typing]“ mit Median, 95. und 99. Perzentil und Höchstwert der Antwortzeiten, jede einzelne in `<Datei>-latency.csv` |
+| `DPCC_MEMBENCH_PINNED`, `DPCC_MEMBENCH_PINNEDUNITS`, `DPCC_MEMBENCH_PINNEDCOUNT` | Vervollständigungen auf zufällige Units (0), nachdem eine Projekt-Unit große Units in ihren `uses` nennt und lädt: kommagetrennte Namen bzw. die größten Dateien der Bibliothek (80). Zeile „[pinned]“ mit Nachladen und Verdrängen |
 | `DPCC_CACHE_ROOT` bzw. `LOCALAPPDATA`, `APPDATA` | eigene Ordner, damit der Cache des Benutzers unberührt bleibt; für einen warmen Start eine Kopie des Bibliotheks-Caches hineinlegen |
 
 ```

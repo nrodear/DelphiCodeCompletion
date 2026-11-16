@@ -66,7 +66,7 @@ Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --exclude:Benchmark --exitbehav
 | `Tests\Common\Lsp` | côté serveur : complétion, survol, aide aux paramètres |
 | `Tests\IDE` | côté plugin sans ToolsAPI : déroulement de la liste, classement, favoris, mode ensemble, espaces réservés, réglages, textes |
 | `Tests\Application\Shell` | enveloppe du serveur |
-| `Tests\Common` | mémoire : auto-mesure, noms des `.dcp`, cache partagé, bibliothèques de types Office et WinRT, libération après l'arrêt du serveur, documents, tables de noms et de références, signatures dans le cache, format de cache 34, catalogue, chargement à la demande et éviction, statistiques d'utilisation |
+| `Tests\Common` | mémoire : auto-mesure, noms des `.dcp`, cache partagé, bibliothèques de types Office et WinRT, libération après l'arrêt du serveur, documents, tables de noms et de références, signatures dans le cache, format de cache 34, catalogue, chargement à la demande et éviction, statistiques d'utilisation, recherche dans les unités non chargées, unités protégées, réutilisation des tables de références, chargement simultané, ajout au cache |
 | `Tests\Memory` | programme de mesure de la mémoire (catégorie `Benchmark`) |
 | `Tests\Support` | utilitaires : source de données fixe, surveillance des fuites |
 
@@ -80,7 +80,10 @@ avec la bibliothèque de l'installation et écrit chaque seconde les octets priv
 grande zone libre de l'espace d'adressage dans un fichier CSV. Points de mesure : démarrage, index prêt, après les
 requêtes, après chaque reconstruction (`.dproj` enregistré) et après un redémarrage du serveur. Sans la variable
 `DPCC_MEMBENCH_OUT`, le test se termine aussitôt. Sur demande, des complétions sur des unités de la bibliothèque prises
-au hasard suivent les requêtes et mesurent le chargement à la demande et l'éviction (`DPCC_MEMBENCH_COLD`).
+au hasard suivent les requêtes et mesurent le chargement à la demande et l'éviction (`DPCC_MEMBENCH_COLD`), une
+frappe dans une unité du projet avec des requêtes simultanées mesure les temps de réponse (`DPCC_MEMBENCH_TYPING`), et
+de grandes unités dans les `uses` d'une unité du projet, suivies de complétions sur des unités prises au hasard,
+comptent le chargement et l'éviction (`DPCC_MEMBENCH_PINNED`).
 
 | Variable | Signification |
 |---|---|
@@ -88,6 +91,8 @@ au hasard suivent les requêtes et mesurent le chargement à la demande et l'év
 | `DPCC_MEMBENCH_GROUP` | `.groupproj` dont les projets forment l'espace de travail |
 | `DPCC_MEMBENCH_REQUESTS`, `DPCC_MEMBENCH_REBUILDS`, `DPCC_MEMBENCH_RESTARTS`, `DPCC_MEMBENCH_BETWEEN` | requêtes (2000), reconstructions (5), redémarrages (1), requêtes entre deux reconstructions (100) |
 | `DPCC_MEMBENCH_COLD`, `DPCC_MEMBENCH_LIBDIR` | nombre de complétions « Unit. » sur des unités de la bibliothèque prises au hasard (0) et dossier de leurs sources (`source` de Delphi 13) |
+| `DPCC_MEMBENCH_TYPING` | tours de frappe (0) : quatre frappes chacun, puis la pause de frappe ; pendant ce temps, un second thread envoie des requêtes. Ligne « [typing] » avec médiane, 95e et 99e centile et maximum des temps de réponse, chacun dans `<fichier>-latency.csv` |
+| `DPCC_MEMBENCH_PINNED`, `DPCC_MEMBENCH_PINNEDUNITS`, `DPCC_MEMBENCH_PINNEDCOUNT` | complétions sur des unités prises au hasard (0) après qu'une unité du projet a nommé et chargé de grandes unités dans ses `uses` : noms séparés par des virgules ou les plus gros fichiers de la bibliothèque (80). Ligne « [pinned] » avec chargement et éviction |
 | `DPCC_CACHE_ROOT` ou `LOCALAPPDATA`, `APPDATA` | dossiers propres pour que le cache de l'utilisateur reste intact ; pour un démarrage à chaud, y placer une copie du cache de la bibliothèque |
 
 ```

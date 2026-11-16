@@ -196,7 +196,7 @@ end;
 
 class function TIndexMemory.UnitBytes(const AUnit: TUnitIndex): Int64;
 var
-  mSymbol: TIndexSymbol;
+  mIndex: Integer;
 begin
   Result := SizeOf(TUnitIndex) + StringBytes(AUnit.UnitName) + StringBytes(AUnit.FileName) +
     StringBytes(AUnit.Hash) + ArrayBytes(AUnit.InterfaceUses) + ArrayBytes(AUnit.ImplementationUses) +
@@ -205,28 +205,32 @@ begin
   begin
     Inc(Result, 16);
   end;
-  for mSymbol in AUnit.Symbols do
+  // Über den Index (Phase 4): for-in kopierte jedes Symbol samt seiner verwalteten Felder.
+  for mIndex := 0 to High(AUnit.Symbols) do
   begin
-    Inc(Result, SizeOf(TIndexSymbol) + StringBytes(mSymbol.Name) + StringBytes(mSymbol.Container) +
-      StringBytes(mSymbol.TypeName) + ArrayBytes(mSymbol.Ancestors) + Utf8Bytes(mSymbol.SignatureUtf8) +
-      StringBytes(mSymbol.Summary) + ArrayBytes(mSymbol.Directives) + StringBytes(mSymbol.DeprecatedText) +
-      ArrayBytes(mSymbol.InlineRefs) + ArrayBytes(mSymbol.Resolutions) + ArrayBytes(mSymbol.Rationale));
+    Inc(Result, SizeOf(TIndexSymbol) + StringBytes(AUnit.Symbols[mIndex].Name) +
+      StringBytes(AUnit.Symbols[mIndex].Container) + StringBytes(AUnit.Symbols[mIndex].TypeName) +
+      ArrayBytes(AUnit.Symbols[mIndex].Ancestors) + Utf8Bytes(AUnit.Symbols[mIndex].SignatureUtf8) +
+      StringBytes(AUnit.Symbols[mIndex].Summary) + ArrayBytes(AUnit.Symbols[mIndex].Directives) +
+      StringBytes(AUnit.Symbols[mIndex].DeprecatedText) + ArrayBytes(AUnit.Symbols[mIndex].InlineRefs) +
+      ArrayBytes(AUnit.Symbols[mIndex].Resolutions) + ArrayBytes(AUnit.Symbols[mIndex].Rationale));
   end;
   Inc(Result, UsageBytes(AUnit));
 end;
 
 class function TIndexMemory.UsageBytes(const AUnit: TUnitIndex): Int64;
 var
-  mUsage: TIndexUsage;
+  mIndex: Integer;
 begin
   Result := 0;
   if Length(AUnit.Usages) > 0 then
   begin
     Result := 16;
   end;
-  for mUsage in AUnit.Usages do
+  for mIndex := 0 to High(AUnit.Usages) do
   begin
-    Inc(Result, SizeOf(TIndexUsage) + StringBytes(mUsage.Name) + 16 + Length(mUsage.Positions) * SizeOf(TTextPosition));
+    Inc(Result, SizeOf(TIndexUsage) + StringBytes(AUnit.Usages[mIndex].Name) + 16 +
+      Length(AUnit.Usages[mIndex].Positions) * SizeOf(TTextPosition));
   end;
 end;
 

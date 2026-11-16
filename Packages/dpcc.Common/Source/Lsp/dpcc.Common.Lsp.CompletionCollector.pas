@@ -1655,14 +1655,16 @@ begin
       begin
         Continue;
       end;
-      // Die Mitglieder kennt der Katalog nicht: die Unit des Helpers holen (lädt sie nach, wenn sie verdrängt ist).
-      if not FRequest.Index.FindFile(mUnitInfo.FileName, mFull) then
-      begin
-        Continue;
-      end;
+      // Erst die billige Prüfung, ob sich die Unit einbinden lässt (sonst endet die Suche ohnehin), dann die Unit des
+      // Helpers holen: Die Mitglieder kennt der Katalog nicht, FindFile lädt sie nach, wenn sie verdrängt ist (Phase 4:
+      // vorher auch dann gelesen, wenn danach nichts kam).
       if not TUsesClauses.AddUnit(FRequest.Tree.Tokens, FContext.Offset, mUnitInfo.UnitName, #13#10, mEdit) then
       begin
         Exit;
+      end;
+      if not FRequest.Index.FindFile(mUnitInfo.FileName, mFull) then
+      begin
+        Continue;
       end;
       AddHelperMembers(Self, mFull, mHelper.Name, mDepth, mEdit, mKnown);
     end;

@@ -68,9 +68,10 @@ type
     MaxArgs: Integer;
     ParamTypes: TArray<string>;
     IsDefault: Boolean;
-    /// <summary>Kopf der Deklaration wie im Index (#492), bei Properties samt read/write (#491); '' ohne Index.
-    /// </summary>
-    Signature: string;
+    /// <summary>Kopf der Deklaration wie im Index (#492), bei Properties samt read/write (#491); '' ohne Index. Als
+    /// UTF-8 wie im Index (Speicher-Optimierung Phase 4): FromIndex übernimmt ihn ohne Dekodieren, erst Signature
+    /// dekodiert ihn. Lesen und schreiben über Signature, suchen über SignatureContains.</summary>
+    SignatureUtf8: UTF8String;
     /// <summary>Direktiven wie im Index (#492), z. B. class, static, virtual (#1008); nil bei lokalen Namen.</summary>
     Directives: TArray<string>;
     /// <summary>Gebundene Typparameter als Name=Typ (bei Mitgliedern die des umgebenden Typs).</summary>
@@ -84,6 +85,12 @@ type
     function Found: Boolean;
     function IsType: Boolean;
     function QualifiedName: string;
+    function GetSignature: string;
+    procedure SetSignature(const AValue: string);
+    /// <summary>Steht AText (ohne Groß-/Kleinschreibung) im Kopf der Deklaration? Bei ASCII ohne Dekodieren
+    /// (Phase 4).</summary>
+    function SignatureContains(const AText: string): Boolean;
+    property Signature: string read GetSignature write SetSignature;
     /// <summary>Vorfahr AIndex samt seinen Typargumenten wie in der Deklaration (IComparer&lt;TKunde&gt;).</summary>
     function AncestorText(AIndex: Integer): string;
     /// <summary>Kurzer Text zu einer verdeckten Deklaration (#488): "lokale Variable X", "Parameter X",
@@ -347,6 +354,76 @@ begin
   end;
 end;
 
+function TResolvedSymbol.GetSignature: string;
+begin
+  if SignatureUtf8 = '' then
+  begin
+    Result := '';
+  end
+  else
+  begin
+    Result := UTF8ToString(SignatureUtf8);
+  end;
+end;
+
+procedure TResolvedSymbol.SetSignature(const AValue: string);
+begin
+  if AValue = '' then
+  begin
+    SignatureUtf8 := '';
+  end
+  else
+  begin
+    SignatureUtf8 := UTF8Encode(AValue);
+  end;
+end;
+
+function TResolvedSymbol.SignatureContains(const AText: string): Boolean;
+var
+  mStart, mIndex: Integer;
+  mLeft, mRight: Char;
+begin
+  for mIndex := 1 to Length(AText) do
+  begin
+    if Ord(AText[mIndex]) > 127 then
+    begin
+      Exit(ContainsText(Signature, AText));
+    end;
+  end;
+  if AText = '' then
+  begin
+    Exit(True);
+  end;
+  // ASCII-Zeichen stehen in UTF-8 als dasselbe Byte; Folgebytes anderer Zeichen sind nie ASCII.
+  for mStart := 1 to Length(SignatureUtf8) - Length(AText) + 1 do
+  begin
+    mIndex := 1;
+    while mIndex <= Length(AText) do
+    begin
+      mLeft := Char(SignatureUtf8[mStart + mIndex - 1]);
+      mRight := AText[mIndex];
+      if (mLeft >= 'A') and (mLeft <= 'Z') then
+      begin
+        mLeft := Char(Ord(mLeft) + 32);
+      end;
+      if (mRight >= 'A') and (mRight <= 'Z') then
+      begin
+        mRight := Char(Ord(mRight) + 32);
+      end;
+      if mLeft <> mRight then
+      begin
+        Break;
+      end;
+      Inc(mIndex);
+    end;
+    if mIndex > Length(AText) then
+    begin
+      Exit(True);
+    end;
+  end;
+  Result := False;
+end;
+
 function TResolvedSymbol.AsMember(ADepth: Integer; AIsHelper: Boolean): TResolvedSymbol;
 begin
   Result := Self;
@@ -432,7 +509,8 @@ begin
   Result.MaxArgs := ASymbol.MaxArgs;
   Result.ParamTypes := ASymbol.ParamTypes;
   Result.IsDefault := ASymbol.IsDefault;
-  Result.Signature := ASymbol.Signature;
+  // Phase 4: UTF-8 übernehmen (geteilt, nur gezählt); dekodiert wird erst, wer Signature liest.
+  Result.SignatureUtf8 := ASymbol.SignatureUtf8;
   Result.Directives := ASymbol.Directives;
   Result.InInterface := ASymbol.InInterface;
   Result.IsVirtual := ASymbol.IsVirtual;

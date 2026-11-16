@@ -506,6 +506,18 @@ type
     function WriteStream(const AFileName: string; const AWrite: TIndexStreamWrite; out AError: string): Boolean;
   end;
 
+  /// <summary>Optional neben IIndexFileSystem (Speicher-Optimierung Phase 4): eine Datei an Ort und Stelle ergänzen
+  /// (Zwischenstände des Bibliotheks-Caches beim ersten Aufbau), statt sie ganz neu zu schreiben.</summary>
+  IIndexFileAppend = interface
+    ['{7A3C9E51-2D84-4B6F-9C17-E05B8D2F4A63}']
+    /// <summary>Öffnet AFileName zum Lesen und Schreiben, wenn sie noch den Zeitstempel AStamp hat, und übergibt sie
+    /// AWrite (der Strom umfasst die ganze Datei). Andere Leser behalten ihre Handles; AWrite schreibt neue Teile ans
+    /// Ende und zuletzt den Kopf. False mit AError (ohne Pfad), wenn die Datei fehlt, sich geändert hat, sich nicht
+    /// öffnen lässt oder AWrite False liefert.</summary>
+    function AppendStream(const AFileName: string; AStamp: Int64; const AWrite: TIndexStreamWrite;
+      out AError: string): Boolean;
+  end;
+
   /// <summary>Öffnet eine Datei für IIndexBlockReader; von der Plattform gesetzt (TIndexBlockFiles).</summary>
   TIndexBlockOpener = reference to function(const AFileName: string): IIndexBlockReader;
 

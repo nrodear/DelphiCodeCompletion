@@ -70,6 +70,16 @@
 // gelesenen Stand einer Datei (Zeitstempel, Stand je Unit). Hält der Index jede Unit des Auftrags aus diesem Stand
 // unverändert und würde der Builder sie behalten (TIndexBuilder.Keeps), liest der Aufbau den Bibliotheks- bzw.
 // Suchpfad-Cache nicht noch einmal (OnCacheSkipped).
+//
+// Speicher-Optimierung Phase 4:
+// - Beim ersten Aufbau (LazyLibrary ohne Cache) schreibt OnLibraryFlush nur noch den Bibliotheks-Cache, und zwar durch
+//   Anhängen an die eigene, unveränderte Datei (IIndexFileAppend, TIndexCache.Append): Blöcke, die schon darin stehen,
+//   bleiben. Vorher schrieb jeder Zwischenstand den ganzen Bibliotheks-Cache neu (alle früheren Blöcke kopiert) und dazu
+//   den Projekt-Cache. Das letzte Schreiben am Ende schreibt die Datei wieder ganz (ohne die alten Verzeichnisse).
+// - Nach dem Schreiben bekommen die Units ihre Blöcke aus der Lage, die TIndexCache.Write meldet, statt das eben
+//   geschriebene Verzeichnis neu zu lesen; TSharedCacheWrites merkt sie sich für Dienste, die nichts zu schreiben haben.
+// - Die Nutzungsstatistik prüft ihre Fälligkeit ohne Sperre und schreibt im Hintergrund (eigener Thread), nicht im
+//   Thread der Anfrage.
 
 interface
 
@@ -184,12 +194,25 @@ type
     procedure Bind(const AEntries: TArray<TIndexCacheEntry>);
     /// <summary>Serialisiert AItems nach AFileName; meldet Erfolg über Written, sonst NotWritten.</summary>
     function WriteCache(ALibrary: Boolean; const AFileName: string; const AItems: TArray<TIndexCacheItem>): Boolean;
+      overload;
+    /// <summary>Wie oben; APlaces nennt die Lage der geschriebenen Blöcke (Phase 4).</summary>
+    function WriteCache(ALibrary: Boolean; const AFileName: string; const AItems: TArray<TIndexCacheItem>;
+      out APlaces: TArray<TIndexBlockPlace>): Boolean; overload;
+    /// <summary>Gibt den Units des Index die eben geschriebenen Blöcke (APlaces zu AItems) der Datei AFileName; liefert
+    /// den Leser und die gebundenen Köpfe (nur Name, Datei, Stand) und Blöcke für TSharedCacheWrites.</summary>
+    procedure BindWritten(const AFileName: string; const AItems: TArray<TIndexCacheItem>;
+      const APlaces: TArray<TIndexBlockPlace>; out AReader: IIndexBlockReader; out AHeaders: TArray<TUnitIndex>;
+      out ASources: TArray<IIndexUnitSource>);
+    /// <summary>Hängt AUnits an die zuletzt in diesem Prozess geschriebene, unveränderte Datei AFileName an (Phase 4);
+    /// False, wenn das nicht geht (dann schreibt der Aufrufer sie ganz).</summary>
+    function AppendShared(const AFileName: string; AUnits: TList<TIndexCacheItem>): Boolean;
     /// <summary>Ergänzt einen gemeinsamen Cache (Bibliothek, Suchpfade) um AUnits, wenn etwas fehlt: unter der
     /// Schreibsperre mit dem aktuellen Stand der Datei zusammengeführt (andere Projekte und Prozesse).</summary>
     /// <summary>AUnbound: Der Index hat verdrängbare Units ohne Block (Phase 3); sie bekommen ihn aus der Datei,
     /// auch wenn nichts zu schreiben ist.</summary>
+    /// <summary>AAppend (Zwischenstand des ersten Aufbaus, Phase 4): wenn möglich nur anhängen.</summary>
     procedure WriteSharedCache(const AFileName: string; const AStartCached: TArray<TIndexCacheEntry>;
-      AUnits: TList<TIndexCacheItem>; AUnbound: Boolean);
+      AUnits: TList<TIndexCacheItem>; AUnbound, AAppend: Boolean);
     /// <summary>Projekt-Units ins Projekt, Suchpfade und Bibliothek in die gemeinsamen Caches.</summary>
     procedure WriteSplit(AParsed: Integer);
   public
@@ -201,6 +224,9 @@ type
     /// <summary>Schreibt Projekt-, Suchpfad- und Bibliotheks-Cache; AParsedTotal = im ganzen Aufbau bisher neu
     /// gelesene Units.</summary>
     procedure WriteCaches(AParsedTotal: Integer);
+    /// <summary>Zwischenstand des ersten Aufbaus (OnLibraryFlush, Phase 4): nur der Bibliotheks-Cache, angehängt; der
+    /// Projekt-Cache folgt mit WriteCaches.</summary>
+    procedure FlushLibrary;
     /// <summary>Gibt die gelesenen Einträge frei; die gemeinsamen Kopien hält das Objekt bis zum Ende.</summary>
     procedure Release;
   end;
@@ -268,6 +294,10 @@ type
     FCacheEvents: TIndexCacheEvents;
     /// <summary>Cache-Datei des letzten Aufbaus; nur unter FLock.</summary>
     FCacheFile: string;
+    /// <summary>Schreibt die Nutzungsstatistik im Hintergrund (Phase 4); nur unter FLock.</summary>
+    FSaveThread: TThread;
+    /// <summary>Ticks, ab denen SaveStatistics(False) wieder nachsieht (TInterlocked).</summary>
+    FNextSaveCheck: Int64;
     procedure Run(const ARequest: TIndexRequest; const ACancelled: TFunc<Boolean>);
     /// <summary>Neuer Builder mit gelesenem Cache; noch nicht veröffentlicht.</summary>
     function PrepareBuilder(const ARequest: TIndexRequest; const ACancelled: TFunc<Boolean>;
@@ -281,8 +311,13 @@ type
     /// <summary>Nutzungsstatistik des Index zum Bibliotheks-Cache des Auftrags (Phase 3); legt sie an oder ersetzt
     /// eine zu einer anderen Datei.</summary>
     procedure UseStatistics(const ARequest: TIndexRequest);
-    /// <summary>Schreibt die Nutzungsstatistik des Index, wenn fällig (AForce: wenn geändert).</summary>
+    /// <summary>Schreibt die Nutzungsstatistik des Index, wenn fällig (AForce: wenn geändert). Ohne AForce prüft es
+    /// höchstens einmal je Minute und schreibt im Hintergrund (Phase 4).</summary>
     procedure SaveStatistics(AForce: Boolean);
+    /// <summary>Startet das Schreiben der Statistik im Hintergrund, falls nicht schon eines läuft.</summary>
+    procedure SaveInBackground;
+    /// <summary>Wartet auf ein laufendes Schreiben im Hintergrund.</summary>
+    procedure WaitForSave;
   public
     constructor Create(const AIndex: ISymbolIndex; const AFileSystem: IIndexFileSystem);
     destructor Destroy; override;
@@ -332,6 +367,7 @@ implementation
 uses
   System.Diagnostics,
   System.Math,
+  System.SyncObjs,
   dpcc.Common.Localization.Texts;
 
 {$SCOPEDENUMS ON}
@@ -364,6 +400,11 @@ type
     public
       Stamp: Int64;
       Units: TDictionary<string, string>;
+      /// <summary>Nach eigenem Schreiben (Phase 4): Leser der Datei und die gebundenen Köpfe (nur Name, Datei,
+      /// Stand) mit ihren Blöcken; nil nach Lesen.</summary>
+      Reader: IIndexBlockReader;
+      Headers: TArray<TUnitIndex>;
+      Sources: TArray<IIndexUnitSource>;
       destructor Destroy; override;
     end;
   private
@@ -382,7 +423,16 @@ type
     /// <summary>Merkt den eben geschriebenen Stand mit dem jetzigen Zeitstempel der Datei; übernimmt AUnits.
     /// Nur zwischen Enter und Leave.</summary>
     class procedure Remember(const AFileSystem: IIndexFileSystem; const AFileName: string;
-      AUnits: TDictionary<string, string>); static;
+      AUnits: TDictionary<string, string>; const AReader: IIndexBlockReader = nil;
+      const AHeaders: TArray<TUnitIndex> = nil; const ASources: TArray<IIndexUnitSource> = nil); static;
+    /// <summary>Zuletzt in AFileName geschriebener Stand samt Leser (Phase 4), wenn die Datei seither unverändert ist;
+    /// nur zwischen Enter und Leave.</summary>
+    class function LastWrite(const AFileSystem: IIndexFileSystem; const AFileName: string; out AStamp: Int64;
+      out AReader: IIndexBlockReader; out AUnits: TDictionary<string, string>): Boolean; static;
+    /// <summary>Die zuletzt gebundenen Köpfe und Blöcke von AFileName (Phase 4), wenn die Datei unverändert ist; nur
+    /// zwischen Enter und Leave.</summary>
+    class function LastSources(const AFileSystem: IIndexFileSystem; const AFileName: string;
+      out AHeaders: TArray<TUnitIndex>; out ASources: TArray<IIndexUnitSource>): Boolean; static;
     /// <summary>Merkt den eben gelesenen Stand von AFileName zum Zeitstempel AStamp, den die Datei vor dem Lesen
     /// hatte (b1); ohne Einträge oder ohne Zeitstempel nichts. Außerhalb von Enter und Leave.</summary>
     class procedure RememberRead(const AFileSystem: IIndexFileSystem; const AFileName: string; AStamp: Int64;
@@ -481,7 +531,8 @@ begin
 end;
 
 class procedure TSharedCacheWrites.Remember(const AFileSystem: IIndexFileSystem; const AFileName: string;
-  AUnits: TDictionary<string, string>);
+  AUnits: TDictionary<string, string>; const AReader: IIndexBlockReader; const AHeaders: TArray<TUnitIndex>;
+  const ASources: TArray<IIndexUnitSource>);
 var
   mEntry: TWritten;
   mStamp: Int64;
@@ -495,7 +546,44 @@ begin
   mEntry := TWritten.Create;
   mEntry.Stamp := mStamp;
   mEntry.Units := AUnits;
+  mEntry.Reader := AReader;
+  mEntry.Headers := AHeaders;
+  mEntry.Sources := ASources;
   FFiles.AddOrSetValue(SharedCacheKey(AFileSystem, AFileName), mEntry);
+end;
+
+class function TSharedCacheWrites.LastWrite(const AFileSystem: IIndexFileSystem; const AFileName: string;
+  out AStamp: Int64; out AReader: IIndexBlockReader; out AUnits: TDictionary<string, string>): Boolean;
+var
+  mEntry: TWritten;
+begin
+  AStamp := 0;
+  AReader := nil;
+  AUnits := nil;
+  Result := FFiles.TryGetValue(SharedCacheKey(AFileSystem, AFileName), mEntry) and (mEntry.Reader <> nil) and
+    AFileSystem.FileStamp(AFileName, AStamp) and (AStamp = mEntry.Stamp);
+  if Result then
+  begin
+    AReader := mEntry.Reader;
+    AUnits := mEntry.Units;
+  end;
+end;
+
+class function TSharedCacheWrites.LastSources(const AFileSystem: IIndexFileSystem; const AFileName: string;
+  out AHeaders: TArray<TUnitIndex>; out ASources: TArray<IIndexUnitSource>): Boolean;
+var
+  mEntry: TWritten;
+  mStamp: Int64;
+begin
+  AHeaders := nil;
+  ASources := nil;
+  Result := FFiles.TryGetValue(SharedCacheKey(AFileSystem, AFileName), mEntry) and (mEntry.Sources <> nil) and
+    AFileSystem.FileStamp(AFileName, mStamp) and (mStamp = mEntry.Stamp);
+  if Result then
+  begin
+    AHeaders := mEntry.Headers;
+    ASources := mEntry.Sources;
+  end;
 end;
 
 class procedure TSharedCacheWrites.RememberRead(const AFileSystem: IIndexFileSystem; const AFileName: string;
@@ -860,11 +948,17 @@ end;
 function ItemOf(const AStored: TIndexStoredUnit): TIndexCacheItem;
 begin
   // Mit Block (auch gepinnt): unverändert seit dem Lesen, der Block wird kopiert statt neu geschrieben.
+  Result := Default(TIndexCacheItem);
   if AStored.Loaded and (AStored.Source = nil) then
   begin
-    Exit(TIndexCacheItem.OfUnit(AStored.Unit_));
+    // Den Katalog hat der Index schon (Phase 4; vorher je Unit und Schreiben neu gebaut).
+    Result.Header := AStored.Unit_;
+    Result.Catalog := AStored.Catalog;
+    Result.SymbolCount := Length(AStored.Unit_.Symbols);
+    Result.UnavailableCount := Length(AStored.Unit_.Unavailable);
+    Result.UsageCount := Length(AStored.Unit_.Usages);
+    Exit;
   end;
-  Result := Default(TIndexCacheItem);
   Result.Header := AStored.Unit_;
   Result.Catalog := AStored.Catalog;
   Result.Source := AStored.Source;
@@ -1076,6 +1170,12 @@ begin
   begin
     Exit;
   end;
+  // Phase 4: Nicht fällig ist der häufige Fall; ohne Sperre und Allokation erkennen (ein gerissener Lesewert führt nur
+  // zur Prüfung unter der Sperre).
+  if not AForce and (TThread.GetTickCount64 - FSavedAt < cSaveIntervalMs) then
+  begin
+    Exit;
+  end;
   mDay := Day;
   mBuilder := TStringBuilder.Create;
   try
@@ -1278,9 +1378,18 @@ end;
 function TIndexCacheWriter.WriteCache(ALibrary: Boolean; const AFileName: string;
   const AItems: TArray<TIndexCacheItem>): Boolean;
 var
+  mPlaces: TArray<TIndexBlockPlace>;
+begin
+  Result := WriteCache(ALibrary, AFileName, AItems, mPlaces);
+end;
+
+function TIndexCacheWriter.WriteCache(ALibrary: Boolean; const AFileName: string;
+  const AItems: TArray<TIndexCacheItem>; out APlaces: TArray<TIndexBlockPlace>): Boolean;
+var
   mWatch: TStopwatch;
   mError: string;
   mItems: TArray<TIndexCacheItem>;
+  mPlaces: TArray<TIndexBlockPlace>;
   mBytes: Int64;
   mUnits: Integer;
 begin
@@ -1295,10 +1404,11 @@ begin
       Start: Int64;
     begin
       Start := AStream.Position;
-      mUnits := TIndexCache.Write(AStream, mItems);
+      mUnits := TIndexCache.Write(AStream, mItems, mPlaces);
       mBytes := AStream.Position - Start;
       Result := True;
     end, mError);
+  APlaces := mPlaces;
   if not Result then
   begin
     NotWritten(AFileName, mError);
@@ -1309,14 +1419,145 @@ begin
   end;
 end;
 
-procedure TIndexCacheWriter.WriteSharedCache(const AFileName: string;
-  const AStartCached: TArray<TIndexCacheEntry>; AUnits: TList<TIndexCacheItem>; AUnbound: Boolean);
+/// <summary>Stand (TSharedCacheWrites.StateOf) je Datei (groß) aus AItems.</summary>
+function StatesOf(const AItems: TArray<TIndexCacheItem>): TDictionary<string, string>;
 var
-  mWritten, mNewState: TDictionary<string, string>;
+  mIndex: Integer;
+begin
+  Result := TDictionary<string, string>.Create(Length(AItems));
+  for mIndex := 0 to High(AItems) do
+  begin
+    Result.AddOrSetValue(AnsiUpperCase(AItems[mIndex].Header.FileName),
+      TSharedCacheWrites.StateOf(AItems[mIndex].Header));
+  end;
+end;
+
+procedure TIndexCacheWriter.BindWritten(const AFileName: string; const AItems: TArray<TIndexCacheItem>;
+  const APlaces: TArray<TIndexBlockPlace>; out AReader: IIndexBlockReader; out AHeaders: TArray<TUnitIndex>;
+  out ASources: TArray<IIndexUnitSource>);
+var
+  mIndex, mCount: Integer;
+begin
+  AHeaders := nil;
+  ASources := nil;
+  AReader := FFileSystem.OpenBlocks(AFileName);
+  // Passt die Datei nicht zur gemeldeten Lage (sollte nicht vorkommen: der Schreiber hält die Sperre), wie früher
+  // ihr Verzeichnis lesen.
+  for mIndex := 0 to High(APlaces) do
+  begin
+    if (AReader = nil) or (APlaces[mIndex].Written and
+      (APlaces[mIndex].Offset + APlaces[mIndex].Length > AReader.Size)) then
+    begin
+      AReader := nil;
+      Bind(ReadHeaders(AFileName));
+      Exit;
+    end;
+  end;
+  SetLength(AHeaders, Length(AItems));
+  SetLength(ASources, Length(AItems));
+  mCount := 0;
+  for mIndex := 0 to Min(High(AItems), High(APlaces)) do
+  begin
+    if not APlaces[mIndex].Written then
+    begin
+      Continue;
+    end;
+    // Nur Name, Datei und Stand: Mehr vergleicht BindSources nicht, und gemerkt hielten sie sonst die Symbole fest.
+    AHeaders[mCount] := Default(TUnitIndex);
+    AHeaders[mCount].UnitName := AItems[mIndex].Header.UnitName;
+    AHeaders[mCount].FileName := AItems[mIndex].Header.FileName;
+    AHeaders[mCount].Stamp := AItems[mIndex].Header.Stamp;
+    AHeaders[mCount].Hash := AItems[mIndex].Header.Hash;
+    ASources[mCount] := TIndexCache.SourceAt(AReader, APlaces[mIndex]);
+    Inc(mCount);
+  end;
+  SetLength(AHeaders, mCount);
+  SetLength(ASources, mCount);
+  FIndex.BindSources(AHeaders, ASources);
+end;
+
+function TIndexCacheWriter.AppendShared(const AFileName: string; AUnits: TList<TIndexCacheItem>): Boolean;
+var
+  mAppend: IIndexFileAppend;
+  mStamp, mBytes: Int64;
+  mOld, mReader: IIndexBlockReader;
+  mKnown: TDictionary<string, string>;
+  mWanted: TDictionary<string, Boolean>;
+  mItem: TIndexCacheItem;
+  mKey, mError: string;
+  mItems: TArray<TIndexCacheItem>;
+  mPlaces: TArray<TIndexBlockPlace>;
+  mHeaders: TArray<TUnitIndex>;
+  mSources: TArray<IIndexUnitSource>;
+  mUnits: Integer;
+  mWatch: TStopwatch;
+begin
+  Result := False;
+  if not Supports(FFileSystem, IIndexFileAppend, mAppend) or
+    not TSharedCacheWrites.LastWrite(FFileSystem, AFileName, mStamp, mOld, mKnown) then
+  begin
+    Exit;
+  end;
+  // Units der Datei, die der Auftrag nicht hat (andere Projekte), bräuchten für das neue Verzeichnis ihren Katalog
+  // aus der Datei: dann lieber ganz schreiben.
+  mWanted := TDictionary<string, Boolean>.Create(AUnits.Count);
+  try
+    for mItem in AUnits do
+    begin
+      mWanted.AddOrSetValue(AnsiUpperCase(mItem.Header.FileName), True);
+    end;
+    for mKey in mKnown.Keys do
+    begin
+      if not mWanted.ContainsKey(mKey) then
+      begin
+        Exit;
+      end;
+    end;
+  finally
+    mWanted.Free;
+  end;
+  mWatch := TStopwatch.StartNew;
+  mItems := AUnits.ToArray;
+  mBytes := 0;
+  mUnits := 0;
+  Result := mAppend.AppendStream(AFileName, mStamp,
+    function(AStream: TStream): Boolean
+    var
+      Before: Int64;
+    begin
+      Before := AStream.Size;
+      // Blöcke, die der zuletzt gebundene Leser dieser Datei liefert, stehen schon darin.
+      mUnits := TIndexCache.Append(AStream, mItems,
+        function(const ASource: IIndexUnitSource): Boolean
+        begin
+          Result := TIndexCache.ReaderOf(ASource) = mOld;
+        end, mPlaces);
+      mBytes := AStream.Size - Before;
+      Result := mUnits >= 0;
+    end, mError);
+  if not Result then
+  begin
+    Exit;
+  end;
+  if Assigned(FEvents.Written) then
+  begin
+    FEvents.Written(True, mUnits, mBytes, mWatch.ElapsedMilliseconds);
+  end;
+  BindWritten(AFileName, mItems, mPlaces, mReader, mHeaders, mSources);
+  TSharedCacheWrites.Remember(FFileSystem, AFileName, StatesOf(mItems), mReader, mHeaders, mSources);
+end;
+
+procedure TIndexCacheWriter.WriteSharedCache(const AFileName: string;
+  const AStartCached: TArray<TIndexCacheEntry>; AUnits: TList<TIndexCacheItem>; AUnbound, AAppend: Boolean);
+var
+  mWritten: TDictionary<string, string>;
   mLock: IInterface;
   mLatest: TArray<TIndexCacheEntry>;
-  mOthers: TArray<TIndexCacheItem>;
-  mOther: TIndexCacheItem;
+  mOthers, mItems: TArray<TIndexCacheItem>;
+  mPlaces: TArray<TIndexBlockPlace>;
+  mReader: IIndexBlockReader;
+  mHeaders: TArray<TUnitIndex>;
+  mSources: TArray<IIndexUnitSource>;
 begin
   // Hat in diesem Prozess schon ein Dienst diese Units in die unveränderte Datei geschrieben, gibt es
   // nichts Neues; dann weder sperren noch lesen. Sonst gegen den beim Start gelesenen Stand.
@@ -1325,10 +1566,17 @@ begin
     AUnits)) then
   begin
     // Phase 3: Verdrängbare Units ohne Block (neu gelesen) bekommen ihn aus der Datei, die ein anderer Dienst schon
-    // geschrieben hat.
+    // geschrieben hat; Phase 4: aus den dabei gemerkten Blöcken, sonst aus ihrem Verzeichnis.
     if AUnbound then
     begin
-      Bind(ReadHeaders(AFileName));
+      if TSharedCacheWrites.LastSources(FFileSystem, AFileName, mHeaders, mSources) then
+      begin
+        FIndex.BindSources(mHeaders, mSources);
+      end
+      else
+      begin
+        Bind(ReadHeaders(AFileName));
+      end;
     end;
     Exit;
   end;
@@ -1342,6 +1590,11 @@ begin
     begin
       NotWritten(AFileName, cTexts[TIndexServiceText.WriteLockNotObtained].Text);
     end;
+    Exit;
+  end;
+  // Phase 4: Zwischenstand des ersten Aufbaus an die eigene, unveränderte Datei anhängen.
+  if AAppend and AppendShared(AFileName, AUnits) then
+  begin
     Exit;
   end;
   // Erst nur die Stände (Phase 3: ohne Kataloge, die der Index schon hat).
@@ -1360,20 +1613,13 @@ begin
     mOthers := OthersOf(mLatest, AUnits);
   end;
   mLatest := nil;
-  if WriteCache(True, AFileName, AUnits.ToArray + mOthers) then
+  mItems := AUnits.ToArray + mOthers;
+  if WriteCache(True, AFileName, mItems, mPlaces) then
   begin
-    // Der Index liest ab hier aus der neuen Datei; die alte hält nur noch, wer gerade einen Block aus ihr liest.
-    Bind(ReadHeaders(AFileName));
-    mNewState := TDictionary<string, string>.Create;
-    for mOther in AUnits do
-    begin
-      mNewState.AddOrSetValue(AnsiUpperCase(mOther.Header.FileName), TSharedCacheWrites.StateOf(mOther.Header));
-    end;
-    for mOther in mOthers do
-    begin
-      mNewState.AddOrSetValue(AnsiUpperCase(mOther.Header.FileName), TSharedCacheWrites.StateOf(mOther.Header));
-    end;
-    TSharedCacheWrites.Remember(FFileSystem, AFileName, mNewState);
+    // Der Index liest ab hier aus der neuen Datei; die alte hält nur noch, wer gerade einen Block aus ihr liest. Die
+    // Lage der Blöcke meldet Write (Phase 4; vorher las Bind das eben geschriebene Verzeichnis neu).
+    BindWritten(AFileName, mItems, mPlaces, mReader, mHeaders, mSources);
+    TSharedCacheWrites.Remember(FFileSystem, AFileName, StatesOf(mItems), mReader, mHeaders, mSources);
   end;
 end;
 
@@ -1411,9 +1657,9 @@ begin
     end;
     if FRequest.SearchCacheFile <> '' then
     begin
-      WriteSharedCache(FRequest.SearchCacheFile, FSearchCached, mSearch, False);
+      WriteSharedCache(FRequest.SearchCacheFile, FSearchCached, mSearch, False, False);
     end;
-    WriteSharedCache(FRequest.LibraryCacheFile, FLibraryCached, mLibrary, HasUnbound(mStored));
+    WriteSharedCache(FRequest.LibraryCacheFile, FLibraryCached, mLibrary, HasUnbound(mStored), False);
   finally
     mLibrary.Free;
     mSearch.Free;
@@ -1449,6 +1695,36 @@ begin
   end;
 end;
 
+procedure TIndexCacheWriter.FlushLibrary;
+var
+  mProject, mSearch, mLibrary: TList<TIndexCacheItem>;
+  mStored: TArray<TIndexStoredUnit>;
+begin
+  // Wie WriteCaches, aber nur die Bibliothek und ohne die Zahl gelesener Units fortzuschreiben: Den Projekt-Cache
+  // schreibt erst das Ende des Aufbaus (Phase 4).
+  if (FRequest.CacheFile = '') or FRequest.ReadOnlyCache or (FRequest.LibraryCacheFile = '') then
+  begin
+    Exit;
+  end;
+  TSharedCacheWrites.Enter;
+  try
+    mProject := TList<TIndexCacheItem>.Create;
+    mSearch := TList<TIndexCacheItem>.Create;
+    mLibrary := TList<TIndexCacheItem>.Create;
+    try
+      mStored := FIndex.StoredUnits;
+      SortUnits(FRequest, mStored, mProject, mSearch, mLibrary);
+      WriteSharedCache(FRequest.LibraryCacheFile, FLibraryCached, mLibrary, HasUnbound(mStored), True);
+    finally
+      mLibrary.Free;
+      mSearch.Free;
+      mProject.Free;
+    end;
+  finally
+    TSharedCacheWrites.Leave;
+  end;
+end;
+
 /// <summary>Nach der Projektstufe schon schreiben (#647): In einer Projektgruppe endet der ganze Aufbau erst nach
 /// allen Projekten; wer die IDE vorher schließt, begann sonst jedes Mal von vorn.</summary>
 function ProjectDoneHandler(ACaches: TIndexCacheWriter; const AWatch: TStopwatch;
@@ -1468,14 +1744,15 @@ begin
     end;
 end;
 
-/// <summary>Erster Start mit LazyLibrary (Phase 3): Caches zwischendurch schreiben; danach bekommen die neu gelesenen
-/// Bibliotheks-Units ihre Blöcke und dürfen verdrängt werden. Begrenzt die Spitze des Aufbaus ohne Cache.</summary>
+/// <summary>Erster Start mit LazyLibrary (Phase 3): den Bibliotheks-Cache zwischendurch schreiben (Phase 4: nur ihn,
+/// angehängt); danach bekommen die neu gelesenen Bibliotheks-Units ihre Blöcke und dürfen verdrängt werden. Begrenzt
+/// die Spitze des Aufbaus ohne Cache.</summary>
 function LibraryFlushHandler(ACaches: TIndexCacheWriter): TIndexStageDone;
 begin
   Result :=
     procedure(const APartial: TIndexBuildResult)
     begin
-      ACaches.WriteCaches(APartial.Parsed);
+      ACaches.FlushLibrary;
     end;
 end;
 
@@ -1627,14 +1904,84 @@ begin
   FIndex.SetUsage(TIndexUsageStats.Create(FFileSystem, mFile));
 end;
 
+const
+  /// <summary>So oft sieht SaveStatistics(False) höchstens nach (die Statistik selbst schreibt alle 10 Minuten).
+  /// </summary>
+  cSaveCheckMs = 60 * 1000;
+
 procedure TIndexService.SaveStatistics(AForce: Boolean);
 var
   mUsage: IIndexUsage;
+  mNow: Int64;
 begin
+  if not AForce then
+  begin
+    // Phase 4: Läuft bei jeder Anfrage (ApplyText, EnsureUnit). Fälligkeit ohne Sperre und Allokation; geschrieben
+    // wird im Hintergrund, nicht im Thread der Anfrage.
+    mNow := Int64(TThread.GetTickCount64);
+    if mNow < TInterlocked.Read(FNextSaveCheck) then
+    begin
+      Exit;
+    end;
+    TInterlocked.Exchange(FNextSaveCheck, mNow + cSaveCheckMs);
+    SaveInBackground;
+    Exit;
+  end;
+  WaitForSave;
   mUsage := FIndex.Usage;
   if mUsage is TIndexUsageStats then
   begin
-    TIndexUsageStats(mUsage).SaveIfDue(AForce);
+    TIndexUsageStats(mUsage).SaveIfDue(True);
+  end;
+end;
+
+procedure TIndexService.SaveInBackground;
+var
+  mUsage: IIndexUsage;
+  mDone: TThread;
+begin
+  mUsage := FIndex.Usage;
+  if not (mUsage is TIndexUsageStats) then
+  begin
+    Exit;
+  end;
+  TMonitor.Enter(FLock);
+  try
+    if (FSaveThread <> nil) and not FSaveThread.Finished then
+    begin
+      Exit;
+    end;
+    mDone := FSaveThread;
+    FSaveThread := TThread.CreateAnonymousThread(
+      procedure
+      begin
+        TThread.NameThreadForDebugging('dpcc.UsageSave');
+        TIndexUsageStats(mUsage).SaveIfDue(False);
+      end);
+    FSaveThread.FreeOnTerminate := False;
+    FSaveThread.Start;
+  finally
+    TMonitor.Exit(FLock);
+  end;
+  // Der vorige ist fertig (Finished); freigeben außerhalb der Sperre.
+  mDone.Free;
+end;
+
+procedure TIndexService.WaitForSave;
+var
+  mThread: TThread;
+begin
+  TMonitor.Enter(FLock);
+  try
+    mThread := FSaveThread;
+    FSaveThread := nil;
+  finally
+    TMonitor.Exit(FLock);
+  end;
+  if mThread <> nil then
+  begin
+    mThread.WaitFor;
+    mThread.Free;
   end;
 end;
 

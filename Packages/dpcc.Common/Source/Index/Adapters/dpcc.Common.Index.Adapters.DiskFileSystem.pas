@@ -17,6 +17,11 @@
 // (TSharedCacheReads, TSharedCacheWrites im Index-Dienst) erkennen eine Datei an Dateisystem und Name. Mit einer
 // eigenen Instanz je Arbeitsbereich las jedes Projekt einer Gruppe den Bibliotheks-Cache selbst (neun Kopien beim
 // Start der Gruppe dpcc_d13), und der gemerkte Stand jeder Datei kam bei jedem Serverstart einmal hinzu.
+//
+// Ergänzen an Ort und Stelle (IIndexFileAppend, Speicher-Optimierung Phase 4): Beim ersten Aufbau schreibt der Dienst
+// den Bibliotheks-Cache zwischendurch; statt die ganze Datei jedes Mal neu zu schreiben, hängt er nur die neuen Blöcke
+// und ein neues Verzeichnis an. Das geht nur, solange die Datei den erwarteten Zeitstempel hat; Leser mit offenem
+// Handle lesen ihre Blöcke unverändert weiter.
 
 interface
 
@@ -25,7 +30,7 @@ uses
   dpcc.Common.Index.Contract;
 
 type
-  TDiskIndexFileSystem = class(TInterfacedObject, IIndexFileSystem)
+  TDiskIndexFileSystem = class(TInterfacedObject, IIndexFileSystem, IIndexFileAppend)
   private
     class var FShared: IIndexFileSystem;
   public
@@ -39,6 +44,9 @@ type
     function TryLockWrite(const AFileName: string): IInterface;
     function OpenBlocks(const AFileName: string): IIndexBlockReader;
     function WriteStream(const AFileName: string; const AWrite: TIndexStreamWrite; out AError: string): Boolean;
+    { IIndexFileAppend }
+    function AppendStream(const AFileName: string; AStamp: Int64; const AWrite: TIndexStreamWrite;
+      out AError: string): Boolean;
   end;
 
 implementation
@@ -53,11 +61,12 @@ uses
 
 type
   /// <summary>Texte der Unit in beiden Sprachen (#1458).</summary>
-  TDiskFileSystemText = (TargetNotReplaced);
+  TDiskFileSystemText = (TargetNotReplaced, FileChanged);
 
 const
   cTexts: array[TDiskFileSystemText] of TDpccText = (
-    (De: 'Ziel nicht ersetzt'; En: 'Target not replaced'));
+    (De: 'Ziel nicht ersetzt'; En: 'Target not replaced'),
+    (De: 'Datei inzwischen geändert'; En: 'File changed in the meantime'));
 
 {$SCOPEDENUMS OFF}
 
@@ -253,6 +262,39 @@ begin
   if FileExists(mBackup) then
   begin
     System.SysUtils.DeleteFile(mBackup);
+  end;
+end;
+
+function TDiskIndexFileSystem.AppendStream(const AFileName: string; AStamp: Int64; const AWrite: TIndexStreamWrite;
+  out AError: string): Boolean;
+var
+  mStamp: Int64;
+  mStream: TFileStream;
+begin
+  AError := '';
+  Result := False;
+  try
+    // Nur die Datei, deren Stand der Aufrufer kennt: Hat ein anderer sie ersetzt, schreibt er sie ganz.
+    if not FileStamp(AFileName, mStamp) or (mStamp <> AStamp) then
+    begin
+      AError := cTexts[TDiskFileSystemText.FileChanged].Text;
+      Exit;
+    end;
+    // Leser behalten ihre Handles (sie teilen Schreiben); ein zweiter Schreiber bekommt die Datei nicht.
+    mStream := TFileStream.Create(AFileName, fmOpenReadWrite or fmShareDenyWrite);
+    try
+      Result := AWrite(mStream);
+    finally
+      mStream.Free;
+    end;
+  except
+    // Gemeldet, nicht verschluckt: Der Aufrufer schreibt die Datei dann ganz.
+    // lsp-ignore: catch-all-without-raise -- Fehler geht als AError an den Aufrufer
+    on E: Exception do
+    begin
+      AError := ErrorReason(E);
+      Result := False;
+    end;
   end;
 end;
 

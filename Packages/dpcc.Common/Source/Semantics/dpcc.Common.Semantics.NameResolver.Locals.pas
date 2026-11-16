@@ -363,7 +363,7 @@ begin
   if Result then
   begin
     Result := (ADeclared.SymbolKind = TIndexSymbolKind.Routine) and (ADeclared.TypeName <> '') and
-      not ContainsText(ADeclared.Signature, 'overload') and SameParamTypes(ADeclared, ARoutine);
+      not ADeclared.SignatureContains('overload') and SameParamTypes(ADeclared, ARoutine);
   end;
 end;
 

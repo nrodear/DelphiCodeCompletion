@@ -15,6 +15,17 @@
 // - DPCC_MEMBENCH_COLD (Vorgabe 0): so viele Vervollständigungen "Unit." auf zufällige Units der Bibliothek
 //   (DPCC_MEMBENCH_LIBDIR, Vorgabe der source-Ordner von Delphi 13) nach den Anfragen, im Text einer Projekt-Unit;
 //   misst Nachladen und Verdrängen (Speicher-Optimierung Phase 3). Danach gilt wieder der Originaltext.
+// - DPCC_MEMBENCH_TYPING (Vorgabe 0): so viele Tipp-Runden in einer Projekt-Unit (je vier Tastendrücke im Abstand von
+//   100 ms, dann eine Pause, in der der Server den Text übernimmt), während ein zweiter Thread ununterbrochen
+//   Vervollständigung (auch nach ":="), Hover und Parameterhilfe in anderen offenen Units anfragt
+//   (Speicher-Optimierung Phase 4). Die Zeile "[typing]" nennt Zahl, Median, 95. und 99. Perzentil und Höchstwert der
+//   Antwortzeiten; jede einzelne steht in <Datei>-latency.csv.
+// - DPCC_MEMBENCH_PINNED (Vorgabe 0): Eine Projekt-Unit nennt die größten Units der Bibliothek in ihren uses
+//   (DPCC_MEMBENCH_PINNEDUNITS, kommagetrennt; Vorgabe die DPCC_MEMBENCH_PINNEDCOUNT größten Dateien unter
+//   DPCC_MEMBENCH_LIBDIR, 80) und lädt sie
+//   über Vervollständigungen; danach so viele Vervollständigungen auf zufällige Units der Bibliothek in einer anderen
+//   Unit. Die Zeile "[pinned]" nennt Nachladen und Verdrängen während dieser Vervollständigungen (Phase 4: Units aus
+//   den uses zählen nicht gegen die Grenze der verdrängbaren Units).
 // Je Messpunkt eine Zeile "[lazy]" mit geladenen, gepinnten, verdrängbaren und verdrängten Units, Katalog und
 // Dauer des Nachladens (Median, Höchstwert, größte Unit).
 // Der Cache gehört nicht dem Benutzer: Der Aufrufer setzt LOCALAPPDATA bzw. DPCC_CACHE_ROOT auf einen eigenen Ordner
@@ -49,12 +60,14 @@ uses
   System.JSON,
   System.SyncObjs,
   System.Generics.Collections,
+  System.Generics.Defaults,
   System.RegularExpressions,
   System.Diagnostics,
   dpcc.Core.Lsp.Client,
   dpcc.Core.Lsp.Session,
   dpcc.Core.Lsp.Adapters.InProcess,
   dpcc.Core.Files.WatchedChanges,
+  dpcc.Common.Index.Contract,
   dpcc.Windows.Diagnostics.ProcessInfo,
   dpcc.Common.Diagnostics.ShutdownLeaks,
   Shell.Diagnostics;
@@ -108,6 +121,27 @@ type
     property Lines: TStringList read FLines;
   end;
 
+  /// <summary>Fragt ununterbrochen in den Dateien AFiles an (Phase 4, Tippen mit gleichzeitigen Anfragen) und misst
+  /// jede Antwortzeit. Eigener Zufallsgenerator: Random ist nicht threadsicher.</summary>
+  TBenchRequester = class(TThread)
+  private
+    FSession: TLspSession;
+    FFiles: TArray<string>;
+    FTexts: TArray<string>;
+    FSeed: Cardinal;
+    FStop: Boolean;
+    function NextRandom(ARange: Integer): Integer;
+    procedure Place(const AText: string; const AMark: Char; out ALine, ACharacter: Integer);
+  protected
+    procedure Execute; override;
+  public
+    Latencies: TList<Double>;
+    Failures: Integer;
+    constructor Create(ASession: TLspSession; const AFiles, ATexts: TArray<string>);
+    destructor Destroy; override;
+    procedure Finish;
+  end;
+
   TBench = class
   private
     FGroupFile: string;
@@ -121,6 +155,8 @@ type
     FSession: TLspSession;
     FFailures: Integer;
     FRequests: Integer;
+    /// <summary>Antwortzeiten der Anfragen beim Tippen (ms), für &lt;Datei&gt;-latency.csv.</summary>
+    FLatencies: TList<Double>;
     procedure LoadProjects;
     procedure PickFiles;
     procedure StartServer;
@@ -129,10 +165,18 @@ type
     procedure Point(const AName: string);
     procedure Requests(ACount: Integer);
     procedure OneRequest;
-    /// <summary>Vervollständigungen auf Units der Bibliothek (Nachladen, Phase 3).</summary>
-    procedure ColdRequests(ACount: Integer);
+    /// <summary>Vervollständigungen auf Units der Bibliothek (Nachladen, Phase 3) im Text von AFile.</summary>
+    procedure ColdRequests(ACount: Integer; const AFile, ATag: string);
     procedure EnsureOpen(const AFileName: string);
     procedure Rebuild;
+    /// <summary>Tippen in einer Unit mit gleichzeitigen Anfragen (Phase 4); misst die Antwortzeiten.</summary>
+    procedure Typing(ARounds: Integer);
+    /// <summary>Units aus den uses einer Projekt-Unit über der Grenze, dann Nachladen (Phase 4).</summary>
+    procedure PinnedLoad(ACount: Integer);
+    /// <summary>Zustand des Nachladens nach einer Anfrage auf AFile.</summary>
+    function LazyNow(const AFile: string): TIndexLazyStats;
+    /// <summary>Die ausgewählten Dateien unter Packages (Units der Projekte).</summary>
+    function PackageFiles: TArray<string>;
   public
     constructor Create(const AGroupFile: string);
     destructor Destroy; override;
@@ -368,12 +412,14 @@ begin
   FTexts := TDictionary<string, string>.Create;
   FOpen := TList<string>.Create;
   FPoints := TList<TBenchPoint>.Create;
+  FLatencies := TList<Double>.Create;
   FSampler := TBenchSampler.Create;
 end;
 
 destructor TBench.Destroy;
 begin
   StopServer;
+  FLatencies.Free;
   FSampler.Free;
   FPoints.Free;
   FOpen.Free;
@@ -600,40 +646,55 @@ begin
   end;
 end;
 
-procedure TBench.ColdRequests(ACount: Integer);
+function LibraryFolder: string;
+begin
+  Result := Trim(GetEnvironmentVariable('DPCC_MEMBENCH_LIBDIR'));
+  if Result = '' then
+  begin
+    Result := 'C:\Program Files (x86)\Embarcadero\Studio\37.0\source';
+  end;
+end;
+
+/// <summary>Alle .pas unter dem Ordner der Bibliothek ohne WinRT (nicht im Bibliotheks-Cache, c1), sortiert.</summary>
+function LibraryFiles: TArray<string>;
 var
-  mFolder, mFile, mOwn, mName, mText: string;
+  mName: string;
+begin
+  Result := nil;
+  if not TDirectory.Exists(LibraryFolder) then
+  begin
+    Exit;
+  end;
+  for mName in TDirectory.GetFiles(LibraryFolder, '*.pas', TSearchOption.soAllDirectories) do
+  begin
+    if Pos('\winrt\', LowerCase(mName)) = 0 then
+    begin
+      Result := Result + [mName];
+    end;
+  end;
+  TArray.Sort<string>(Result);
+end;
+
+procedure TBench.ColdRequests(ACount: Integer; const AFile, ATag: string);
+var
+  mFile, mOwn, mName, mText: string;
   mAll: TArray<string>;
   mIndex, mFailed: Integer;
   mWatch: TStopwatch;
   mTotal, mMax, mMs: Double;
   mResponse: TJSONValue;
 begin
-  mFolder := Trim(GetEnvironmentVariable('DPCC_MEMBENCH_LIBDIR'));
-  if mFolder = '' then
-  begin
-    mFolder := 'C:\Program Files (x86)\Embarcadero\Studio\37.0\source';
-  end;
-  if (ACount <= 0) or not TDirectory.Exists(mFolder) then
+  if ACount <= 0 then
   begin
     Exit;
   end;
-  // Ohne WinRT: Diese Units stehen nicht im Bibliotheks-Cache (c1) und würden neu gelesen.
-  mAll := nil;
-  for mName in TDirectory.GetFiles(mFolder, '*.pas', TSearchOption.soAllDirectories) do
-  begin
-    if Pos('\winrt\', LowerCase(mName)) = 0 then
-    begin
-      mAll := mAll + [mName];
-    end;
-  end;
+  mAll := LibraryFiles;
   if Length(mAll) = 0 then
   begin
     Exit;
   end;
-  TArray.Sort<string>(mAll);
   RandSeed := 815;
-  mFile := FFiles[0];
+  mFile := AFile;
   mOwn := ChangeFileExt(ExtractFileName(mFile), '');
   EnsureOpen(mFile);
   mTotal := 0;
@@ -663,9 +724,335 @@ begin
   end;
   // Wieder der Originaltext (uses der Projekt-Unit wie vorher).
   FSession.Sync(mFile, FTexts[mFile]);
-  System.Writeln(Format('[cold] %d Vervollständigungen auf Bibliotheks-Units, gescheitert %d, Mittel %s ms, max %s ms',
-    [ACount, mFailed, FormatFloat('0.0', mTotal / ACount, TFormatSettings.Invariant), FormatFloat('0.0', mMax,
+  System.Writeln(Format('[%s] %d Vervollständigungen auf Bibliotheks-Units, gescheitert %d, Mittel %s ms, max %s ms',
+    [ATag, ACount, mFailed, FormatFloat('0.0', mTotal / ACount, TFormatSettings.Invariant), FormatFloat('0.0', mMax,
     TFormatSettings.Invariant)]));
+end;
+
+{ TBenchRequester }
+
+constructor TBenchRequester.Create(ASession: TLspSession; const AFiles, ATexts: TArray<string>);
+begin
+  FSession := ASession;
+  FFiles := AFiles;
+  FTexts := ATexts;
+  FSeed := 4242;
+  Latencies := TList<Double>.Create;
+  inherited Create(False);
+end;
+
+destructor TBenchRequester.Destroy;
+begin
+  Finish;
+  inherited;
+  Latencies.Free;
+end;
+
+procedure TBenchRequester.Finish;
+begin
+  FStop := True;
+  if not Finished then
+  begin
+    WaitFor;
+  end;
+end;
+
+function TBenchRequester.NextRandom(ARange: Integer): Integer;
+begin
+  // Lineare Kongruenz (Numerical Recipes); reicht für die Auswahl von Stellen.
+  FSeed := Cardinal(UInt64(FSeed) * 1664525 + 1013904223);
+  Result := Integer((UInt64(FSeed shr 8) * UInt64(ARange)) shr 24);
+end;
+
+procedure TBenchRequester.Place(const AText: string; const AMark: Char; out ALine, ACharacter: Integer);
+var
+  mLines: TArray<string>;
+  mTry, mPos: Integer;
+begin
+  mLines := AText.Split([#10]);
+  ALine := 0;
+  ACharacter := 0;
+  if Length(mLines) = 0 then
+  begin
+    Exit;
+  end;
+  for mTry := 1 to 20 do
+  begin
+    ALine := NextRandom(Length(mLines));
+    mPos := mLines[ALine].TrimRight([#13]).LastIndexOf(AMark);
+    if mPos >= 0 then
+    begin
+      ACharacter := mPos + 1;
+      Exit;
+    end;
+  end;
+  ACharacter := Length(mLines[ALine].TrimRight([#13]));
+end;
+
+procedure TBenchRequester.Execute;
+var
+  mPick, mKind, mLine, mCharacter: Integer;
+  mWatch: TStopwatch;
+  mResponse: TJSONValue;
+begin
+  NameThreadForDebugging('dpcc.MemoryBench.Requests');
+  while not FStop do
+  begin
+    mPick := NextRandom(Length(FFiles));
+    mKind := NextRandom(100);
+    try
+      mWatch := TStopwatch.StartNew;
+      // 50 % Vervollständigung nach ".", 20 % Hover, 15 % Parameterhilfe, 15 % Vervollständigung nach ":=" (Werte,
+      // sucht Typen über FindSymbols).
+      if mKind < 50 then
+      begin
+        Place(FTexts[mPick], '.', mLine, mCharacter);
+        mResponse := FSession.Completion(FFiles[mPick], mLine, mCharacter, cRequestTimeoutMs);
+        mResponse.Free;
+      end
+      else if mKind < 70 then
+      begin
+        Place(FTexts[mPick], ' ', mLine, mCharacter);
+        FSession.Hover(FFiles[mPick], FTexts[mPick], mLine, mCharacter, cRequestTimeoutMs);
+      end
+      else if mKind < 85 then
+      begin
+        Place(FTexts[mPick], '(', mLine, mCharacter);
+        mResponse := FSession.SignatureHelp(FFiles[mPick], mLine, mCharacter, cRequestTimeoutMs);
+        mResponse.Free;
+      end
+      else
+      begin
+        Place(FTexts[mPick], '=', mLine, mCharacter);
+        mResponse := FSession.Completion(FFiles[mPick], mLine, mCharacter + 1, cRequestTimeoutMs);
+        mResponse.Free;
+      end;
+      Latencies.Add(mWatch.Elapsed.TotalMilliseconds);
+    except
+      on Exception do
+        Inc(Failures);
+    end;
+  end;
+end;
+
+/// <summary>Stelle hinter "implementation" für die Tipp-Zeile; -1, wenn es keine gibt.</summary>
+function TypingAt(const AText: string): Integer;
+var
+  mPos: Integer;
+begin
+  mPos := Pos(#10'implementation', AText);
+  if mPos = 0 then
+  begin
+    Exit(-1);
+  end;
+  Result := Pos(#10, AText, mPos + 1);
+end;
+
+function Percentile(const ASorted: TArray<Double>; APercent: Integer): Double;
+begin
+  if Length(ASorted) = 0 then
+  begin
+    Exit(0);
+  end;
+  Result := ASorted[Min(High(ASorted), (Length(ASorted) * APercent) div 100)];
+end;
+
+procedure TBench.Typing(ARounds: Integer);
+var
+  mFile, mText, mTyped: string;
+  mFiles, mTexts: TArray<string>;
+  mAt, mRound, mKey, mIndex: Integer;
+  mRequester: TBenchRequester;
+  mSorted: TArray<Double>;
+begin
+  if (ARounds <= 0) or (Length(FFiles) < 3) then
+  begin
+    Exit;
+  end;
+  // Getippt wird in einer Unit mit implementation-Teil; die anderen fragt der zweite Thread an.
+  mFile := '';
+  mFiles := nil;
+  mTexts := nil;
+  for mIndex := 0 to High(FFiles) do
+  begin
+    if (mFile = '') and (Pos('\Packages\', FFiles[mIndex]) > 0) and (TypingAt(FTexts[FFiles[mIndex]]) > 0) then
+    begin
+      mFile := FFiles[mIndex];
+    end
+    else if Length(mFiles) < 6 then
+    begin
+      mFiles := mFiles + [FFiles[mIndex]];
+      mTexts := mTexts + [FTexts[FFiles[mIndex]]];
+    end;
+  end;
+  if mFile = '' then
+  begin
+    Exit;
+  end;
+  // Alle vorher öffnen: Der zweite Thread benutzt die Sitzung, EnsureOpen nicht.
+  EnsureOpen(mFile);
+  for mIndex := 0 to High(mFiles) do
+  begin
+    EnsureOpen(mFiles[mIndex]);
+  end;
+  mText := FTexts[mFile];
+  mAt := TypingAt(mText);
+  mTyped := '';
+  mRequester := TBenchRequester.Create(FSession, mFiles, mTexts);
+  try
+    for mRound := 1 to ARounds do
+    begin
+      // Vier Tastendrücke wie beim Tippen, dann die Tipp-Pause: Der Server übernimmt den Text (ApplyText).
+      for mKey := 1 to 4 do
+      begin
+        mTyped := mTyped + Chr(Ord('a') + (mRound + mKey) mod 26);
+        FSession.Sync(mFile, Copy(mText, 1, mAt) + '// ' + mTyped + #13#10 + Copy(mText, mAt + 1, MaxInt));
+        TThread.Sleep(100);
+      end;
+      TThread.Sleep(700);
+    end;
+    mRequester.Finish;
+    FLatencies.AddRange(mRequester.Latencies);
+    mSorted := mRequester.Latencies.ToArray;
+    TArray.Sort<Double>(mSorted);
+    System.Writeln(Format('[typing] Runden %d Anfragen %d gescheitert %d median %s ms p95 %s ms p99 %s ms max %s ms',
+      [ARounds, Length(mSorted), mRequester.Failures, FormatFloat('0.0', Percentile(mSorted, 50),
+      TFormatSettings.Invariant), FormatFloat('0.0', Percentile(mSorted, 95), TFormatSettings.Invariant),
+      FormatFloat('0.0', Percentile(mSorted, 99), TFormatSettings.Invariant), FormatFloat('0.0',
+      Percentile(mSorted, 100), TFormatSettings.Invariant)]));
+    Inc(FRequests, Length(mSorted));
+    Inc(FFailures, mRequester.Failures);
+  finally
+    mRequester.Free;
+  end;
+  FSession.Sync(mFile, FTexts[mFile]);
+end;
+
+function TBench.PackageFiles: TArray<string>;
+var
+  mFile: string;
+begin
+  Result := nil;
+  for mFile in FFiles do
+  begin
+    if Pos('\Packages\', mFile) > 0 then
+    begin
+      Result := Result + [mFile];
+    end;
+  end;
+end;
+
+function TBench.LazyNow(const AFile: string): TIndexLazyStats;
+var
+  mResponse: TJSONValue;
+begin
+  TShellMemoryReport.Request;
+  try
+    // Billig und ohne den Text neu zu schicken (Hover gliche ihn an; eine Vervollständigung am Anfang listete alles
+    // Sichtbare).
+    mResponse := FSession.SignatureHelp(AFile, 0, 0, cRequestTimeoutMs);
+    mResponse.Free;
+  except
+    on Exception do
+      Inc(FFailures);
+  end;
+  Result := TShellMemoryReport.Latest.Lazy;
+end;
+
+/// <summary>Units für die uses (DPCC_MEMBENCH_PINNEDUNITS, sonst die DPCC_MEMBENCH_PINNEDCOUNT größten Dateien der
+/// Bibliothek; viele davon stehen schon in der Hülle der Projekte).</summary>
+function PinnedUnitNames: TArray<string>;
+var
+  mList: string;
+  mFiles: TArray<string>;
+  mSizes: TArray<TPair<Int64, string>>;
+  mIndex: Integer;
+begin
+  mList := Trim(GetEnvironmentVariable('DPCC_MEMBENCH_PINNEDUNITS'));
+  if mList <> '' then
+  begin
+    Exit(mList.Split([','], TStringSplitOptions.ExcludeEmpty));
+  end;
+  mFiles := LibraryFiles;
+  SetLength(mSizes, Length(mFiles));
+  for mIndex := 0 to High(mFiles) do
+  begin
+    mSizes[mIndex] := TPair<Int64, string>.Create(TFile.GetSize(mFiles[mIndex]), mFiles[mIndex]);
+  end;
+  TArray.Sort<TPair<Int64, string>>(mSizes, TComparer<TPair<Int64, string>>.Construct(
+    function(const ALeft, ARight: TPair<Int64, string>): Integer
+    begin
+      Result := CompareValue(ARight.Key, ALeft.Key);
+      if Result = 0 then
+      begin
+        Result := CompareText(ALeft.Value, ARight.Value);
+      end;
+    end));
+  Result := nil;
+  for mIndex := 0 to Min(EnvInt('DPCC_MEMBENCH_PINNEDCOUNT', 80) - 1, High(mSizes)) do
+  begin
+    Result := Result + [ChangeFileExt(ExtractFileName(mSizes[mIndex].Value), '')];
+  end;
+end;
+
+procedure TBench.PinnedLoad(ACount: Integer);
+var
+  mFile, mOther, mOwn, mText: string;
+  mNames, mFiles: TArray<string>;
+  mIndex: Integer;
+  mResponse: TJSONValue;
+  mBefore, mAfter: TIndexLazyStats;
+begin
+  if ACount <= 0 then
+  begin
+    Exit;
+  end;
+  mNames := PinnedUnitNames;
+  if Length(mNames) = 0 then
+  begin
+    Exit;
+  end;
+  // Units der Projekte (unter Packages): Nur deren getippte uses kennt der Index.
+  mFiles := PackageFiles;
+  if Length(mFiles) < 2 then
+  begin
+    Exit;
+  end;
+  mFile := mFiles[0];
+  mOther := mFiles[1];
+  mOwn := ChangeFileExt(ExtractFileName(mFile), '');
+  mText := Format('unit %s;'#13#10'interface'#13#10'uses %s;'#13#10'implementation'#13#10'procedure BenchPinned;'#13#10 +
+    'begin'#13#10, [mOwn, string.Join(', ', mNames)]);
+  for mIndex := 0 to High(mNames) do
+  begin
+    mText := mText + '  ' + mNames[mIndex] + '.;'#13#10;
+  end;
+  mText := mText + 'end;'#13#10'end.'#13#10;
+  // Beide offen (die andere zuerst, damit sie mFile nicht schließt): Erst eine Änderung (didChange) übernimmt der
+  // Server nach der Tipp-Pause in den Index, das Öffnen (didOpen) nicht.
+  EnsureOpen(mOther);
+  EnsureOpen(mFile);
+  FSession.Sync(mFile, mText);
+  // Tipp-Pause abwarten: erst dann stehen die uses im Index und halten die Units.
+  TThread.Sleep(1500);
+  for mIndex := 0 to High(mNames) do
+  begin
+    try
+      mResponse := FSession.Completion(mFile, 6 + mIndex, Length(mNames[mIndex]) + 3, cRequestTimeoutMs);
+      mResponse.Free;
+    except
+      on Exception do
+        Inc(FFailures);
+    end;
+  end;
+  mBefore := LazyNow(mFile);
+  ColdRequests(ACount, mOther, 'pinned-cold');
+  mAfter := LazyNow(mFile);
+  System.Writeln(Format('[pinned] uses %d Units, danach %d Vervollständigungen: nachgeladen %d verdrängt %d; ' +
+    'geladen %d gepinnt %d verdrängbar %d (%s MB)', [Length(mNames), ACount, mAfter.Loads - mBefore.Loads,
+    mAfter.Evictions - mBefore.Evictions, mAfter.Loaded, mAfter.Pinned, mAfter.Evictable,
+    Mb(mAfter.EvictableBytes)]));
+  FSession.Sync(mFile, FTexts[mFile]);
 end;
 
 procedure TBench.Rebuild;
@@ -692,8 +1079,20 @@ begin
   if EnvInt('DPCC_MEMBENCH_COLD', 0) > 0 then
   begin
     FSampler.SetPhase('cold');
-    ColdRequests(EnvInt('DPCC_MEMBENCH_COLD', 0));
+    ColdRequests(EnvInt('DPCC_MEMBENCH_COLD', 0), FFiles[0], 'cold');
     Point(Format('cold %d', [EnvInt('DPCC_MEMBENCH_COLD', 0)]));
+  end;
+  if EnvInt('DPCC_MEMBENCH_TYPING', 0) > 0 then
+  begin
+    FSampler.SetPhase('typing');
+    Typing(EnvInt('DPCC_MEMBENCH_TYPING', 0));
+    Point(Format('typing %d', [EnvInt('DPCC_MEMBENCH_TYPING', 0)]));
+  end;
+  if EnvInt('DPCC_MEMBENCH_PINNED', 0) > 0 then
+  begin
+    FSampler.SetPhase('pinned');
+    PinnedLoad(EnvInt('DPCC_MEMBENCH_PINNED', 0));
+    Point(Format('pinned %d', [EnvInt('DPCC_MEMBENCH_PINNED', 0)]));
   end;
   for mIndex := 1 to ARebuilds do
   begin
@@ -722,6 +1121,7 @@ procedure TBench.Save(const AFileName: string);
 var
   mPoints: TStringList;
   mPoint: TBenchPoint;
+  mLatency: Double;
 begin
   FSampler.Finish;
   ForceDirectories(ExtractFilePath(ExpandFileName(AFileName)));
@@ -747,6 +1147,16 @@ begin
         TFormatSettings.Invariant)]));
     end;
     mPoints.SaveToFile(ChangeFileExt(AFileName, '') + '-points.csv', TEncoding.UTF8);
+    if FLatencies.Count > 0 then
+    begin
+      mPoints.Clear;
+      mPoints.Add('ms');
+      for mLatency in FLatencies do
+      begin
+        mPoints.Add(FormatFloat('0.00', mLatency, TFormatSettings.Invariant));
+      end;
+      mPoints.SaveToFile(ChangeFileExt(AFileName, '') + '-latency.csv', TEncoding.UTF8);
+    end;
   finally
     mPoints.Free;
   end;
