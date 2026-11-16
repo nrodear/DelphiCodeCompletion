@@ -13,6 +13,9 @@
 // editor.gutterColumn*, highlight.selectionMatches*, highlight.pairOwners, highlight.pairGuideWidth,
 // highlight.pairGuideOpacity, highlight.nestedRoutines, highlight.nestedRoutineBand, highlight.inactiveDim,
 // inlayHints.* (Plugin), navigation.mouseButtons und callHierarchy.diagram; dazu die leeren Unterpunkte (x-nodes).
+// Seit S9 von Hand ohne highlight.pairColors und highlight.pairGuides (dpcc fasst die Strukturhervorhebung der IDE
+// nicht mehr an) und ohne den Unterpunkt editor.pairs; die Farben highlight.pairColorsLight/-Dark und
+// highlight.nestedRoutineColorLight/-Dark haben keinen Hauptschalter mehr (x-parent leer).
 
 interface
 
@@ -22,7 +25,7 @@ function DpccPluginSchemaJson: string;
 implementation
 
 const
-  cChunks: array[0..375] of string = (
+  cChunks: array[0..374] of string = (
     '{' + #10 + '  "$schema": "http://json-schema.org/draft-07/schema#",' + #10 + '  "title": "dpcc-Plugin-Einstellungen",' + #10,
     '  "description": "Katalog der Einstellungen des IDE-Plugins (#227, #604, #723). Schlüssel = Name in TDpccPluginSettings.Load/Save (Registry HKCU\\Software\\dpcc\\IdePlugin; ein Teil liegt in %APPDATA%' +
       '\\dpcc\\settings.json). x-key: Schlüssel in Doku und Exportdatei dpcc-settings.json; x-area: Bereich für Export, Import und Zurücksetzen (x-areas); x-page: Seite; x-state: interner Zustand (nicht expo' +
@@ -48,7 +51,7 @@ const
       '      "captionEn": "Code queries"' + #10 + '    },' + #10 + '    "general.hotspots": {' + #10 + '      "caption": "Hotspots",' + #10 + '      "captionEn": "Hotspots"' + #10 + '    },' + #10 +
       '    "issues.vcs": {' + #10 + '      "caption": "Versionsverwaltung",' + #10 + '      "captionEn": "Version control"' + #10 + '    },' + #10 + '    "vcs.branches": {' + #10 +
       '      "caption": "Branches",' + #10 + '      "captionEn": "Branches"' + #10 + '    },' + #10 + '    "vcs.externals": {' + #10 + '      "caption": "Externals",' + #10 +
-      '      "captionEn": "Externals"' + #10 + '    },' + #10 + '    "editor.pairs": {' + #10 + '      "caption": "Paarfärbung",' + #10 + '      "captionEn": "Pair colouring"' + #10 + '    },' + #10 +
+      '      "captionEn": "Externals"' + #10 + '    },' + #10 +
       '    "editor.toolbar": {' + #10 + '      "caption": "Editorleiste",' + #10 + '      "captionEn": "Editor toolbar"' + #10 + '    },' + #10,
     '    "editor.designerBar": {' + #10 + '      "caption": "Designer-Leiste",' + #10 + '      "captionEn": "Designer bar"' + #10 + '    },' + #10 + '    "editor.exitPoints": {' + #10 +
       '      "caption": "Austrittspunkte",' + #10 + '      "captionEn": "Exit points"' + #10 + '    },' + #10 + '    "highlight.reassigned": {' + #10 + '      "caption": "Neu zugewiesene Variablen",' + #10,
@@ -99,11 +102,7 @@ const
       '      "x-state": true' + #10 + '    },' + #10 + '    "UnitRelationsWindowPlaced": {' + #10 + '      "type": "boolean",' + #10 + '      "default": false,' + #10 + '      "x-key": "ui.unitRelationsWindowPlaced",' + #10 + '      "x-area": "general",' + #10 + '      "x-page": "Allgemein",' + #10 + '      "x-state": true,' + #10 + '      "x-issue": "#593"' + #10 + '    },' + #10 +
       '    "ExperimentalEnabled": {' + #10 + '      "type": "boolean",' + #10 + '      "default": false,' + #10 + '      "x-key": "experimental.enabled",' + #10 + '      "x-area": "general",' + #10 + '      "x-page": "Allgemein",' + #10 + '      "x-quickToggle": true,' + #10 + '      "x-caption": "Experimentelle Funktionen erlauben",' + #10 + '      "x-captionEn": "Allow experimental features",' +
       #10 + '      "x-issue": "#834",' + #10,
-    '      "x-keywords": [' + #10 + '        "Beta",' + #10 + '        "Vorschau",' + #10 + '        "Preview"' + #10 + '      ]' + #10 + '    },' + #10 + '    "PairColors": {' + #10 + '      "type": "boolean",' + #10 + '      "default": true,' + #10 + '      "x-key": "highlight.pairColors",' + #10 + '      "x-area": "highlighting",' + #10 + '      "x-feature": "Pairs",' + #10 +
-      '      "x-page": "Editor",' + #10 + '      "x-parent": "completion.enabled",' + #10 + '      "x-node": "editor.pairs",' + #10 + '      "x-quickToggle": true,' + #10 + '      "x-drawing": true,' + #10 + '      "x-caption": "Klammerfarben",' + #10 + '      "x-captionEn": "Bracket colors",' + #10 + '      "x-issue": "#514",' + #10 + '      "x-keywords": [' + #10 + '        "Klammern",' + #10 +
-      '        "Brackets",' + #10 + '        "Rainbow"' + #10 + '      ]' + #10 + '    },' + #10 + '    "PairGuides": {' + #10 + '      "type": "boolean",' + #10 + '      "default": true,' + #10 + '      "x-key": "highlight.pairGuides",' + #10 + '      "x-area": "highlighting",' + #10 + '      "x-feature": "Pairs",' + #10 + '      "x-page": "Editor",' + #10 +
-      '      "x-parent": "highlight.pairColors",' + #10 + '      "x-quickToggle": true,' + #10 + '      "x-drawing": true,' + #10,
-    '      "x-caption": "Blocklinien",' + #10 + '      "x-captionEn": "Block guides",' + #10 + '      "x-issue": "#514"' + #10 + '    },' + #10,
+    '      "x-keywords": [' + #10 + '        "Beta",' + #10 + '        "Vorschau",' + #10 + '        "Preview"' + #10 + '      ]' + #10 + '    },' + #10,
     '    "RecursionMarkers": {' + #10 + '      "type": "boolean",' + #10 + '      "default": true,' + #10 + '      "x-key": "editor.recursionMarkers",' + #10,
     '      "x-area": "editor",' + #10 + '      "x-feature": "RecursionMarkers",' + #10 + '      "x-page": "Editor",' + #10 + '      "x-quickToggle": true,' + #10 + '      "x-drawing": true,' + #10 + '      "x-caption": "Rekursionssymbole",' + #10 + '      "x-captionEn": "Recursion markers",' + #10 + '      "x-issue": "#623"' + #10 + '    },' + #10 + '    "RecursionMarkersDepth": {' + #10 +
       '      "type": "integer",' + #10 + '      "default": 4,' + #10 + '      "description": "Höchstens so viele Methoden auf einem Kreis über andere Methoden derselben Unit (1 bis 16; 1 = nur direkte Rekursion).",' + #10 + '      "x-key": "editor.recursionMarkers.depth",' + #10 + '      "x-area": "editor",' + #10 + '      "x-page": "Editor",' + #10 + '      "x-issue": "#623"' + #10 + '    },' +
@@ -357,12 +356,12 @@ const
       '      "default": 8306,' + #10 + '      "x-key": "keys.searchPrevious",' + #10 + '      "x-area": "keys",' + #10 + '      "x-format": "shortcut",' + #10 + '      "x-page": "Befehle",' + #10 + '      "x-issue": "#878"' + #10 + '    },' + #10 + '    "SearchMethodKey": {' + #10 + '      "type": "integer",' + #10 + '      "default": 57414,' + #10 + '      "x-key": "keys.searchInMethod",' + #10 +
       '      "x-area": "keys",' + #10 + '      "x-format": "shortcut",' + #10,
     '      "x-page": "Befehle",' + #10 + '      "x-issue": "#877"' + #10 + '    },' + #10 + '    "PairColorsLight": {' + #10 + '      "type": "string",' + #10 + '      "default": "",' + #10 +
-      '      "x-key": "highlight.pairColorsLight",' + #10 + '      "x-area": "highlighting",' + #10 + '      "x-page": "Farben",' + #10 + '      "x-parent": "highlight.pairColors",' + #10 +
+      '      "x-key": "highlight.pairColorsLight",' + #10 + '      "x-area": "highlighting",' + #10 + '      "x-page": "Farben",' + #10 + '      "x-parent": "",' + #10 +
       '      "x-node": ""' + #10 + '    },' + #10 + '    "PairColorsDark": {' + #10 + '      "type": "string",' + #10 + '      "default": "",' + #10 + '      "x-key": "highlight.pairColorsDark",' + #10 +
       '      "x-area": "highlighting",' + #10,
-    '      "x-page": "Farben",' + #10 + '      "x-parent": "highlight.pairColors",' + #10 + '      "x-node": ""' + #10 + '    },' + #10 + '    "NestedRoutineColorLight": {' + #10 + '      "type": "string",' + #10 + '      "default": "",' + #10 + '      "description": "Eigene Farbe lokaler Routinen im hellen Schema (#RRGGBB); leer = Vorgabe der Palette.",' + #10 +
-      '      "x-key": "highlight.nestedRoutineColorLight",' + #10 + '      "x-area": "highlighting",' + #10 + '      "x-page": "Farben",' + #10 + '      "x-parent": "highlight.pairColors",' + #10 + '      "x-node": "",' + #10 + '      "x-issue": "#1788"' + #10 + '    },' + #10 + '    "NestedRoutineColorDark": {' + #10 + '      "type": "string",' + #10 + '      "default": "",' + #10 +
-      '      "description": "Eigene Farbe lokaler Routinen im dunklen Schema (#RRGGBB); leer = Vorgabe der Palette.",' + #10 + '      "x-key": "highlight.nestedRoutineColorDark",' + #10 + '      "x-area": "highlighting",' + #10 + '      "x-page": "Farben",' + #10 + '      "x-parent": "highlight.pairColors",' + #10 + '      "x-node": "",' + #10 + '      "x-issue": "#1788"' + #10 + '    },' + #10,
+    '      "x-page": "Farben",' + #10 + '      "x-parent": "",' + #10 + '      "x-node": ""' + #10 + '    },' + #10 + '    "NestedRoutineColorLight": {' + #10 + '      "type": "string",' + #10 + '      "default": "",' + #10 + '      "description": "Eigene Farbe lokaler Routinen im hellen Schema (#RRGGBB); leer = Vorgabe der Palette.",' + #10 +
+      '      "x-key": "highlight.nestedRoutineColorLight",' + #10 + '      "x-area": "highlighting",' + #10 + '      "x-page": "Farben",' + #10 + '      "x-parent": "",' + #10 + '      "x-node": "",' + #10 + '      "x-issue": "#1788"' + #10 + '    },' + #10 + '    "NestedRoutineColorDark": {' + #10 + '      "type": "string",' + #10 + '      "default": "",' + #10 +
+      '      "description": "Eigene Farbe lokaler Routinen im dunklen Schema (#RRGGBB); leer = Vorgabe der Palette.",' + #10 + '      "x-key": "highlight.nestedRoutineColorDark",' + #10 + '      "x-area": "highlighting",' + #10 + '      "x-page": "Farben",' + #10 + '      "x-parent": "",' + #10 + '      "x-node": "",' + #10 + '      "x-issue": "#1788"' + #10 + '    },' + #10,
     '    "ProblemsStatusCounter": {' + #10 + '      "type": "boolean",' + #10 + '      "default": true,' + #10 + '      "x-key": "problems.statusCounter",' + #10 + '      "x-area": "editor",' + #10 + '      "x-page": "Compiler",' + #10 + '      "x-issue": "#509"' + #10 + '    },' + #10 + '    "ProblemsWindow": {' + #10 + '      "type": "boolean",' + #10 + '      "default": true,' + #10 +
       '      "description": "Andockbares Fenster „dpcc-Prüfung“ mit allen Befunden, laufend aktualisiert; aus = kein Menüeintrag, kein Fenster.",' + #10 + '      "x-key": "problems.window",' + #10 + '      "x-area": "rules",' + #10 + '      "x-feature": "Problems",' + #10 + '      "x-page": "Prüfregeln",' + #10 + '      "x-parent": "problems.enabled",' + #10 + '      "x-node": "rules.window",' +
       #10 + '      "x-quickToggle": true,' + #10 + '      "x-caption": "Prüffenster",' + #10 + '      "x-captionEn": "Findings window",' + #10 + '      "x-issue": "#909"' + #10 + '    },' + #10 + '    "ProblemsWindowScope": {' + #10 + '      "type": "string",' + #10 + '      "enum": [' + #10 + '        "file",' + #10 + '        "project",' + #10 + '        "group"' + #10 + '      ],' + #10 +

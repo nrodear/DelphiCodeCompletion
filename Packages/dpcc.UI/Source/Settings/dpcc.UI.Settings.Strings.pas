@@ -11,8 +11,8 @@ interface
 type
   TDpccSettingsTextId = (
     SettingsTitle, SettingsEnabled, SettingsRows, SettingsParentheses, SettingsFixCase, SettingsLearning,
-    SettingsGroupInherited, SettingsPreview, SettingsHover, SettingsResetHistory, SettingsResetWidths, SettingsPairs,
-    SettingsPairGuides, SettingsXmlDocExpand, SettingsXmlDocCollapsed, SettingsXmlDocLast, SettingsXmlDocExpanded,
+    SettingsGroupInherited, SettingsPreview, SettingsHover, SettingsResetHistory, SettingsResetWidths,
+    SettingsXmlDocExpand, SettingsXmlDocCollapsed, SettingsXmlDocLast, SettingsXmlDocExpanded,
     SettingsXmlDocMaxLines, SettingsIndexRebuild, SettingsIndexRebuildConfirm, SettingsCommitChars, SettingsAutoUses,
     SettingsParameterHints, SettingsOpenDelay, SettingsAutoWidth,
     // „Index neu aufbauen“ auf der Seite „Allgemein“ (S4, vorher „Index-Cache löschen“ #184 auf der Seite „Index“).
@@ -53,8 +53,6 @@ const
      'Eigener Tooltip beim Verweilen über Bezeichnern',
      'Verlauf zurücksetzen',
      'Breiten zurücksetzen',
-     'Klammern und Blockpaare (begin/end …) nach Tiefe färben',
-     'Blocklinien in den Paarfarben (schaltet die Strukturhervorhebung der IDE ab)',
      'XMLDoc beim Öffnen',
      'immer zugeklappt',
      'wie zuletzt',
@@ -114,8 +112,6 @@ const
      'Own tooltip when hovering identifiers',
      'Reset history',
      'Reset widths',
-     'Colour brackets and block pairs (begin/end …) by depth',
-     'Block lines in the pair colours (switches off the IDE''s structural highlighting)',
      'XMLDoc when opened',
      'always collapsed',
      'as last time',

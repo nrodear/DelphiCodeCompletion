@@ -51,7 +51,7 @@ uses
   dpcc.UI.Settings.Page.Completion,
   dpcc.UI.Strings,
   dpcc.UI.Settings.Strings,
-  dpcc.IDE.Foundation.StructureSwitch,
+  dpcc.IDE.Foundation.InsightSwitch,
   dpcc.IDE.Foundation.Settings;
 
 type
@@ -146,9 +146,10 @@ begin
       mSettings.Normalize;
       TDpccIdeSettings.Update(mSettings);
     end;
-    // Strukturhervorhebung und Help Insight der IDE erst nach dem Dialog abgleichen: Mit OK
+    // Help Insight und Wert-Tooltip der IDE erst nach dem Dialog abgleichen: Mit OK
     // schreibt die IDE danach ihre Editoroptionen aus dem Speicher zurück, auch die Schalter,
     // die dpcc abgeschaltet hatte. Sonst zeigt sie ab dem nächsten Start wieder beide Tooltips.
+    // Die Strukturhervorhebung der IDE fasst dpcc seit S9 nicht mehr an.
     if Accepted then
     begin
       TDpccMainThread.ForceQueue(TDpccFeature.Settings,
@@ -157,7 +158,7 @@ begin
           TDpccGuard.Run(TDpccFeature.Settings,
             procedure
             begin
-              TDpccIdeStructureSwitch.Sync;
+              TDpccIdeInsightSwitch.Sync;
             end);
         end);
     end;

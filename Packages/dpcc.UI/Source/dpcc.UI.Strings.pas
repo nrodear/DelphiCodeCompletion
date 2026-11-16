@@ -21,7 +21,7 @@ type
   TDpccTextId = (
     OptionalDefault, NoOverloadWith, MoreOverloads, KindClass, KindClassRef, KindObject, KindRecord, KindInterface,
     KindHelper, KindEnum, KindType, KindMethod, KindConstructor, KindRoutine, KindProperty, KindField, KindVariable,
-    KindConstant, KindEnumMember, PairGuidesIdeOff, PairGuidesIdeOn, ProblemsConfidence, ConfidenceHigh,
+    KindConstant, KindEnumMember, ProblemsConfidence, ConfidenceHigh,
     ConfidenceMedium, ConfidenceLow, HelpInsightIdeOff, HelpInsightIdeOn, TooltipWatchesIdeOff, TooltipWatchesIdeOn,
     AccessSignature, AccessParameter, DocTypeParams, DocValue, DocExample, DocSeeAlso, DocParams, DocReturns,
     DocExceptions, DocRemarks, DocUndocumented, DocMore, DocLess, DocCountParam, DocCountParams, DocCountTypeParam,
@@ -91,9 +91,6 @@ const
     ( 'optional, Standard %s',
      'Keine Überladung mit %d Parametern.', '… %d weitere',
      'Klasse', 'Klassenreferenz', 'Objekttyp', 'Record', 'Interface', 'Helfer', 'Aufzählung', 'Typ', 'Methode', 'Konstruktor', 'Routine', 'Property', 'Feld', 'Variable', 'Konstante', 'Aufzählungswert',
-     'dpcc zeichnet die Blocklinien selbst und hat die Strukturhervorhebung der IDE abgeschaltet; ' +
-       'wirkt nach dem nächsten Start von Delphi.',
-     'dpcc hat die Strukturhervorhebung der IDE wieder eingeschaltet; wirkt nach dem nächsten Start von Delphi.',
      'Konfidenz: %s', 'hoch', 'mittel', 'niedrig',
      'dpcc zeigt den Tooltip selbst und hat Help Insight der IDE abgeschaltet; wirkt nach dem ' +
        'nächsten Start von Delphi.',
@@ -159,9 +156,6 @@ const
      '%s, %s'),
     ( 'optional, default %s', 'No overload with %d parameters.', '… %d more',
      'Class', 'Class reference', 'Object type', 'Record', 'Interface', 'Helper', 'Enumeration', 'Type', 'Method', 'Constructor', 'Routine', 'Property', 'Field', 'Variable', 'Constant', 'Enumeration value',
-     'dpcc draws the block lines itself and switched off the IDE''s structural highlighting; takes ' +
-       'effect after the next start of Delphi.',
-     'dpcc switched the IDE''s structural highlighting back on; takes effect after the next start of Delphi.',
      'Confidence: %s', 'high', 'medium', 'low',
      'dpcc shows the tooltip itself and switched off the IDE''s Help Insight; takes effect after ' +
        'the next start of Delphi.',

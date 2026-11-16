@@ -57,7 +57,7 @@ uses
   dpcc.Core.Settings.MasterSwitch,
   dpcc.IDE.Foundation.Settings,
   dpcc.IDE.Foundation.About,
-  dpcc.IDE.Foundation.StructureSwitch,
+  dpcc.IDE.Foundation.InsightSwitch,
   dpcc.IDE.Settings.Options,
   dpcc.IDE.Completion.History,
   dpcc.IDE.Completion.Favorites,
@@ -538,11 +538,12 @@ end;
 
 { Einstellungen }
 
-/// <summary>Help Insight der IDE aus, solange der dpcc-Tooltip an ist (#442); die übrigen Eingriffe in die
-/// Registry der IDE (Strukturhervorhebung, Debug-Tooltips) gibt es seit Rückbau R5 nicht mehr.</summary>
+/// <summary>Help Insight der IDE aus, solange der dpcc-Tooltip an ist (#442); beim Start keine übrigen Eingriffe
+/// in die Registry der IDE (seit Rückbau R5). Die Strukturhervorhebung der IDE fasst dpcc seit S9 gar nicht mehr
+/// an.</summary>
 procedure SyncHelpInsight;
 begin
-  TDpccIdeStructureSwitch.SyncHelpInsight;
+  TDpccIdeInsightSwitch.SyncHelpInsight;
 end;
 
 /// <summary>Hauptschalter umgeschaltet (#407): Der Manager reagiert nach dem laufenden Ereignis (etwa erst nach dem

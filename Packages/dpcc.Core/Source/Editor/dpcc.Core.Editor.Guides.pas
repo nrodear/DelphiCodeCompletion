@@ -4,10 +4,10 @@
 // Zeilen eine senkrechte Linie vom Öffner bis zum Schließer, in der Farbe
 // seiner Tiefe. Die Linie steht links vor dem Einzug der Öffnerzeile bzw. vor
 // dem Schließer, wenn der weiter links steht (TFoo = class … end).
-// Weil die Strukturhervorhebung der IDE dieselben Linien in eigenen Farben
-// zeichnet, schaltet dpcc sie ab, solange die eigenen Linien an sind, und
-// stellt sie wieder her, wenn sie aus sind. Die IDE liest den Schalter nur
-// beim Start.
+// Die Strukturhervorhebung der IDE fasst dpcc seit S9 nicht mehr an (vorher
+// abgeschaltet, solange die eigenen Linien an waren). Switch gleicht seither
+// nur noch Help Insight und den Wert-Tooltip der IDE ab
+// (TDpccIdeInsightSwitch); die IDE liest diese Schalter nur beim Start.
 // Mit Besitzern (#653): Steht der Öffner allein am Zeilenanfang unter seiner
 // Anweisung (if … then / begin), beginnt die Linie samt Haken an der Zeile der
 // Anweisung und steht vor deren Einzug.
@@ -29,7 +29,8 @@ type
     Routine: Integer;
   end;
 
-  /// <summary>Strukturhervorhebung der IDE und ob dpcc sie abgeschaltet hat.</summary>
+  /// <summary>Ein Schalter der IDE (Help Insight, Wert-Tooltip) und ob dpcc ihn abgeschaltet hat; der Name stammt
+  /// aus der Zeit, als dpcc die Strukturhervorhebung schaltete (bis S9).</summary>
   TDpccIdeStructure = record
     Enabled: Boolean;
     DisabledByDpcc: Boolean;
@@ -49,8 +50,8 @@ type
     /// <summary>Stiftbreite in Pixeln: AWidth (1–3, bei 100 %) skaliert mit der Zeilenhöhe
     /// gegenüber ABaseCellHeight (Zeilenhöhe bei 100 %).</summary>
     class function PenWidth(AWidth, ACellHeight, ABaseCellHeight: Integer): Integer; static;
-    /// <summary>Neuer Zustand der IDE-Strukturhervorhebung: aus bei eigenen Linien,
-    /// sonst wieder an, wenn dpcc sie abgeschaltet hatte.</summary>
+    /// <summary>Neuer Zustand eines IDE-Schalters: aus, wenn dpcc die Anzeige übernimmt (AOwnGuides),
+    /// sonst wieder an, wenn dpcc ihn abgeschaltet hatte.</summary>
     class function Switch(const AState: TDpccIdeStructure; AOwnGuides: Boolean): TDpccIdeStructure; static;
   end;
 

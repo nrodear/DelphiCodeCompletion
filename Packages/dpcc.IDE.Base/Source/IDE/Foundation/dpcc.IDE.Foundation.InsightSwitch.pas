@@ -1,15 +1,14 @@
-﻿unit dpcc.IDE.Foundation.StructureSwitch;
+﻿unit dpcc.IDE.Foundation.InsightSwitch;
 
 // Schaltet Anzeigen der IDE ab, die dpcc selbst übernimmt, und stellt sie
 // wieder her, wenn die dpcc-Anzeige aus ist:
-//   - Strukturhervorhebung, solange dpcc eigene Blocklinien zeichnet (#514):
-//     <Basisschlüssel>\Editor\Highlight\Structural Highlighting, Enabled;
-//     Merker IdeStructureDisabled.
 //   - Help Insight, solange der dpcc-Tooltip an ist (#442): Wert Help Insight
 //     unter <Basisschlüssel>\Code Insight\<Ort>; Ort je Version und alle Orte,
 //     die den Wert schon tragen (TDpccCodeInsightKeys, #1246: unter Delphi 12
 //     traf dpcc vorher nur den Ort von Delphi 13, und die IDE zeigte beide
 //     Hinweise). Merker IdeHelpInsightDisabled je Version und Ort.
+//   - Wert-Tooltip beim Debuggen (ToolTip Watches), solange der dpcc-Hover die
+//     Werte zeigt; Merker IdeTooltipWatchesDisabled.
 //   - Error Insight auf Knopfdruck aus der Einrichtung (#625), nie von selbst:
 //     Wert Error Insight an denselben Orten; gelesen am Ort der Version.
 //     Merker IdeErrorInsightDisabled. ErrorInsightChanged hält fest, dass die
@@ -19,11 +18,13 @@
 // HKCU\Software\dpcc\IdePlugin halten fest, was dpcc abgeschaltet hat; nur
 // das wird zurückgedreht. Sie gelten je Version (#1246), sonst drehte eine
 // zweite installierte IDE zurück, was dpcc in der anderen abgeschaltet hat.
+// Die Strukturhervorhebung der IDE fasst dpcc seit S9 nicht mehr an (vorher
+// TDpccIdeStructureSwitch, solange dpcc eigene Blocklinien zeichnete).
 
 interface
 
 type
-  TDpccIdeStructureSwitch = class
+  TDpccIdeInsightSwitch = class
   private
     /// <summary>Ein Schalter an einem Ort; AMarker ist der volle Name des Merkers, ALegacyMarker ein älterer, der
     /// gilt, solange der neue fehlt ('' ohne).</summary>
@@ -32,14 +33,13 @@ type
     /// <summary>AValueName an allen Orten unter Code Insight schalten (#1246).</summary>
     class function ApplyCodeInsight(const AValueName, AMarker: string; AOwn: Boolean): Boolean; static;
   public
-    /// <summary>Strukturhervorhebung angleichen; True, wenn geändert (wirkt nach dem nächsten Start der IDE).</summary>
-    class function Apply(AOwnGuides: Boolean): Boolean; static;
     /// <summary>Help Insight angleichen; True, wenn geändert (wirkt nach dem nächsten Start der IDE).</summary>
     class function ApplyHelpInsight(AOwnTooltip: Boolean): Boolean; static;
     /// <summary>Wert-Tooltip der IDE beim Debuggen angleichen (aus, solange der dpcc-Hover die Werte zeigt);
     /// True, wenn geändert (wirkt nach dem nächsten Start der IDE).</summary>
     class function ApplyTooltipWatches(AOwnValues: Boolean): Boolean; static;
-    /// <summary>Beides nach den aktuellen Einstellungen; meldet Änderungen im Meldungsfenster.</summary>
+    /// <summary>Help Insight und Wert-Tooltip nach den aktuellen Einstellungen; meldet Änderungen im
+    /// Meldungsfenster.</summary>
     class procedure Sync; static;
     /// <summary>Nur Help Insight nach den aktuellen Einstellungen (Rückbau R5: die übrigen Eingriffe entfallen);
     /// meldet eine Änderung im Meldungsfenster.</summary>
@@ -69,8 +69,6 @@ uses
   dpcc.IDE.Foundation.Settings;
 
 const
-  cStructureKey = '\Editor\Highlight\Structural Highlighting';
-  cStructureMarker = 'IdeStructureDisabled';
   cHelpInsightValue = 'Help Insight';
   cHelpInsightMarker = 'IdeHelpInsightDisabled';
   // Delphi: „Ausdrucksauswertung im Kurzhinweis“ – eigener Wert-Tooltip über dem dpcc-Hover.
@@ -151,7 +149,7 @@ begin
   ARegistry.CloseKey;
 end;
 
-class function TDpccIdeStructureSwitch.ApplySwitch(const ASubKey, AValueName, AMarker, ALegacyMarker: string;
+class function TDpccIdeInsightSwitch.ApplySwitch(const ASubKey, AValueName, AMarker, ALegacyMarker: string;
   AOwn: Boolean): Boolean;
 var
   mServices: IOTAServices;
@@ -251,7 +249,7 @@ begin
   end;
 end;
 
-class function TDpccIdeStructureSwitch.ApplyCodeInsight(const AValueName, AMarker: string; AOwn: Boolean): Boolean;
+class function TDpccIdeInsightSwitch.ApplyCodeInsight(const AValueName, AMarker: string; AOwn: Boolean): Boolean;
 var
   mSubKey: string;
 begin
@@ -266,19 +264,12 @@ begin
   end;
 end;
 
-class function TDpccIdeStructureSwitch.Apply(AOwnGuides: Boolean): Boolean;
-begin
-  // Der alte Merker galt für alle Versionen; ab #1246 je Version.
-  Result := ApplySwitch(cStructureKey, 'Enabled', TDpccCodeInsightKeys.Marker(cStructureMarker, BaseKey, 'Editor'),
-    cStructureMarker, AOwnGuides);
-end;
-
-class function TDpccIdeStructureSwitch.ApplyHelpInsight(AOwnTooltip: Boolean): Boolean;
+class function TDpccIdeInsightSwitch.ApplyHelpInsight(AOwnTooltip: Boolean): Boolean;
 begin
   Result := ApplyCodeInsight(cHelpInsightValue, cHelpInsightMarker, AOwnTooltip);
 end;
 
-class function TDpccIdeStructureSwitch.ApplyTooltipWatches(AOwnValues: Boolean): Boolean;
+class function TDpccIdeInsightSwitch.ApplyTooltipWatches(AOwnValues: Boolean): Boolean;
 begin
   Result := ApplyCodeInsight(cTooltipWatchesValue, cTooltipWatchesMarker, AOwnValues);
 end;
@@ -307,7 +298,7 @@ begin
   end;
 end;
 
-class function TDpccIdeStructureSwitch.ErrorInsight: Boolean;
+class function TDpccIdeInsightSwitch.ErrorInsight: Boolean;
 begin
   Result := ReadErrorInsight;
   if ErrorInsightAtStart < 0 then
@@ -316,12 +307,12 @@ begin
   end;
 end;
 
-class function TDpccIdeStructureSwitch.ErrorInsightChanged: Boolean;
+class function TDpccIdeInsightSwitch.ErrorInsightChanged: Boolean;
 begin
   Result := (ErrorInsightAtStart >= 0) and (Ord(ReadErrorInsight) <> ErrorInsightAtStart);
 end;
 
-class function TDpccIdeStructureSwitch.SetErrorInsight(AEnabled: Boolean): Boolean;
+class function TDpccIdeInsightSwitch.SetErrorInsight(AEnabled: Boolean): Boolean;
 var
   mRegistry: TRegistry;
   mSubKey: string;
@@ -397,7 +388,7 @@ begin
     end);
 end;
 
-class procedure TDpccIdeStructureSwitch.SyncHelpInsight;
+class procedure TDpccIdeInsightSwitch.SyncHelpInsight;
 var
   mSettings: TDpccPluginSettings;
   mOwnTooltip: Boolean;
@@ -414,20 +405,18 @@ begin
   end;
 end;
 
-class procedure TDpccIdeStructureSwitch.Sync;
+class procedure TDpccIdeInsightSwitch.Sync;
 var
   mSettings: TDpccPluginSettings;
-  mOwn, mOwnTooltip, mOwnValues: Boolean;
+  mOwnTooltip, mOwnValues: Boolean;
   mTexts: TArray<string>;
 begin
   mSettings := TDpccIdeSettings.Current;
-  mOwn := mSettings.PairColors and mSettings.PairGuides;
   mOwnTooltip := mSettings.Enabled and mSettings.HoverTooltip;
   // Debug-Werte zeigt der dpcc-Hover seit S3b wieder (debug.hoverValues): dann den Wert-Tooltip der IDE abschalten,
   // sonst ihn zurückgeben, falls dpcc ihn abgeschaltet hatte.
   mOwnValues := mOwnTooltip and mSettings.DebugHoverValues;
   mTexts := nil;
-  AddSwitchText(mTexts, Apply(mOwn), mOwn, TDpccTextId.PairGuidesIdeOff, TDpccTextId.PairGuidesIdeOn);
   AddSwitchText(mTexts, ApplyHelpInsight(mOwnTooltip), mOwnTooltip, TDpccTextId.HelpInsightIdeOff,
     TDpccTextId.HelpInsightIdeOn);
   AddSwitchText(mTexts, ApplyTooltipWatches(mOwnValues), mOwnValues, TDpccTextId.TooltipWatchesIdeOff,

@@ -27,7 +27,7 @@ uses
 
 type
   TDpccQuickToggle = record
-    /// <summary>Name der Plugin-Einstellung, z. B. "PairColors".</summary>
+    /// <summary>Name der Plugin-Einstellung, z. B. "ExitPoints".</summary>
     Key: string;
     Caption: string;
     Page: string;

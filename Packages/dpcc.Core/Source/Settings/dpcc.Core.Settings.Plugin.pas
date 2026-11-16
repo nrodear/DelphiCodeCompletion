@@ -191,7 +191,6 @@ type
     property CompletionListScope: string read FCompletion.CompletionListScope write FCompletion.CompletionListScope;
     property Preview: Boolean read FCompletion.Preview write FCompletion.Preview;
     property HoverTooltip: Boolean read FEditorTyping.HoverTooltip write FEditorTyping.HoverTooltip;
-    property PairColors: Boolean read FHighlighting.PairColors write FHighlighting.PairColors;
     property RecursionMarkers: Boolean read FEditorTyping.RecursionMarkers write FEditorTyping.RecursionMarkers;
     property RecursionMarkersDepth: Integer read FEditorTyping.RecursionMarkersDepth
       write FEditorTyping.RecursionMarkersDepth;
@@ -214,7 +213,6 @@ type
     property SearchNextKey: Integer read FNavigationKeys.SearchNextKey write FNavigationKeys.SearchNextKey;
     property SearchPreviousKey: Integer read FNavigationKeys.SearchPreviousKey write FNavigationKeys.SearchPreviousKey;
     property SearchMethodKey: Integer read FNavigationKeys.SearchMethodKey write FNavigationKeys.SearchMethodKey;
-    property PairGuides: Boolean read FHighlighting.PairGuides write FHighlighting.PairGuides;
     property PairColorsLight: string read FHighlighting.PairColorsLight write FHighlighting.PairColorsLight;
     property PairColorsDark: string read FHighlighting.PairColorsDark write FHighlighting.PairColorsDark;
     property NestedRoutineColorLight: string read FHighlighting.NestedRoutineColorLight

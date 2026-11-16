@@ -7,7 +7,8 @@
 // keine Schalter zum Server mehr; Umfang, Verwendungen und Speichergrenze des Index sind fest. Seit S7a: keine
 // Schalter der früheren Liste (Filter-Chips, Detailpanel, Auswahlmarke) und keine gelernten Vorschläge mehr. Seit S8:
 // keine versteckten Schalter ohne Wirkung der Reiter Allgemein und Hints mehr (weder im Katalog noch gespeichert);
-// die versteckten, aber wirksamen (experimental.enabled, highlight.pairColors/pairGuides) bleiben.
+// der versteckte, aber wirksame Hauptschalter experimental.enabled bleibt. Seit S9: keine Schalter Paarfärbung und
+// Blocklinien (highlight.pairColors/pairGuides) mehr; dpcc fasst die Strukturhervorhebung der IDE nicht mehr an.
 
 interface
 
@@ -53,6 +54,11 @@ type
     /// bleibt versteckt.</summary>
     [Test]
     procedure HiddenSwitchesWithoutEffectAreGone;
+    /// <summary>S9: Paarfärbung und Blocklinien (highlight.pairColors, highlight.pairGuides) und ihr Unterpunkt
+    /// editor.pairs sind weder im Katalog noch gespeichert noch nach settings.json umgeleitet; die eigenen Farben
+    /// hängen an keinem Hauptschalter mehr, und das Schema bleibt ohne Fehler.</summary>
+    [Test]
+    procedure PairSwitchesAreGone;
     [Test]
     procedure SearchFindsNoHiddenSetting;
   end;
@@ -431,10 +437,73 @@ begin
       end;
     end;
     // Versteckt, aber wirksam: Hauptschalter der experimentellen Funktionen (settings.json, experimentelle Schlüssel
-    // des Servers) und Paarfärbung mit Blocklinien (schalten die Strukturhervorhebung der IDE ab).
-    for mName in ['ExperimentalEnabled', 'PairColors', 'PairGuides'] do
+    // des Servers). Paarfärbung und Blocklinien gibt es seit S9 nicht mehr (PairSwitchesAreGone).
+    Assert.AreEqual(Ord(spHidden), Ord(PlaceOfName(mCatalog, 'ExperimentalEnabled')), 'ExperimentalEnabled');
+  finally
+    mGroups.Free;
+    mCatalog.Free;
+  end;
+  mStore := TDpccMemorySettingsStore.FromSettings(TDpccPluginSettings.Defaults);
+  for mName in cGone do
+  begin
+    Assert.IsFalse(MatchText(mName, mStore.Names), mName + ' gespeichert');
+    Assert.IsFalse(TDpccSettingsScopes.TryRouted(mName, mRouted), mName + ' umgeleitet');
+  end;
+  Assert.IsTrue(MatchText('ExperimentalEnabled', mStore.Names), 'ExperimentalEnabled gespeichert');
+  // Das Plugin schreibt keine Inlay-Hints mehr nach settings.json; experimental.enabled schon.
+  for mRouted in TDpccSettingsScopes.Routed do
+  begin
+    Assert.IsFalse(StartsText('inlayHints.', mRouted.Path), mRouted.Path);
+  end;
+  Assert.IsTrue(TDpccSettingsScopes.TryRouted('ExperimentalEnabled', mRouted), 'ExperimentalEnabled umgeleitet');
+end;
+
+procedure TDpccCompletionViewTests.PairSwitchesAreGone;
+const
+  cGone: array[0..1] of string = ('PairColors', 'PairGuides');
+  cGoneKeys: array[0..1] of string = ('highlight.pairColors', 'highlight.pairGuides');
+  // Eigene Farben hingen an highlight.pairColors; sie bleiben (gespeichert, versteckt), aber ohne Hauptschalter.
+  cColors: array[0..3] of string = ('PairColorsLight', 'PairColorsDark', 'NestedRoutineColorLight',
+    'NestedRoutineColorDark');
+var
+  mCatalog: TDpccSettingsCatalog;
+  mGroups: TDpccSettingsGroups;
+  mStore: IDpccMemorySettingsStore;
+  mRouted: TDpccRoutedSetting;
+  mNode: TDpccCatalogArea;
+  mIndex: Integer;
+  mName, mIssue: string;
+begin
+  mCatalog := TDpccSettingsCatalog.CreateDefault;
+  mGroups := TDpccSettingsGroups.Create(mCatalog);
+  try
+    for mName in cGone do
     begin
-      Assert.AreEqual(Ord(spHidden), Ord(PlaceOfName(mCatalog, mName)), mName);
+      Assert.IsTrue(mCatalog.IndexOfName(mName) < 0, mName);
+      Assert.IsFalse(mGroups.Contains(mName), mName + ' in den Gruppen');
+    end;
+    for mIndex := 0 to mCatalog.Count - 1 do
+    begin
+      if mCatalog[mIndex].Source <> asPlugin then
+      begin
+        Continue;
+      end;
+      Assert.IsFalse(MatchText(mCatalog[mIndex].Key, cGoneKeys), mCatalog[mIndex].Key);
+    end;
+    Assert.IsFalse(mGroups.HasNode('editor.pairs'), 'Unterpunkt editor.pairs');
+    for mNode in mGroups.Nodes do
+    begin
+      Assert.IsFalse(SameText(mNode.Id, 'editor.pairs'), mNode.Id);
+    end;
+    for mName in cColors do
+    begin
+      Assert.IsTrue(mCatalog.IndexOfName(mName) >= 0, mName);
+      Assert.AreEqual('', mGroups.ParentOf(mName), mName + ': Hauptschalter');
+    end;
+    // Das gekürzte Schema bleibt stimmig: kein Verweis auf den entfernten Hauptschalter oder Unterpunkt.
+    for mIssue in mGroups.Issues do
+    begin
+      Assert.IsFalse(ContainsText(mIssue, 'highlight.pair') or ContainsText(mIssue, 'editor.pairs'), mIssue);
     end;
   finally
     mGroups.Free;
@@ -446,16 +515,14 @@ begin
     Assert.IsFalse(MatchText(mName, mStore.Names), mName + ' gespeichert');
     Assert.IsFalse(TDpccSettingsScopes.TryRouted(mName, mRouted), mName + ' umgeleitet');
   end;
-  for mName in ['ExperimentalEnabled', 'PairColors', 'PairGuides'] do
+  for mRouted in TDpccSettingsScopes.Routed do
+  begin
+    Assert.IsFalse(MatchText(mRouted.Path, cGoneKeys), mRouted.Path);
+  end;
+  for mName in cColors do
   begin
     Assert.IsTrue(MatchText(mName, mStore.Names), mName + ' gespeichert');
   end;
-  // Das Plugin schreibt keine Inlay-Hints mehr nach settings.json; experimental.enabled schon.
-  for mRouted in TDpccSettingsScopes.Routed do
-  begin
-    Assert.IsFalse(StartsText('inlayHints.', mRouted.Path), mRouted.Path);
-  end;
-  Assert.IsTrue(TDpccSettingsScopes.TryRouted('ExperimentalEnabled', mRouted), 'ExperimentalEnabled umgeleitet');
 end;
 
 procedure TDpccCompletionViewTests.SearchFindsNoHiddenSetting;

@@ -12,13 +12,9 @@ uses
 type
   /// <summary>Plugin-Einstellungen: Hervorhebungen im Editor und Farben. Anweisungen mitfärben, Breite und Deckkraft
   /// der Blocklinien, Färbung lokaler Routinen, inaktive Zweige ausgrauen und gleichen Text hervorheben gibt es seit
-  /// S8 nicht mehr.</summary>
+  /// S8 nicht mehr, die Schalter Paarfärbung und Blocklinien (highlight.pairColors, highlight.pairGuides) seit S9:
+  /// dpcc zeichnet keine Paare und schaltet die Strukturhervorhebung der IDE nicht mehr ab.</summary>
   TDpccPluginHighlightingSettings = record
-    /// <summary>Klammer- und Blockpaare nach Tiefe färben (#514).</summary>
-    PairColors: Boolean;
-    /// <summary>Blocklinien in den Paarfarben statt der Strukturhervorhebung der IDE (#514). Seit S8 versteckt, aber
-    /// wirksam: Mit PairColors schaltet TDpccIdeStructureSwitch.Sync die Strukturhervorhebung der IDE ab.</summary>
-    PairGuides: Boolean;
     /// <summary>Eigene Paarfarben je Thema („#RRGGBB,…“, fünf Stück); leer = Standardpalette.</summary>
     PairColorsLight: string;
     PairColorsDark: string;
@@ -88,8 +84,6 @@ end;
 
 class function TDpccPluginHighlightingSettings.Defaults: TDpccPluginHighlightingSettings;
 begin
-  Result.PairColors := True;
-  Result.PairGuides := True;
   Result.PairColorsLight := '';
   Result.PairColorsDark := '';
   Result.NestedRoutineColorLight := '';
@@ -117,8 +111,6 @@ end;
 
 procedure TDpccPluginHighlightingSettings.Exchange(const AIo: TDpccSettingsExchange);
 begin
-  AIo.Flag('PairColors', PairColors);
-  AIo.Flag('PairGuides', PairGuides);
   AIo.Text('PairColorsLight', PairColorsLight);
   AIo.Text('PairColorsDark', PairColorsDark);
   AIo.Text('NestedRoutineColorLight', NestedRoutineColorLight);

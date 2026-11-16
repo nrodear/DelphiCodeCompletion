@@ -9,7 +9,7 @@
 //     Taste (außer Umschalt, Strg, Alt allein), Mausklick, Scrollen, Größenänderung, IDE inaktiv (ein Wächter
 //     prüft das, solange der Tooltip offen ist, #414).
 // Die IDE zeigt dann keinen eigenen Tooltip: GetHintText und GetHelpInsightHtml liefern '' (Manager), Help
-// Insight schaltet dpcc.IDE.Foundation.StructureSwitch ab. Bedient dpcc die Datei nicht (Hauptschalter, Server
+// Insight schaltet dpcc.IDE.Foundation.InsightSwitch ab. Bedient dpcc die Datei nicht (Hauptschalter, Server
 // fehlt, Sicherung), übernimmt die IDE und der dpcc-Tooltip bleibt zu.
 // Delphi 12 (#281): Tastatur-Ereignisse des Code-Editors gibt es erst ab Delphi 13 (INTACodeEditorEvents370).
 // Dort schließt der Tooltip über den Tastatur-Hook, solange er sichtbar ist.

@@ -3,9 +3,8 @@
 // Reiter „Editor“ (gezeigt als „Hints“, Completion-Schnitt): Hover, Werte beim Debuggen und XMLDoc. Die Editorleiste
 // (#1101) mit „Leiste anpassen …“ gibt es seit S7a nicht mehr; Inlay-Hints, Blockende, Brotkrumenleiste, Statusleiste,
 // mitlaufender Kopf, Minimap, Änderungsmarken, dpcc-Spalte, gleichen Text hervorheben und die übrigen Schalter der
-// Paarfärbung seit S8 (sie waren versteckt und wirkten nicht).
-// Paarfärbung und Blocklinien (highlight.pairColors, highlight.pairGuides) bleiben versteckt gebaut: Sind beide an,
-// schaltet dpcc beim Speichern die Strukturhervorhebung der IDE ab (TDpccIdeStructureSwitch.Sync).
+// Paarfärbung seit S8 (sie waren versteckt und wirkten nicht). Paarfärbung und Blocklinien (highlight.pairColors,
+// highlight.pairGuides) gibt es seit S9 nicht mehr: dpcc schaltet die Strukturhervorhebung der IDE nicht mehr ab.
 
 interface
 
@@ -53,9 +52,6 @@ begin
     TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsXmlDocLast),
     TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsXmlDocExpanded)]);
   BindText('XmlDocMaxLines', AddNumber(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsXmlDocMaxLines)));
-  // Versteckt (Completion-Schnitt), aber wirksam: Mit beiden an schaltet dpcc die Strukturhervorhebung der IDE ab.
-  BindCheck('PairColors', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsPairs)));
-  BindCheck('PairGuides', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsPairGuides)));
 end;
 
 procedure TDpccSettingsEditorViewPart.BindMarks;

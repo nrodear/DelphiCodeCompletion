@@ -15,7 +15,7 @@ uses
   dpcc.Core.Style.Color;
 
 type
-  /// <summary>Farben der Klammer- und Blockpaare je Tiefe (Format der Einstellung highlight.pairColors, #514).
+  /// <summary>Farben der Klammer- und Blockpaare je Tiefe (Format der Einstellungen highlight.pairColorsLight/-Dark, #514).
   /// </summary>
   TDpccPairColors = array[0..4] of TDpccColor;
 
