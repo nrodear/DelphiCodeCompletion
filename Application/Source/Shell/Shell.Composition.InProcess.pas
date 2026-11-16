@@ -13,6 +13,9 @@
 //   TFileEncoding.Reader) und bleiben deshalb an; Stop nimmt sie mit dem letzten Server zurück;
 // - prozessweite Schalter von dpcc.Common setzt der erste Server und stellt der letzte zurück: Cache der
 //   published-Mitglieder (TPublishedMembers.UseCache) und Sprache der Servertexte (TDpccLocale);
+// - prozessweite Merker gibt der letzte Server frei (Speicher-Optimierung Phase 2): den Namensindex der
+//   Import-Vorschläge (TImportNames, hielt sonst den ganzen Index des beendeten Servers), die bekannten Stände der
+//   gemeinsamen Caches (TIndexService.ForgetSharedStates) und die Ordnerlisten (TSharedUnitListings);
 // - globale Anbieter (TSyntaxTreeCache, TPascalPreprocessor) nimmt ein Server beim Abbau nur zurück, wenn noch
 //   seine eigenen gesetzt sind; ein neuerer Server im selben Prozess behält sie;
 // - Freigabe in fester Reihenfolge: Eingabe schließen (Ende der Eingabe), Schleife und Wurzel beenden
@@ -29,7 +32,9 @@
 //   GetModuleHandleEx mit PIN und ein eigenes LoadPackage ohne UnloadPackage, sodass die Units beim Entladen des
 //   Plugins nicht finalisiert werden). Die Senke des Gastgebers (Code des Plugins) hängt Stop vorher ab;
 // - ließ die Wurzel Objekte stehen, weil Anfragen auch nach cUnfinishedWaitMs liefen (LeftWork), gilt dasselbe;
-//   Release unterbleibt dann, weil diese Anfragen die prozessweiten Schalter noch nutzen.
+//   Release unterbleibt dann, weil diese Anfragen die prozessweiten Schalter noch nutzen. Ein eigener Thread der
+//   Wurzel gibt Index und Features frei, sobald diese Anfragen enden, und ruft erst dann Release (a4,
+//   Speicher-Optimierung Phase 2); vorher blieb der ganze alte Server bis zum Ende der IDE im Speicher.
 // Im Testprogramm (statisch gelinkt) entlädt niemand Code; KeepCodeLoaded tut dort nichts.
 //
 // Puffer: Beide Pipes sind begrenzt (cPipeCapacity). Zum Server (Schreiber: Plugin, auch der Hauptthread der IDE)
@@ -177,7 +182,8 @@ type
     property ClientOutput: TStream read FClientOutput;
     /// <summary>Stop wartete vergeblich; der Thread gibt sich und die Wurzel selbst frei.</summary>
     property Abandoned: Boolean read FAbandoned;
-    /// <summary>Die Wurzel ließ Index und Features stehen (Anfragen liefen weiter).</summary>
+    /// <summary>Die Wurzel ließ Index und Features beim Stopp stehen (Anfragen liefen weiter); sie gibt sie frei und
+    /// meldet den Server ab, sobald diese Anfragen enden (a4).</summary>
     property LeftWork: Boolean read FLeftWork;
     /// <summary>Laufende In-Process-Server im Prozess (für Tests).</summary>
     class function ActiveCount: Integer; static;
@@ -199,6 +205,9 @@ uses
   dpcc.Common.Lsp.Adapters.LogMessageSink,
   dpcc.Common.Lsp.PublishedMembers,
   dpcc.Common.Diagnostics.Anonymizer,
+  dpcc.Common.Index.NameIndex,
+  dpcc.Common.Index.Service,
+  Shell.Workspace.Listings,
   Shell.Platform;
 
 type
@@ -722,6 +731,11 @@ begin
       // Gibt den Cache frei.
       TPublishedMembers.UseCache(False);
       TDpccLocale.Use(SavedLanguage);
+      // Kein Server mehr, kein Index: prozessweite Merker freigeben, die sonst den Speicher eines beendeten Servers
+      // hielten. Der nächste Server liest die Caches ohnehin neu.
+      TImportNames.Clear;
+      TIndexService.ForgetSharedStates;
+      TSharedUnitListings.Clear;
     end;
   finally
     TMonitor.Exit(StateLock);
@@ -856,6 +870,12 @@ begin
       procedure
       begin
         mRun.SetLeftWork;
+      end;
+    // Erst wenn die stehen gelassenen Anfragen fertig und ihre Objekte frei sind (a4).
+    mServer.Parts.OnLateRelease :=
+      procedure
+      begin
+        TShellInProcessServer.Release;
       end;
     if Assigned(AConfigure) then
     begin

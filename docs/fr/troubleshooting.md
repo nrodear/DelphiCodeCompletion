@@ -167,6 +167,12 @@ l'index et au moins toutes les 10 minutes, dès qu'une requête se termine. Exem
 - Sans l'interrupteur « Pre-index Office type libraries and WinRT » (pré-indexer les bibliothèques de types Office et
   WinRT), les bibliothèques de types Office et WinRT ne sont pas dans l'index. Voir
   [Index et cache](index-cache.md#bibliothèques-de-types-office-et-winrt).
+- Seuls les 16 fichiers utilisés le plus récemment gardent leur arbre syntaxique dans le serveur ; pour les plus
+  anciens, il le reconstruit au prochain accès. Quand l'IDE ferme un fichier, dpcc le libère dans le serveur.
+- Un fichier hors du groupe de projets reçoit son propre espace de travail. Celui-ci disparaît quand le dernier de ses
+  fichiers est fermé.
+- Quand le serveur s'arrête (interrupteur principal désactivé, redémarrage), dpcc libère tout l'index. Si des requêtes
+  sont encore en cours et ne se terminent pas à temps, la libération suit dès qu'elles sont terminées.
 
 ## Réglages par défaut
 

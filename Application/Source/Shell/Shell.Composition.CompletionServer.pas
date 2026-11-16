@@ -49,6 +49,10 @@ type
   private
     /// <summary>Teil von Destroy: gibt Features, Ordner und Index frei.</summary>
     procedure FreeFeatures;
+    /// <summary>Teil von Destroy, wenn Anfragen noch laufen (a4): übergibt Verbindung, Features, Ordner und Index
+    /// einem eigenen Thread, der sie freigibt, sobald die letzte dieser Anfragen endet, und dann OnLateRelease ruft.
+    /// </summary>
+    procedure ReleaseLater;
     function ReadText(const AFileName: string; out AText: string): Boolean;
     function BuildCapabilities: TJSONObject;
     function CoreServices: TShellCoreBaseServices;
@@ -93,6 +97,10 @@ type
     /// <summary>Destroy ließ Features und Index stehen, weil Anfragen auch nach UnfinishedWaitMs noch liefen; ihr
     /// Code muss dann geladen bleiben (In-Process-Modus).</summary>
     OnLeftWork: TProc;
+    /// <summary>Gesetzt (In-Process-Modus): Was Destroy wegen laufender Anfragen stehen ließ, gibt ein eigener
+    /// Thread frei, sobald sie enden (a4, Speicher-Optimierung Phase 2), und ruft danach OnLateRelease (aus jenem
+    /// Thread). nil: stehen lassen wie bisher.</summary>
+    OnLateRelease: TProc;
     /// <summary>Hält Wächter, Verbindung und Index-Threads an und gibt alle Teile rückwärts frei.</summary>
     destructor Destroy; override;
     /// <summary>Schickt eine Benachrichtigung an den Client.</summary>
@@ -187,7 +195,11 @@ begin
       Channel.Logger.Info('Beim Beenden noch laufende Anfragen sind fertig');
     end;
   end;
-  FreeAndNil(Connection);
+  // Laufen noch Anfragen und gibt ein späterer Thread frei (a4), braucht der die Verbindung, um auf sie zu warten.
+  if not (mUnfinished and Assigned(OnLateRelease)) then
+  begin
+    FreeAndNil(Connection);
+  end;
   if Protocol <> nil then
   begin
     Protocol.Dispatcher.Watchdog := nil;
@@ -211,10 +223,18 @@ begin
   begin
     // Speicher stehen lassen, statt ihn unter einem laufenden Handler freizugeben; der Gastgeber muss den Code
     // geladen lassen (OnLeftWork).
-    Channel.Logger.Warning('Beim Beenden liefen noch Anfragen; ihre Objekte werden nicht freigegeben');
     if Assigned(OnLeftWork) then
     begin
       OnLeftWork();
+    end;
+    if Assigned(OnLateRelease) then
+    begin
+      Channel.Logger.Warning('Beim Beenden liefen noch Anfragen; ihre Objekte werden freigegeben, sobald sie enden');
+      ReleaseLater;
+    end
+    else
+    begin
+      Channel.Logger.Warning('Beim Beenden liefen noch Anfragen; ihre Objekte werden nicht freigegeben');
     end;
   end
   else
@@ -245,6 +265,71 @@ begin
   Documents := nil;
   // Nach der Verbindung und dem Watchdog.
   FreeAndNil(Protocol);
+end;
+
+procedure TShellCompletionServerParts.ReleaseLater;
+const
+  /// <summary>So oft fragt der Thread, ob die Anfragen fertig sind.</summary>
+  cStepMs = 1000;
+var
+  mLeft: TShellCompletionServerParts;
+  mDone: TProc;
+  mThread: TThread;
+begin
+  // Alles, was FreeFeatures freigibt, samt Verbindung (wartet auf die Anfragen) und Kanal (Logger) übernehmen; die
+  // eigenen Felder leeren, damit Destroy nichts davon anfasst.
+  mLeft := TShellCompletionServerParts.Create;
+  mLeft.Channel := Channel;
+  mLeft.Connection := Connection;
+  mLeft.Protocol := Protocol;
+  mLeft.Documents := Documents;
+  mLeft.TextDocumentSync := TextDocumentSync;
+  mLeft.Core := Core;
+  mLeft.IndexArea := IndexArea;
+  mLeft.Ide := Ide;
+  mLeft.Selection := Selection;
+  mLeft.FileChanges := FileChanges;
+  mLeft.Completion := Completion;
+  mLeft.Hover := Hover;
+  mLeft.SignatureHelp := SignatureHelp;
+  Connection := nil;
+  Protocol := nil;
+  Documents := nil;
+  TextDocumentSync := nil;
+  Core := nil;
+  IndexArea := nil;
+  Ide := nil;
+  Selection := nil;
+  FileChanges := nil;
+  Completion := nil;
+  Hover := nil;
+  SignatureHelp := nil;
+  mDone := OnLateRelease;
+  mThread := TThread.CreateAnonymousThread(
+    procedure
+    begin
+      TThread.NameThreadForDebugging('dpcc.Server (late release)');
+      try
+        while not mLeft.Connection.WaitForUnfinishedWork(cStepMs) do
+        begin
+          // weiter warten: die Anfragen sind abgebrochen, prüfen ihr Signal aber nicht
+        end;
+        mLeft.Channel.Logger.Info('Beim Beenden stehen gelassene Anfragen sind fertig; Index und Features frei');
+        FreeAndNil(mLeft.Connection);
+        mLeft.FreeFeatures;
+        mLeft.Channel := Default(TShellServerChannel);
+        mLeft.Free;
+      except
+        // Nie aus dem Thread heraus: Im IDE-Prozess fängt sonst niemand.
+        on Exception do
+          ;
+      end;
+      if Assigned(mDone) then
+      begin
+        mDone();
+      end;
+    end);
+  mThread.Start;
 end;
 
 procedure TShellCompletionServerParts.NotifyClient(const AMethod: string; AParams: TJSONObject);

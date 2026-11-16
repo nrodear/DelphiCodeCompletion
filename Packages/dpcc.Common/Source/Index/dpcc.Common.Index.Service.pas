@@ -106,6 +106,8 @@ type
     /// <summary>Optional: läuft im Index-Thread, wenn der vorige Aufbau geendet hat, vor dem Lesen der Caches,
     /// z. B. um sie zu löschen (#874: Start wartet nicht mehr auf den alten Aufbau).</summary>
     Prepare: TProc;
+    /// <summary>Ordner selten genutzter Bibliotheken (c1); siehe TIndexBuilder.RarelyUsedRoots.</summary>
+    RarelyUsedRoots: TArray<string>;
   end;
 
   /// <summary>Cache-Datei verworfen; AReason z. B. "Prüfsumme stimmt nicht" (#492).</summary>
@@ -232,6 +234,10 @@ type
     function UsagesOf(const AFileName: string; out AUsages: TArray<TIndexUsage>): Boolean;
     /// <summary>Stufe des laufenden Aufbaus und ob er auf sie wartet (#2142).</summary>
     function StageState: TIndexStageState;
+    /// <summary>Vergisst die im Prozess gemerkten Stände der gemeinsamen Caches (b1). Nur aufrufen, wenn kein
+    /// Dienst mehr läuft (der letzte Server im Prozess ist beendet): Ohne Index braucht der nächste Aufbau sie
+    /// nicht, sie hielten sonst je Unit Dateiname und Stand bis zum Ende des Prozesses.</summary>
+    class procedure ForgetSharedStates; static;
     property Index: ISymbolIndex read FIndex;
     property OnCacheRejected: TIndexCacheRejectedEvent read FCacheEvents.Rejected write FCacheEvents.Rejected;
     /// <summary>Cache nicht geschrieben; AReason ohne Pfad. Im Index-Thread.</summary>
@@ -312,6 +318,8 @@ type
       const AEntries: TArray<TIndexCacheEntry>); static;
     /// <summary>Stand einer Unit: Zeitstempel und Prüfsumme.</summary>
     class function StateOf(const AUnit: TUnitIndex): string; static;
+    /// <summary>Vergisst alle gemerkten Stände (der letzte Server im Prozess ist beendet).</summary>
+    class procedure Clear; static;
   end;
 
   /// <summary>Gemeinsam gelesener Bibliotheks-Cache: Alle Dienste eines Prozesses teilen eine Kopie, solange
@@ -449,6 +457,16 @@ end;
 class function TSharedCacheWrites.StateOf(const AUnit: TUnitIndex): string;
 begin
   Result := IntToStr(AUnit.Stamp) + '|' + AUnit.Hash;
+end;
+
+class procedure TSharedCacheWrites.Clear;
+begin
+  TMonitor.Enter(FLock);
+  try
+    FFiles.Clear;
+  finally
+    TMonitor.Exit(FLock);
+  end;
 end;
 
 { TSharedCacheHold }
@@ -1116,6 +1134,7 @@ begin
     Result.LibraryRoots := ARequest.LibraryRoots;
     Result.LibraryDefines := ARequest.LibraryDefines;
     Result.Usages := ARequest.Usages;
+    Result.RarelyUsedRoots := ARequest.RarelyUsedRoots;
     if Assigned(ARequest.Prepare) then
     begin
       ARequest.Prepare();
@@ -1173,6 +1192,8 @@ begin
       // Rückmeldung 01.11.2026).
       mBuilder.ReleaseCache;
       mCaches.Release;
+      // Die Ablage gleicher Zeichenketten braucht nur der Aufbau selbst (rund 6 MB bei der Bibliothek).
+      FIndex.ReleaseStringPool;
       if Assigned(FOnFinished) then
       begin
         FOnFinished(mResult, mWatch.ElapsedMilliseconds);
@@ -1245,6 +1266,11 @@ begin
     TIndexThread(mPrevious).Cancel;
   end;
   FThread := TIndexThread.Create(Self, ARequest, mPrevious);
+end;
+
+class procedure TIndexService.ForgetSharedStates;
+begin
+  TSharedCacheWrites.Clear;
 end;
 
 procedure TIndexService.Stop;

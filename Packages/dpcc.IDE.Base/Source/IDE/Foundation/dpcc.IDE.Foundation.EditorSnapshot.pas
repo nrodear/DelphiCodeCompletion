@@ -30,6 +30,8 @@ type
     class procedure Invalidate(const AFileName: string); overload; static;
     /// <summary>Markiert alle Dateien als veraltet.</summary>
     class procedure Invalidate; overload; static;
+    /// <summary>Verwirft den gemerkten Stand von AFileName (die IDE hat die Datei geschlossen, a1).</summary>
+    class procedure Forget(const AFileName: string); static;
     /// <summary>Ersetzt in ABuffer (Text AText) ab Zeichen AStart AOldLength Zeichen durch AInsert, ein
     /// Rückgängig-Schritt, und markiert die Datei als veraltet (eigener Schreibvorgang).</summary>
     class procedure ReplaceText(const ABuffer: IOTAEditBuffer; const AText: string; AStart, AOldLength: Integer;
@@ -197,6 +199,14 @@ begin
   begin
     mEntry.State.Dirty := True;
     Entries[mKey] := mEntry;
+  end;
+end;
+
+class procedure TDpccEditorSnapshots.Forget(const AFileName: string);
+begin
+  if Entries <> nil then
+  begin
+    Entries.Remove(KeyOf(AFileName));
   end;
 end;
 

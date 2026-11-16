@@ -66,7 +66,7 @@ Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --exclude:Benchmark --exitbehav
 | `Tests\Common\Lsp` | côté serveur : complétion, survol, aide aux paramètres |
 | `Tests\IDE` | côté plugin sans ToolsAPI : déroulement de la liste, classement, favoris, mode ensemble, espaces réservés, réglages, textes |
 | `Tests\Application\Shell` | enveloppe du serveur |
-| `Tests\Common` | mémoire : auto-mesure, noms des `.dcp`, cache partagé, bibliothèques de types Office et WinRT |
+| `Tests\Common` | mémoire : auto-mesure, noms des `.dcp`, cache partagé, bibliothèques de types Office et WinRT, libération après l'arrêt du serveur, documents, tables de noms et de références, signatures dans le cache |
 | `Tests\Memory` | programme de mesure de la mémoire (catégorie `Benchmark`) |
 | `Tests\Support` | utilitaires : source de données fixe, surveillance des fuites |
 
@@ -91,6 +91,11 @@ requêtes, après chaque reconstruction (`.dproj` enregistré) et après un red�
 ```
 Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --run:dpcc.Memory.Bench.Tests --exitbehavior:Continue
 ```
+
+Chaque point de mesure indique aussi la mémoire allouée par le gestionnaire de mémoire (`alloc_mb`) ; l'écart
+avec les octets privés correspond à la perte. Les erreurs du serveur (`ERangeError`, `EIntOverflow`,
+`EAccessViolation`) sont écrites par le programme de mesure, avec l'adresse de l'erreur et les adresses de retour,
+dans `<fichier>-exceptions.txt` ; on les résout avec le fichier `.map` du programme de test.
 
 Comme `bds.exe`, le programme de test est LARGEADDRESSAWARE (4 Go d'espace d'adressage). Les données de mesure
 n'ont pas leur place dans le dépôt.

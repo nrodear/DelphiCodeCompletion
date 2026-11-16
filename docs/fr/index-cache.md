@@ -33,8 +33,9 @@ dpcc ne lit pas à l'avance `$(BDS)\OCX\Servers` (bibliothèques de types d'Exce
 MSHTML) ni `$(BDS)\source\rtl\win\winrt`. Ensemble, elles représentent un bon 40 % des symboles de la bibliothèque
 et environ 140 Mo dans l'index, et elles servent rarement.
 
-- Les unités restent accessibles par les `uses` : la complétion, le survol et l'aide aux paramètres les connaissent dès
-  qu'une unité les inclut.
+- Les unités restent accessibles par les `uses` : si une unité hors de l'installation les inclut, la construction les lit
+  aussitôt. Si seule une unité de l'installation les inclut, dpcc les charge lorsque la complétion, le survol ou l'aide
+  aux paramètres en ont besoin.
 - « + Unit » ne propose pas leurs symboles.
 - L'interrupteur « Pre-index Office type libraries and WinRT » (pré-indexer les bibliothèques de types Office et
   WinRT) de la page **General** (`index.officeAndWinRt` dans `settings.json`) les réintègre. Voir

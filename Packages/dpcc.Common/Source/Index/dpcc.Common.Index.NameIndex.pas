@@ -62,6 +62,9 @@ type
     /// <summary>AOwner (der Symbolindex als Objekt) wird freigegeben: seinen Schnappschuss verwerfen,
     /// sonst hielte der Cache dessen Units über das Ende hinaus fest.</summary>
     class procedure Forget(AOwner: TObject); static;
+    /// <summary>Verwirft den Schnappschuss, gleich zu welchem Index (der letzte Server im Prozess ist beendet).
+    /// </summary>
+    class procedure Clear; static;
   end;
 
 implementation
@@ -214,6 +217,17 @@ begin
       CacheNames := Default(TImportNameIndex);
       CacheOwner := nil;
     end;
+  finally
+    TMonitor.Exit(CacheLock);
+  end;
+end;
+
+class procedure TImportNames.Clear;
+begin
+  TMonitor.Enter(CacheLock);
+  try
+    CacheNames := Default(TImportNameIndex);
+    CacheOwner := nil;
   finally
     TMonitor.Exit(CacheLock);
   end;

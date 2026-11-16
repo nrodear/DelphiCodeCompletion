@@ -32,8 +32,9 @@ Der Index enthält Deklarationen, keine Verwendungen. Seine Speichergrenze ist f
 `$(BDS)\source\rtl\win\winrt` liest dpcc nicht vorab ein. Zusammen sind das gut 40 % der Symbole der Bibliothek und
 rund 140 MB im Index, gebraucht werden sie selten.
 
-- Über `uses` bleiben die Units erreichbar: Vervollständigung, Hover und Parameterhilfe kennen sie, sobald eine Unit
-  sie einbindet.
+- Über `uses` bleiben die Units erreichbar: Bindet eine Unit außerhalb der Installation sie ein, liest der Aufbau sie
+  gleich mit. Nennt nur eine Unit der Installation sie, lädt dpcc sie erst, wenn Vervollständigung, Hover oder
+  Parameterhilfe sie brauchen.
 - „+ Unit“ schlägt ihre Symbole nicht vor.
 - Der Schalter „Office-Typbibliotheken und WinRT vorab indizieren“ auf der Seite **Allgemein** (`index.officeAndWinRt`
   in `settings.json`) nimmt sie wieder auf. Siehe [Einstellungen](settings.md#allgemein).

@@ -406,11 +406,15 @@ begin
 end;
 
 procedure TIndexExtractor.SetParamInfo(var ASymbol: TIndexSymbol; ANode: TSyntaxNode; AKind: TIndexSymbolKind);
+var
+  mMin, mMax: Integer;
 begin
   if AKind in [TIndexSymbolKind.Method, TIndexSymbolKind.Constructor_, TIndexSymbolKind.Routine,
     TIndexSymbolKind.Property_] then
   begin
-    TIndexTypeText.ParamInfo(ANode, ASymbol.MinArgs, ASymbol.MaxArgs, ASymbol.ParamTypes);
+    TIndexTypeText.ParamInfo(ANode, mMin, mMax, ASymbol.ParamTypes);
+    ASymbol.MinArgs := mMin;
+    ASymbol.MaxArgs := mMax;
   end;
   ASymbol.IsDefault := (AKind = TIndexSymbolKind.Property_) and FReader.IsDefaultProperty(ANode);
   ASymbol.IsVirtual := (AKind in [TIndexSymbolKind.Method, TIndexSymbolKind.Constructor_]) and

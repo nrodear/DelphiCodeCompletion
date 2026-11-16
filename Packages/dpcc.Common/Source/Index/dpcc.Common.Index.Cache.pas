@@ -24,6 +24,15 @@
 //   Symbole einer Unit erst, wenn der Builder sie wirklich übernimmt. Units
 //   des gemeinsamen Bibliotheks-Caches, die das Projekt nicht braucht, kosten
 //   so beim Start fast nichts.
+// - Speicher (Speicher-Optimierung Phase 2, c2): Signaturen hält der Index als UTF-8 (TIndexSymbol.SignatureUtf8).
+//   ReadEntries prüft vorab, welche Texte nur als Signatur dienen (Markierlauf über alle Blöcke), und dekodiert
+//   diese nicht nach UTF-16, sondern kopiert ihre Bytes einmal je Nummer (Utf8 im Eintrag); alle Symbole mit
+//   demselben Text teilen sich die Kopie. So entsteht beim Laden nie eine UTF-16-Fassung der Signaturen.
+// - Speicher (Speicher-Optimierung Phase 2, b2): Die Einträge teilen sich eine Kopie nur des Teils hinter der
+//   String-Tabelle (Köpfe und Blöcke der Units, beim Bibliotheks-Cache rund 28 von 61 MB); die ganze Datei ist frei,
+//   sobald ReadEntries fertig ist, statt so lange zu leben wie der letzte Eintrag (bis zum Ende des Aufbaus). Ein
+//   Block am Stück statt einer Kopie je Unit: Große Blöcke gibt der Speichermanager beim Freigeben ganz zurück,
+//   viele mittlere ließen Lücken zwischen den Texten des Index (gemessen +14 MB nach dem Aufbau).
 //
 // Aufbau (alle Zahlen als Varint, vorzeichenbehaftete per ZigZag):
 //   Kopf:    'DPCCINDX' Version Prüfsumme (4 Byte, FNV-1a über alles dahinter)
@@ -55,8 +64,12 @@ type
     Header: TUnitIndex;
     /// <summary>Header ist schon vollständig (aus einem TUnitIndex übernommen).</summary>
     Expanded: Boolean;
+    /// <summary>Teil der Datei hinter der String-Tabelle (alle Einträge teilen ihn), nicht die ganze Datei; die
+    /// Offsets unten zählen darin.</summary>
     Data: TBytes;
     Strings: TArray<string>;
+    /// <summary>Texte, die als Signatur dienen, als UTF-8 (je Nummer wie Strings; '' für die übrigen).</summary>
+    Utf8: TArray<UTF8String>;
     SymbolOffset: Integer;
     SymbolEnd: Integer;
     SymbolCount: Integer;
@@ -183,6 +196,9 @@ type
     Data: TBytes;
     Position: Integer;
     Limit: Integer;
+    /// <summary>Markierlauf (c2): je Textnummer cMarkText (als Text gelesen) bzw. cMarkSignature (als Signatur);
+    /// nil = normal lesen.</summary>
+    Marks: TArray<Byte>;
     function ReadByte: Byte;
     function ReadVar: UInt64;
     function ReadCount: Integer;
@@ -192,7 +208,17 @@ type
     function ReadInt32: Integer;
     function ReadString(const AStrings: TArray<string>): string;
     function ReadList(const AStrings: TArray<string>): TArray<string>;
+    /// <summary>Signatur als UTF-8: aus AUtf8 (geteilt), sonst aus AStrings umgewandelt.</summary>
+    function ReadSignature(const AStrings: TArray<string>; const AUtf8: TArray<UTF8String>): UTF8String;
   end;
+
+const
+  cMarkText = 1;
+  cMarkSignature = 2;
+  /// <summary>Text im Markierlauf (Konstante: kein eigener Speicher je Eintrag).</summary>
+  cMarkPlaceholder = '?';
+
+type
 
   /// <summary>Sammelt beim Schreiben die String-Tabelle.</summary>
   TStringTable = class
@@ -414,7 +440,36 @@ begin
   begin
     Fail;
   end;
+  if Marks <> nil then
+  begin
+    Marks[Integer(mIndex)] := Marks[Integer(mIndex)] or cMarkText;
+  end;
   Result := AStrings[Integer(mIndex)];
+end;
+
+function TCacheReader.ReadSignature(const AStrings: TArray<string>; const AUtf8: TArray<UTF8String>): UTF8String;
+var
+  mIndex: UInt64;
+begin
+  mIndex := ReadVar;
+  if mIndex >= UInt64(Length(AStrings)) then
+  begin
+    Fail;
+  end;
+  if Marks <> nil then
+  begin
+    Marks[Integer(mIndex)] := Marks[Integer(mIndex)] or cMarkSignature;
+    Exit('');
+  end;
+  if (mIndex = 0) then
+  begin
+    Exit('');
+  end;
+  if (Integer(mIndex) < Length(AUtf8)) and (AUtf8[Integer(mIndex)] <> '') then
+  begin
+    Exit(AUtf8[Integer(mIndex)]);
+  end;
+  Result := UTF8Encode(AStrings[Integer(mIndex)]);
 end;
 
 function TCacheReader.ReadList(const AStrings: TArray<string>): TArray<string>;
@@ -790,7 +845,21 @@ end;
 
 { Lesen }
 
-function ReadSymbol(var AReader: TCacheReader; const AStrings: TArray<string>): TIndexSymbol;
+/// <summary>Parameterzahl (TIndexSymbol.MinArgs/MaxArgs, SmallInt); außerhalb gilt der Block als beschädigt.</summary>
+function ReadArgCount(var AReader: TCacheReader): SmallInt;
+var
+  mValue: Integer;
+begin
+  mValue := AReader.ReadInt32;
+  if (mValue < Low(SmallInt)) or (mValue > High(SmallInt)) then
+  begin
+    Fail;
+  end;
+  Result := mValue;
+end;
+
+function ReadSymbol(var AReader: TCacheReader; const AStrings: TArray<string>;
+  const AUtf8: TArray<UTF8String>): TIndexSymbol;
 var
   mKind: UInt64;
   mFlags: Integer;
@@ -832,12 +901,12 @@ begin
     Fail;
   end;
   Result.Visibility := TIndexVisibility(Integer(mKind));
-  Result.MinArgs := AReader.ReadInt32;
-  Result.MaxArgs := AReader.ReadInt32;
+  Result.MinArgs := ReadArgCount(AReader);
+  Result.MaxArgs := ReadArgCount(AReader);
   Result.ParamTypes := AReader.ReadList(AStrings);
   Result.FileName := AReader.ReadString(AStrings);
   Result.Condition := AReader.ReadString(AStrings);
-  Result.Signature := AReader.ReadString(AStrings);
+  Result.SignatureUtf8 := AReader.ReadSignature(AStrings, AUtf8);
   Result.Directives := AReader.ReadList(AStrings);
   Result.Summary := AReader.ReadString(AStrings);
   Result.DeprecatedText := AReader.ReadString(AStrings);
@@ -912,19 +981,6 @@ begin
   end;
 end;
 
-function ReadStringTable(var AReader: TCacheReader; const AData: TBytes): TArray<string>;
-var
-  mIndex, mSize: Integer;
-begin
-  SetLength(Result, AReader.ReadCount);
-  for mIndex := 0 to High(Result) do
-  begin
-    mSize := ReadBlockSize(AReader);
-    Result[mIndex] := TEncoding.UTF8.GetString(AData, AReader.Position, mSize);
-    Inc(AReader.Position, mSize);
-  end;
-end;
-
 function ReadPatterns(var AReader: TCacheReader; const AStrings: TArray<string>): TArray<TIndexFollowPattern>;
 var
   mIndex, mLine: Integer;
@@ -978,7 +1034,10 @@ begin
   Result.Patterns := ReadPatterns(AReader, AStrings);
 end;
 
-function ReadEntry(var AReader: TCacheReader; const AData: TBytes; const AStrings: TArray<string>): TIndexCacheEntry;
+/// <summary>Kopf einer Unit; ABody ist der Teil der Datei ab ABodyStart, auf den die Blöcke des Eintrags zeigen.
+/// </summary>
+function ReadEntry(var AReader: TCacheReader; const ABody: TBytes; ABodyStart: Integer;
+  const AStrings: TArray<string>): TIndexCacheEntry;
 var
   mSize: Integer;
 begin
@@ -987,15 +1046,15 @@ begin
   Result.SymbolCount := AReader.ReadCount;
   Result.UnavailableCount := AReader.ReadCount;
   mSize := ReadBlockSize(AReader);
-  Result.Data := AData;
+  Result.Data := ABody;
   Result.Strings := AStrings;
-  Result.SymbolOffset := AReader.Position;
-  Result.SymbolEnd := AReader.Position + mSize;
+  Result.SymbolOffset := AReader.Position - ABodyStart;
+  Result.SymbolEnd := Result.SymbolOffset + mSize;
   Inc(AReader.Position, mSize);
   Result.UsageCount := AReader.ReadCount;
   mSize := ReadBlockSize(AReader);
-  Result.UsageOffset := AReader.Position;
-  Result.UsageEnd := AReader.Position + mSize;
+  Result.UsageOffset := AReader.Position - ABodyStart;
+  Result.UsageEnd := Result.UsageOffset + mSize;
   Inc(AReader.Position, mSize);
   if Result.Header.FileName = '' then
   begin
@@ -1003,11 +1062,62 @@ begin
   end;
 end;
 
+/// <summary>Überspringt die String-Tabelle und liefert je Text Anfang und Länge seiner UTF-8-Bytes.</summary>
+procedure SkipStringTable(var AReader: TCacheReader; out AOffsets, ASizes: TArray<Integer>);
+var
+  mIndex: Integer;
+begin
+  SetLength(AOffsets, AReader.ReadCount);
+  SetLength(ASizes, Length(AOffsets));
+  for mIndex := 0 to High(AOffsets) do
+  begin
+    ASizes[mIndex] := ReadBlockSize(AReader);
+    AOffsets[mIndex] := AReader.Position;
+    Inc(AReader.Position, ASizes[mIndex]);
+  end;
+end;
+
+/// <summary>Markierlauf (c2): liest alle Einträge samt Symbol- und Verwendungsblöcken mit leeren Texten und hält in
+/// AReader.Marks fest, wie jede Textnummer gelesen wird. Das Ergebnis wird verworfen.</summary>
+procedure MarkTexts(AReader: TCacheReader; const ABlank: TArray<string>);
+var
+  mCount, mIndex, mSymbol: Integer;
+  mEntry: TIndexCacheEntry;
+  mBlock: TCacheReader;
+  mNoUtf8: TArray<UTF8String>;
+begin
+  mNoUtf8 := nil;
+  mCount := AReader.ReadCount;
+  for mIndex := 0 to mCount - 1 do
+  begin
+    mEntry := ReadEntry(AReader, AReader.Data, 0, ABlank);
+    mBlock.Data := AReader.Data;
+    mBlock.Marks := AReader.Marks;
+    mBlock.Position := mEntry.SymbolOffset;
+    mBlock.Limit := mEntry.SymbolEnd;
+    for mSymbol := 0 to mEntry.SymbolCount + mEntry.UnavailableCount - 1 do
+    begin
+      ReadSymbol(mBlock, ABlank, mNoUtf8);
+    end;
+    mBlock.Position := mEntry.UsageOffset;
+    mBlock.Limit := mEntry.UsageEnd;
+    for mSymbol := 0 to mEntry.UsageCount - 1 do
+    begin
+      ReadUsage(mBlock, ABlank);
+    end;
+  end;
+end;
+
 /// <summary>Liest den Inhalt hinter Kopf und Version; '' in AReason, wenn alles stimmt.</summary>
 function ReadBody(var AReader: TCacheReader; const AData: TBytes; out AReason: string): TArray<TIndexCacheEntry>;
 var
-  mStrings: TArray<string>;
-  mIndex: Integer;
+  mStrings, mBlank: TArray<string>;
+  mUtf8: TArray<UTF8String>;
+  mOffsets, mSizes: TArray<Integer>;
+  mMarks: TArray<Byte>;
+  mIndex, mBodyStart: Integer;
+  mBody: TBytes;
+  mMarking: TCacheReader;
 begin
   Result := nil;
   // Prüfsumme (#492): abgeschnittene oder veränderte Dateien vor dem Dekodieren erkennen.
@@ -1016,11 +1126,49 @@ begin
     AReason := cTexts[TCacheText.ChecksumDoesNotMatch].Text;
     Exit;
   end;
-  mStrings := ReadStringTable(AReader, AData);
+  // Erst feststellen, welche Texte nur als Signatur dienen (c2); dann jeden Text nur in der nötigen Form anlegen.
+  SkipStringTable(AReader, mOffsets, mSizes);
+  SetLength(mMarks, Length(mOffsets));
+  // Platzhalter statt der Texte: Der Kopf einer Unit braucht einen nicht leeren Dateinamen.
+  SetLength(mBlank, Length(mOffsets));
+  for mIndex := 0 to High(mBlank) do
+  begin
+    mBlank[mIndex] := cMarkPlaceholder;
+  end;
+  mMarking := AReader;
+  mMarking.Marks := mMarks;
+  MarkTexts(mMarking, mBlank);
+  mBlank := nil;
+  SetLength(mStrings, Length(mOffsets));
+  SetLength(mUtf8, Length(mOffsets));
+  for mIndex := 1 to High(mOffsets) do
+  begin
+    if mSizes[mIndex] = 0 then
+    begin
+      Continue;
+    end;
+    // Ungelesene Texte wie bisher als string: lieber zu viel als ein fehlender.
+    if (mMarks[mIndex] and cMarkSignature = 0) or (mMarks[mIndex] and cMarkText <> 0) then
+    begin
+      mStrings[mIndex] := TEncoding.UTF8.GetString(AData, mOffsets[mIndex], mSizes[mIndex]);
+    end;
+    if mMarks[mIndex] and cMarkSignature <> 0 then
+    begin
+      SetLength(mUtf8[mIndex], mSizes[mIndex]);
+      Move(AData[mOffsets[mIndex]], PAnsiChar(mUtf8[mIndex])^, mSizes[mIndex]);
+    end;
+  end;
+  mMarks := nil;
+  mOffsets := nil;
+  mSizes := nil;
+  // Nur der Teil hinter der String-Tabelle lebt mit den Einträgen weiter (b2).
+  mBodyStart := AReader.Position;
+  mBody := Copy(AData, mBodyStart, AReader.Limit - mBodyStart);
   SetLength(Result, AReader.ReadCount);
   for mIndex := 0 to High(Result) do
   begin
-    Result[mIndex] := ReadEntry(AReader, AData, mStrings);
+    Result[mIndex] := ReadEntry(AReader, mBody, mBodyStart, mStrings);
+    Result[mIndex].Utf8 := mUtf8;
   end;
   if AReader.Position <> AReader.Limit then
   begin
@@ -1120,12 +1268,12 @@ begin
     SetLength(AUnit.Symbols, AEntry.SymbolCount);
     for mIndex := 0 to AEntry.SymbolCount - 1 do
     begin
-      AUnit.Symbols[mIndex] := ReadSymbol(mReader, AEntry.Strings);
+      AUnit.Symbols[mIndex] := ReadSymbol(mReader, AEntry.Strings, AEntry.Utf8);
     end;
     SetLength(AUnit.Unavailable, AEntry.UnavailableCount);
     for mIndex := 0 to AEntry.UnavailableCount - 1 do
     begin
-      AUnit.Unavailable[mIndex] := ReadSymbol(mReader, AEntry.Strings);
+      AUnit.Unavailable[mIndex] := ReadSymbol(mReader, AEntry.Strings, AEntry.Utf8);
     end;
     Result := mReader.Position = mReader.Limit;
   except

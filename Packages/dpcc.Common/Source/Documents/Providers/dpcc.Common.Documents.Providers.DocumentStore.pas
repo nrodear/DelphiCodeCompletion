@@ -7,6 +7,13 @@
 // Schlüssel ist TDocumentUris.Key: verschiedene Schreibweisen derselben Datei
 // (c%3A/C:, Umlaute kodiert oder nicht, Groß-/Kleinschreibung) führen zum
 // selben Dokument. Das Dokument behält die URI, mit der der Client es öffnete.
+//
+// Speicher (Speicher-Optimierung Phase 2, a1): Abgeleitete Daten (Syntaxbaum, Auszüge) kosten das 10- bis 30-Fache
+// des Texts und blieben an jedem je geöffneten Dokument. Nur die cKeepDerived zuletzt benutzten Dokumente behalten
+// sie; die übrigen ersetzt der Speicher nach dem Öffnen oder Ändern eines Dokuments durch eine gleiche
+// Momentaufnahme (URI, Version, Text) ohne abgeleitete Daten. Wer die alte noch hält, nutzt sie weiter; der nächste
+// Zugriff baut den Baum neu. Die URI-Schlüssel merkt sich der Speicher nur für geöffnete Dokumente (TryGet auf eine
+// nie geöffnete Datei legte sonst je Datei einen Eintrag an).
 
 interface
 
@@ -19,16 +26,30 @@ uses
 
 type
   TDocumentStore = class(TInterfacedObject, IDocumentStore)
+  public const
+    /// <summary>So viele zuletzt benutzte Dokumente behalten ihre abgeleiteten Daten (a1).</summary>
+    cKeepDerived = 16;
   private
     FLock: TCriticalSection;
     FDocuments: TDictionary<string, ITextDocument>;
     FListeners: TList<TDocumentListener>;
     FCanonicalize: TPathCanonicalizer;
-    // URI → Schlüssel; spart den Plattenzugriff des Canonicalizers je Änderung.
+    // URI → Schlüssel; spart den Plattenzugriff des Canonicalizers je Änderung. Nur für geöffnete Dokumente.
     FKeys: TDictionary<string, string>;
-    function KeyOf(const AUri: string): string;
+    // Schlüssel → letzte Benutzung (Zähler FClock); FBare: Momentaufnahme ohne abgeleitete Daten seit dem Kürzen.
+    FUsed: TDictionary<string, Int64>;
+    FBare: TDictionary<string, Boolean>;
+    FClock: Int64;
+    /// <summary>Schlüssel zu AUri; ARemember: für später merken (Open), sonst nur, wenn das Dokument offen ist.
+    /// </summary>
+    function KeyOf(const AUri: string; ARemember: Boolean = False): string;
     procedure Notify(AKind: TDocumentEventKind; const ADocument: ITextDocument);
     function Take(const AUri: string; out ADocument: ITextDocument): Boolean;
+    /// <summary>Unter FLock: AKey eben benutzt.</summary>
+    procedure TouchLocked(const AKey: string);
+    /// <summary>Ersetzt die länger nicht benutzten Dokumente jenseits von cKeepDerived durch Momentaufnahmen ohne
+    /// abgeleitete Daten.</summary>
+    procedure TrimDerived;
   public
     constructor Create; overload;
     /// <summary>Mit Auflösung von Symlinks und Junctions für die Schlüssel.</summary>
@@ -47,6 +68,7 @@ type
 implementation
 
 uses
+  System.Generics.Defaults,
   dpcc.Common.Documents.TextDocument,
   dpcc.Common.Localization.Texts;
 
@@ -71,6 +93,8 @@ begin
   FDocuments := TDictionary<string, ITextDocument>.Create;
   FListeners := TList<TDocumentListener>.Create;
   FKeys := TDictionary<string, string>.Create;
+  FUsed := TDictionary<string, Int64>.Create;
+  FBare := TDictionary<string, Boolean>.Create;
 end;
 
 constructor TDocumentStore.Create(const ACanonicalize: TPathCanonicalizer);
@@ -79,7 +103,7 @@ begin
   FCanonicalize := ACanonicalize;
 end;
 
-function TDocumentStore.KeyOf(const AUri: string): string;
+function TDocumentStore.KeyOf(const AUri: string; ARemember: Boolean): string;
 var
   mFound: Boolean;
 begin
@@ -96,7 +120,64 @@ begin
   Result := TDocumentUris.Key(AUri, FCanonicalize);
   FLock.Enter;
   try
-    FKeys.AddOrSetValue(AUri, Result);
+    if ARemember or FDocuments.ContainsKey(Result) then
+    begin
+      FKeys.AddOrSetValue(AUri, Result);
+    end;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure TDocumentStore.TouchLocked(const AKey: string);
+begin
+  Inc(FClock);
+  FUsed.AddOrSetValue(AKey, FClock);
+  FBare.Remove(AKey);
+end;
+
+procedure TDocumentStore.TrimDerived;
+var
+  mOrder: TArray<TPair<string, Int64>>;
+  mIndex: Integer;
+  mKey: string;
+  mDocument: ITextDocument;
+begin
+  FLock.Enter;
+  try
+    if FDocuments.Count <= cKeepDerived then
+    begin
+      Exit;
+    end;
+    // Zuletzt benutzte zuerst; dahinter alles kürzen, was nicht schon gekürzt ist.
+    mOrder := FUsed.ToArray;
+    TArray.Sort<TPair<string, Int64>>(mOrder, TComparer<TPair<string, Int64>>.Construct(
+      function(const ALeft, ARight: TPair<string, Int64>): Integer
+      begin
+        if ALeft.Value > ARight.Value then
+        begin
+          Result := -1;
+        end
+        else if ALeft.Value < ARight.Value then
+        begin
+          Result := 1;
+        end
+        else
+        begin
+          Result := 0;
+        end;
+      end));
+    for mIndex := cKeepDerived to High(mOrder) do
+    begin
+      mKey := mOrder[mIndex].Key;
+      if FBare.ContainsKey(mKey) or not FDocuments.TryGetValue(mKey, mDocument) then
+      begin
+        Continue;
+      end;
+      FDocuments[mKey] := TTextDocument.Create(mDocument.Uri, mDocument.LanguageId, mDocument.Version,
+        mDocument.Text);
+      FBare.AddOrSetValue(mKey, True);
+    end;
   finally
     FLock.Leave;
   end;
@@ -104,6 +185,8 @@ end;
 
 destructor TDocumentStore.Destroy;
 begin
+  FBare.Free;
+  FUsed.Free;
   FKeys.Free;
   FListeners.Free;
   FDocuments.Free;
@@ -140,6 +223,8 @@ begin
     begin
       FDocuments.Remove(mKey);
       FKeys.Remove(AUri);
+      FUsed.Remove(mKey);
+      FBare.Remove(mKey);
     end;
   finally
     FLock.Leave;
@@ -151,14 +236,16 @@ function TDocumentStore.Open(const AUri, ALanguageId: string; AVersion: Integer;
 var
   mKey: string;
 begin
-  mKey := KeyOf(AUri);
+  mKey := KeyOf(AUri, True);
   Result := TTextDocument.Create(AUri, ALanguageId, AVersion, AText);
   FLock.Enter;
   try
     FDocuments.AddOrSetValue(mKey, Result);
+    TouchLocked(mKey);
   finally
     FLock.Leave;
   end;
+  TrimDerived;
   Notify(TDocumentEventKind.Opened, Result);
 end;
 
@@ -177,9 +264,11 @@ begin
   FLock.Enter;
   try
     FDocuments.AddOrSetValue(mKey, Result);
+    TouchLocked(mKey);
   finally
     FLock.Leave;
   end;
+  TrimDerived;
   Notify(TDocumentEventKind.Changed, Result);
 end;
 
@@ -211,6 +300,11 @@ begin
   FLock.Enter;
   try
     Result := FDocuments.TryGetValue(mKey, ADocument);
+    if Result then
+    begin
+      // Wer es holt, legt womöglich wieder abgeleitete Daten an.
+      TouchLocked(mKey);
+    end;
   finally
     FLock.Leave;
   end;

@@ -26,17 +26,31 @@ type
   /// <summary>Sichtbarkeit eines Mitglieds (#263); Public auch für Symbole auf Unit-Ebene.</summary>
   TIndexVisibility = (Public, Published, Protected, StrictProtected, Private, StrictPrivate);
 
+  /// <summary>Speicher (Speicher-Optimierung Phase 2, c3): Die Ein-Byte-Felder (Kind, InInterface, Visibility,
+  /// IsDefault, IsVirtual, Unavailable, ScopedEnum) stehen beisammen, MinArgs und MaxArgs sind SmallInt; vorher
+  /// füllte der Record hinter jedem Byte auf vier Byte auf (136 statt 116 Byte je Symbol, bei rund 600.000
+  /// Bibliothekssymbolen etwa 12 MB).</summary>
   TIndexSymbol = record
     Name: string;
     /// <summary>Umgebender Typ, z. B. TFoo bei TFoo.Bar; '' auf Unit-Ebene.</summary>
     Container: string;
     Kind: TIndexSymbolKind;
+    /// <summary>Im interface-Abschnitt (von anderen Units sichtbar).</summary>
+    InInterface: Boolean;
+    Visibility: TIndexVisibility;
+    /// <summary>Default-Property (Liste[i]).</summary>
+    IsDefault: Boolean;
+    /// <summary>Deklaration einer Methode mit virtual, dynamic, abstract oder override (#125).</summary>
+    IsVirtual: Boolean;
+    /// <summary>Steht in einem Zweig, der unter der aktiven Konfiguration nicht gilt (#476).</summary>
+    Unavailable: Boolean;
+    /// <summary>Aufzählungstyp und seine Werte unter {$SCOPEDENUMS ON} (#849): Werte gelten nur mit
+    /// Typpräfix (TState.Error), nicht unqualifiziert.</summary>
+    ScopedEnum: Boolean;
     /// <summary>Gesamte Deklaration.</summary>
     Range: TTextRange;
     /// <summary>Nur der Name.</summary>
     SelectionRange: TTextRange;
-    /// <summary>Im interface-Abschnitt (von anderen Units sichtbar).</summary>
-    InInterface: Boolean;
     /// <summary>Vorfahr und Interfaces bei Klassen und Interfaces, Zieltyp bei Helfern.</summary>
     Ancestors: TArray<string>;
     /// <summary>Deklarierter Typ bei Variablen, Feldern, Properties, Konstanten und Funktionen (Ergebnis); sonst
@@ -49,32 +63,25 @@ type
     AncestorArgs: TArray<string>;
     /// <summary>Typparameter generischer Typen und Methoden, kommagetrennt (TDictionary&lt;TKey,TValue&gt;).</summary>
     TypeParams: string;
-    Visibility: TIndexVisibility;
-    /// <summary>Routinen und indizierte Properties: Parameterzahl ohne bzw. mit Standardwerten.</summary>
-    MinArgs: Integer;
-    MaxArgs: Integer;
+    /// <summary>Routinen und indizierte Properties: Parameterzahl ohne bzw. mit Standardwerten. SmallInt reicht
+    /// (Speicher-Optimierung Phase 2, c3: 4 Byte je Symbol).</summary>
+    MinArgs: SmallInt;
+    MaxArgs: SmallInt;
     /// <summary>Typen der Parameter in Reihenfolge ('' bei untypisierten).</summary>
     ParamTypes: TArray<string>;
-    /// <summary>Default-Property (Liste[i]).</summary>
-    IsDefault: Boolean;
-    /// <summary>Deklaration einer Methode mit virtual, dynamic, abstract oder override (#125).</summary>
-    IsVirtual: Boolean;
     /// <summary>Datei der Deklaration, wenn sie aus einer $I-Datei kommt (#500); '' = Datei der Unit.</summary>
     FileName: string;
     /// <summary>Bedingung, unter der die Deklaration steht ("WIN64", "not MSWINDOWS"), "platform" bei der
     /// gleichnamigen Direktive; '' = immer (#476).</summary>
     Condition: string;
-    /// <summary>Steht in einem Zweig, der unter der aktiven Konfiguration nicht gilt (#476).</summary>
-    Unavailable: Boolean;
     /// <summary>Feld im varianten Teil eines Records (#846): Marken seines Zweigs ("0", "mkA, mkB"),
     /// verschachtelt mit " › " verbunden ("1 › 0"); '' = kein varianter Zweig.</summary>
     VariantBranch: string;
-    /// <summary>Aufzählungstyp und seine Werte unter {$SCOPEDENUMS ON} (#849): Werte gelten nur mit
-    /// Typpräfix (TState.Error), nicht unqualifiziert.</summary>
-    ScopedEnum: Boolean;
-    /// <summary>Kopf der Deklaration als eine Zeile, z. B. "function Foo(A: Integer): string; overload;"
-    /// oder "TFoo = class(TBase)" (#492); höchstens TIndexSymbol.cMaxSignature Zeichen.</summary>
-    Signature: string;
+    /// <summary>Kopf der Deklaration (Signature) als UTF-8 (Speicher-Optimierung Phase 2, c2): fast nur
+    /// ASCII, halb so groß wie UTF-16; Signaturen sind mit rund 60 MB der größte Textanteil der Bibliothek. Lesen
+    /// und schreiben über Signature; direkt nur zum Teilen gleicher Texte (Cache) und für die Speicherschätzung.
+    /// </summary>
+    SignatureUtf8: UTF8String;
     /// <summary>Direktiven in Kleinschreibung und Reihenfolge der Deklaration: virtual, override,
     /// overload, static, inline, deprecated, platform … (#492).</summary>
     Directives: TArray<string>;
@@ -101,6 +108,12 @@ type
     function QualifiedName: string;
     /// <summary>Trägt die Direktive ADirective (ohne Groß-/Kleinschreibung)?</summary>
     function HasDirective(const ADirective: string): Boolean;
+    function GetSignature: string;
+    procedure SetSignature(const AValue: string);
+    /// <summary>Kopf der Deklaration als eine Zeile, z. B. "function Foo(A: Integer): string; overload;"
+    /// oder "TFoo = class(TBase)" (#492); höchstens TIndexSymbol.cMaxSignature Zeichen. Gespeichert als UTF-8
+    /// (SignatureUtf8).</summary>
+    property Signature: string read GetSignature write SetSignature;
   public const
     cMaxSignature = 300;
     cMaxSummary = 200;
@@ -152,7 +165,9 @@ type
   /// <summary>Nachschlagetabelle Name → Positionen in TUnitIndex.Symbols (Diagnoselog 15.10.2026): die
   /// Namensauflösung suchte jeden Bezeichner linear in allen Units der uses-Liste, bei großen Units
   /// (Winapi.Windows, Vcl.Controls) mehrere Sekunden je Datei. Gilt nur für das Symbol-Array, aus dem
-  /// sie entstand; wird beim ersten Zugriff aufgebaut und ist threadsicher.</summary>
+  /// sie entstand; wird beim ersten Zugriff aufgebaut und ist threadsicher. Seit Speicher-Optimierung Phase 2
+  /// (c4) ein nach Namen sortiertes Feld der Positionen (4 Byte je Symbol, Suche halbierend) statt eines
+  /// Dictionarys mit großgeschriebenen Kopien der Namen (rund 24 MB für die Bibliothek).</summary>
   IUnitNameTable = interface
     ['{6C1F4E27-93A8-4B5D-8E02-D7A4C9B36F51}']
     /// <summary>Positionen der Symbole mit diesem Namen (ohne Groß-/Kleinschreibung) aufsteigend;
@@ -285,6 +300,10 @@ type
     /// <summary>Zählt jede Änderung am Index hoch; abgeleitete Strukturen (Namensindex, #617)
     /// erkennen daran, dass sie neu aufgebaut werden müssen.</summary>
     function Generation: Int64;
+    /// <summary>Nach einem Aufbau: vergisst die gemeinsame Ablage gleicher Zeichenketten (Speicher-Optimierung
+    /// Phase 2). Die Units behalten ihre geteilten Strings; erst später hinzukommende teilen sie nicht mehr mit
+    /// früheren. Die Ablage wuchs sonst mit jedem Text und hielt auch die ersetzter Fassungen.</summary>
+    procedure ReleaseStringPool;
   end;
 
   /// <summary>Antworten, die nur vom Index und einem Namen abhängen, über alle Units eines Arbeitsbereichs
@@ -353,20 +372,20 @@ type
 implementation
 
 uses
-  System.StrUtils;
+  System.StrUtils,
+  System.Generics.Defaults;
 
 type
   TUnitNameTable = class(TInterfacedObject, IUnitNameTable)
   private
     FSymbols: TArray<TIndexSymbol>;
-    // Name (groß) → erste Stelle; FNext verkettet die weiteren Stellen gleichen Namens
-    // aufsteigend (-1 = Ende). Spart je Name ein eigenes Array (Speicherbedarf, 15.10.2026).
-    FFirst: TDictionary<string, Integer>;
-    FNext: TArray<Integer>;
+    // Positionen in FSymbols, geordnet nach Name ohne Groß-/Kleinschreibung (CompareText, wie früher der
+    // großgeschriebene Schlüssel), gleiche Namen aufsteigend nach Position.
+    FOrder: TArray<Integer>;
+    FBuilt: Boolean;
     procedure Build;
   public
     constructor Create(const ASymbols: TArray<TIndexSymbol>);
-    destructor Destroy; override;
     function Positions(const ASymbols: TArray<TIndexSymbol>; const AName: string;
       out APositions: TArray<Integer>): Boolean;
   end;
@@ -379,78 +398,79 @@ begin
   FSymbols := ASymbols;
 end;
 
-destructor TUnitNameTable.Destroy;
-begin
-  FFirst.Free;
-  inherited;
-end;
-
 procedure TUnitNameTable.Build;
 var
-  mFirst: TDictionary<string, Integer>;
-  mPosition, mHead: Integer;
-  mKey: string;
+  mOrder: TArray<Integer>;
+  mSymbols: TArray<TIndexSymbol>;
+  mPosition: Integer;
 begin
-  mFirst := TDictionary<string, Integer>.Create;
-  SetLength(FNext, Length(FSymbols));
-  // Von hinten verketten, damit die Kette aufsteigend läuft; Zugriff über den Index, damit
-  // die Symbol-Records nicht kopiert werden.
-  for mPosition := High(FSymbols) downto 0 do
+  SetLength(mOrder, Length(FSymbols));
+  for mPosition := 0 to High(mOrder) do
   begin
-    mKey := UpperCase(FSymbols[mPosition].Name);
-    if not mFirst.TryGetValue(mKey, mHead) then
-    begin
-      mHead := -1;
-    end;
-    FNext[mPosition] := mHead;
-    mFirst.AddOrSetValue(mKey, mPosition);
+    mOrder[mPosition] := mPosition;
   end;
-  mFirst.TrimExcess;
-  FFirst := mFirst;
+  mSymbols := FSymbols;
+  // Zugriff über den Index, damit die Symbol-Records nicht kopiert werden.
+  TArray.Sort<Integer>(mOrder, TComparer<Integer>.Construct(
+    function(const ALeft, ARight: Integer): Integer
+    begin
+      Result := CompareText(mSymbols[ALeft].Name, mSymbols[ARight].Name);
+      if Result = 0 then
+      begin
+        Result := ALeft - ARight;
+      end;
+    end));
+  FOrder := mOrder;
 end;
 
 function TUnitNameTable.Positions(const ASymbols: TArray<TIndexSymbol>; const AName: string;
   out APositions: TArray<Integer>): Boolean;
 var
-  mPosition, mCurrent, mCount: Integer;
+  mLow, mHigh, mMiddle, mEnd, mPosition: Integer;
 begin
   APositions := nil;
   if Pointer(ASymbols) <> Pointer(FSymbols) then
   begin
     Exit(False);
   end;
-  if FFirst = nil then
+  if not FBuilt then
   begin
     TMonitor.Enter(Self);
     try
-      if FFirst = nil then
+      if not FBuilt then
       begin
         Build;
+        FBuilt := True;
       end;
     finally
       TMonitor.Exit(Self);
     end;
   end;
   Result := True;
-  if not FFirst.TryGetValue(UpperCase(AName), mPosition) then
+  // Erste Stelle, deren Name nicht vor AName liegt.
+  mLow := 0;
+  mHigh := Length(FOrder);
+  while mLow < mHigh do
   begin
-    Exit;
+    mMiddle := (mLow + mHigh) shr 1;
+    if CompareText(FSymbols[FOrder[mMiddle]].Name, AName) < 0 then
+    begin
+      mLow := mMiddle + 1;
+    end
+    else
+    begin
+      mHigh := mMiddle;
+    end;
   end;
-  mCount := 0;
-  mCurrent := mPosition;
-  while mCurrent >= 0 do
+  mEnd := mLow;
+  while (mEnd < Length(FOrder)) and (CompareText(FSymbols[FOrder[mEnd]].Name, AName) = 0) do
   begin
-    Inc(mCount);
-    mCurrent := FNext[mCurrent];
+    Inc(mEnd);
   end;
-  SetLength(APositions, mCount);
-  mCount := 0;
-  mCurrent := mPosition;
-  while mCurrent >= 0 do
+  SetLength(APositions, mEnd - mLow);
+  for mPosition := mLow to mEnd - 1 do
   begin
-    APositions[mCount] := mCurrent;
-    Inc(mCount);
-    mCurrent := FNext[mCurrent];
+    APositions[mPosition - mLow] := FOrder[mPosition];
   end;
 end;
 
@@ -465,6 +485,30 @@ begin
   else
   begin
     Result := Container + '.' + Name;
+  end;
+end;
+
+function TIndexSymbol.GetSignature: string;
+begin
+  if SignatureUtf8 = '' then
+  begin
+    Result := '';
+  end
+  else
+  begin
+    Result := UTF8ToString(SignatureUtf8);
+  end;
+end;
+
+procedure TIndexSymbol.SetSignature(const AValue: string);
+begin
+  if AValue = '' then
+  begin
+    SignatureUtf8 := '';
+  end
+  else
+  begin
+    SignatureUtf8 := UTF8Encode(AValue);
   end;
 end;
 

@@ -5,6 +5,9 @@
 // IOTAModuleNotifier, dessen AfterSave die Dateien der Quelltexteditoren des Moduls meldet (bei Projekten die
 // .dpr/.dpk). Neu geöffnete Module findet ein IOTAIDENotifier (ofnFileOpened); beim Schließen meldet sich der
 // Notifier über Destroyed selbst ab. Jeder Aufruf aus der IDE läuft über TDpccGuard (#493).
+// Schließt die IDE eine Datei (ofnFileClosing), meldet der Notifier sie an OnClosed (a1, Speicher-Optimierung
+// Phase 2): Der Manager schickt textDocument/didClose, sonst behielt der Server Text und Syntaxbaum jeder je
+// abgeglichenen Datei bis zum Ende der Sitzung. Bei einem Formular (.dfm, .fmx) auch die zugehörige .pas.
 
 interface
 
@@ -40,6 +43,7 @@ type
     end;
   private
     FOnSaved: TProc<string>;
+    FOnClosed: TProc<string>;
     FModules: TList<TModuleNotifier>;
     FNotifier: TIdeNotifier;
     FNotifierRef: IOTAIDENotifier;
@@ -49,9 +53,11 @@ type
     procedure Attach(const AModule: IOTAModule);
     procedure Forget(ANotifier: TModuleNotifier);
     procedure Saved(const AModule: IOTAModule);
+    procedure Closing(const AFileName: string);
   public
-    /// <summary>AOnSaved bekommt den vollen Namen jeder gespeicherten Quelltextdatei.</summary>
-    constructor Create(const AOnSaved: TProc<string>);
+    /// <summary>AOnSaved bekommt den vollen Namen jeder gespeicherten Quelltextdatei, AOnClosed (optional) den jeder
+    /// Datei, die die IDE schließt.</summary>
+    constructor Create(const AOnSaved: TProc<string>; const AOnClosed: TProc<string> = nil);
     destructor Destroy; override;
   end;
 
@@ -129,7 +135,20 @@ var
   mOwner: TDpccSaveNotifier;
 begin
   mOwner := FOwner;
-  if (mOwner = nil) or (NotifyCode <> ofnFileOpened) then
+  if mOwner = nil then
+  begin
+    Exit;
+  end;
+  if NotifyCode = ofnFileClosing then
+  begin
+    TDpccGuard.Run(TDpccFeature.Files,
+      procedure
+      begin
+        mOwner.Closing(FileName);
+      end);
+    Exit;
+  end;
+  if NotifyCode <> ofnFileOpened then
   begin
     Exit;
   end;
@@ -150,12 +169,13 @@ end;
 
 { TDpccSaveNotifier }
 
-constructor TDpccSaveNotifier.Create(const AOnSaved: TProc<string>);
+constructor TDpccSaveNotifier.Create(const AOnSaved: TProc<string>; const AOnClosed: TProc<string>);
 var
   mServices: IOTAServices;
 begin
   inherited Create;
   FOnSaved := AOnSaved;
+  FOnClosed := AOnClosed;
   FModules := TList<TModuleNotifier>.Create;
   FNotifierIndex := -1;
   if Supports(BorlandIDEServices, IOTAServices, mServices) then
@@ -190,7 +210,22 @@ begin
   end;
   FModules.Free;
   FOnSaved := nil;
+  FOnClosed := nil;
   inherited;
+end;
+
+procedure TDpccSaveNotifier.Closing(const AFileName: string);
+begin
+  if not Assigned(FOnClosed) or (AFileName = '') then
+  begin
+    Exit;
+  end;
+  FOnClosed(AFileName);
+  // Formular: Der Quelltext daneben schließt mit.
+  if SameText(ExtractFileExt(AFileName), '.dfm') or SameText(ExtractFileExt(AFileName), '.fmx') then
+  begin
+    FOnClosed(ChangeFileExt(AFileName, '.pas'));
+  end;
 end;
 
 procedure TDpccSaveNotifier.Sweep;

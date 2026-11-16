@@ -32,7 +32,8 @@ dpcc does not read `$(BDS)\OCX\Servers` (type libraries of Excel, Word, Outlook 
 `$(BDS)\source\rtl\win\winrt` in advance. Together they are a good 40 % of the library's symbols and about 140 MB
 in the index, and they are rarely needed.
 
-- The units remain reachable through `uses`: completion, hover and parameter help know them as soon as a unit uses
+- The units remain reachable through `uses`: if a unit outside the installation uses them, the build reads them at
+  once. If only a unit of the installation uses them, dpcc loads them when completion, hover or parameter help need
   them.
 - “+ Unit” does not suggest their symbols.
 - The switch “Pre-index Office type libraries and WinRT” on the **General** page (`index.officeAndWinRt` in

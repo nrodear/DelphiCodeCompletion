@@ -14,6 +14,9 @@
 //   DPCC_MEMBENCH_BETWEEN (Anfragen zwischen zwei Neuaufbauten, 100).
 // Der Cache gehört nicht dem Benutzer: Der Aufrufer setzt LOCALAPPDATA bzw. DPCC_CACHE_ROOT auf einen eigenen Ordner
 // (z. B. mit einer Kopie des Bibliotheks-Caches) und APPDATA auf einen leeren. Rohdaten gehören nicht ins Repository.
+// Fehler im Server (ERangeError, EIntOverflow, EAccessViolation) schreibt das Messprogramm mit Fehleradresse und
+// Rücksprungadressen nach <Datei>-exceptions.txt (Speicher-Optimierung Phase 2: gescheiterte Anfragen); die Adressen
+// löst die .map-Datei des Testprogramms auf. Nur im Testprogramm und nur während der Messung.
 
 interface
 
@@ -33,6 +36,7 @@ type
 implementation
 
 uses
+  Winapi.Windows,
   System.SysUtils,
   System.Classes,
   System.IOUtils,
@@ -46,6 +50,7 @@ uses
   dpcc.Core.Lsp.Adapters.InProcess,
   dpcc.Core.Files.WatchedChanges,
   dpcc.Windows.Diagnostics.ProcessInfo,
+  dpcc.Common.Diagnostics.ShutdownLeaks,
   Shell.Diagnostics;
 
 const
@@ -67,6 +72,9 @@ type
     MaxPrivate: Int64;
     /// <summary>Kleinste größte freie Region seit dem vorigen Punkt.</summary>
     MinFree: Int64;
+    /// <summary>Vom Speichermanager belegte Bytes (ohne seine Pools und Lücken); Private Bytes minus dieser Wert ist
+    /// der Verschnitt.</summary>
+    Allocated: Int64;
     Report: TShellMemoryReport;
   end;
 
@@ -123,6 +131,121 @@ type
     procedure Run(ARequests, ARebuilds, ARestarts, ABetween: Integer);
     procedure Save(const AFileName: string);
   end;
+
+type
+  /// <summary>Fehleradresse und Aufrufer einer Exception (nur für die Protokolldatei).</summary>
+  TBenchStackInfo = record
+    Count: Integer;
+    Frames: array[0..47] of Pointer;
+  end;
+  PBenchStackInfo = ^TBenchStackInfo;
+
+const
+  /// <summary>Code der Delphi-Exceptions (System, cDelphiException).</summary>
+  cBenchDelphiException = $0EEDFADE;
+  /// <summary>Höchstens so viele Zeilen je Messung.</summary>
+  cBenchExceptionLines = 400;
+
+var
+  BenchExceptionFile: string;
+  BenchExceptionLock: TObject;
+  BenchExceptionLines: Integer;
+
+function RtlCaptureStackBackTrace(AFramesToSkip, AFramesToCapture: Cardinal; ABackTrace: Pointer;
+  ABackTraceHash: PCardinal): Word; stdcall; external kernel32 name 'RtlCaptureStackBackTrace';
+
+/// <summary>Oberes Ende des Stapels dieses Threads (TIB, StackBase).</summary>
+{$IFDEF CPUX86}
+function BenchStackBase: NativeUInt;
+asm
+  mov eax, fs:[4]
+end;
+{$ELSE}
+function BenchStackBase: NativeUInt;
+asm
+  mov rax, gs:[8]
+end;
+{$ENDIF}
+
+/// <summary>Werte auf dem Stapel, die in den Code des Programms zeigen (Rücksprungadressen, auch bei Routinen
+/// ohne Stapelrahmen); höchstens AMax.</summary>
+function BenchStackScan(AMax: Integer): string;
+var
+  mHeaders: PImageNtHeaders;
+  mLow, mHigh, mTop, mAddress, mValue: NativeUInt;
+  mCount: Integer;
+begin
+  Result := '';
+  mHeaders := PImageNtHeaders(HInstance + NativeUInt(PImageDosHeader(HInstance)^._lfanew));
+  mLow := HInstance + mHeaders^.OptionalHeader.BaseOfCode;
+  mHigh := mLow + mHeaders^.OptionalHeader.SizeOfCode;
+  mAddress := NativeUInt(@mHeaders);
+  mTop := BenchStackBase;
+  if mTop > mAddress + 64 * 1024 then
+  begin
+    mTop := mAddress + 64 * 1024;
+  end;
+  mCount := 0;
+  while (mAddress + SizeOf(NativeUInt) <= mTop) and (mCount < AMax) do
+  begin
+    mValue := PNativeUInt(mAddress)^;
+    if (mValue >= mLow) and (mValue < mHigh) then
+    begin
+      Result := Result + ' ' + IntToHex(mValue, 8);
+      Inc(mCount);
+    end;
+    Inc(mAddress, SizeOf(NativeUInt));
+  end;
+end;
+
+function BenchCaptureStack(P: System.PExceptionRecord): Pointer;
+var
+  mInfo: PBenchStackInfo;
+  mObject: TObject;
+  mLine: string;
+  mIndex: Integer;
+begin
+  Result := nil;
+  if (P = nil) or (P^.ExceptionCode <> cBenchDelphiException) or (P^.ExceptObject = nil) then
+  begin
+    Exit;
+  end;
+  mObject := TObject(P^.ExceptObject);
+  if not ((mObject is ERangeError) or (mObject is EIntOverflow) or (mObject is EAccessViolation)) then
+  begin
+    Exit;
+  end;
+  New(mInfo);
+  mInfo^.Count := RtlCaptureStackBackTrace(0, Length(mInfo^.Frames), @mInfo^.Frames[0], nil);
+  Result := mInfo;
+  mLine := Format('%s base %s at %s frames', [mObject.ClassName, IntToHex(NativeUInt(HInstance), 8),
+    IntToHex(NativeUInt(P^.ExceptAddr), 8)]);
+  for mIndex := 0 to mInfo^.Count - 1 do
+  begin
+    mLine := mLine + ' ' + IntToHex(NativeUInt(mInfo^.Frames[mIndex]), 8);
+  end;
+  mLine := mLine + ' raw' + BenchStackScan(64);
+  TMonitor.Enter(BenchExceptionLock);
+  try
+    if (BenchExceptionFile <> '') and (BenchExceptionLines < cBenchExceptionLines) then
+    begin
+      Inc(BenchExceptionLines);
+      TFile.AppendAllText(BenchExceptionFile, mLine + sLineBreak, TEncoding.ASCII);
+    end;
+  finally
+    TMonitor.Exit(BenchExceptionLock);
+  end;
+end;
+
+function BenchStackString(AInfo: Pointer): string;
+begin
+  Result := '';
+end;
+
+procedure BenchCleanUpStack(AInfo: Pointer);
+begin
+  Dispose(PBenchStackInfo(AInfo));
+end;
 
 function EnvInt(const AName: string; ADefault: Integer): Integer;
 begin
@@ -357,11 +480,13 @@ begin
   mPoint.ElapsedMs := FSampler.ElapsedMs;
   FSampler.TakeExtremes(mPoint.MaxPrivate, mPoint.MinFree);
   mPoint.Memory := TProcessInfo.Memory;
+  mPoint.Allocated := TShutdownLeaks.AllocatedBytes;
   mPoint.Report := TShellMemoryReport.Latest;
   FPoints.Add(mPoint);
-  System.Writeln(Format('[mem] %-14s private %s MB peak %s MB max %s MB free %s MB index %s MB units %d',
+  System.Writeln(Format('[mem] %-14s private %s MB peak %s MB max %s MB free %s MB index %s MB units %d alloc %s MB',
     [AName, Mb(mPoint.Memory.PrivateBytes), Mb(mPoint.Memory.PeakPrivateBytes), Mb(mPoint.MaxPrivate),
-     Mb(mPoint.Memory.LargestFreeBytes), Mb(mPoint.Report.IndexBytes), mPoint.Report.Units]));
+     Mb(mPoint.Memory.LargestFreeBytes), Mb(mPoint.Report.IndexBytes), mPoint.Report.Units,
+     Mb(mPoint.Allocated)]));
 end;
 
 procedure TBench.EnsureOpen(const AFileName: string);
@@ -514,15 +639,15 @@ begin
   mPoints := TStringList.Create;
   try
     mPoints.Add('point,ms,private_mb,peak_mb,max_private_mb,ws_mb,free_mb,min_free_mb,index_mb,units,lib,docs,' +
-      'trees,tree_mb,dcp_files,dcp_kb');
+      'trees,tree_mb,dcp_files,dcp_kb,alloc_mb');
     for mPoint in FPoints do
     begin
-      mPoints.Add(Format('%s,%d,%s,%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%s,%d,%d', [mPoint.Name, mPoint.ElapsedMs,
+      mPoints.Add(Format('%s,%d,%s,%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%s,%d,%d,%s', [mPoint.Name, mPoint.ElapsedMs,
         Mb(mPoint.Memory.PrivateBytes), Mb(mPoint.Memory.PeakPrivateBytes), Mb(mPoint.MaxPrivate),
         Mb(mPoint.Memory.WorkingSetBytes), Mb(mPoint.Memory.LargestFreeBytes), Mb(mPoint.MinFree),
         Mb(mPoint.Report.IndexBytes), mPoint.Report.Units, mPoint.Report.LibraryUnits, mPoint.Report.Documents,
         mPoint.Report.Trees, Mb(mPoint.Report.TreeBytes), mPoint.Report.PackageFiles,
-        mPoint.Report.PackageBytes div 1024]));
+        mPoint.Report.PackageBytes div 1024, Mb(mPoint.Allocated)]));
     end;
     mPoints.SaveToFile(ChangeFileExt(AFileName, '') + '-points.csv', TEncoding.UTF8);
   finally
@@ -545,17 +670,47 @@ begin
   end;
   mGroup := Trim(GetEnvironmentVariable('DPCC_MEMBENCH_GROUP'));
   Assert.IsTrue(FileExists(mGroup), 'DPCC_MEMBENCH_GROUP: ' + mGroup);
-  mBench := TBench.Create(mGroup);
+  // Fehler im Server mit Adressen festhalten (nur das Testprogramm, nur während der Messung).
+  BenchExceptionFile := ChangeFileExt(mOut, '') + '-exceptions.txt';
+  ForceDirectories(ExtractFilePath(ExpandFileName(BenchExceptionFile)));
+  if FileExists(BenchExceptionFile) then
+  begin
+    TFile.Delete(BenchExceptionFile);
+  end;
+  BenchExceptionLines := 0;
+  Exception.GetExceptionStackInfoProc := BenchCaptureStack;
+  Exception.GetStackInfoStringProc := BenchStackString;
+  Exception.CleanUpStackInfoProc := BenchCleanUpStack;
   try
-    mBench.Run(EnvInt('DPCC_MEMBENCH_REQUESTS', 2000), EnvInt('DPCC_MEMBENCH_REBUILDS', 5),
-      EnvInt('DPCC_MEMBENCH_RESTARTS', 1), EnvInt('DPCC_MEMBENCH_BETWEEN', 100));
-    mBench.Save(mOut);
+    mBench := TBench.Create(mGroup);
+    try
+      mBench.Run(EnvInt('DPCC_MEMBENCH_REQUESTS', 2000), EnvInt('DPCC_MEMBENCH_REBUILDS', 5),
+        EnvInt('DPCC_MEMBENCH_RESTARTS', 1), EnvInt('DPCC_MEMBENCH_BETWEEN', 100));
+      mBench.Save(mOut);
+    finally
+      mBench.Free;
+    end;
   finally
-    mBench.Free;
+    Exception.GetExceptionStackInfoProc := nil;
+    Exception.GetStackInfoStringProc := nil;
+    Exception.CleanUpStackInfoProc := nil;
+    TMonitor.Enter(BenchExceptionLock);
+    try
+      BenchExceptionFile := '';
+    finally
+      TMonitor.Exit(BenchExceptionLock);
+    end;
   end;
 end;
 
 initialization
+  BenchExceptionLock := TObject.Create;
+  // Monitor gleich anlegen: sonst entsteht er beim ersten Fehler und zählt als Leck.
+  TMonitor.Enter(BenchExceptionLock);
+  TMonitor.Exit(BenchExceptionLock);
   TDUnitX.RegisterTestFixture(TDpccMemoryBenchTests);
+
+finalization
+  FreeAndNil(BenchExceptionLock);
 
 end.

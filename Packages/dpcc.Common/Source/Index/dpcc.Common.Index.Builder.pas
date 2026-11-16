@@ -137,6 +137,7 @@ type
     FDefines: TIndexFileDefines;
     FUsages: Boolean;
     FOnProjectDone: TIndexStageDone;
+    FRarelyUsedRoots: TArray<string>;
     function WantsUsages(ALibrary: Boolean): Boolean;
     /// <summary>Taugt der Cache-Eintrag? AMiss nennt bei False den Grund.</summary>
     function CacheFits(const AEntry: TIndexCacheEntry; ALibrary: Boolean; out AMiss: TIndexCacheMiss): Boolean;
@@ -154,9 +155,11 @@ type
       var AResult: TIndexBuildResult);
     procedure IndexReferenced(var AResult: TIndexBuildResult; const ARun: TIndexStageRun);
     /// <summary>Holt die über uses genannte Unit AName in den Index, falls nötig; AUses sind die uses, denen der
-    /// Aufbau weiter folgt. False, wenn es nichts zu folgen gibt.</summary>
-    function NextReferenced(const AName: string; var AResult: TIndexBuildResult;
-      const AProgress: TIndexProgressEvent; out AUses: TArray<string>): Boolean;
+    /// Aufbau weiter folgt, ALibrary sagt, ob AName eine Unit der Installation (LibraryRoots) ist. False, wenn es
+    /// nichts zu folgen gibt. AFromLibrary: Eine Unit der Installation nennt AName; dann keine Unit unter
+    /// RarelyUsedRoots.</summary>
+    function NextReferenced(const AName: string; AFromLibrary: Boolean; var AResult: TIndexBuildResult;
+      const AProgress: TIndexProgressEvent; out AUses: TArray<string>; out ALibrary: Boolean): Boolean;
     /// <summary>Eine Stufe (#648): AFiles einlesen, in der Projektstufe auch über uses erreichbare Units. Wartet über
     /// ARun.Turn auf ihre Reihe; False bei Abbruch (dann ist AResult.Cancelled gesetzt).</summary>
     function RunStage(AStage: TIndexStage; const AFiles: TArray<string>; const ALabel: string; ADone: Integer;
@@ -209,6 +212,10 @@ type
     /// <summary>Läuft nach der Projektstufe (Projektdateien und über uses erreichbare Units) mit dem Stand bis
     /// dahin, z. B. um den Projekt-Cache früh zu schreiben (#647).</summary>
     property OnProjectDone: TIndexStageDone read FOnProjectDone write FOnProjectDone;
+    /// <summary>Ordner selten genutzter Bibliotheken (c1: OCX\Servers, WinRT). Ihre Units liest die Projektstufe nur
+    /// ein, wenn eine Unit außerhalb der Installation (LibraryRoots) sie in den uses nennt, nicht über die uses der
+    /// Bibliothek; EnsureUnit lädt sie weiter bei Bedarf. Leer = keine Ausnahme.</summary>
+    property RarelyUsedRoots: TArray<string> read FRarelyUsedRoots write FRarelyUsedRoots;
   end;
 
 implementation
@@ -270,26 +277,34 @@ begin
   end;
 end;
 
-procedure EnqueueAll(APending: TQueue<string>; const ANames: TArray<string>);
+/// <summary>Über uses genannter Name samt Art der nennenden Unit (Bibliothek oder nicht).</summary>
+type
+  TReferencedName = TPair<string, Boolean>;
+
+procedure EnqueueAll(APending: TQueue<TReferencedName>; const ANames: TArray<string>; AFromLibrary: Boolean);
 var
   mName: string;
 begin
   for mName in ANames do
   begin
-    APending.Enqueue(mName);
+    APending.Enqueue(TReferencedName.Create(mName, AFromLibrary));
   end;
 end;
 
 /// <summary>Units in AIndex gelten als gesehen; ihre uses (interface und implementation) warten in APending.</summary>
-procedure SeedReferenced(const AIndex: ISymbolIndex; APending: TQueue<string>; ASeen: TDictionary<string, Boolean>);
+procedure SeedReferenced(const AIndex: ISymbolIndex; APending: TQueue<TReferencedName>;
+  ASeen: TDictionary<string, Boolean>; const ALibraryRoots: TArray<string>);
 var
   mUnit: TUnitIndex;
+  mFromLibrary: Boolean;
 begin
   for mUnit in AIndex.Units do
   begin
     ASeen.AddOrSetValue(UpperCase(mUnit.UnitName), True);
-    EnqueueAll(APending, mUnit.InterfaceUses);
-    EnqueueAll(APending, mUnit.ImplementationUses);
+    // Bibliothek heißt hier: Datei der Delphi-Installation (nicht: über uses nachgeladen).
+    mFromLibrary := TIndexFileDefines.IsUnder(mUnit.FileName, ALibraryRoots);
+    EnqueueAll(APending, mUnit.InterfaceUses, mFromLibrary);
+    EnqueueAll(APending, mUnit.ImplementationUses, mFromLibrary);
   end;
 end;
 
@@ -747,8 +762,8 @@ begin
   Inc(AResult.Parsed);
 end;
 
-function TIndexBuilder.NextReferenced(const AName: string; var AResult: TIndexBuildResult;
-  const AProgress: TIndexProgressEvent; out AUses: TArray<string>): Boolean;
+function TIndexBuilder.NextReferenced(const AName: string; AFromLibrary: Boolean; var AResult: TIndexBuildResult;
+  const AProgress: TIndexProgressEvent; out AUses: TArray<string>; out ALibrary: Boolean): Boolean;
 var
   mExisting: TUnitIndex;
   mFileName: string;
@@ -756,6 +771,7 @@ var
   mWatch: TStopwatch;
 begin
   AUses := nil;
+  ALibrary := True;
   if FIndex.FindUnit(AName, mExisting) then
   begin
     Exit(False);
@@ -764,6 +780,13 @@ begin
   mFileName := FResolveUnit(AName);
   Inc(AResult.ResolveMs, mWatch.ElapsedMilliseconds);
   if mFileName = '' then
+  begin
+    Exit(False);
+  end;
+  // c1: Office-Typbibliotheken und WinRT nur, wenn das Projekt selbst sie nennt. Über die uses der Bibliothek
+  // hing es vorher vom Zufall der Reihenfolge ab, ob sie im Index landeten (bis 35 Units, rund 19 MB), und jeder
+  // Neuaufbau parste sie (Speicher-Optimierung Phase 2).
+  if AFromLibrary and (Length(FRarelyUsedRoots) > 0) and TIndexFileDefines.IsUnder(mFileName, FRarelyUsedRoots) then
   begin
     Exit(False);
   end;
@@ -783,34 +806,36 @@ begin
   end;
   // Nur das interface ist von außen sichtbar; dessen uses reichen.
   AUses := mExisting.InterfaceUses;
+  ALibrary := TIndexFileDefines.IsUnder(mExisting.FileName, FDefines.LibraryRoots);
   Result := True;
 end;
 
 procedure TIndexBuilder.IndexReferenced(var AResult: TIndexBuildResult; const ARun: TIndexStageRun);
 var
-  mPending: TQueue<string>;
+  mPending: TQueue<TReferencedName>;
   mSeen: TDictionary<string, Boolean>;
-  mName: string;
+  mName: TReferencedName;
   mUses_: TArray<string>;
+  mLibrary: Boolean;
 begin
   if not Assigned(FResolveUnit) then
   begin
     Exit;
   end;
-  mPending := TQueue<string>.Create;
+  mPending := TQueue<TReferencedName>.Create;
   mSeen := TDictionary<string, Boolean>.Create;
   try
-    SeedReferenced(FIndex, mPending, mSeen);
+    SeedReferenced(FIndex, mPending, mSeen, FDefines.LibraryRoots);
     while (mPending.Count > 0) and not AResult.Cancelled do
     begin
       AResult.Cancelled := IsCancelled(ARun.Cancelled);
       mName := mPending.Dequeue;
-      if not AResult.Cancelled and not mSeen.ContainsKey(UpperCase(mName)) then
+      if not AResult.Cancelled and not mSeen.ContainsKey(UpperCase(mName.Key)) then
       begin
-        mSeen.Add(UpperCase(mName), True);
-        if NextReferenced(mName, AResult, ARun.Progress, mUses_) then
+        mSeen.Add(UpperCase(mName.Key), True);
+        if NextReferenced(mName.Key, mName.Value, AResult, ARun.Progress, mUses_, mLibrary) then
         begin
-          EnqueueAll(mPending, mUses_);
+          EnqueueAll(mPending, mUses_, mLibrary);
         end;
       end;
     end;

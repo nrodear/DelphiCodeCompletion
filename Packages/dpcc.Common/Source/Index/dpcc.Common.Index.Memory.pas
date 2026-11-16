@@ -4,6 +4,9 @@
 //
 // - TStringPool legt gleiche Zeichenketten (Container, Typnamen, Vorfahren,
 //   Unit-Namen) nur einmal ab; Delphi-Strings teilen sich dann den Puffer.
+//   Die Direktiven-Listen (override, virtual, overload …) teilen sich die Symbole
+//   als ganzes Array (Speicher-Optimierung Phase 2, c3): Es gibt nur wenige
+//   verschiedene, vorher hatte jedes Symbol seine eigene Kopie (rund 2 MB).
 // - TIndexMemory schätzt den Bedarf einer Unit und liefert ihre kompakte Form:
 //   nur Symbole aus dem interface. Das reicht für Namensauflösung, Hover und
 //   Navigation in andere Units; die uses-Listen bleiben für den Indexaufbau.
@@ -22,6 +25,10 @@ type
   TStringPool = class
   private
     FStrings: TDictionary<string, string>;
+    // Inhalt (Einträge mit #1 verbunden) → geteiltes Array; nur für Direktiven.
+    FLists: TDictionary<string, TArray<string>>;
+    /// <summary>Gleiches Array für gleiche Einträge; nie an Ort und Stelle ändern.</summary>
+    function InternList(const AValues: TArray<string>): TArray<string>;
   public
     constructor Create;
     destructor Destroy; override;
@@ -59,6 +66,19 @@ begin
   end;
 end;
 
+function Utf8Bytes(const AValue: UTF8String): Int64;
+begin
+  // Kopf wie bei string, ein Byte je Zeichen und Endnull.
+  if AValue = '' then
+  begin
+    Result := 0;
+  end
+  else
+  begin
+    Result := 12 + Length(AValue) + 1;
+  end;
+end;
+
 function ArrayBytes(const AValues: TArray<string>): Int64;
 var
   mValue: string;
@@ -80,12 +100,37 @@ constructor TStringPool.Create;
 begin
   inherited Create;
   FStrings := TDictionary<string, string>.Create;
+  FLists := TDictionary<string, TArray<string>>.Create;
 end;
 
 destructor TStringPool.Destroy;
 begin
+  FLists.Free;
   FStrings.Free;
   inherited;
+end;
+
+function TStringPool.InternList(const AValues: TArray<string>): TArray<string>;
+var
+  mKey: string;
+  mIndex: Integer;
+begin
+  if Length(AValues) = 0 then
+  begin
+    Exit(nil);
+  end;
+  mKey := string.Join(#1, AValues);
+  if FLists.TryGetValue(mKey, Result) then
+  begin
+    Exit;
+  end;
+  // Eigene Kopie: Das Array des Aufrufers bleibt unberührt.
+  Result := Copy(AValues);
+  for mIndex := 0 to High(Result) do
+  begin
+    Result[mIndex] := Intern(Result[mIndex]);
+  end;
+  FLists.Add(mKey, Result);
 end;
 
 function TStringPool.Intern(const AValue: string): string;
@@ -129,11 +174,7 @@ begin
     end;
     AUnit.Symbols[mIndex].TypeParams := Intern(AUnit.Symbols[mIndex].TypeParams);
     AUnit.Symbols[mIndex].FileName := Intern(AUnit.Symbols[mIndex].FileName);
-    AUnit.Symbols[mIndex].Directives := Copy(AUnit.Symbols[mIndex].Directives);
-    for mInner := 0 to High(AUnit.Symbols[mIndex].Directives) do
-    begin
-      AUnit.Symbols[mIndex].Directives[mInner] := Intern(AUnit.Symbols[mIndex].Directives[mInner]);
-    end;
+    AUnit.Symbols[mIndex].Directives := InternList(AUnit.Symbols[mIndex].Directives);
     AUnit.Symbols[mIndex].ParamTypes := Copy(AUnit.Symbols[mIndex].ParamTypes);
     for mInner := 0 to High(AUnit.Symbols[mIndex].ParamTypes) do
     begin
@@ -167,7 +208,7 @@ begin
   for mSymbol in AUnit.Symbols do
   begin
     Inc(Result, SizeOf(TIndexSymbol) + StringBytes(mSymbol.Name) + StringBytes(mSymbol.Container) +
-      StringBytes(mSymbol.TypeName) + ArrayBytes(mSymbol.Ancestors) + StringBytes(mSymbol.Signature) +
+      StringBytes(mSymbol.TypeName) + ArrayBytes(mSymbol.Ancestors) + Utf8Bytes(mSymbol.SignatureUtf8) +
       StringBytes(mSymbol.Summary) + ArrayBytes(mSymbol.Directives) + StringBytes(mSymbol.DeprecatedText) +
       ArrayBytes(mSymbol.InlineRefs) + ArrayBytes(mSymbol.Resolutions) + ArrayBytes(mSymbol.Rationale));
   end;

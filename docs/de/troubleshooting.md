@@ -159,6 +159,12 @@ Auch „run start … mem n MB“ und die Zeilen „index … mem n MB“ nennen
 - Das Diagnoselog des Servers zeigt in den Zeilen „mem“, wie viel davon auf den Index entfällt (siehe oben).
 - Die Office-Typbibliotheken und WinRT sind ohne den Schalter „Office-Typbibliotheken und WinRT vorab indizieren“ nicht
   im Index. Siehe [Index und Cache](index-cache.md#office-typbibliotheken-und-winrt).
+- Nur die 16 zuletzt benutzten Dateien behalten im Server ihren Syntaxbaum; für ältere baut er ihn beim nächsten Zugriff
+  neu auf. Schließt die IDE eine Datei, gibt dpcc sie im Server frei.
+- Eine Datei außerhalb der Projektgruppe bekommt einen eigenen Arbeitsbereich. Er verschwindet wieder, wenn die letzte
+  seiner Dateien geschlossen ist.
+- Endet der Server (Hauptschalter aus, Neustart), gibt dpcc den ganzen Index frei. Laufen dabei noch Anfragen, die nicht
+  rechtzeitig enden, folgt die Freigabe, sobald sie fertig sind.
 
 ## Einstellungen auf Vorgabe
 

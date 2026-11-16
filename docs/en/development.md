@@ -64,7 +64,7 @@ Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --exclude:Benchmark --exitbehav
 | `Tests\Common\Lsp` | server side: completion, hover, parameter hint |
 | `Tests\IDE` | plugin side without ToolsAPI: flow of the list, ranking, favorites, set mode, placeholders, settings, texts |
 | `Tests\Application\Shell` | shell of the server |
-| `Tests\Common` | memory: self-measurement, names of the `.dcp`, shared cache, Office type libraries and WinRT |
+| `Tests\Common` | memory: self-measurement, names of the `.dcp`, shared cache, Office type libraries and WinRT, release after the server ends, documents, name and reference tables, signatures in the cache |
 | `Tests\Memory` | memory benchmark (category `Benchmark`) |
 | `Tests\Support` | helpers: fixed data source, leak monitoring |
 
@@ -88,6 +88,11 @@ space to a CSV file every second. Measuring points: start, index ready, after th
 ```
 Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --run:dpcc.Memory.Bench.Tests --exitbehavior:Continue
 ```
+
+Every measuring point also gives the memory allocated by the memory manager (`alloc_mb`); the gap to the private bytes
+is the overhead. Errors in the server (`ERangeError`, `EIntOverflow`, `EAccessViolation`) are written by the benchmark
+with the error address and the return addresses to `<file>-exceptions.txt`; resolve them with the `.map` file of the
+test program.
 
 Like `bds.exe`, the test program is LARGEADDRESSAWARE (4 GB address space). Measurement data does not belong in the
 repository.

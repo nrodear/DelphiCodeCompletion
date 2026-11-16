@@ -46,6 +46,10 @@ type
     procedure MembersOfUnitAreInterfaceSymbols;
     [Test]
     procedure UsesClauseListsUnits;
+    /// <summary>Die Vervollständigung in uses sortiert eine Kopie der Units, nicht den geteilten Schnappschuss des
+    /// Index (ERangeError im Namensindex der Import-Vorschläge, Speicher-Optimierung Phase 2).</summary>
+    [Test]
+    procedure UsesClauseLeavesIndexOrderAlone;
     [Test]
     procedure NothingInCommentsAndStrings;
     [Test]
@@ -184,6 +188,48 @@ begin
   Assert.AreEqual('Werkzeug', Names(Items));
   Assert.AreEqual(9, Items.Items[0].Kind);
 end;
+/// <summary>Namen der Units in der Reihenfolge des Schnappschusses.</summary>
+function UnitOrder(const AIndex: ISymbolIndex): string;
+var
+  mUnit: TUnitIndex;
+begin
+  Result := '';
+  for mUnit in AIndex.Units do
+  begin
+    Result := Result + mUnit.UnitName + ' ';
+  end;
+  Result := Result.Trim;
+end;
+
+/// <summary>AOrder (Namen durch Leerzeichen getrennt) nach Namen sortiert.</summary>
+function SortedOrder(const AOrder: string): string;
+var
+  mNames: TArray<string>;
+begin
+  mNames := AOrder.Split([' ']);
+  TArray.Sort<string>(mNames);
+  Result := string.Join(' ', mNames);
+end;
+
+procedure TLspCompletionTests.UsesClauseLeavesIndexOrderAlone;
+const
+  cNames: array[0..7] of string = ('Zeder', 'Ahorn', 'Ulme', 'Birke', 'Tanne', 'Eibe', 'Pappel', 'Linde');
+var
+  mName, mBefore: string;
+  Text: string;
+begin
+  for mName in cNames do
+  begin
+    FIndex.AddUnit(TIndexExtractor.ExtractText('unit ' + mName + ';'#10'interface'#10'implementation'#10'end.',
+      'C:\P\' + mName + '.pas', nil));
+  end;
+  mBefore := UnitOrder(FIndex);
+  Assert.AreNotEqual(SortedOrder(mBefore), mBefore, 'Vorbedingung: Schnappschuss nicht nach Namen geordnet');
+  Text := StringReplace(UnitHaupt, 'uses Werkzeug;', 'uses Werk', []);
+  Assert.AreEqual('Werkzeug', Names(ItemsAt(Text, 'uses Werk')));
+  Assert.AreEqual(mBefore, UnitOrder(FIndex), 'Reihenfolge im Schnappschuss des Index unverändert');
+end;
+
 procedure TLspCompletionTests.NothingInCommentsAndStrings;
 begin
   Assert.AreEqual('', Names(ItemsAt(UnitHaupt, '{ Kommentar W')));

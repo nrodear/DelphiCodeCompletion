@@ -703,10 +703,13 @@ begin
     ARequest.Position.Line, mStop);
 end;
 
-/// <summary>Units des Index nach Namen sortiert.</summary>
+/// <summary>Units des Index nach Namen sortiert, als eigene Kopie: Units liefert den geteilten Schnappschuss des
+/// Index. Ihn an Ort und Stelle zu sortieren, verschob die Units unter allen anderen Lesern; der Namensindex der
+/// Import-Vorschläge (TImportNames) zeigte dann mit seinen Positionen in fremde Units (ERangeError in
+/// AddHelpersFromOtherUnits, Speicher-Optimierung Phase 2).</summary>
 function SortedUnits(const AIndex: ISymbolIndex): TArray<TUnitIndex>;
 begin
-  Result := AIndex.Units;
+  Result := Copy(AIndex.Units);
   TArray.Sort<TUnitIndex>(Result, TComparer<TUnitIndex>.Construct(
     function(const ALeft, ARight: TUnitIndex): Integer
     begin

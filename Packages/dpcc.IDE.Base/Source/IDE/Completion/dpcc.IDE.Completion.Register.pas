@@ -528,6 +528,14 @@ begin
       begin
         ManagerInstance.NotifySaved(AFileName);
       end;
+    end,
+    // Geschlossene Datei: didClose an den Server (a1, Speicher-Optimierung Phase 2).
+    procedure(AFileName: string)
+    begin
+      if ManagerInstance <> nil then
+      begin
+        ManagerInstance.NotifyClosed(AFileName);
+      end;
     end);
 end;
 

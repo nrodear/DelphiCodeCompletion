@@ -113,6 +113,11 @@ begin
   begin
     mFileChanges.DocumentEvent(AKind, AFileName, AText);
   end;
+  // Letztes Dokument eines abgeleiteten Ordners geschlossen: Arbeitsbereich wieder entfernen (a5).
+  if (AKind = TDocumentEventKind.Closed) and AServices.DeriveWorkspaces() then
+  begin
+    AServices.Core().Folders.ForgetDerived(AFileName);
+  end;
   if AKind <> TDocumentEventKind.Opened then
   begin
     Exit;

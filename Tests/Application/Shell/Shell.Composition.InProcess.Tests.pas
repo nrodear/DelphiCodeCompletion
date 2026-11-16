@@ -42,6 +42,10 @@ type
     /// Thread sich und die Wurzel frei und meldet den Server ab.</summary>
     [Test]
     procedure StopTimeoutAbandonsServer;
+    /// <summary>Läuft eine Anfrage auch nach der Wartezeit der Wurzel weiter (LeftWork), gibt die Wurzel Index und
+    /// Features frei und meldet den Server ab, sobald sie endet (a4, Speicher-Optimierung Phase 2).</summary>
+    [Test]
+    procedure LeftWorkIsReleasedWhenRequestEnds;
     /// <summary>Zwei Server nacheinander im Prozess: Der Abbau des alten lässt die Anbieter des neuen gesetzt.
     /// </summary>
     [Test]
@@ -365,6 +369,44 @@ begin
     TThread.Sleep(20);
   end;
   Assert.AreEqual(0, TShellInProcessServer.ActiveCount, 'der Thread meldet den Server selbst ab');
+  mProbe.Free;
+  WaitForThreads(mThreads);
+end;
+
+procedure TShellInProcessServerTests.LeftWorkIsReleasedWhenRequestEnds;
+var
+  mThreads: Integer;
+  mServer: TShellInProcessServer;
+  mProbe: TWaitProbe;
+  mWait: TShellInProcessConfigure;
+  mStarted: UInt64;
+begin
+  mThreads := ProcessThreadCount;
+  mProbe := TWaitProbe.Create;
+  mWait := WaitConfigure(TWaitMode.Blocks, 0, mProbe, 100);
+  // Die Wurzel wartet nur kurz weiter (statt 8 s), Stop selbst lange genug: Die Wurzel lässt die Objekte stehen.
+  mServer := StartWaiting(
+    procedure(AServer: TShellCompletionServer)
+    begin
+      mWait(AServer);
+      AServer.Parts.UnfinishedWaitMs := 300;
+    end, mProbe);
+  try
+    Assert.IsFalse(mServer.Stop, 'Stop meldet stehen gelassene Objekte');
+    Assert.IsFalse(mServer.Abandoned, 'nicht aufgegeben');
+    Assert.IsTrue(mServer.LeftWork, 'Anfrage läuft weiter');
+    Assert.AreEqual(1, TShellInProcessServer.ActiveCount, 'noch angemeldet, solange die Anfrage läuft');
+  finally
+    mServer.Free;
+  end;
+  mProbe.Release.SetEvent;
+  mStarted := TThread.GetTickCount64;
+  while (TShellInProcessServer.ActiveCount > 0) and (TThread.GetTickCount64 - mStarted < cSettleMs) do
+  begin
+    TThread.Sleep(20);
+  end;
+  Assert.AreEqual(0, TShellInProcessServer.ActiveCount, 'nach dem Ende der Anfrage frei und abgemeldet');
+  Assert.IsTrue(mProbe.Finished.WaitFor(0) = TWaitResult.wrSignaled, 'Anfrage zu Ende');
   mProbe.Free;
   WaitForThreads(mThreads);
 end;

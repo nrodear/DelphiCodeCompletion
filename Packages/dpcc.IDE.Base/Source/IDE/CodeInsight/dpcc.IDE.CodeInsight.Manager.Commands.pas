@@ -33,6 +33,10 @@ type
     procedure NotifyServer(const AMethod: string; AParams: TJSONObject);
     /// <summary>Gespeichert: didSave an den Server, falls eine Sitzung läuft (Prüfung mit dcc).</summary>
     procedure NotifySaved(const AFileName: string);
+    /// <summary>Die IDE hat AFileName geschlossen: didClose an den Server, falls die Datei abgeglichen ist, und den
+    /// gemerkten Stand des Editorpuffers verwerfen (a1, Speicher-Optimierung Phase 2). Startet keinen Server.
+    /// </summary>
+    procedure NotifyClosed(const AFileName: string);
     /// <summary>Befehl mit Argumenten (JSON-Array) an den laufenden Server (#108); startet keinen Server.
     /// nil ohne Sitzung, bei Fehler oder Zeitlimit; das Ergebnis gehört dem Aufrufer.</summary>
     function RunServerCommand(const ACommand, AArgumentsJson: string; ATimeoutMs: Cardinal): TJSONValue;
@@ -66,7 +70,8 @@ uses
   System.SyncObjs,
   dpcc.Core.Status.Lines,
   dpcc.Core.Diagnostics.Guard,
-  dpcc.Core.Diagnostics.MainThread;
+  dpcc.Core.Diagnostics.MainThread,
+  dpcc.IDE.Foundation.EditorSnapshot;
 
 const
   cExecuteCommandMethod = 'workspace/executeCommand';
@@ -386,6 +391,24 @@ begin
     on E: Exception do
     begin
       Diagnose('didSave nicht gesendet: ' + E.Message);
+    end;
+  end;
+end;
+
+procedure TDpccCodeInsightCommands.NotifyClosed(const AFileName: string);
+begin
+  TDpccEditorSnapshots.Forget(AFileName);
+  if (FSession = nil) or not FSession.Initialized then
+  begin
+    Exit;
+  end;
+  try
+    // Nur abgeglichene Dateien; sonst tut Close nichts.
+    FSession.Close(AFileName);
+  except
+    on E: Exception do
+    begin
+      Diagnose('didClose nicht gesendet: ' + E.Message);
     end;
   end;
 end;

@@ -18,6 +18,10 @@ type
   public
     /// <summary>AInner ist der gemeinsame Index, AIde der Index der Ersatz-Units.</summary>
     constructor Create(const AInner, AIde: ISymbolIndex);
+    /// <summary>Verwirft den Namensindex der Import-Vorschläge zu diesem Index (TImportNames): Hover,
+    /// Vervollständigung und Parameterhilfe fragen über ihn, der Schnappschuss hielt sonst alle Units über das Ende
+    /// des Servers hinaus fest (Speicher-Optimierung Phase 2).</summary>
+    destructor Destroy; override;
     procedure AddUnit(const AUnit: TUnitIndex);
     procedure RemoveFile(const AFileName: string);
     function FindUnit(const AUnitName: string; out AUnit: TUnitIndex): Boolean;
@@ -37,9 +41,13 @@ type
     procedure SetBudget(ABytes: Int64);
     function Budget: Int64;
     function Generation: Int64;
+    procedure ReleaseStringPool;
   end;
 
 implementation
+
+uses
+  dpcc.Common.Index.NameIndex;
 
 /// <summary>AFirst, dann ASecond; ohne ASecond AFirst selbst (keine Kopie).</summary>
 function Joined(const AFirst, ASecond: TArray<TSymbolLocation>): TArray<TSymbolLocation>;
@@ -64,6 +72,14 @@ begin
   inherited Create;
   FInner := AInner;
   FIde := AIde;
+end;
+
+destructor TIdeIndex.Destroy;
+begin
+  TImportNames.Forget(Self);
+  FIde := nil;
+  FInner := nil;
+  inherited;
 end;
 
 procedure TIdeIndex.AddUnit(const AUnit: TUnitIndex);
@@ -170,6 +186,11 @@ end;
 function TIdeIndex.Budget: Int64;
 begin
   Result := FInner.Budget;
+end;
+
+procedure TIdeIndex.ReleaseStringPool;
+begin
+  FInner.ReleaseStringPool;
 end;
 
 function TIdeIndex.Generation: Int64;

@@ -3,12 +3,15 @@
 // Internals-Rolle Shell: Arbeitsbereiche anlegen und entfernen. Ein gemeldeter Ordner, eine .dproj oder eine
 // .groupproj wird zu einem Arbeitsbereich je Projekt (#648); Ordner ohne Meldung leitet es aus geöffneten Dateien ab
 // (#175). Beim Entfernen verlassen die Units der Projekte den Index, sofern kein anderes sie enthält. Units, die
-// eine Anfrage braucht, lädt es aus den Suchpfaden nach.
+// eine Anfrage braucht, lädt es aus den Suchpfaden nach. Ein abgeleiteter Ordner verschwindet wieder, wenn das
+// letzte seiner geöffneten Dokumente geschlossen ist (a5, Speicher-Optimierung Phase 2): Sonst blieb je fremder Datei
+// ein Arbeitsbereich samt Projektindex bis zum Ende des Servers.
 
 interface
 
 uses
   System.SysUtils,
+  System.Generics.Collections,
   dpcc.Common.Logging.Contract,
   dpcc.Common.JsonRpc.Contract,
   dpcc.Common.Documents.Contract,
@@ -70,6 +73,8 @@ type
     FScheduler: TIndexScheduler;
     FCounter: Integer;
     FPriority: Integer;
+    /// <summary>Abgeleitete Ordner (Derive): Schlüssel → Eintrag; nur der Thread der Nachrichtenschleife.</summary>
+    FDerived: TDictionary<string, TWorkspaceFolder>;
     /// <summary>Projekte zu einem Eintrag: die .dproj, die Projekte der .groupproj bzw. der einzigen im Ordner.
     /// </summary>
     function ProjectsOf(const AFolder: TWorkspaceFolder): TArray<string>;
@@ -91,6 +96,9 @@ type
     procedure Remove(const AFolder: TWorkspaceFolder);
     /// <summary>Datei ohne Arbeitsbereich: Ordner mit Projekt darüber anlegen (#175).</summary>
     procedure Derive(const AFileName: string);
+    /// <summary>AFileName ist geschlossen: Gehört sie zu einem abgeleiteten Ordner und ist keines seiner Dokumente
+    /// mehr geöffnet, entfernt es ihn wieder (a5).</summary>
+    procedure ForgetDerived(const AFileName: string);
     /// <summary>Lädt AUnitName über die Suchpfade eines Arbeitsbereichs; Anfrage-Threads.</summary>
     function EnsureUnit(const AUnitName: string): Boolean;
     function EnsureUnitFunc: TEnsureUnitFunc;
@@ -103,6 +111,7 @@ implementation
 uses
   System.Classes,
   System.IOUtils,
+  dpcc.Common.Documents.Uris,
   dpcc.Common.Index.Processes,
   dpcc.Common.JsonRpc.CurrentRequest,
   Shell.Platform,
@@ -177,10 +186,12 @@ begin
   inherited Create;
   FServices := AServices;
   FScheduler := TIndexScheduler.Create;
+  FDerived := TDictionary<string, TWorkspaceFolder>.Create;
 end;
 
 destructor TShellFolders.Destroy;
 begin
+  FreeAndNil(FDerived);
   FreeAndNil(FScheduler);
   inherited Destroy;
 end;
@@ -386,6 +397,7 @@ procedure TShellFolders.Derive(const AFileName: string);
 var
   mKnown: Boolean;
   mFolder: string;
+  mEntry: TWorkspaceFolder;
 begin
   System.TMonitor.Enter(FServices.Workspaces.Lock);
   try
@@ -400,8 +412,56 @@ begin
   mFolder := TLspWorkspaceFolders.ProjectFolderFor(AFileName, HasProjectFile);
   if mFolder <> '' then
   begin
-    Add(TWorkspaceFolder.Create(mFolder, ExtractFileName(mFolder)));
+    mEntry := TWorkspaceFolder.Create(mFolder, ExtractFileName(mFolder));
+    Add(mEntry);
+    FDerived.AddOrSetValue(mEntry.Key, mEntry);
   end;
+end;
+
+procedure TShellFolders.ForgetDerived(const AFileName: string);
+var
+  mWorkspace: TShellWorkspace;
+  mOrigin: string;
+  mEntry: TWorkspaceFolder;
+  mDocument: ITextDocument;
+  mStillOpen: Boolean;
+begin
+  if FDerived.Count = 0 then
+  begin
+    Exit;
+  end;
+  System.TMonitor.Enter(FServices.Workspaces.Lock);
+  try
+    mWorkspace := FServices.Workspaces.WorkspaceOf(AFileName);
+    mOrigin := '';
+    if mWorkspace <> nil then
+    begin
+      mOrigin := mWorkspace.Setup.Origin;
+    end;
+    if (mOrigin = '') or not FDerived.TryGetValue(mOrigin, mEntry) then
+    begin
+      Exit;
+    end;
+    // Noch ein geöffnetes Dokument desselben Ordners: bleibt.
+    mStillOpen := False;
+    for mDocument in FServices.Documents.Documents do
+    begin
+      mWorkspace := FServices.Workspaces.WorkspaceOf(TDocumentUris.ToPath(mDocument.Uri));
+      if (mWorkspace <> nil) and SameText(mWorkspace.Setup.Origin, mOrigin) then
+      begin
+        mStillOpen := True;
+        Break;
+      end;
+    end;
+  finally
+    System.TMonitor.Exit(FServices.Workspaces.Lock);
+  end;
+  if mStillOpen then
+  begin
+    Exit;
+  end;
+  FDerived.Remove(mOrigin);
+  Remove(mEntry);
 end;
 
 function TShellFolders.EnsureUnit(const AUnitName: string): Boolean;

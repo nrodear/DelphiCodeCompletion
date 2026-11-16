@@ -294,6 +294,8 @@ begin
   if not ATarget.OfficeAndWinRt then
   begin
     mLibrarySignature := mLibrarySignature + '|ohne-office-winrt';
+    // Auch über die uses der Bibliothek nicht vorab (nur, wenn das Projekt sie nennt).
+    Result.RarelyUsedRoots := RarelyUsedRoots(ALoaded);
   end;
   Result.LibraryCacheFile := TIndexCacheDirectory.LibraryFileFor(ATarget.CacheRoot, ALoaded.Version,
     mLibrarySignature);

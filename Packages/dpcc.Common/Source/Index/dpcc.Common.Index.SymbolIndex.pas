@@ -32,6 +32,11 @@
 // Unit-Aliase: FindUnit führt einen Alias (WinTypes → Winapi.Windows) auf seine
 // Unit, wenn es keine Unit dieses Namens gibt. Die Vorgaben von Delphi gelten
 // immer, AddUnitAliases ergänzt die Aliase der geladenen Projekte.
+//
+// Speicher (Speicher-Optimierung Phase 2, c4): Die Nachschlagetabellen vergleichen Namen ohne Groß-/Kleinschreibung
+// (wie CompareText) und nutzen den Namen des Symbols selbst als Schlüssel statt einer großgeschriebenen Kopie. Je
+// Schlüssel steht nur der Anfang und das Ende einer Kette; die Verweise liegen in Blöcken zu cNodeChunk Knoten statt
+// in einer eigenen Liste je Name (vorher rund 44 MB für die Bibliothek).
 
 interface
 
@@ -47,13 +52,20 @@ type
   /// des Symbols. Nicht threadsicher; TSymbolIndex nutzt sie unter seiner Sperre.</summary>
   TSymbolRefTables = class
   private type
-    /// <summary>Verweis auf ein Symbol: Platz der Unit (FSlotKeys) und Position in ihren Symbolen.</summary>
+    /// <summary>Verweis auf ein Symbol: Platz der Unit (FSlotKeys) und Position in ihren Symbolen; Next ist der
+    /// nächste Verweis desselben Schlüssels (-1 = Ende).</summary>
     TSymbolRef = record
       Slot: Integer;
       Position: Integer;
+      Next: Integer;
     end;
-    TSymbolRefs = TList<TSymbolRef>;
-    TSymbolTable = TObjectDictionary<string, TSymbolRefs>;
+    /// <summary>Verweise eines Schlüssels in der Reihenfolge des Eintragens.</summary>
+    TSymbolChain = record
+      First: Integer;
+      Last: Integer;
+      Count: Integer;
+    end;
+    TSymbolTable = TDictionary<string, TSymbolChain>;
     /// <summary>Was die Suche nach Namen von der Unit eines Platzes braucht. FFiles.TryGetValue kopierte je
     /// Wechsel den ganzen TUnitIndex samt verwalteter Felder; die Symbole teilt sich dieser Eintrag mit ihm
     /// (dynamisches Array, nur gezählt).</summary>
@@ -63,10 +75,16 @@ type
       FileName: string;
       Symbols: TArray<TIndexSymbol>;
     end;
+  private const
+    /// <summary>Knoten je Block (12 Byte je Knoten).</summary>
+    cNodeChunk = 16384;
   private
-    // Name (groß) → Verweise; Vorfahr ohne Unit-Präfix und Typargumente (groß) → Verweise.
+    // Name → Verweise; Vorfahr ohne Unit-Präfix und Typargumente → Verweise; beide ohne Groß-/Kleinschreibung.
     FByName: TSymbolTable;
     FByAncestor: TSymbolTable;
+    // Alle Verweise, in Blöcken; FNodeCount belegt.
+    FNodes: TArray<TArray<TSymbolRef>>;
+    FNodeCount: Integer;
     // Platz → Dateischlüssel ('' = Unit ersetzt oder entfernt) und Zahl seiner Verweise.
     FSlotKeys: TList<string>;
     FSlotRefs: TList<Integer>;
@@ -76,7 +94,8 @@ type
     FFileSlots: TDictionary<string, Integer>;
     FLiveRefs: Integer;
     FDeadRefs: Integer;
-    class procedure AddRef(ATable: TSymbolTable; const AKey: string; ASlot, APosition: Integer); static;
+    procedure AddRef(ATable: TSymbolTable; const AKey: string; ASlot, APosition: Integer);
+    function NodeAt(AIndex: Integer): TSymbolRef; inline;
     function Locations(ATable: TSymbolTable; const AKey: string): TArray<TSymbolLocation>;
   public
     constructor Create;
@@ -86,9 +105,12 @@ type
     procedure Add(const AKey: string; const AUnit: TUnitIndex);
     /// <summary>Macht die Verweise der Unit AKey tot.</summary>
     procedure Drop(const AKey: string);
-    function ByName(const AKey: string): TArray<TSymbolLocation>;
-    function ByAncestor(const AKey: string): TArray<TSymbolLocation>;
-    function HasName(const AKey: string; const AMatch: TSymbolMatch): Boolean;
+    /// <summary>Symbole mit dem Namen AName (ohne Groß-/Kleinschreibung).</summary>
+    function ByName(const AName: string): TArray<TSymbolLocation>;
+    /// <summary>Symbole mit dem Vorfahren AName (ohne Unit-Präfix und Typargumente, ohne Groß-/Kleinschreibung).
+    /// </summary>
+    function ByAncestor(const AName: string): TArray<TSymbolLocation>;
+    function HasName(const AName: string; const AMatch: TSymbolMatch): Boolean;
     property LiveRefs: Integer read FLiveRefs;
     property DeadRefs: Integer read FDeadRefs;
   end;
@@ -166,12 +188,14 @@ type
     procedure SetBudget(ABytes: Int64);
     function Budget: Int64;
     function Generation: Int64;
+    procedure ReleaseStringPool;
   end;
 
 implementation
 
 uses
   System.StrUtils,
+  System.Generics.Defaults,
   dpcc.Common.Projects.UnitAliases,
   dpcc.Common.Index.NameIndex;
 
@@ -299,11 +323,45 @@ end;
 
 { TSymbolRefTables }
 
+/// <summary>FNV-1a über die Zeichen, a–z wie A–Z (passt zu CompareText).</summary>
+function NameHash(const AName: string): Integer;
+var
+  mHash: Cardinal;
+  mIndex: Integer;
+  mCode: Cardinal;
+begin
+  mHash := 2166136261;
+  for mIndex := 1 to Length(AName) do
+  begin
+    mCode := Ord(AName[mIndex]);
+    if (mCode >= Ord('a')) and (mCode <= Ord('z')) then
+    begin
+      Dec(mCode, 32);
+    end;
+    mHash := Cardinal(UInt64(mHash xor mCode) * 16777619);
+  end;
+  Result := Integer(mHash);
+end;
+
+/// <summary>Schlüssel ohne Groß-/Kleinschreibung wie früher UpperCase (nur a–z), ohne Kopie des Namens.</summary>
+function NameComparer: IEqualityComparer<string>;
+begin
+  Result := TEqualityComparer<string>.Construct(
+    function(const ALeft, ARight: string): Boolean
+    begin
+      Result := CompareText(ALeft, ARight) = 0;
+    end,
+    function(const AValue: string): Integer
+    begin
+      Result := NameHash(AValue);
+    end);
+end;
+
 constructor TSymbolRefTables.Create;
 begin
   inherited Create;
-  FByName := TSymbolTable.Create([doOwnsValues]);
-  FByAncestor := TSymbolTable.Create([doOwnsValues]);
+  FByName := TSymbolTable.Create(NameComparer);
+  FByAncestor := TSymbolTable.Create(NameComparer);
   FSlotKeys := TList<string>.Create;
   FSlotRefs := TList<Integer>.Create;
   FSlotUnits := TList<TSlotUnit>.Create;
@@ -325,6 +383,8 @@ procedure TSymbolRefTables.Clear;
 begin
   FByName.Clear;
   FByAncestor.Clear;
+  FNodes := nil;
+  FNodeCount := 0;
   FSlotKeys.Clear;
   FSlotRefs.Clear;
   FSlotUnits.Clear;
@@ -333,23 +393,45 @@ begin
   FDeadRefs := 0;
 end;
 
-class procedure TSymbolRefTables.AddRef(ATable: TSymbolTable; const AKey: string; ASlot, APosition: Integer);
-var
-  mRefs: TSymbolRefs;
-  mRef: TSymbolRef;
+function TSymbolRefTables.NodeAt(AIndex: Integer): TSymbolRef;
 begin
-  if not ATable.TryGetValue(AKey, mRefs) then
-  begin
-    mRefs := TSymbolRefs.Create;
-    ATable.Add(AKey, mRefs);
-  end;
-  mRef.Slot := ASlot;
-  mRef.Position := APosition;
-  mRefs.Add(mRef);
+  Result := FNodes[AIndex div cNodeChunk][AIndex mod cNodeChunk];
 end;
 
-/// <summary>Vorfahren eines Symbols ohne Unit-Präfix und Typargumente (groß), jeden einmal (class(TFoo, IFoo) mit
-/// Unit.TFoo und TFoo&lt;T&gt;).</summary>
+procedure TSymbolRefTables.AddRef(ATable: TSymbolTable; const AKey: string; ASlot, APosition: Integer);
+var
+  mChain: TSymbolChain;
+  mNode, mBlock: Integer;
+begin
+  mNode := FNodeCount;
+  mBlock := mNode div cNodeChunk;
+  if mBlock >= Length(FNodes) then
+  begin
+    SetLength(FNodes, mBlock + 1);
+    SetLength(FNodes[mBlock], cNodeChunk);
+  end;
+  FNodes[mBlock][mNode mod cNodeChunk].Slot := ASlot;
+  FNodes[mBlock][mNode mod cNodeChunk].Position := APosition;
+  FNodes[mBlock][mNode mod cNodeChunk].Next := -1;
+  Inc(FNodeCount);
+  if ATable.TryGetValue(AKey, mChain) then
+  begin
+    FNodes[mChain.Last div cNodeChunk][mChain.Last mod cNodeChunk].Next := mNode;
+    mChain.Last := mNode;
+    Inc(mChain.Count);
+    ATable[AKey] := mChain;
+  end
+  else
+  begin
+    mChain.First := mNode;
+    mChain.Last := mNode;
+    mChain.Count := 1;
+    ATable.Add(AKey, mChain);
+  end;
+end;
+
+/// <summary>Vorfahren eines Symbols ohne Unit-Präfix und Typargumente, jeden einmal ohne Groß-/Kleinschreibung
+/// (class(TFoo, IFoo) mit Unit.TFoo und TFoo&lt;T&gt;).</summary>
 function AncestorKeys(const ASymbol: TIndexSymbol): TArray<string>;
 var
   mIndex: Integer;
@@ -358,8 +440,8 @@ begin
   Result := nil;
   for mIndex := 0 to High(ASymbol.Ancestors) do
   begin
-    mKey := UpperCase(LastPart(ASymbol.Ancestors[mIndex]));
-    if (mKey <> '') and (IndexStr(mKey, Result) < 0) then
+    mKey := LastPart(ASymbol.Ancestors[mIndex]);
+    if (mKey <> '') and (IndexText(mKey, Result) < 0) then
     begin
       Result := Result + [mKey];
     end;
@@ -384,7 +466,8 @@ begin
   // Zugriff über den Index, damit die Symbol-Records nicht kopiert werden.
   for mPosition := 0 to High(AUnit.Symbols) do
   begin
-    AddRef(FByName, UpperCase(AUnit.Symbols[mPosition].Name), mSlot, mPosition);
+    // Der Name selbst ist der Schlüssel (geteilter Puffer, keine Kopie).
+    AddRef(FByName, AUnit.Symbols[mPosition].Name, mSlot, mPosition);
     Inc(mCount);
     for mKey in AncestorKeys(AUnit.Symbols[mPosition]) do
     begin
@@ -414,25 +497,27 @@ end;
 
 function TSymbolRefTables.Locations(ATable: TSymbolTable; const AKey: string): TArray<TSymbolLocation>;
 var
-  mRefs: TSymbolRefs;
-  mIndex, mCount, mLastSlot: Integer;
+  mChain: TSymbolChain;
+  mNode, mCount, mLastSlot: Integer;
   mRef: TSymbolRef;
   mOwner: TSlotUnit;
 begin
   Result := nil;
-  if not ATable.TryGetValue(AKey, mRefs) then
+  if not ATable.TryGetValue(AKey, mChain) then
   begin
     Exit;
   end;
   // Direkt ins Ergebnis statt über eine Liste und ToArray: jedes Symbol ist ein großer Record mit verwalteten
   // Feldern, häufige Namen (Create, Count) haben Tausende Verweise, und die Regeln fragen je Bezeichner.
-  SetLength(Result, mRefs.Count);
+  SetLength(Result, mChain.Count);
   mCount := 0;
   mLastSlot := -1;
   mOwner := Default(TSlotUnit);
-  for mIndex := 0 to mRefs.Count - 1 do
+  mNode := mChain.First;
+  while mNode >= 0 do
   begin
-    mRef := mRefs[mIndex];
+    mRef := NodeAt(mNode);
+    mNode := mRef.Next;
     // Verweise einer Unit stehen beieinander: den Platz nur beim Wechsel lesen.
     if mRef.Slot <> mLastSlot then
     begin
@@ -455,33 +540,35 @@ begin
   SetLength(Result, mCount);
 end;
 
-function TSymbolRefTables.ByName(const AKey: string): TArray<TSymbolLocation>;
+function TSymbolRefTables.ByName(const AName: string): TArray<TSymbolLocation>;
 begin
-  Result := Locations(FByName, AKey);
+  Result := Locations(FByName, AName);
 end;
 
-function TSymbolRefTables.ByAncestor(const AKey: string): TArray<TSymbolLocation>;
+function TSymbolRefTables.ByAncestor(const AName: string): TArray<TSymbolLocation>;
 begin
-  Result := Locations(FByAncestor, AKey);
+  Result := Locations(FByAncestor, AName);
 end;
 
-function TSymbolRefTables.HasName(const AKey: string; const AMatch: TSymbolMatch): Boolean;
+function TSymbolRefTables.HasName(const AName: string; const AMatch: TSymbolMatch): Boolean;
 var
-  mRefs: TSymbolRefs;
-  mIndex, mLastSlot: Integer;
+  mChain: TSymbolChain;
+  mNode, mLastSlot: Integer;
   mRef: TSymbolRef;
   mOwner: TSlotUnit;
 begin
   Result := False;
-  if not FByName.TryGetValue(AKey, mRefs) then
+  if not FByName.TryGetValue(AName, mChain) then
   begin
     Exit;
   end;
   mLastSlot := -1;
   mOwner := Default(TSlotUnit);
-  for mIndex := 0 to mRefs.Count - 1 do
+  mNode := mChain.First;
+  while mNode >= 0 do
   begin
-    mRef := mRefs[mIndex];
+    mRef := NodeAt(mNode);
+    mNode := mRef.Next;
     // Wie Locations: der Eintrag des Platzes, nicht der ganze TUnitIndex aus FFiles.
     if mRef.Slot <> mLastSlot then
     begin
@@ -650,7 +737,7 @@ function TSymbolIndex.FindSymbols(const AName: string): TArray<TSymbolLocation>;
 begin
   FLock.Enter;
   try
-    Result := FRefs.ByName(UpperCase(AName));
+    Result := FRefs.ByName(AName);
   finally
     FLock.Leave;
   end;
@@ -660,7 +747,7 @@ function TSymbolIndex.HasSymbol(const AName: string; const AMatch: TSymbolMatch)
 begin
   FLock.Enter;
   try
-    Result := FRefs.HasName(UpperCase(AName), AMatch);
+    Result := FRefs.HasName(AName, AMatch);
   finally
     FLock.Leave;
   end;
@@ -670,7 +757,7 @@ function TSymbolIndex.Descendants(const ATypeName: string): TArray<TSymbolLocati
 var
   mKey: string;
 begin
-  mKey := UpperCase(LastPart(ATypeName));
+  mKey := LastPart(ATypeName);
   if mKey = '' then
   begin
     Exit(nil);
@@ -795,6 +882,17 @@ begin
     CleanRefsLocked;
   finally
     FLock.Leave;
+  end;
+end;
+
+procedure TSymbolIndex.ReleaseStringPool;
+begin
+  FPoolLock.Enter;
+  try
+    FPool.Free;
+    FPool := TStringPool.Create;
+  finally
+    FPoolLock.Leave;
   end;
 end;
 

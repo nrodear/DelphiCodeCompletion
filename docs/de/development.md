@@ -64,7 +64,7 @@ Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --exclude:Benchmark --exitbehav
 | `Tests\Common\Lsp` | Server-Seite: Vervollständigung, Hover, Parameterhilfe |
 | `Tests\IDE` | Plugin-Seite ohne ToolsAPI: Ablauf der Liste, Rangfolge, Favoriten, Mengenmodus, Platzhalter, Einstellungen, Texte |
 | `Tests\Application\Shell` | Hülle des Servers |
-| `Tests\Common` | Speicher: Selbstmessung, Namen der `.dcp`, gemeinsamer Cache, Office-Typbibliotheken und WinRT |
+| `Tests\Common` | Speicher: Selbstmessung, Namen der `.dcp`, gemeinsamer Cache, Office-Typbibliotheken und WinRT, Freigabe nach dem Ende des Servers, Dokumente, Namens- und Verweistabellen, Signaturen im Cache |
 | `Tests\Memory` | Messprogramm für den Speicher (Kategorie `Benchmark`) |
 | `Tests\Support` | Hilfen: feste Datenquelle, Leck-Überwachung |
 
@@ -89,6 +89,11 @@ sofort.
 ```
 Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --run:dpcc.Memory.Bench.Tests --exitbehavior:Continue
 ```
+
+Jeder Messpunkt nennt auch den vom Speichermanager belegten Speicher (`alloc_mb`); der Abstand zu den Private Bytes ist
+der Verschnitt. Fehler im Server (`ERangeError`, `EIntOverflow`, `EAccessViolation`) schreibt das Messprogramm mit
+Fehleradresse und Rücksprungadressen nach `<Datei>-exceptions.txt`; aufzulösen mit der `.map`-Datei des
+Testprogramms.
 
 Das Testprogramm ist wie `bds.exe` LARGEADDRESSAWARE (4 GB Adressraum). Messdaten gehören nicht ins Repository.
 
