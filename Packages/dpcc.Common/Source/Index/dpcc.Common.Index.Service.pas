@@ -50,6 +50,20 @@
 // Bibliotheks-Datei ist bekannt: Wer nichts Neues hat, schreibt nicht. Ist der Stand unbekannt (Datei von
 // einem anderen Prozess geschrieben), gilt der Weg über die Dateisperre oben.
 //
+// Speicher-Optimierung Phase 3: Die Caches haben Format 34 (Blöcke je Unit, Verzeichnis am Ende). Lesen öffnet die
+// Datei über IIndexFileSystem.OpenBlocks und liest nur Kopf und Verzeichnis; Schreiben geht über WriteStream Block
+// für Block. Units, deren Symbole nicht im Speicher sind (bedarfsweises Laden, TIndexRequest.LazyLibrary), schreibt es
+// als unveränderten Block aus dem alten Cache, ebenso die Units anderer Projekte im gemeinsamen Cache. Nach dem
+// Schreiben (und nach dem Lesen eines gemeinsamen Caches) bekommen die verdrängbaren Units des Index die Blöcke der
+// neuen Datei (ISymbolIndex.BindSources); erst dann darf der Index sie verdrängen.
+//
+// Nutzungsstatistik (Speicher-Optimierung Phase 3): TIndexUsageStats zählt je Bibliotheks-Unit, wie oft Anfragen sie
+// brauchen (FindUnit höchstens einmal je Sekunde, etwa einmal je Anfrage) und wie oft eine Projekt-Unit sie neu in die
+// uses aufnimmt (angenommenes "+ Unit", 4 Punkte). Die Punkte halbieren sich je Woche. Ab cIndexHotScore Punkten lädt
+// der Aufbau die Unit gleich und der Index verdrängt sie nie. Die Statistik steht in usage.dat neben dem
+// Bibliotheks-Cache; geschrieben wird beim Stopp des Dienstes und höchstens alle 10 Minuten bei Anfragen, ihr Verlust
+// ist unkritisch.
+//
 // Speicher (Speicher-Optimierung b1): Jeder Aufbau las den gemeinsamen Bibliotheks-Cache ganz (84 MB am Stück) und
 // dekodierte alle Texte, auch wenn der Index jede Unit daraus schon im selben Stand hielt; das gab bei jedem
 // Neuaufbau (Einstellungen, .dproj gespeichert, Konfiguration) eine Spitze. TSharedCacheWrites kennt nun auch den
@@ -108,6 +122,9 @@ type
     Prepare: TProc;
     /// <summary>Ordner selten genutzter Bibliotheken (c1); siehe TIndexBuilder.RarelyUsedRoots.</summary>
     RarelyUsedRoots: TArray<string>;
+    /// <summary>Bibliotheksstufe nur mit Kopf und Katalog (Speicher-Optimierung Phase 3); siehe
+    /// TIndexBuilder.LazyLibrary.</summary>
+    LazyLibrary: Boolean;
   end;
 
   /// <summary>Cache-Datei verworfen; AReason z. B. "Prüfsumme stimmt nicht" (#492).</summary>
@@ -151,6 +168,8 @@ type
     /// <summary>Bis zum letzten Schreiben neu gelesene Units.</summary>
     FWrittenParsed: Integer;
     function ReadCache(const AFileName: string): TArray<TIndexCacheEntry>;
+    /// <summary>Wie ReadCache ohne Kataloge (Phase 3).</summary>
+    function ReadHeaders(const AFileName: string): TArray<TIndexCacheEntry>;
     /// <summary>Gemeinsamer Cache AFileName, außer der Index hält seinen Stand schon (b1): dann leer, AHold nil.
     /// </summary>
     function LoadShared(const AFileName: string; const AKept: TIndexUnitKept; out AHold: IInterface):
@@ -161,12 +180,16 @@ type
     /// <summary>Wartet begrenzt auf die Schreibsperre; nil, wenn sie ein anderer so lange hält oder der Aufbau
     /// abgebrochen ist.</summary>
     function LockForWrite(const AFileName: string): IInterface;
-    /// <summary>Serialisiert AUnits nach AFileName; meldet Erfolg über Written, sonst NotWritten.</summary>
-    function WriteCache(ALibrary: Boolean; const AFileName: string; const AUnits: TArray<TUnitIndex>): Boolean;
+    /// <summary>Gibt den verdrängbaren Units des Index die Blöcke aus AEntries (Phase 3).</summary>
+    procedure Bind(const AEntries: TArray<TIndexCacheEntry>);
+    /// <summary>Serialisiert AItems nach AFileName; meldet Erfolg über Written, sonst NotWritten.</summary>
+    function WriteCache(ALibrary: Boolean; const AFileName: string; const AItems: TArray<TIndexCacheItem>): Boolean;
     /// <summary>Ergänzt einen gemeinsamen Cache (Bibliothek, Suchpfade) um AUnits, wenn etwas fehlt: unter der
     /// Schreibsperre mit dem aktuellen Stand der Datei zusammengeführt (andere Projekte und Prozesse).</summary>
+    /// <summary>AUnbound: Der Index hat verdrängbare Units ohne Block (Phase 3); sie bekommen ihn aus der Datei,
+    /// auch wenn nichts zu schreiben ist.</summary>
     procedure WriteSharedCache(const AFileName: string; const AStartCached: TArray<TIndexCacheEntry>;
-      AUnits: TList<TUnitIndex>);
+      AUnits: TList<TIndexCacheItem>; AUnbound: Boolean);
     /// <summary>Projekt-Units ins Projekt, Suchpfade und Bibliothek in die gemeinsamen Caches.</summary>
     procedure WriteSplit(AParsed: Integer);
   public
@@ -180,6 +203,48 @@ type
     procedure WriteCaches(AParsedTotal: Integer);
     /// <summary>Gibt die gelesenen Einträge frei; die gemeinsamen Kopien hält das Objekt bis zum Ende.</summary>
     procedure Release;
+  end;
+
+  /// <summary>Nutzungsstatistik der Bibliotheks-Units (Speicher-Optimierung Phase 3): Punkte je Unit mit
+  /// wöchentlicher Halbierung, gespeichert als Text (usage.dat). Threadsicher.</summary>
+  TIndexUsageStats = class(TInterfacedObject, IIndexUsage)
+  private type
+    TValue = record
+      Name: string;
+      Points: Double;
+      /// <summary>Tag (TDateTime ganzzahlig), auf den Points bezogen ist.</summary>
+      Day: Integer;
+    end;
+  public const
+    /// <summary>Höchstens so oft schreibt SaveIfDue.</summary>
+    cSaveIntervalMs = 10 * 60 * 1000;
+    /// <summary>Halbwertszeit der Punkte in Tagen.</summary>
+    cHalfLifeDays = 7;
+  private
+    FFileSystem: IIndexFileSystem;
+    FFileName: string;
+    FLock: TObject;
+    FValues: TDictionary<string, TValue>;
+    FToday: Integer;
+    FDirty: Boolean;
+    FSavedAt: UInt64;
+    function Day: Integer;
+    /// <summary>Punkte von AValue am Tag ADay (Zerfall).</summary>
+    class function Decayed(const AValue: TValue; ADay: Integer): Double; static;
+    procedure Load;
+  public
+    /// <summary>Liest AFileName (fehlt sie, beginnt die Statistik leer). AToday &gt;= 0 setzt den Tag fest (Tests).
+    /// </summary>
+    constructor Create(const AFileSystem: IIndexFileSystem; const AFileName: string; AToday: Integer = -1);
+    destructor Destroy; override;
+    procedure Note(const AUnitName: string; AWeight: Integer);
+    function Score(const AUnitName: string): Integer;
+    function FileName: string;
+    /// <summary>Schreibt die Datei, wenn sich etwas geändert hat (AForce) bzw. seit dem letzten Schreiben
+    /// cSaveIntervalMs vergangen sind. Fehler beim Schreiben bleiben ohne Folgen.</summary>
+    procedure SaveIfDue(AForce: Boolean);
+    /// <summary>Datei der Statistik neben dem Bibliotheks-Cache ALibraryCacheFile; '' ohne.</summary>
+    class function FileFor(const ALibraryCacheFile: string): string; static;
   end;
 
   TIndexService = class
@@ -213,6 +278,11 @@ type
     procedure ReplaceBuilder(ABuilder: TIndexBuilder);
     /// <summary>Meldet AError über OnError; eine Ausnahme der Meldung beendet den Index-Thread nicht.</summary>
     procedure ReportError(const AError: Exception);
+    /// <summary>Nutzungsstatistik des Index zum Bibliotheks-Cache des Auftrags (Phase 3); legt sie an oder ersetzt
+    /// eine zu einer anderen Datei.</summary>
+    procedure UseStatistics(const ARequest: TIndexRequest);
+    /// <summary>Schreibt die Nutzungsstatistik des Index, wenn fällig (AForce: wenn geändert).</summary>
+    procedure SaveStatistics(AForce: Boolean);
   public
     constructor Create(const AIndex: ISymbolIndex; const AFileSystem: IIndexFileSystem);
     destructor Destroy; override;
@@ -261,6 +331,7 @@ implementation
 
 uses
   System.Diagnostics,
+  System.Math,
   dpcc.Common.Localization.Texts;
 
 {$SCOPEDENUMS ON}
@@ -656,6 +727,7 @@ end;
 destructor TIndexService.Destroy;
 begin
   Stop;
+  SaveStatistics(True);
   ReplaceBuilder(nil);
   FStages.Free;
   FApplyLock.Free;
@@ -682,11 +754,11 @@ begin
 end;
 
 /// <summary>Fehlt eine Unit aus AUnits in AEntries oder steht sie dort mit anderem Stand?</summary>
-function MissingIn(const AEntries: TArray<TIndexCacheEntry>; AUnits: TList<TUnitIndex>): Boolean;
+function MissingIn(const AEntries: TArray<TIndexCacheEntry>; AUnits: TList<TIndexCacheItem>): Boolean;
 var
   mByFile: TDictionary<string, Integer>;
   mPosition: Integer;
-  mUnitIndex: TUnitIndex;
+  mItem: TIndexCacheItem;
 begin
   Result := False;
   mByFile := TDictionary<string, Integer>.Create;
@@ -695,9 +767,9 @@ begin
     begin
       mByFile.AddOrSetValue(AnsiUpperCase(AEntries[mPosition].Header.FileName), mPosition);
     end;
-    for mUnitIndex in AUnits do
+    for mItem in AUnits do
     begin
-      if not ContainsUnit(AEntries, mByFile, mUnitIndex) then
+      if not ContainsUnit(AEntries, mByFile, mItem.Header) then
       begin
         Exit(True);
       end;
@@ -709,15 +781,15 @@ end;
 
 /// <summary>Steht jede Unit aus AUnits mit demselben Stand in AWritten (zuletzt in diesem Prozess geschrieben)?
 /// </summary>
-function AllWritten(AWritten: TDictionary<string, string>; AUnits: TList<TUnitIndex>): Boolean;
+function AllWritten(AWritten: TDictionary<string, string>; AUnits: TList<TIndexCacheItem>): Boolean;
 var
-  mUnitIndex: TUnitIndex;
+  mItem: TIndexCacheItem;
   mState: string;
 begin
-  for mUnitIndex in AUnits do
+  for mItem in AUnits do
   begin
-    if not AWritten.TryGetValue(AnsiUpperCase(mUnitIndex.FileName), mState) or
-      (mState <> TSharedCacheWrites.StateOf(mUnitIndex)) then
+    if not AWritten.TryGetValue(AnsiUpperCase(mItem.Header.FileName), mState) or
+      (mState <> TSharedCacheWrites.StateOf(mItem.Header)) then
     begin
       Exit(False);
     end;
@@ -725,49 +797,91 @@ begin
   Result := True;
 end;
 
-/// <summary>Hängt an AUnits die Units aus AEntries an, die AUnits nicht hat: Units anderer Projekte im
-/// gemeinsamen Cache bleiben erhalten.</summary>
-procedure AddOthers(const AEntries: TArray<TIndexCacheEntry>; AUnits: TList<TUnitIndex>);
+/// <summary>Die Units aus AEntries, die AUnits nicht hat, als unveränderte Blöcke (Format 34): Units anderer
+/// Projekte im gemeinsamen Cache bleiben erhalten, ohne sie zu dekodieren.</summary>
+function OthersOf(const AEntries: TArray<TIndexCacheEntry>; AUnits: TList<TIndexCacheItem>):
+  TArray<TIndexCacheItem>;
 var
   mCurrent: TDictionary<string, Boolean>;
   mEntry: TIndexCacheEntry;
-  mUnitIndex: TUnitIndex;
+  mItem: TIndexCacheItem;
+  mItems: TList<TIndexCacheItem>;
 begin
   mCurrent := TDictionary<string, Boolean>.Create;
+  mItems := TList<TIndexCacheItem>.Create;
   try
-    for mUnitIndex in AUnits do
+    for mItem in AUnits do
     begin
-      mCurrent.AddOrSetValue(AnsiUpperCase(mUnitIndex.FileName), True);
+      mCurrent.AddOrSetValue(AnsiUpperCase(mItem.Header.FileName), True);
     end;
     for mEntry in AEntries do
     begin
-      if not mCurrent.ContainsKey(AnsiUpperCase(mEntry.Header.FileName)) and
-        TIndexCache.Expand(mEntry, mUnitIndex) then
+      if not mCurrent.ContainsKey(AnsiUpperCase(mEntry.Header.FileName)) then
       begin
-        AUnits.Add(mUnitIndex);
+        mItems.Add(TIndexCacheItem.OfEntry(mEntry));
       end;
     end;
+    Result := mItems.ToArray;
   finally
+    mItems.Free;
     mCurrent.Free;
   end;
 end;
 
-/// <summary>Einträge der Cache-Datei AFileName; meldet einen verworfenen Cache über ARejected.</summary>
+/// <summary>Einträge der Cache-Datei AFileName (nur Kopf und Verzeichnis, Format 34); meldet einen verworfenen
+/// Cache über ARejected. Ohne ACatalog bleiben die Kataloge leer (Phase 3: nur Stand und Block, etwa für
+/// ISymbolIndex.BindSources); das spart beim Bibliotheks-Cache einige MB Texte.</summary>
 function ReadCacheFile(const AFileSystem: IIndexFileSystem; const AFileName: string;
-  const ARejected: TIndexCacheRejectedEvent): TArray<TIndexCacheEntry>;
+  const ARejected: TIndexCacheRejectedEvent; ACatalog: Boolean = True): TArray<TIndexCacheEntry>;
 var
-  mData: TBytes;
+  mReader: IIndexBlockReader;
   mReason: string;
 begin
   Result := nil;
-  if (AFileName = '') or not AFileSystem.ReadBytes(AFileName, mData) then
+  if AFileName = '' then
   begin
     Exit;
   end;
-  Result := TIndexCache.ReadEntries(mData, mReason);
+  mReader := AFileSystem.OpenBlocks(AFileName);
+  if mReader = nil then
+  begin
+    Exit;
+  end;
+  Result := TIndexCache.ReadEntries(mReader, mReason, ACatalog);
   if (mReason <> '') and Assigned(ARejected) then
   begin
     ARejected(AFileName, mReason);
+  end;
+end;
+
+/// <summary>Eintrag für TIndexCache.Write zu einer Unit des Index (Phase 3): eine Unit, deren Symbole nicht im
+/// Speicher sind, und eine unveränderte verdrängbare Unit als Block aus ihrem Cache, sonst aus dem Speicher.
+/// </summary>
+function ItemOf(const AStored: TIndexStoredUnit): TIndexCacheItem;
+begin
+  // Mit Block (auch gepinnt): unverändert seit dem Lesen, der Block wird kopiert statt neu geschrieben.
+  if AStored.Loaded and (AStored.Source = nil) then
+  begin
+    Exit(TIndexCacheItem.OfUnit(AStored.Unit_));
+  end;
+  Result := Default(TIndexCacheItem);
+  Result.Header := AStored.Unit_;
+  Result.Catalog := AStored.Catalog;
+  Result.Source := AStored.Source;
+  Result.SymbolCount := AStored.SymbolCount;
+  Result.UnavailableCount := AStored.UnavailableCount;
+  Result.UsageCount := AStored.UsageCount;
+end;
+
+/// <summary>Alle Units des Index als Einträge für TIndexCache.Write.</summary>
+function ItemsOf(const AStored: TArray<TIndexStoredUnit>): TArray<TIndexCacheItem>;
+var
+  mIndex: Integer;
+begin
+  SetLength(Result, Length(AStored));
+  for mIndex := 0 to High(AStored) do
+  begin
+    Result[mIndex] := ItemOf(AStored[mIndex]);
   end;
 end;
 
@@ -789,10 +903,11 @@ end;
 
 /// <summary>Verteilt AUnits auf die Caches: Bibliothek, Suchpfade, Projekt. Der Index ist mit anderen Projekten
 /// geteilt: in den Projekt-Cache nur die eigenen Units.</summary>
-procedure SortUnits(const ARequest: TIndexRequest; const AUnits: TArray<TUnitIndex>;
-  AProject, ASearch, ALibrary: TList<TUnitIndex>);
+procedure SortUnits(const ARequest: TIndexRequest; const AUnits: TArray<TIndexStoredUnit>;
+  AProject, ASearch, ALibrary: TList<TIndexCacheItem>);
 var
   mOwn, mSearched: TDictionary<string, Boolean>;
+  mStored: TIndexStoredUnit;
   mUnit: TUnitIndex;
   mKey: string;
 begin
@@ -801,28 +916,197 @@ begin
   try
     // Eine Projektdatei, die auch im Suchpfad liegt, bleibt im Projekt-Cache.
     mSearched := FileKeys(ARequest.SearchFiles, mOwn);
-    for mUnit in AUnits do
+    for mStored in AUnits do
     begin
+      mUnit := mStored.Unit_;
       mKey := AnsiUpperCase(mUnit.FileName);
       if mUnit.Library_ and InSharedCache(ARequest, mUnit.FileName) then
       begin
-        ALibrary.Add(mUnit);
+        ALibrary.Add(ItemOf(mStored));
       end
       else if (ARequest.SearchCacheFile <> '') and mSearched.ContainsKey(mKey) then
       begin
-        ASearch.Add(mUnit);
+        ASearch.Add(ItemOf(mStored));
       end
       else if mUnit.Library_ or mOwn.ContainsKey(mKey) or mSearched.ContainsKey(mKey) then
       begin
         // Über uses erreichte Units außerhalb der Installation (gemeinsamer Firmencode) liest
         // der Builder mit den Defines des Projekts; sie gehören in dessen Cache (#647).
-        AProject.Add(mUnit);
+        AProject.Add(ItemOf(mStored));
       end;
     end;
   finally
     mSearched.Free;
     mOwn.Free;
   end;
+end;
+
+{ TIndexUsageStats }
+
+constructor TIndexUsageStats.Create(const AFileSystem: IIndexFileSystem; const AFileName: string; AToday: Integer);
+begin
+  inherited Create;
+  FFileSystem := AFileSystem;
+  FFileName := AFileName;
+  FToday := AToday;
+  FLock := TObject.Create;
+  FValues := TDictionary<string, TValue>.Create;
+  FSavedAt := TThread.GetTickCount64;
+  Load;
+end;
+
+destructor TIndexUsageStats.Destroy;
+begin
+  FValues.Free;
+  FLock.Free;
+  inherited;
+end;
+
+class function TIndexUsageStats.FileFor(const ALibraryCacheFile: string): string;
+begin
+  Result := '';
+  if ALibraryCacheFile <> '' then
+  begin
+    Result := IncludeTrailingPathDelimiter(ExtractFileDir(ALibraryCacheFile)) + 'usage.dat';
+  end;
+end;
+
+function TIndexUsageStats.Day: Integer;
+begin
+  Result := FToday;
+  if Result < 0 then
+  begin
+    Result := Trunc(Now);
+  end;
+end;
+
+class function TIndexUsageStats.Decayed(const AValue: TValue; ADay: Integer): Double;
+begin
+  Result := AValue.Points;
+  if ADay > AValue.Day then
+  begin
+    Result := Result * Power(0.5, (ADay - AValue.Day) / cHalfLifeDays);
+  end;
+end;
+
+function TIndexUsageStats.FileName: string;
+begin
+  Result := FFileName;
+end;
+
+procedure TIndexUsageStats.Load;
+var
+  mText, mLine: string;
+  mParts: TArray<string>;
+  mValue: TValue;
+begin
+  if (FFileName = '') or (FFileSystem = nil) or not FFileSystem.ReadText(FFileName, mText) then
+  begin
+    Exit;
+  end;
+  // "Tag Tab Punkte Tab Unit" je Zeile; die erste Zeile nennt das Format. Unlesbares bleibt weg.
+  for mLine in mText.Split([#10]) do
+  begin
+    mParts := mLine.Trim.Split([#9]);
+    if (Length(mParts) <> 3) or not TryStrToInt(mParts[0], mValue.Day) or
+      not TryStrToFloat(mParts[1], mValue.Points, TFormatSettings.Invariant) or (mParts[2] = '') then
+    begin
+      Continue;
+    end;
+    mValue.Name := mParts[2];
+    FValues.AddOrSetValue(UpperCase(mValue.Name), mValue);
+  end;
+end;
+
+procedure TIndexUsageStats.Note(const AUnitName: string; AWeight: Integer);
+var
+  mValue: TValue;
+  mDay: Integer;
+begin
+  if AUnitName = '' then
+  begin
+    Exit;
+  end;
+  mDay := Day;
+  TMonitor.Enter(FLock);
+  try
+    if FValues.TryGetValue(UpperCase(AUnitName), mValue) then
+    begin
+      mValue.Points := Decayed(mValue, mDay);
+    end
+    else
+    begin
+      mValue.Name := AUnitName;
+      mValue.Points := 0;
+    end;
+    mValue.Day := mDay;
+    mValue.Points := mValue.Points + AWeight;
+    FValues.AddOrSetValue(UpperCase(AUnitName), mValue);
+    FDirty := True;
+  finally
+    TMonitor.Exit(FLock);
+  end;
+end;
+
+function TIndexUsageStats.Score(const AUnitName: string): Integer;
+var
+  mValue: TValue;
+begin
+  TMonitor.Enter(FLock);
+  try
+    if not FValues.TryGetValue(UpperCase(AUnitName), mValue) then
+    begin
+      Exit(0);
+    end;
+    Result := Trunc(Decayed(mValue, Day));
+  finally
+    TMonitor.Exit(FLock);
+  end;
+end;
+
+procedure TIndexUsageStats.SaveIfDue(AForce: Boolean);
+var
+  mBuilder: TStringBuilder;
+  mValue: TValue;
+  mDay: Integer;
+  mPoints: Double;
+  mText: string;
+begin
+  if (FFileName = '') or (FFileSystem = nil) then
+  begin
+    Exit;
+  end;
+  mDay := Day;
+  mBuilder := TStringBuilder.Create;
+  try
+    TMonitor.Enter(FLock);
+    try
+      if not FDirty or (not AForce and (TThread.GetTickCount64 - FSavedAt < cSaveIntervalMs)) then
+      begin
+        Exit;
+      end;
+      mBuilder.Append('dpcc-usage 1').Append(#10);
+      for mValue in FValues.Values do
+      begin
+        // Fast vergessene Units fallen weg; die Datei wächst nicht ohne Grenze.
+        mPoints := Decayed(mValue, mDay);
+        if mPoints >= 0.5 then
+        begin
+          mBuilder.Append(mDay).Append(#9).Append(FormatFloat('0.00', mPoints, TFormatSettings.Invariant))
+            .Append(#9).Append(mValue.Name).Append(#10);
+        end;
+      end;
+      FDirty := False;
+      FSavedAt := TThread.GetTickCount64;
+    finally
+      TMonitor.Exit(FLock);
+    end;
+    mText := mBuilder.ToString;
+  finally
+    mBuilder.Free;
+  end;
+  // Außerhalb der Sperre schreiben; scheitert es, gilt der Stand als geschrieben (Verlust unkritisch).
+  FFileSystem.WriteText(FFileName, mText);
 end;
 
 { TIndexCacheWriter }
@@ -841,6 +1125,11 @@ end;
 function TIndexCacheWriter.ReadCache(const AFileName: string): TArray<TIndexCacheEntry>;
 begin
   Result := ReadCacheFile(FFileSystem, AFileName, FEvents.Rejected);
+end;
+
+function TIndexCacheWriter.ReadHeaders(const AFileName: string): TArray<TIndexCacheEntry>;
+begin
+  Result := ReadCacheFile(FFileSystem, AFileName, FEvents.Rejected, False);
 end;
 
 function TIndexCacheWriter.IndexHolds(const AFileName: string; const AKept: TIndexUnitKept): Boolean;
@@ -873,7 +1162,7 @@ begin
       // Eintrag liest der Builder sie bei Bedarf aus der Datei.
       for mPair in mKnown do
       begin
-        if mWanted.ContainsKey(mPair.Key) and not (FIndex.FindFile(mPair.Key, mUnit) and
+        if mWanted.ContainsKey(mPair.Key) and not (FIndex.FindHeader(mPair.Key, mUnit) and
           (TSharedCacheWrites.StateOf(mUnit) = mPair.Value) and AKept(mUnit)) then
         begin
           Exit;
@@ -926,7 +1215,30 @@ begin
   FLibraryCached := LoadShared(FRequest.LibraryCacheFile, AKept, FLibraryHold);
   // Suchpfade ebenso: Die Projekte einer Gruppe teilen meist dieselben (Speicher, Rückmeldung 01.11.2026).
   FSearchCached := LoadShared(FRequest.SearchCacheFile, AKept, FSearchHold);
+  // Phase 3: Units, die nur im Katalog stehen, lesen ab jetzt aus dieser Fassung der Datei (hat ein anderer Prozess
+  // sie ersetzt, lasen sie bisher aus der alten über deren offenes Handle).
+  Bind(FLibraryCached);
   Result := FLibraryCached + FSearchCached + FCached;
+end;
+
+procedure TIndexCacheWriter.Bind(const AEntries: TArray<TIndexCacheEntry>);
+var
+  mHeaders: TArray<TUnitIndex>;
+  mSources: TArray<IIndexUnitSource>;
+  mIndex: Integer;
+begin
+  if Length(AEntries) = 0 then
+  begin
+    Exit;
+  end;
+  SetLength(mHeaders, Length(AEntries));
+  SetLength(mSources, Length(AEntries));
+  for mIndex := 0 to High(AEntries) do
+  begin
+    mHeaders[mIndex] := AEntries[mIndex].Header;
+    mSources[mIndex] := AEntries[mIndex].Source;
+  end;
+  FIndex.BindSources(mHeaders, mSources);
 end;
 
 procedure TIndexCacheWriter.Release;
@@ -964,42 +1276,60 @@ begin
 end;
 
 function TIndexCacheWriter.WriteCache(ALibrary: Boolean; const AFileName: string;
-  const AUnits: TArray<TUnitIndex>): Boolean;
+  const AItems: TArray<TIndexCacheItem>): Boolean;
 var
   mWatch: TStopwatch;
-  mData: TBytes;
   mError: string;
+  mItems: TArray<TIndexCacheItem>;
+  mBytes: Int64;
+  mUnits: Integer;
 begin
   mWatch := TStopwatch.StartNew;
-  mData := TIndexCache.Serialize(AUnits);
-  Result := FFileSystem.WriteBytes(AFileName, mData, mError);
+  mItems := AItems;
+  mBytes := 0;
+  mUnits := 0;
+  // Format 34: Block für Block in die temporäre Datei; der ganze Cache liegt nie am Stück im Speicher.
+  Result := FFileSystem.WriteStream(AFileName,
+    function(AStream: TStream): Boolean
+    var
+      Start: Int64;
+    begin
+      Start := AStream.Position;
+      mUnits := TIndexCache.Write(AStream, mItems);
+      mBytes := AStream.Position - Start;
+      Result := True;
+    end, mError);
   if not Result then
   begin
     NotWritten(AFileName, mError);
   end
   else if Assigned(FEvents.Written) then
   begin
-    FEvents.Written(ALibrary, Length(AUnits), Length(mData), mWatch.ElapsedMilliseconds);
+    FEvents.Written(ALibrary, mUnits, mBytes, mWatch.ElapsedMilliseconds);
   end;
 end;
 
 procedure TIndexCacheWriter.WriteSharedCache(const AFileName: string;
-  const AStartCached: TArray<TIndexCacheEntry>; AUnits: TList<TUnitIndex>);
+  const AStartCached: TArray<TIndexCacheEntry>; AUnits: TList<TIndexCacheItem>; AUnbound: Boolean);
 var
   mWritten, mNewState: TDictionary<string, string>;
-  mUnit: TUnitIndex;
   mLock: IInterface;
   mLatest: TArray<TIndexCacheEntry>;
+  mOthers: TArray<TIndexCacheItem>;
+  mOther: TIndexCacheItem;
 begin
   // Hat in diesem Prozess schon ein Dienst diese Units in die unveränderte Datei geschrieben, gibt es
   // nichts Neues; dann weder sperren noch lesen. Sonst gegen den beim Start gelesenen Stand.
   mWritten := TSharedCacheWrites.Written(FFileSystem, AFileName);
-  if (mWritten <> nil) and AllWritten(mWritten, AUnits) then
+  if ((mWritten <> nil) and AllWritten(mWritten, AUnits)) or ((mWritten = nil) and not MissingIn(AStartCached,
+    AUnits)) then
   begin
-    Exit;
-  end;
-  if (mWritten = nil) and not MissingIn(AStartCached, AUnits) then
-  begin
+    // Phase 3: Verdrängbare Units ohne Block (neu gelesen) bekommen ihn aus der Datei, die ein anderer Dienst schon
+    // geschrieben hat.
+    if AUnbound then
+    begin
+      Bind(ReadHeaders(AFileName));
+    end;
     Exit;
   end;
   // Ein Schreiber zur Zeit. Unter der Sperre den aktuellen Stand lesen: Ein anderes Projekt
@@ -1014,43 +1344,76 @@ begin
     end;
     Exit;
   end;
-  mLatest := ReadCache(AFileName);
+  // Erst nur die Stände (Phase 3: ohne Kataloge, die der Index schon hat).
+  mLatest := ReadHeaders(AFileName);
   if not MissingIn(mLatest, AUnits) then
   begin
+    Bind(mLatest);
     Exit;
   end;
-  AddOthers(mLatest, AUnits);
-  mLatest := nil;
-  if WriteCache(True, AFileName, AUnits.ToArray) then
+  // Units anderer Projekte bleiben als unveränderte Blöcke der alten Datei (Format 34); für ihren Eintrag im
+  // Verzeichnis braucht es ihren Katalog.
+  mOthers := OthersOf(mLatest, AUnits);
+  if Length(mOthers) > 0 then
   begin
+    mLatest := ReadCache(AFileName);
+    mOthers := OthersOf(mLatest, AUnits);
+  end;
+  mLatest := nil;
+  if WriteCache(True, AFileName, AUnits.ToArray + mOthers) then
+  begin
+    // Der Index liest ab hier aus der neuen Datei; die alte hält nur noch, wer gerade einen Block aus ihr liest.
+    Bind(ReadHeaders(AFileName));
     mNewState := TDictionary<string, string>.Create;
-    for mUnit in AUnits do
+    for mOther in AUnits do
     begin
-      mNewState.AddOrSetValue(AnsiUpperCase(mUnit.FileName), TSharedCacheWrites.StateOf(mUnit));
+      mNewState.AddOrSetValue(AnsiUpperCase(mOther.Header.FileName), TSharedCacheWrites.StateOf(mOther.Header));
+    end;
+    for mOther in mOthers do
+    begin
+      mNewState.AddOrSetValue(AnsiUpperCase(mOther.Header.FileName), TSharedCacheWrites.StateOf(mOther.Header));
     end;
     TSharedCacheWrites.Remember(FFileSystem, AFileName, mNewState);
   end;
 end;
 
+/// <summary>Hat der Index verdrängbare (nicht gepinnte, geladene) Bibliotheks-Units ohne Block (Phase 3)?</summary>
+function HasUnbound(const AUnits: TArray<TIndexStoredUnit>): Boolean;
+var
+  mStored: TIndexStoredUnit;
+begin
+  for mStored in AUnits do
+  begin
+    if mStored.Loaded and not mStored.Pinned and (mStored.Source = nil) and mStored.Unit_.Library_ then
+    begin
+      Exit(True);
+    end;
+  end;
+  Result := False;
+end;
+
 procedure TIndexCacheWriter.WriteSplit(AParsed: Integer);
 var
-  mProject, mSearch, mLibrary: TList<TUnitIndex>;
+  mProject, mSearch, mLibrary: TList<TIndexCacheItem>;
+  mStored: TArray<TIndexStoredUnit>;
 begin
   // Listen statt Array-Anhängen: das kopierte bei jeder Unit das ganze Array.
-  mProject := TList<TUnitIndex>.Create;
-  mSearch := TList<TUnitIndex>.Create;
-  mLibrary := TList<TUnitIndex>.Create;
+  mProject := TList<TIndexCacheItem>.Create;
+  mSearch := TList<TIndexCacheItem>.Create;
+  mLibrary := TList<TIndexCacheItem>.Create;
   try
-    SortUnits(FRequest, FIndex.Units, mProject, mSearch, mLibrary);
+    // Alle Units, auch die nur im Katalog (Phase 3).
+    mStored := FIndex.StoredUnits;
+    SortUnits(FRequest, mStored, mProject, mSearch, mLibrary);
     if (AParsed > 0) or (Length(FCached) <> mProject.Count) then
     begin
       WriteCache(False, FRequest.CacheFile, mProject.ToArray);
     end;
     if FRequest.SearchCacheFile <> '' then
     begin
-      WriteSharedCache(FRequest.SearchCacheFile, FSearchCached, mSearch);
+      WriteSharedCache(FRequest.SearchCacheFile, FSearchCached, mSearch, False);
     end;
-    WriteSharedCache(FRequest.LibraryCacheFile, FLibraryCached, mLibrary);
+    WriteSharedCache(FRequest.LibraryCacheFile, FLibraryCached, mLibrary, HasUnbound(mStored));
   finally
     mLibrary.Free;
     mSearch.Free;
@@ -1079,7 +1442,7 @@ begin
     end
     else if (mParsed > 0) or (Length(FCached) <> FIndex.UnitCount) then
     begin
-      WriteCache(False, FRequest.CacheFile, FIndex.Units);
+      WriteCache(False, FRequest.CacheFile, ItemsOf(FIndex.StoredUnits));
     end;
   finally
     TSharedCacheWrites.Leave;
@@ -1102,6 +1465,17 @@ begin
       begin
         AReady(APartial, mWatch.ElapsedMilliseconds);
       end;
+    end;
+end;
+
+/// <summary>Erster Start mit LazyLibrary (Phase 3): Caches zwischendurch schreiben; danach bekommen die neu gelesenen
+/// Bibliotheks-Units ihre Blöcke und dürfen verdrängt werden. Begrenzt die Spitze des Aufbaus ohne Cache.</summary>
+function LibraryFlushHandler(ACaches: TIndexCacheWriter): TIndexStageDone;
+begin
+  Result :=
+    procedure(const APartial: TIndexBuildResult)
+    begin
+      ACaches.WriteCaches(APartial.Parsed);
     end;
 end;
 
@@ -1135,6 +1509,9 @@ begin
     Result.LibraryDefines := ARequest.LibraryDefines;
     Result.Usages := ARequest.Usages;
     Result.RarelyUsedRoots := ARequest.RarelyUsedRoots;
+    Result.LazyLibrary := ARequest.LazyLibrary;
+    UseStatistics(ARequest);
+    Result.Usage := FIndex.Usage;
     if Assigned(ARequest.Prepare) then
     begin
       ARequest.Prepare();
@@ -1177,9 +1554,11 @@ begin
       end;
       mTurn := FStages.Watch(mTurn);
       mBuilder.OnProjectDone := ProjectDoneHandler(mCaches, mWatch, FOnProjectReady);
+      mBuilder.OnLibraryFlush := LibraryFlushHandler(mCaches);
       mResult := mBuilder.Build(ARequest.Files, ARequest.SearchFiles, ARequest.LibraryFiles, FOnProgress,
         BuilderCancelled(ACancelled), mTurn);
       mBuilder.OnProjectDone := nil;
+      mBuilder.OnLibraryFlush := nil;
       // Abmelden vor dem Schreiben des Caches: Das nächste Projekt muss darauf nicht warten.
       mTurn := nil;
       if not mResult.Cancelled then
@@ -1225,6 +1604,37 @@ begin
     FOnError(AError);
   except
     // Sonst läge die Ausnahme ungelesen in TThread.FatalException.
+  end;
+end;
+
+procedure TIndexService.UseStatistics(const ARequest: TIndexRequest);
+var
+  mFile: string;
+  mCurrent: IIndexUsage;
+begin
+  mFile := TIndexUsageStats.FileFor(ARequest.LibraryCacheFile);
+  if not ARequest.LazyLibrary or (mFile = '') then
+  begin
+    Exit;
+  end;
+  mCurrent := FIndex.Usage;
+  if (mCurrent <> nil) and SameText(mCurrent.FileName, mFile) then
+  begin
+    Exit;
+  end;
+  // Die bisherige (andere Bibliothek) vorher schreiben.
+  SaveStatistics(True);
+  FIndex.SetUsage(TIndexUsageStats.Create(FFileSystem, mFile));
+end;
+
+procedure TIndexService.SaveStatistics(AForce: Boolean);
+var
+  mUsage: IIndexUsage;
+begin
+  mUsage := FIndex.Usage;
+  if mUsage is TIndexUsageStats then
+  begin
+    TIndexUsageStats(mUsage).SaveIfDue(AForce);
   end;
 end;
 
@@ -1275,6 +1685,8 @@ end;
 
 procedure TIndexService.Stop;
 begin
+  // Nutzungsstatistik beim Stopp schreiben (Phase 3).
+  SaveStatistics(True);
   if FThread = nil then
   begin
     Exit;
@@ -1345,6 +1757,8 @@ var
   mBuilder: TIndexBuilder;
   mExisting: TUnitIndex;
 begin
+  // Höchstens alle 10 Minuten; Anfragen sind die Gelegenheit dazu (Phase 3).
+  SaveStatistics(False);
   mBuilder := AcquireBuilder;
   if mBuilder = nil then
   begin
@@ -1361,6 +1775,7 @@ function TIndexService.ApplyText(const AFileName, AText: string): Boolean;
 var
   mBuilder: TIndexBuilder;
 begin
+  SaveStatistics(False);
   mBuilder := AcquireBuilder;
   if mBuilder = nil then
   begin

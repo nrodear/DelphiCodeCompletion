@@ -20,6 +20,11 @@
 // wenn sich der Index geändert hat. Während der Index wächst (Aufbau beim
 // Start), ändert er sich ständig; große Schnappschüsse werden dann höchstens
 // einmal pro RebuildMs erneuert, damit nicht jede Anfrage neu aufbaut.
+//
+// Speicher-Optimierung Phase 3: Der Schnappschuss steht auf dem Katalog des
+// Index (ISymbolIndex.CatalogUnits) statt auf den Units samt Symbolen. Er
+// kennt so auch verdrängte Units, hält aber keine vollen Symbol-Arrays fest;
+// Nachladen und Verdrängen ändern ihn nicht (Generation bleibt).
 
 interface
 
@@ -30,14 +35,15 @@ type
   TImportNameEntry = record
     /// <summary>Position in TImportNameIndex.Units.</summary>
     UnitPos: Integer;
-    /// <summary>Position in Units[UnitPos].Symbols.</summary>
+    /// <summary>Position in Units[UnitPos].Symbols (Katalog).</summary>
     SymbolPos: Integer;
     Mask: UInt64;
   end;
 
   TImportNameIndex = record
     Generation: Int64;
-    Units: TArray<TUnitIndex>;
+    /// <summary>Katalog aller Units (Phase 3).</summary>
+    Units: TArray<TCatalogUnit>;
     /// <summary>Projekt-Units zuerst, dann die Bibliothek.</summary>
     Entries: TArray<TImportNameEntry>;
     /// <summary>Class- und Record-Helper mit Zieltyp (#456), Reihenfolge wie Entries; Mask = 0.</summary>
@@ -105,19 +111,9 @@ begin
   Result := (ANameMask and AQueryMask) = AQueryMask;
 end;
 
-/// <summary>Ist ASymbol ein Eintrag des Namensindex (im interface, nicht Mitglied eines Typs)?</summary>
-function IsImportEntry(const ASymbol: TIndexSymbol): Boolean;
-begin
-  Result := ASymbol.InInterface and (ASymbol.Container = '');
-end;
-
-function IsImportHelper(const ASymbol: TIndexSymbol): Boolean;
-begin
-  Result := (ASymbol.Kind = TIndexSymbolKind.HelperType) and (Length(ASymbol.Ancestors) > 0);
-end;
-
-/// <summary>Zählt Einträge und Helfer, damit Build die Arrays einmal anlegt.</summary>
-procedure CountImportEntries(const AUnits: TArray<TUnitIndex>; out AEntries, AHelpers: Integer);
+/// <summary>Zählt Einträge und Helfer, damit Build die Arrays einmal anlegt. Der Katalog enthält nur importierbare
+/// Symbole (interface, oberste Ebene).</summary>
+procedure CountImportEntries(const AUnits: TArray<TCatalogUnit>; out AEntries, AHelpers: Integer);
 var
   mUnitPos, mSymbolPos: Integer;
 begin
@@ -125,13 +121,10 @@ begin
   AHelpers := 0;
   for mUnitPos := 0 to High(AUnits) do
   begin
+    Inc(AEntries, Length(AUnits[mUnitPos].Symbols));
     for mSymbolPos := 0 to High(AUnits[mUnitPos].Symbols) do
     begin
-      if IsImportEntry(AUnits[mUnitPos].Symbols[mSymbolPos]) then
-      begin
-        Inc(AEntries);
-        Inc(AHelpers, Ord(IsImportHelper(AUnits[mUnitPos].Symbols[mSymbolPos])));
-      end;
+      Inc(AHelpers, Ord(AUnits[mUnitPos].Symbols[mSymbolPos].IsHelper));
     end;
   end;
 end;
@@ -139,11 +132,10 @@ end;
 class function TImportNameIndex.Build(const AIndex: ISymbolIndex): TImportNameIndex;
 var
   mPass, mUnitPos, mSymbolPos, mUsed, mHelpers: Integer;
-  mSymbol: TIndexSymbol;
 begin
-  // Generation vor Units lesen: Ändert sich der Index dazwischen, baut der nächste Aufruf neu.
+  // Generation vor dem Katalog lesen: Ändert sich der Index dazwischen, baut der nächste Aufruf neu.
   Result.Generation := AIndex.Generation;
-  Result.Units := AIndex.Units;
+  Result.Units := AIndex.CatalogUnits;
   CountImportEntries(Result.Units, mUsed, mHelpers);
   SetLength(Result.Entries, mUsed);
   SetLength(Result.Helpers, mHelpers);
@@ -154,18 +146,17 @@ begin
   begin
     for mUnitPos := 0 to High(Result.Units) do
     begin
+      if Result.Units[mUnitPos].Library_ <> (mPass = 1) then
+      begin
+        Continue;
+      end;
       for mSymbolPos := 0 to High(Result.Units[mUnitPos].Symbols) do
       begin
-        mSymbol := Result.Units[mUnitPos].Symbols[mSymbolPos];
-        if (Result.Units[mUnitPos].Library_ <> (mPass = 1)) or not IsImportEntry(mSymbol) then
-        begin
-          Continue;
-        end;
         Result.Entries[mUsed].UnitPos := mUnitPos;
         Result.Entries[mUsed].SymbolPos := mSymbolPos;
-        Result.Entries[mUsed].Mask := MaskOf(mSymbol.Name);
+        Result.Entries[mUsed].Mask := MaskOf(Result.Units[mUnitPos].Symbols[mSymbolPos].Name);
         Inc(mUsed);
-        if IsImportHelper(mSymbol) then
+        if Result.Units[mUnitPos].Symbols[mSymbolPos].IsHelper then
         begin
           Result.Helpers[mHelpers].UnitPos := mUnitPos;
           Result.Helpers[mHelpers].SymbolPos := mSymbolPos;

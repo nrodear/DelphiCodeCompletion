@@ -64,7 +64,7 @@ Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --exclude:Benchmark --exitbehav
 | `Tests\Common\Lsp` | Server-Seite: Vervollständigung, Hover, Parameterhilfe |
 | `Tests\IDE` | Plugin-Seite ohne ToolsAPI: Ablauf der Liste, Rangfolge, Favoriten, Mengenmodus, Platzhalter, Einstellungen, Texte |
 | `Tests\Application\Shell` | Hülle des Servers |
-| `Tests\Common` | Speicher: Selbstmessung, Namen der `.dcp`, gemeinsamer Cache, Office-Typbibliotheken und WinRT, Freigabe nach dem Ende des Servers, Dokumente, Namens- und Verweistabellen, Signaturen im Cache |
+| `Tests\Common` | Speicher: Selbstmessung, Namen der `.dcp`, gemeinsamer Cache, Office-Typbibliotheken und WinRT, Freigabe nach dem Ende des Servers, Dokumente, Namens- und Verweistabellen, Signaturen im Cache, Cache-Format 34, Katalog, Nachladen und Verdrängen, Nutzungsstatistik |
 | `Tests\Memory` | Messprogramm für den Speicher (Kategorie `Benchmark`) |
 | `Tests\Support` | Hilfen: feste Datenquelle, Leck-Überwachung |
 
@@ -77,13 +77,15 @@ prüfen.
 Bibliothek der Installation und schreibt jede Sekunde Private Bytes, Spitze, Working Set und die größte freie Region
 des Adressraums in eine CSV-Datei. Messpunkte: Start, Index fertig, nach den Anfragen, nach jedem Neuaufbau
 (`.dproj` gespeichert) und nach einem Neustart des Servers. Ohne die Variable `DPCC_MEMBENCH_OUT` endet der Test
-sofort.
+sofort. Auf Wunsch folgen nach den Anfragen Vervollständigungen auf zufällige Units der Bibliothek, die das Nachladen
+und Verdrängen messen (`DPCC_MEMBENCH_COLD`).
 
 | Variable | Bedeutung |
 |---|---|
 | `DPCC_MEMBENCH_OUT` | CSV-Datei; die Messpunkte stehen in `<Datei>-points.csv` |
 | `DPCC_MEMBENCH_GROUP` | `.groupproj`, deren Projekte den Arbeitsbereich bilden |
 | `DPCC_MEMBENCH_REQUESTS`, `DPCC_MEMBENCH_REBUILDS`, `DPCC_MEMBENCH_RESTARTS`, `DPCC_MEMBENCH_BETWEEN` | Anfragen (2000), Neuaufbauten (5), Neustarts (1), Anfragen zwischen zwei Neuaufbauten (100) |
+| `DPCC_MEMBENCH_COLD`, `DPCC_MEMBENCH_LIBDIR` | Zahl der Vervollständigungen „Unit.“ auf zufällige Units der Bibliothek (0) und der Ordner ihrer Quellen (`source` von Delphi 13) |
 | `DPCC_CACHE_ROOT` bzw. `LOCALAPPDATA`, `APPDATA` | eigene Ordner, damit der Cache des Benutzers unberührt bleibt; für einen warmen Start eine Kopie des Bibliotheks-Caches hineinlegen |
 
 ```
@@ -91,7 +93,8 @@ Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --run:dpcc.Memory.Bench.Tests -
 ```
 
 Jeder Messpunkt nennt auch den vom Speichermanager belegten Speicher (`alloc_mb`); der Abstand zu den Private Bytes ist
-der Verschnitt. Fehler im Server (`ERangeError`, `EIntOverflow`, `EAccessViolation`) schreibt das Messprogramm mit
+der Verschnitt. Die Zeilen „[lazy]“ und die Spalten `loaded` bis `largest_load_ms` nennen geladene, gepinnte,
+freigebbare und nur im Katalog stehende Units, den Katalog, Nachladen und Verdrängen samt Dauer. Fehler im Server (`ERangeError`, `EIntOverflow`, `EAccessViolation`) schreibt das Messprogramm mit
 Fehleradresse und Rücksprungadressen nach `<Datei>-exceptions.txt`; aufzulösen mit der `.map`-Datei des
 Testprogramms.
 

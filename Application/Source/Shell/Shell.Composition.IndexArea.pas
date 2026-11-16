@@ -253,7 +253,7 @@ end;
 procedure TShellIndexArea.HideIndexedUnits;
 var
   mAnonymizer: ILogAnonymizer;
-  mUnit: TUnitIndex;
+  mUnit: TCatalogUnit;
 begin
   // Units aus Suchpfaden stehen in keiner .dproj; im Server-Log ebenfalls verbergen (#647).
   mAnonymizer := FServices.Anonymizer();
@@ -261,7 +261,8 @@ begin
   begin
     Exit;
   end;
-  for mUnit in FIndex.Units do
+  // Katalog: alle Units, auch die nicht geladenen (Speicher-Optimierung Phase 3).
+  for mUnit in FIndex.CatalogUnits do
   begin
     mAnonymizer.AddUnit(mUnit.UnitName, mUnit.FileName);
   end;

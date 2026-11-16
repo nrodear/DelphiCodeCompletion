@@ -213,15 +213,16 @@ end;
 
 procedure TListBuilder.AddUnits;
 var
-  mUnit: TUnitIndex;
+  mUnit: TCatalogUnit;
 begin
-  // Gruppen, Hinweise und Zirkelbezüge (#469); aus: alle Units als schlichte Liste.
+  // Gruppen, Hinweise und Zirkelbezüge (#469); aus: alle Units als schlichte Liste (aus dem Katalog, auch verdrängte,
+  // Speicher-Optimierung Phase 3).
   if FRequest.Settings.UsesDetails then
   begin
     TCompletionUses.Collect(FRequest, FContext, FCollector);
     Exit;
   end;
-  for mUnit in FRequest.Index.Units do
+  for mUnit in FRequest.Index.CatalogUnits do
   begin
     FCollector.Add(mUnit.UnitName, mUnit.FileName, cKindModule, Default(TResolvedSymbol));
   end;

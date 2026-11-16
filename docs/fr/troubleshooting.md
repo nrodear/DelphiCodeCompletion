@@ -143,7 +143,7 @@ Il indique la mémoire du processus de l'IDE dans des lignes « mem » : au d
 l'index et au moins toutes les 10 minutes, dès qu'une requête se termine. Exemple :
 
 ```
-14:02:10.521 mem indexDone private 778 MB peak 2011 MB ws 790 MB free 1294 MB index 376 MB units 2131 lib 1557 docs 0 trees 0 0 MB dcp 4 27 kb
+14:02:10.521 mem indexDone private 104 MB peak 127 MB ws 118 MB free 2003 MB index 56 MB units 2027 lib 1481 docs 0 trees 0 0 MB dcp 4 27 kb loaded 703 pinned 701 evictable 2 1 MB cold 1324 catalog 13 MB loads 15 evicted 0 loadms 0.2 max 3.6
 ```
 
 | Champ | Signification |
@@ -153,17 +153,25 @@ l'index et au moins toutes les 10 minutes, dès qu'une requête se termine. Exem
 | `peak` | valeur la plus haute de `private` depuis le démarrage de l'IDE |
 | `ws` | working set (mémoire en RAM ; baisse lors de la pagination, `private` non) |
 | `free` | plus grande zone libre contiguë de l'espace d'adressage ; si elle devient petite, « Out of memory » menace malgré la RAM libre |
-| `index` | mémoire estimée de l'index de symboles |
+| `index` | mémoire estimée de l'index de symboles : unités chargées et catalogue |
 | `units`, `lib` | unités dans l'index, dont celles de la bibliothèque |
 | `docs` | documents ouverts auprès du serveur |
 | `trees` | arbres syntaxiques et leur mémoire estimée |
 | `dcp` | paquets compilés (`.dcp`) mémorisés et leurs noms en Ko |
+| `loaded`, `pinned`, `evictable` | unités avec tous leurs symboles en mémoire ; dont épinglées (jamais libérées) et libérables, avec leur mémoire (limite 32 Mo). Voir [Bibliothèque à la demande](index-cache.md#bibliothèque-à-la-demande) |
+| `cold` | unités présentes seulement dans le catalogue |
+| `catalog` | mémoire estimée du catalogue de toutes les unités |
+| `loads`, `evicted` | unités chargées à la demande et libérées depuis le démarrage du serveur |
+| `loadms`, `max` | durée du chargement à la demande en ms : médiane des derniers chargements et maximum |
 
 « run start … mem n MB » et les lignes « index … mem n MB » indiquent eux aussi les octets privés du processus.
 
 ## L'IDE consomme beaucoup de mémoire
 
 - Les lignes « mem » du journal de diagnostic du serveur montrent la part de l'index (voir plus haut).
+- De la bibliothèque, l'index ne garde en permanence en mémoire que les unités que les projets atteignent ou utilisent
+  souvent ; il charge les autres à la demande et les libère ensuite. Voir
+  [Index et cache](index-cache.md#bibliothèque-à-la-demande).
 - Sans l'interrupteur « Pre-index Office type libraries and WinRT » (pré-indexer les bibliothèques de types Office et
   WinRT), les bibliothèques de types Office et WinRT ne sont pas dans l'index. Voir
   [Index et cache](index-cache.md#bibliothèques-de-types-office-et-winrt).

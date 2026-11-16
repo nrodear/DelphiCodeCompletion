@@ -50,6 +50,9 @@ type
     /// <summary>Gemerkte übersetzte Packages (.dcp) und was davon im Speicher liegt.</summary>
     PackageFiles: Integer;
     PackageBytes: Int64;
+    /// <summary>Bedarfsweises Laden (Speicher-Optimierung Phase 3): geladene, gepinnte, verdrängbare und verdrängte
+    /// Units, Katalog, Ladevorgänge und ihre Dauer.</summary>
+    Lazy: TIndexLazyStats;
     /// <summary>Misst jetzt und merkt den Stand für Latest; AIndex und ADocuments dürfen nil sein, ALibraryUnits -1 (dann gezählt).</summary>
     class function Take(const AIndex: ISymbolIndex; const ADocuments: IDocumentStore;
       ALibraryUnits: Integer): TShellMemoryReport; static;
@@ -58,7 +61,8 @@ type
     /// <summary>Die nächste beendete Anfrage misst und schreibt die Zeile, auch vor Ablauf der 10 Minuten.</summary>
     class procedure Request; static;
     /// <summary>"private 210 MB peak 260 MB ws 180 MB free 900 MB index 120 MB units 2192 lib 1557 docs 5 trees
-    /// 3 2 MB dcp 4 1 MB".</summary>
+    /// 3 2 MB dcp 4 1 MB loaded 750 pinned 700 evictable 50 31 MB cold 1276 catalog 9 MB loads 120 evicted 70
+    /// loadms 1.8 max 96.0".</summary>
     function Text: string;
     /// <summary>Kurz fürs Server-Log: "privat 210 MB, Spitze 260 MB, größter freier Block 900 MB, Index ~120 MB".
     /// </summary>
@@ -182,7 +186,7 @@ end;
 class function TShellMemoryReport.Take(const AIndex: ISymbolIndex; const ADocuments: IDocumentStore;
   ALibraryUnits: Integer): TShellMemoryReport;
 var
-  mUnit: TUnitIndex;
+  mUnit: TCatalogUnit;
   mTrees: TSyntaxTreeCacheStats;
 begin
   Result := Default(TShellMemoryReport);
@@ -195,10 +199,12 @@ begin
   begin
     Result.IndexBytes := AIndex.MemoryBytes;
     Result.Units := AIndex.UnitCount;
+    Result.Lazy := AIndex.LazyStats;
     if Result.LibraryUnits < 0 then
     begin
       Result.LibraryUnits := 0;
-      for mUnit in AIndex.Units do
+      // Katalog: auch Units, die nicht geladen sind (Phase 3).
+      for mUnit in AIndex.CatalogUnits do
       begin
         if mUnit.Library_ then
         begin
@@ -251,6 +257,11 @@ begin
     'trees %d %d MB dcp %d %d kb', [MegaBytes(Process.PrivateBytes), MegaBytes(Process.PeakPrivateBytes),
     MegaBytes(Process.WorkingSetBytes), MegaBytes(Process.LargestFreeBytes), MegaBytes(IndexBytes), Units,
     LibraryUnits, Documents, Trees, MegaBytes(TreeBytes), PackageFiles, PackageBytes div 1024]);
+  // Phase 3: geladene, gepinnte und verdrängbare Units, Katalog, Nachladen (Median und Höchstwert in ms).
+  Result := Result + Format(' loaded %d pinned %d evictable %d %d MB cold %d catalog %d MB loads %d evicted %d ' +
+    'loadms %s max %s', [Lazy.Loaded, Lazy.Pinned, Lazy.Evictable, MegaBytes(Lazy.EvictableBytes), Lazy.Cold,
+    MegaBytes(Lazy.CatalogBytes), Lazy.Loads, Lazy.Evictions, FormatFloat('0.0', Lazy.LoadMedianMs,
+    TFormatSettings.Invariant), FormatFloat('0.0', Lazy.LoadMaxMs, TFormatSettings.Invariant)]);
 end;
 
 function TShellMemoryReport.LogText: string;
@@ -463,7 +474,7 @@ end;
 function TShellDiagnostics.LibraryCount: Integer;
 var
   mGeneration: Int64;
-  mUnitIndex: TUnitIndex;
+  mUnitIndex: TCatalogUnit;
   mCount: Integer;
 begin
   // Teuer bei vielen Units; nur neu zählen, wenn sich der Index geändert hat.
@@ -478,7 +489,7 @@ begin
     TMonitor.Exit(FLock);
   end;
   mCount := 0;
-  for mUnitIndex in FIndex.Units do
+  for mUnitIndex in FIndex.CatalogUnits do
   begin
     if mUnitIndex.Library_ then
     begin

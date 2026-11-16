@@ -282,7 +282,8 @@ begin
     var
       mFound: TUnitIndex;
     begin
-      Result := AIndex.FindUnit(AName, mFound);
+      // Nur ob der Index die Unit kennt: ohne sie nachzuladen (Speicher-Optimierung Phase 3).
+      Result := AIndex.FindUnitHeader(AName, mFound);
     end;
 end;
 
@@ -291,10 +292,11 @@ begin
   Result :=
     function: TArray<string>
     var
-      mItem: TUnitIndex;
+      mItem: TCatalogUnit;
     begin
       Result := nil;
-      for mItem in AIndex.Units do
+      // Katalog: auch Units, die nicht geladen sind (Speicher-Optimierung Phase 3).
+      for mItem in AIndex.CatalogUnits do
       begin
         Result := Result + [mItem.UnitName];
       end;

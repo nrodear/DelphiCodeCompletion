@@ -506,7 +506,7 @@ end;
 procedure TShellWorkspaceIndexing.DropRarelyUsed(const ALoaded: TShellLoadedProject);
 var
   mRoots: TArray<string>;
-  mUnit: TUnitIndex;
+  mUnit: TCatalogUnit;
   mDropped: Integer;
 begin
   mRoots := TShellIndexRequests.RarelyUsedRoots(ALoaded);
@@ -515,7 +515,8 @@ begin
     Exit;
   end;
   mDropped := 0;
-  for mUnit in FParts.Index.Units do
+  // Katalog: auch Units, die nicht geladen sind (Speicher-Optimierung Phase 3).
+  for mUnit in FParts.Index.CatalogUnits do
   begin
     if mUnit.Library_ and TShellIndexRequests.IsRarelyUsed(mUnit.FileName, mRoots) then
     begin

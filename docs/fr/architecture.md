@@ -57,7 +57,7 @@ Tous les paquets sauf `dpcc.IDE.Base` sont des paquets d'exécution (`{$RUNONLY}
 |---|---|
 | `Pascal` | analyseur lexical, analyseur syntaxique, arbre syntaxique, préprocesseur, fichiers d'inclusion, XMLDoc, routines de formatage |
 | `Semantics` | résolution de noms : types, surcharges, génériques, class helpers, `with`, visibilité |
-| `Index` | index de symboles, recherche d'unités, cache sur disque |
+| `Index` | index de symboles avec un catalogue de toutes les unités, chargement à la demande et éviction de la bibliothèque, statistiques d'utilisation ; recherche d'unités ; cache sur disque (format 34 : un bloc par unité, répertoire à la fin) |
 | `Projects` | lecture des `.dproj`, des groupes de projets et des paquets ; recherche d'unités |
 | `Dfm` | fichiers de fiche |
 | `Lsp` | complétion, survol, aide aux paramètres, synchronisation des documents, cycle de vie |

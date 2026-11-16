@@ -64,7 +64,7 @@ Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --exclude:Benchmark --exitbehav
 | `Tests\Common\Lsp` | server side: completion, hover, parameter hint |
 | `Tests\IDE` | plugin side without ToolsAPI: flow of the list, ranking, favorites, set mode, placeholders, settings, texts |
 | `Tests\Application\Shell` | shell of the server |
-| `Tests\Common` | memory: self-measurement, names of the `.dcp`, shared cache, Office type libraries and WinRT, release after the server ends, documents, name and reference tables, signatures in the cache |
+| `Tests\Common` | memory: self-measurement, names of the `.dcp`, shared cache, Office type libraries and WinRT, release after the server ends, documents, name and reference tables, signatures in the cache, cache format 34, catalog, loading on demand and eviction, usage statistics |
 | `Tests\Memory` | memory benchmark (category `Benchmark`) |
 | `Tests\Support` | helpers: fixed data source, leak monitoring |
 
@@ -76,13 +76,16 @@ in the IDE.
 `dpcc.Memory.Bench.Tests` starts the server inside its own process like the plugin does, opens a project group with
 the library of the installation and writes private bytes, peak, working set and the largest free region of the address
 space to a CSV file every second. Measuring points: start, index ready, after the requests, after every rebuild
-(`.dproj` saved) and after a server restart. Without the variable `DPCC_MEMBENCH_OUT` the test ends at once.
+(`.dproj` saved) and after a server restart. Without the variable `DPCC_MEMBENCH_OUT` the test ends at once. On
+request, completions on random units of the library follow the requests and measure loading on demand and eviction
+(`DPCC_MEMBENCH_COLD`).
 
 | Variable | Meaning |
 |---|---|
 | `DPCC_MEMBENCH_OUT` | CSV file; the measuring points are in `<file>-points.csv` |
 | `DPCC_MEMBENCH_GROUP` | `.groupproj` whose projects form the workspace |
 | `DPCC_MEMBENCH_REQUESTS`, `DPCC_MEMBENCH_REBUILDS`, `DPCC_MEMBENCH_RESTARTS`, `DPCC_MEMBENCH_BETWEEN` | requests (2000), rebuilds (5), restarts (1), requests between two rebuilds (100) |
+| `DPCC_MEMBENCH_COLD`, `DPCC_MEMBENCH_LIBDIR` | number of completions “Unit.” on random units of the library (0) and the folder of their sources (`source` of Delphi 13) |
 | `DPCC_CACHE_ROOT` or `LOCALAPPDATA`, `APPDATA` | own folders so that the user's cache stays untouched; for a warm start, put a copy of the library cache there |
 
 ```
@@ -90,7 +93,8 @@ Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --run:dpcc.Memory.Bench.Tests -
 ```
 
 Every measuring point also gives the memory allocated by the memory manager (`alloc_mb`); the gap to the private bytes
-is the overhead. Errors in the server (`ERangeError`, `EIntOverflow`, `EAccessViolation`) are written by the benchmark
+is the overhead. The “[lazy]” lines and the columns `loaded` to `largest_load_ms` give loaded, pinned, releasable and
+catalog-only units, the catalog, loading on demand and eviction with their duration. Errors in the server (`ERangeError`, `EIntOverflow`, `EAccessViolation`) are written by the benchmark
 with the error address and the return addresses to `<file>-exceptions.txt`; resolve them with the `.map` file of the
 test program.
 

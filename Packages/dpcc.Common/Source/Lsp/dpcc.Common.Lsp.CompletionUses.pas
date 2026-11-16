@@ -633,7 +633,7 @@ type
     Range: TTextRange;
     /// <summary>Soll AUnitInfo erscheinen (nicht die eigene, nicht schon hier, passend)?</summary>
     function Wanted(const AUnitInfo: TUnitIndex; out AFound: TUsesMatch): Boolean;
-    function Item(const AUnitInfo: TUnitIndex; const AFound: TUsesMatch; AGroup: TUsesGroup): TCompletionItem;
+    function Item(const AUnitInfo: TCatalogUnit; const AFound: TUsesMatch; AGroup: TUsesGroup): TCompletionItem;
     /// <summary>Hinweis „bereits im … -Teil“, wenn der andere Abschnitt AUnitName einbindet.</summary>
     function Elsewhere(const AUnitName: string): string;
   end;
@@ -658,11 +658,10 @@ begin
   end;
 end;
 
-function TUsesItems.Item(const AUnitInfo: TUnitIndex; const AFound: TUsesMatch;
+function TUsesItems.Item(const AUnitInfo: TCatalogUnit; const AFound: TUsesMatch;
   AGroup: TUsesGroup): TCompletionItem;
 var
   mChain: string;
-  mCount: Integer;
 begin
   Result := Default(TCompletionItem);
   Result.Name := AUnitInfo.UnitName;
@@ -681,8 +680,9 @@ begin
   begin
     Result.UsesCycle := mChain;
   end;
-  Result.UsesTypes := TCompletionUses.ExportedTypes(AUnitInfo, TCompletionUses.cMaxTypes, mCount);
-  Result.UsesTypeCount := mCount;
+  // Aus dem Katalog (Speicher-Optimierung Phase 3): auch für Units, deren Symbole nicht im Speicher sind.
+  Result.UsesTypes := Copy(AUnitInfo.ExportedTypes, 0, TCompletionUses.cMaxTypes);
+  Result.UsesTypeCount := AUnitInfo.ExportedTypeCount;
   Result.UsesHidden := HiddenUnits;
 end;
 
@@ -703,18 +703,30 @@ begin
     ARequest.Position.Line, mStop);
 end;
 
-/// <summary>Units des Index nach Namen sortiert, als eigene Kopie: Units liefert den geteilten Schnappschuss des
-/// Index. Ihn an Ort und Stelle zu sortieren, verschob die Units unter allen anderen Lesern; der Namensindex der
-/// Import-Vorschläge (TImportNames) zeigte dann mit seinen Positionen in fremde Units (ERangeError in
-/// AddHelpersFromOtherUnits, Speicher-Optimierung Phase 2).</summary>
-function SortedUnits(const AIndex: ISymbolIndex): TArray<TUnitIndex>;
+/// <summary>Katalog aller Units nach Namen sortiert (Speicher-Optimierung Phase 3: auch verdrängte Units), als eigene
+/// Kopie: CatalogUnits liefert den geteilten Schnappschuss des Index. Ihn an Ort und Stelle zu sortieren, verschob
+/// die Units unter allen anderen Lesern; der Namensindex der Import-Vorschläge (TImportNames) zeigte dann mit seinen
+/// Positionen in fremde Units (ERangeError in AddHelpersFromOtherUnits, Speicher-Optimierung Phase 2).</summary>
+function SortedUnits(const AIndex: ISymbolIndex): TArray<TCatalogUnit>;
 begin
-  Result := Copy(AIndex.Units);
-  TArray.Sort<TUnitIndex>(Result, TComparer<TUnitIndex>.Construct(
-    function(const ALeft, ARight: TUnitIndex): Integer
+  Result := Copy(AIndex.CatalogUnits);
+  TArray.Sort<TCatalogUnit>(Result, TComparer<TCatalogUnit>.Construct(
+    function(const ALeft, ARight: TCatalogUnit): Integer
     begin
       Result := CompareText(ALeft.UnitName, ARight.UnitName);
     end));
+end;
+
+/// <summary>Köpfe der Units (Name, Datei, Bibliothek, interface-uses) für die Zirkelbezüge.</summary>
+function HeadersOf(const AUnits: TArray<TCatalogUnit>): TArray<TUnitIndex>;
+var
+  mIndex: Integer;
+begin
+  SetLength(Result, Length(AUnits));
+  for mIndex := 0 to High(AUnits) do
+  begin
+    Result[mIndex] := AUnits[mIndex].Header;
+  end;
 end;
 
 /// <summary>Ausgangswerte für die Einträge: Namespaces, eigene Unit, Liste am Cursor, Fußzeile, Bereich.</summary>
@@ -741,8 +753,9 @@ class procedure TCompletionUses.Collect(ARequest: TCompletionRequest; const ACon
   ACollector: TCompletionCollector);
 var
   mItems: TUsesItems;
-  mUnits: TArray<TUnitIndex>;
-  mUnitInfo: TUnitIndex;
+  mUnits: TArray<TCatalogUnit>;
+  mUnitInfo: TCatalogUnit;
+  mHeader: TUnitIndex;
   mFound: TUsesMatch;
   mGroup: TUsesGroup;
 begin
@@ -754,14 +767,15 @@ begin
   mUnits := SortedUnits(ARequest.Index);
   if mItems.Site.Section = TUsesSection.Interface_ then
   begin
-    mItems.Cycles := Cycles(mUnits, mItems.Own, mItems.Namespaces);
+    mItems.Cycles := Cycles(HeadersOf(mUnits), mItems.Own, mItems.Namespaces);
   end;
   try
     for mUnitInfo in mUnits do
     begin
-      if mItems.Wanted(mUnitInfo, mFound) then
+      mHeader := mUnitInfo.Header;
+      if mItems.Wanted(mHeader, mFound) then
       begin
-        mGroup := GroupOf(mUnitInfo);
+        mGroup := GroupOf(mHeader);
         ACollector.AddItem(mItems.Item(mUnitInfo, mFound, mGroup), mFound.Score - Ord(mGroup) * cGroupPenalty);
       end;
     end;

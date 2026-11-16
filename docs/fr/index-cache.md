@@ -27,6 +27,41 @@ S'y ajoutent :
 
 L'index contient des déclarations, pas des utilisations. Sa limite de mémoire est fixe (768 Mo).
 
+### Bibliothèque à la demande
+
+De la bibliothèque, l'index ne garde en mémoire qu'une partie avec tous ses symboles. Sont toujours chargées
+(épinglées) :
+
+- les unités des projets et de leurs chemins de recherche ;
+- les unités que les projets atteignent par les `uses` (interface et implementation des unités du projet, puis de
+  proche en proche par les `uses` de l'interface) ;
+- les unités qu'une unité du projet nomme dans ses `uses`, y compris celles que l'on vient de taper dans un fichier
+  ouvert ;
+- les unités de la bibliothèque souvent utilisées (voir [Statistiques d'utilisation](#statistiques-dutilisation)).
+
+De toutes les autres unités, l'index connaît un catalogue : nom, fichier, `uses`, les premiers types et tous les
+symboles qu'une autre unité peut importer. Grâce à lui, « + Unit », les symboles homonymes d'autres unités, la
+complétion dans la section `uses` et la recherche de class helpers couvrent toujours toutes les unités. dpcc ne lit les
+symboles complets d'une telle unité, depuis son bloc dans le cache, que lorsque la complétion, le survol, l'aide aux
+paramètres ou l'accès à la définition en ont besoin. Cela prend en général moins de 5 ms, jusqu'à environ 150 ms pour
+les très grandes unités.
+
+Si les unités ainsi chargées occupent ensemble, selon l'estimation, plus de 32 Mo, dpcc libère la moins souvent utilisée, à égalité celle
+qui n'a pas servi depuis le plus longtemps. Il libère toujours l'unité entière ; son entrée de catalogue reste. La
+limite est fixe et n'est pas un réglage.
+
+Limite : les actions qui cherchent un nom dans toutes les unités (par exemple lors de la création de méthodes d'accès
+ou pour les noms de champs des modules de données) trouvent les symboles de premier niveau de toutes les unités et
+chargent ces unités pour cela. Elles ne trouvent les membres des classes et des records que dans les unités chargées.
+
+#### Statistiques d'utilisation
+
+Pour chaque unité de la bibliothèque, dpcc compte combien de fois des requêtes en ont besoin et combien de fois une
+unité du projet l'ajoute à ses `uses`, par exemple par « + Unit ». Les points sont divisés par deux chaque semaine. La
+construction suivante charge aussitôt les unités souvent utilisées, et dpcc ne les libère pas. Les statistiques se
+trouvent dans `usage.dat` à côté du cache de la bibliothèque (voir [Cache](#cache)). Le serveur les écrit à son arrêt
+et au plus toutes les 10 minutes. Si elles sont perdues, elles repartent de zéro ; l'index ne s'en aperçoit pas.
+
 ### Bibliothèques de types Office et WinRT
 
 dpcc ne lit pas à l'avance `$(BDS)\OCX\Servers` (bibliothèques de types d'Excel, Word, Outlook et Access, plus
@@ -70,11 +105,20 @@ Le cache se trouve sous `%LOCALAPPDATA%\dpcc\Index` :
 | `Index\<version-IDE>\<hash>\index-<format>.dpccidx` | cache d'un projet |
 | `Index\<version-IDE>\Bibliothek\<hash>\index-<format>.dpccidx` | cache de la bibliothèque, séparé du projet |
 | `…\<cache>.lock` | verrou ; seule la première instance écrit le cache, les suivantes ne font que le lire |
+| `Index\<version de l'IDE>\Bibliothek\<hash>\usage.dat` | statistiques d'utilisation de la bibliothèque (voir [plus haut](#statistiques-dutilisation)) |
 | `…\projekt.txt` | fichier de projet auquel appartient le cache |
 | `…\benutzt.stamp` | date et heure de la dernière utilisation |
 
 La version du format figure dans le nom du fichier. Ainsi, différentes versions de dpcc ne se gênent pas
 mutuellement.
+
+Depuis le format 34, chaque unité se trouve dans un bloc qui lui est propre, avec sa propre somme de contrôle. Un
+répertoire à la fin du fichier énumère toutes les unités avec leur catalogue. Au démarrage, dpcc ne lit que le
+répertoire et les blocs des unités qu'il charge, par un handle ouvert ; une autre instance peut malgré tout remplacer
+le fichier. Un bloc endommagé ne concerne que son unité ; dpcc la relit alors depuis le fichier source. dpcc ne lit plus
+les caches des formats plus anciens (par exemple `index-33.dpccidx`) : le premier démarrage après la mise à jour
+reconstruit l'index une fois. L'ancien fichier reste jusqu'à ce que le nettoyage par taille le supprime ;
+« Reconstruire l'index » (voir [plus bas](#reconstruire-lindex)) le supprime aussitôt.
 
 La variable d'environnement `DPCC_CACHE_ROOT` déplace tout le dossier `%LOCALAPPDATA%\dpcc` du serveur (caches et
 journal de diagnostic), par exemple pour des tests avec une copie du cache. Sans elle, c'est `LOCALAPPDATA` de

@@ -56,7 +56,7 @@ folgt den Abhängigkeiten.
 |---|---|
 | `Pascal` | Lexer, Parser, Syntaxbaum, Präprozessor, Include-Dateien, XMLDoc, Formatroutinen |
 | `Semantics` | Namensauflösung: Typen, Überladungen, Generics, Class Helper, `with`, Sichtbarkeit |
-| `Index` | Symbolindex, Unit-Suche, Cache auf der Platte |
+| `Index` | Symbolindex mit Katalog aller Units, bedarfsweisem Laden und Verdrängen der Bibliothek, Nutzungsstatistik; Unit-Suche; Cache auf der Platte (Format 34: Block je Unit, Verzeichnis am Ende) |
 | `Projects` | Lesen von `.dproj`, Projektgruppen und Packages; Unit-Suche |
 | `Dfm` | Formulardateien |
 | `Lsp` | Vervollständigung, Hover, Parameterhilfe, Dokumentabgleich, Lebenszyklus |

@@ -1070,7 +1070,8 @@ begin
 end;
 
 type
-  /// <summary>Suche nach Symbolen nicht eingebundener Units (#180) über den Namensindex (#617).</summary>
+  /// <summary>Suche nach Symbolen nicht eingebundener Units (#180) über den Namensindex (#617). Seit
+  /// Speicher-Optimierung Phase 3 über den Katalog: auch Units, deren volle Symbole nicht im Speicher sind.</summary>
   TImportScan = record
     Collector: TCompletionCollector;
     Names: TImportNameIndex;
@@ -1086,16 +1087,18 @@ type
     /// </summary>
     function Candidate(const AEntry: TImportNameEntry): Boolean;
     /// <summary>Soll ASymbol aus AUnitInfo erscheinen (gewünscht, neu, Art, Treffer, zugelassen)?</summary>
-    function Wants(const AUnitInfo: TUnitIndex; const ASymbol: TIndexSymbol): Boolean;
+    function Wants(const AUnitInfo: TCatalogUnit; const ASymbol: TCatalogSymbol): Boolean;
   end;
 
-/// <summary>Passt ASymbol aus AUnitInfo zum Getippten, und lässt der Filter von SetAdmit es zu?</summary>
-function SymbolAdmitted(ACollector: TCompletionCollector; const AUnitInfo: TUnitIndex;
-  const ASymbol: TIndexSymbol): Boolean;
+/// <summary>Passt ASymbol aus AUnitInfo zum Getippten, und lässt der Filter von SetAdmit es zu? Der Filter
+/// (Exceptions, Attribute) bekommt das Symbol aus dem Katalog samt Vorfahren; die Namensauflösung lädt dafür die
+/// Unit nach, wenn sie verdrängt ist.</summary>
+function SymbolAdmitted(ACollector: TCompletionCollector; const AUnitInfo: TCatalogUnit;
+  const ASymbol: TCatalogSymbol): Boolean;
 begin
   Result := (MatchScore(ASymbol.Name, ACollector.FContext.Prefix, ACollector.FRequest.Matching) <>
     TFuzzyMatch.cNoMatch) and (not Assigned(ACollector.FAdmit) or
-    ACollector.FAdmit(TResolvedSymbol.FromIndex(AUnitInfo, ASymbol)));
+    ACollector.FAdmit(TResolvedSymbol.FromIndex(AUnitInfo.Header, ASymbol.ToSymbol)));
 end;
 
 function TImportScan.Candidate(const AEntry: TImportNameEntry): Boolean;
@@ -1118,7 +1121,7 @@ begin
   Result := UnitState[AEntry.UnitPos] = 2;
 end;
 
-function TImportScan.Wants(const AUnitInfo: TUnitIndex; const ASymbol: TIndexSymbol): Boolean;
+function TImportScan.Wants(const AUnitInfo: TCatalogUnit; const ASymbol: TCatalogSymbol): Boolean;
 var
   mName: string;
 begin
@@ -1129,17 +1132,17 @@ end;
 
 /// <summary>Abzug für Symbole aus AUnitInfo: eingebundenes zuerst, dann Projekt-Units, dann RTL/VCL und andere
 /// Bibliotheken.</summary>
-function ImportPenalty(const AUnitInfo: TUnitIndex): Integer;
+function ImportPenalty(ALibrary: Boolean): Integer;
 begin
   Result := cPenaltyProjectImport;
-  if AUnitInfo.Library_ then
+  if ALibrary then
   begin
     Result := cPenaltyLibraryImport;
   end;
 end;
 
 /// <summary>Eintrag für ASymbol aus AUnitInfo mit dem uses-Eintrag AEdit; False, wenn er nicht passt.</summary>
-function AddImport(ACollector: TCompletionCollector; const AUnitInfo: TUnitIndex; const ASymbol: TIndexSymbol;
+function AddImport(ACollector: TCompletionCollector; const AUnitInfo: TCatalogUnit; const ASymbol: TCatalogSymbol;
   const AEdit: TRuleEdit): Boolean;
 var
   mMember: TResolvedSymbol;
@@ -1151,11 +1154,11 @@ begin
   mMember.MinArgs := ASymbol.MinArgs;
   mMember.MaxArgs := ASymbol.MaxArgs;
   mMember.FileName := AUnitInfo.FileName;
-  mMember.SelectionRange.StartPos := ASymbol.SelectionRange.StartPos;
+  mMember.SelectionRange.StartPos := ASymbol.Start;
   // Gleichnamige Symbole verschiedener Units bleiben alle wählbar.
   Result := ACollector.Add(ASymbol.Name, AUnitInfo.UnitName + cTexts[TCompletionCollectorText.AddToUses].Text,
     CompletionKindOf(ASymbol.Kind),
-    ImportPenalty(AUnitInfo), mMember, [AEdit]);
+    ImportPenalty(AUnitInfo.Library_), mMember, [AEdit]);
 end;
 
 /// <summary>Wie AddFromOtherUnits; AWanted = nil heißt alle Namen, sonst nur diese (Großbuchstaben).</summary>
@@ -1163,8 +1166,8 @@ procedure AddImports(ACollector: TCompletionCollector; AWanted: TDictionary<stri
 var
   mScan: TImportScan;
   mEntry: TImportNameEntry;
-  mUnitInfo: TUnitIndex;
-  mSymbol: TIndexSymbol;
+  mUnitInfo: TCatalogUnit;
+  mSymbol: TCatalogSymbol;
   mEdit: TRuleEdit;
   mAdded: Integer;
 begin
@@ -1298,8 +1301,8 @@ const
 type
   TSameNameVariant = record
     Active: Integer;
-    UnitInfo: TUnitIndex;
-    Symbol: TIndexSymbol;
+    UnitInfo: TCatalogUnit;
+    Symbol: TCatalogSymbol;
   end;
 
   /// <summary>Gleichnamige Bezeichner aus anderen Units (#475) für AddSameNameVariants.</summary>
@@ -1369,7 +1372,8 @@ end;
 
 function TSameNameScan.Skips(const AVariant: TSameNameVariant): Boolean;
 begin
-  Result := AVariant.Symbol.Unavailable or SameText(AVariant.UnitInfo.UnitName, Own) or
+  Result := ((AVariant.Symbol.Flags and TCatalogSymbol.cCatalogUnavailable) <> 0) or
+    SameText(AVariant.UnitInfo.UnitName, Own) or
     SameText(AVariant.UnitInfo.UnitName, Collector.FList[AVariant.Active].Item.UnitName) or
     MatchText(AVariant.UnitInfo.UnitName, Units[AVariant.Active]) or
     not KindAllowed(Collector, AVariant.Symbol.Kind);
@@ -1454,7 +1458,7 @@ begin
   Result.MinArgs := AVariant.Symbol.MinArgs;
   Result.MaxArgs := AVariant.Symbol.MaxArgs;
   Result.FileName := AVariant.UnitInfo.FileName;
-  Result.SelectionRange.StartPos := AVariant.Symbol.SelectionRange.StartPos;
+  Result.SelectionRange.StartPos := AVariant.Symbol.Start;
 end;
 
 procedure TSameNameScan.AddVariant(const AVariant: TSameNameVariant; const AUsed: TArray<string>;
@@ -1558,7 +1562,7 @@ begin
 end;
 
 /// <summary>Stufe des ersten Typs aus ATypes, den AHelper erweitert; -1 ohne.</summary>
-function HelperDepth(const AHelper: TIndexSymbol; const ATypes: TArray<TResolvedSymbol>): Integer;
+function HelperDepth(const AHelper: TCatalogSymbol; const ATypes: TArray<TResolvedSymbol>): Integer;
 var
   mPosition: Integer;
 begin
@@ -1609,7 +1613,7 @@ begin
     mMember.Depth := ADepth;
     if ACollector.Add(mSymbol.Name, AUnitInfo.UnitName + cTexts[TCompletionCollectorText.AddToUses].Text,
       CompletionKindOf(mSymbol.Kind),
-      ImportPenalty(AUnitInfo), mMember, [AEdit]) then
+      ImportPenalty(AUnitInfo.Library_), mMember, [AEdit]) then
     begin
       AKnown.AddOrSetValue(UpperCase(mSymbol.Name), True);
     end;
@@ -1623,8 +1627,9 @@ var
   mOwn: string;
   mNames: TImportNameIndex;
   mEntry: TImportNameEntry;
-  mUnitInfo: TUnitIndex;
-  mHelper: TIndexSymbol;
+  mUnitInfo: TCatalogUnit;
+  mHelper: TCatalogSymbol;
+  mFull: TUnitIndex;
   mEdit: TRuleEdit;
   mDepth: Integer;
 begin
@@ -1650,11 +1655,16 @@ begin
       begin
         Continue;
       end;
+      // Die Mitglieder kennt der Katalog nicht: die Unit des Helpers holen (lädt sie nach, wenn sie verdrängt ist).
+      if not FRequest.Index.FindFile(mUnitInfo.FileName, mFull) then
+      begin
+        Continue;
+      end;
       if not TUsesClauses.AddUnit(FRequest.Tree.Tokens, FContext.Offset, mUnitInfo.UnitName, #13#10, mEdit) then
       begin
         Exit;
       end;
-      AddHelperMembers(Self, mUnitInfo, mHelper.Name, mDepth, mEdit, mKnown);
+      AddHelperMembers(Self, mFull, mHelper.Name, mDepth, mEdit, mKnown);
     end;
   finally
     mKnown.Free;

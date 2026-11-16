@@ -26,6 +26,38 @@ Dazu kommen:
 
 Der Index enthält Deklarationen, keine Verwendungen. Seine Speichergrenze ist fest (768 MB).
 
+### Bibliothek bei Bedarf
+
+Von der Bibliothek hält der Index nur einen Teil mit allen Symbolen im Speicher. Immer geladen (gepinnt) sind:
+
+- die Units der Projekte und ihrer Suchpfade;
+- die Units, die die Projekte über `uses` erreichen (interface und implementation der Projekt-Units, von dort weiter
+  über die `uses` im interface);
+- die Units, die eine Projekt-Unit in ihren `uses` nennt, auch eben getippte in einer offenen Datei;
+- oft genutzte Units der Bibliothek (siehe [Nutzungsstatistik](#nutzungsstatistik)).
+
+Von allen übrigen Units kennt der Index einen Katalog: Name, Datei, `uses`, die ersten Typen und alle Symbole, die
+eine andere Unit importieren kann. Darüber zeigen „+ Unit“, gleichnamige Symbole aus anderen Units, die
+Vervollständigung im `uses`-Abschnitt und die Suche nach Class Helpern weiter alle Units. Die vollständigen Symbole
+einer solchen Unit liest dpcc erst, wenn Vervollständigung, Hover, Parameterhilfe oder Gehe zu Definition sie brauchen,
+aus ihrem Block im Cache. Das dauert meist unter 5 ms, bei sehr großen Units bis etwa 150 ms.
+
+Belegen die so nachgeladenen Units zusammen geschätzt mehr als 32 MB, gibt dpcc die am seltensten genutzte wieder frei, bei
+Gleichstand die am längsten nicht genutzte. Es gibt immer die ganze Unit frei; ihr Katalogeintrag bleibt. Die Grenze
+ist fest und keine Einstellung.
+
+Einschränkung: Aktionen, die einen Namen in allen Units suchen (etwa beim Anlegen von Zugriffsmethoden oder bei
+Feldnamen aus Datenmodulen), finden Symbole oberster Ebene aller Units und laden die Units dafür nach. Mitglieder von
+Klassen und Records finden sie nur in geladenen Units.
+
+#### Nutzungsstatistik
+
+dpcc zählt je Unit der Bibliothek, wie oft Anfragen sie brauchen und wie oft eine Projekt-Unit sie neu in ihre `uses`
+aufnimmt, etwa über „+ Unit“. Die Punkte halbieren sich jede Woche. Oft genutzte Units lädt der nächste Aufbau gleich,
+und dpcc gibt sie nicht wieder frei. Die Statistik steht in `usage.dat` neben dem Bibliotheks-Cache (siehe
+[Cache](#cache)). Der Server schreibt sie beim Beenden und höchstens alle 10 Minuten. Geht sie verloren, beginnt sie
+neu; der Index merkt davon nichts.
+
 ### Office-Typbibliotheken und WinRT
 
 `$(BDS)\OCX\Servers` (Typbibliotheken von Excel, Word, Outlook und Access, dazu MSHTML) und
@@ -66,11 +98,19 @@ Der Cache liegt unter `%LOCALAPPDATA%\dpcc\Index`:
 |---|---|
 | `Index\<IDE-Version>\<Hash>\index-<Format>.dpccidx` | Cache eines Projekts |
 | `Index\<IDE-Version>\Bibliothek\<Hash>\index-<Format>.dpccidx` | Cache der Bibliothek, getrennt vom Projekt |
+| `Index\<IDE-Version>\Bibliothek\<Hash>\usage.dat` | Nutzungsstatistik der Bibliothek (siehe [oben](#nutzungsstatistik)) |
 | `…\<cache>.lock` | Sperre; nur die erste Instanz schreibt den Cache, weitere lesen ihn nur |
 | `…\projekt.txt` | Projektdatei, zu der der Cache gehört |
 | `…\benutzt.stamp` | Zeitpunkt der letzten Benutzung |
 
 Die Formatversion steht im Dateinamen. So stören sich verschiedene Versionen von dpcc nicht gegenseitig.
+
+Seit Format 34 steht jede Unit in einem eigenen Block mit eigener Prüfsumme. Ein Verzeichnis am Ende der Datei nennt
+alle Units samt ihrem Katalog. dpcc liest beim Start nur das Verzeichnis und die Blöcke der Units, die es lädt, über ein
+offenes Handle; eine andere Instanz kann die Datei trotzdem ersetzen. Ein beschädigter Block betrifft nur seine Unit,
+dpcc liest sie dann aus der Quelldatei neu. Caches älterer Formate (etwa `index-33.dpccidx`) liest dpcc nicht mehr:
+Der erste Start nach dem Update baut den Index einmal neu auf. Die alte Datei bleibt liegen, bis das Aufräumen nach
+Größe sie entfernt; „Index neu aufbauen“ (siehe [unten](#index-neu-aufbauen)) löscht sie sofort.
 
 Die Umgebungsvariable `DPCC_CACHE_ROOT` verlegt den ganzen Ordner `%LOCALAPPDATA%\dpcc` des Servers (Caches und
 Diagnoselog), etwa für Tests mit einer Kopie des Caches. Ohne sie gilt `LOCALAPPDATA` aus der Umgebung des Prozesses.

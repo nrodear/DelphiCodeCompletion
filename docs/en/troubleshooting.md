@@ -137,7 +137,7 @@ It reports the memory of the IDE process in “mem” lines: at the start and at
 every 10 minutes, as soon as a request ends. Example:
 
 ```
-14:02:10.521 mem indexDone private 778 MB peak 2011 MB ws 790 MB free 1294 MB index 376 MB units 2131 lib 1557 docs 0 trees 0 0 MB dcp 4 27 kb
+14:02:10.521 mem indexDone private 104 MB peak 127 MB ws 118 MB free 2003 MB index 56 MB units 2027 lib 1481 docs 0 trees 0 0 MB dcp 4 27 kb loaded 703 pinned 701 evictable 2 1 MB cold 1324 catalog 13 MB loads 15 evicted 0 loadms 0.2 max 3.6
 ```
 
 | Field | Meaning |
@@ -147,17 +147,24 @@ every 10 minutes, as soon as a request ends. Example:
 | `peak` | highest value of `private` since the IDE started |
 | `ws` | working set (memory in RAM; drops when paged out, `private` does not) |
 | `free` | largest contiguous free region of the address space; if it gets small, “Out of memory” looms despite free RAM |
-| `index` | estimated memory of the symbol index |
+| `index` | estimated memory of the symbol index: loaded units and catalog |
 | `units`, `lib` | units in the index, of which from the library |
 | `docs` | documents open at the server |
 | `trees` | syntax trees and their estimated memory |
 | `dcp` | remembered compiled packages (`.dcp`) and their names in KB |
+| `loaded`, `pinned`, `evictable` | units with all symbols in memory; of which pinned (never released) and releasable, with their memory (limit 32 MB). See [Library on demand](index-cache.md#library-on-demand) |
+| `cold` | units only in the catalog |
+| `catalog` | estimated memory of the catalog of all units |
+| `loads`, `evicted` | units loaded on demand and released again since the server started |
+| `loadms`, `max` | duration of loading on demand in ms: median of the recent loads and maximum |
 
 “run start … mem n MB” and the “index … mem n MB” lines also give the private bytes of the process.
 
 ## The IDE uses a lot of memory
 
 - The “mem” lines of the server diagnostic log show how much of it is due to the index (see above).
+- Of the library, the index keeps only the units the projects reach or often need permanently in memory; it loads the
+  others on demand and releases them again. See [Index and cache](index-cache.md#library-on-demand).
 - Without the switch “Pre-index Office type libraries and WinRT”, the Office type libraries and WinRT are not in the
   index. See [Index and cache](index-cache.md#office-type-libraries-and-winrt).
 - Only the 16 most recently used files keep their syntax tree in the server; for older ones it builds the tree again on

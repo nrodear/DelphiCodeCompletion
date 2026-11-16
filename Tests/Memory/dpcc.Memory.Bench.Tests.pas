@@ -11,7 +11,12 @@
 // DPCC_MEMBENCH_OUT gesetzt ist, sonst endet er sofort. Weitere Umgebungsvariablen:
 // - DPCC_MEMBENCH_GROUP: .groupproj (Pflicht), deren Projekte als Arbeitsbereich dienen;
 // - DPCC_MEMBENCH_REQUESTS (Vorgabe 2000), DPCC_MEMBENCH_REBUILDS (5), DPCC_MEMBENCH_RESTARTS (1),
-//   DPCC_MEMBENCH_BETWEEN (Anfragen zwischen zwei Neuaufbauten, 100).
+//   DPCC_MEMBENCH_BETWEEN (Anfragen zwischen zwei Neuaufbauten, 100);
+// - DPCC_MEMBENCH_COLD (Vorgabe 0): so viele Vervollständigungen "Unit." auf zufällige Units der Bibliothek
+//   (DPCC_MEMBENCH_LIBDIR, Vorgabe der source-Ordner von Delphi 13) nach den Anfragen, im Text einer Projekt-Unit;
+//   misst Nachladen und Verdrängen (Speicher-Optimierung Phase 3). Danach gilt wieder der Originaltext.
+// Je Messpunkt eine Zeile "[lazy]" mit geladenen, gepinnten, verdrängbaren und verdrängten Units, Katalog und
+// Dauer des Nachladens (Median, Höchstwert, größte Unit).
 // Der Cache gehört nicht dem Benutzer: Der Aufrufer setzt LOCALAPPDATA bzw. DPCC_CACHE_ROOT auf einen eigenen Ordner
 // (z. B. mit einer Kopie des Bibliotheks-Caches) und APPDATA auf einen leeren. Rohdaten gehören nicht ins Repository.
 // Fehler im Server (ERangeError, EIntOverflow, EAccessViolation) schreibt das Messprogramm mit Fehleradresse und
@@ -45,6 +50,7 @@ uses
   System.SyncObjs,
   System.Generics.Collections,
   System.RegularExpressions,
+  System.Diagnostics,
   dpcc.Core.Lsp.Client,
   dpcc.Core.Lsp.Session,
   dpcc.Core.Lsp.Adapters.InProcess,
@@ -123,6 +129,8 @@ type
     procedure Point(const AName: string);
     procedure Requests(ACount: Integer);
     procedure OneRequest;
+    /// <summary>Vervollständigungen auf Units der Bibliothek (Nachladen, Phase 3).</summary>
+    procedure ColdRequests(ACount: Integer);
     procedure EnsureOpen(const AFileName: string);
     procedure Rebuild;
   public
@@ -487,6 +495,14 @@ begin
     [AName, Mb(mPoint.Memory.PrivateBytes), Mb(mPoint.Memory.PeakPrivateBytes), Mb(mPoint.MaxPrivate),
      Mb(mPoint.Memory.LargestFreeBytes), Mb(mPoint.Report.IndexBytes), mPoint.Report.Units,
      Mb(mPoint.Allocated)]));
+  System.Writeln(Format('[lazy] %-13s loaded %d pinned %d evictable %d (%s MB) cold %d catalog %s MB loads %d ' +
+    'evicted %d loadms median %s max %s largest %d KB in %s ms', [AName, mPoint.Report.Lazy.Loaded,
+    mPoint.Report.Lazy.Pinned, mPoint.Report.Lazy.Evictable, Mb(mPoint.Report.Lazy.EvictableBytes),
+    mPoint.Report.Lazy.Cold, Mb(mPoint.Report.Lazy.CatalogBytes), mPoint.Report.Lazy.Loads,
+    mPoint.Report.Lazy.Evictions, FormatFloat('0.0', mPoint.Report.Lazy.LoadMedianMs, TFormatSettings.Invariant),
+    FormatFloat('0.0', mPoint.Report.Lazy.LoadMaxMs, TFormatSettings.Invariant),
+    mPoint.Report.Lazy.LargestLoadBytes div 1024, FormatFloat('0.0', mPoint.Report.Lazy.LargestLoadMs,
+    TFormatSettings.Invariant)]));
 end;
 
 procedure TBench.EnsureOpen(const AFileName: string);
@@ -584,6 +600,74 @@ begin
   end;
 end;
 
+procedure TBench.ColdRequests(ACount: Integer);
+var
+  mFolder, mFile, mOwn, mName, mText: string;
+  mAll: TArray<string>;
+  mIndex, mFailed: Integer;
+  mWatch: TStopwatch;
+  mTotal, mMax, mMs: Double;
+  mResponse: TJSONValue;
+begin
+  mFolder := Trim(GetEnvironmentVariable('DPCC_MEMBENCH_LIBDIR'));
+  if mFolder = '' then
+  begin
+    mFolder := 'C:\Program Files (x86)\Embarcadero\Studio\37.0\source';
+  end;
+  if (ACount <= 0) or not TDirectory.Exists(mFolder) then
+  begin
+    Exit;
+  end;
+  // Ohne WinRT: Diese Units stehen nicht im Bibliotheks-Cache (c1) und würden neu gelesen.
+  mAll := nil;
+  for mName in TDirectory.GetFiles(mFolder, '*.pas', TSearchOption.soAllDirectories) do
+  begin
+    if Pos('\winrt\', LowerCase(mName)) = 0 then
+    begin
+      mAll := mAll + [mName];
+    end;
+  end;
+  if Length(mAll) = 0 then
+  begin
+    Exit;
+  end;
+  TArray.Sort<string>(mAll);
+  RandSeed := 815;
+  mFile := FFiles[0];
+  mOwn := ChangeFileExt(ExtractFileName(mFile), '');
+  EnsureOpen(mFile);
+  mTotal := 0;
+  mMax := 0;
+  mFailed := 0;
+  for mIndex := 1 to ACount do
+  begin
+    mName := ChangeFileExt(ExtractFileName(mAll[Random(Length(mAll))]), '');
+    mText := Format('unit %s;'#13#10'interface'#13#10'uses %s;'#13#10'implementation'#13#10'procedure BenchProbe;' +
+      #13#10'begin'#13#10'  %s.'#13#10'end;'#13#10'end.'#13#10, [mOwn, mName, mName]);
+    try
+      FSession.Sync(mFile, mText);
+      mWatch := TStopwatch.StartNew;
+      mResponse := FSession.Completion(mFile, 6, Length(mName) + 3, cRequestTimeoutMs);
+      mResponse.Free;
+      mMs := mWatch.Elapsed.TotalMilliseconds;
+      mTotal := mTotal + mMs;
+      mMax := Max(mMax, mMs);
+      Inc(FRequests);
+    except
+      on Exception do
+      begin
+        Inc(FFailures);
+        Inc(mFailed);
+      end;
+    end;
+  end;
+  // Wieder der Originaltext (uses der Projekt-Unit wie vorher).
+  FSession.Sync(mFile, FTexts[mFile]);
+  System.Writeln(Format('[cold] %d Vervollständigungen auf Bibliotheks-Units, gescheitert %d, Mittel %s ms, max %s ms',
+    [ACount, mFailed, FormatFloat('0.0', mTotal / ACount, TFormatSettings.Invariant), FormatFloat('0.0', mMax,
+    TFormatSettings.Invariant)]));
+end;
+
 procedure TBench.Rebuild;
 begin
   // Wie „.dproj gespeichert“: Der Server lädt das Projekt neu und baut den Index auf (Reload). Die Sitzung schickt
@@ -605,6 +689,12 @@ begin
   FSampler.SetPhase('requests');
   Requests(ARequests);
   Point(Format('requests %d', [ARequests]));
+  if EnvInt('DPCC_MEMBENCH_COLD', 0) > 0 then
+  begin
+    FSampler.SetPhase('cold');
+    ColdRequests(EnvInt('DPCC_MEMBENCH_COLD', 0));
+    Point(Format('cold %d', [EnvInt('DPCC_MEMBENCH_COLD', 0)]));
+  end;
   for mIndex := 1 to ARebuilds do
   begin
     Rebuild;
@@ -639,7 +729,8 @@ begin
   mPoints := TStringList.Create;
   try
     mPoints.Add('point,ms,private_mb,peak_mb,max_private_mb,ws_mb,free_mb,min_free_mb,index_mb,units,lib,docs,' +
-      'trees,tree_mb,dcp_files,dcp_kb,alloc_mb');
+      'trees,tree_mb,dcp_files,dcp_kb,alloc_mb,loaded,pinned,evictable,evictable_mb,cold,catalog_mb,loads,' +
+      'evictions,load_median_ms,load_max_ms,largest_load_kb,largest_load_ms');
     for mPoint in FPoints do
     begin
       mPoints.Add(Format('%s,%d,%s,%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%s,%d,%d,%s', [mPoint.Name, mPoint.ElapsedMs,
@@ -647,7 +738,13 @@ begin
         Mb(mPoint.Memory.WorkingSetBytes), Mb(mPoint.Memory.LargestFreeBytes), Mb(mPoint.MinFree),
         Mb(mPoint.Report.IndexBytes), mPoint.Report.Units, mPoint.Report.LibraryUnits, mPoint.Report.Documents,
         mPoint.Report.Trees, Mb(mPoint.Report.TreeBytes), mPoint.Report.PackageFiles,
-        mPoint.Report.PackageBytes div 1024, Mb(mPoint.Allocated)]));
+        mPoint.Report.PackageBytes div 1024, Mb(mPoint.Allocated)]) + Format(',%d,%d,%d,%s,%d,%s,%d,%d,%s,%s,%d,%s',
+        [mPoint.Report.Lazy.Loaded, mPoint.Report.Lazy.Pinned, mPoint.Report.Lazy.Evictable,
+        Mb(mPoint.Report.Lazy.EvictableBytes), mPoint.Report.Lazy.Cold, Mb(mPoint.Report.Lazy.CatalogBytes),
+        mPoint.Report.Lazy.Loads, mPoint.Report.Lazy.Evictions, FormatFloat('0.0', mPoint.Report.Lazy.LoadMedianMs,
+        TFormatSettings.Invariant), FormatFloat('0.0', mPoint.Report.Lazy.LoadMaxMs, TFormatSettings.Invariant),
+        mPoint.Report.Lazy.LargestLoadBytes div 1024, FormatFloat('0.0', mPoint.Report.Lazy.LargestLoadMs,
+        TFormatSettings.Invariant)]));
     end;
     mPoints.SaveToFile(ChangeFileExt(AFileName, '') + '-points.csv', TEncoding.UTF8);
   finally

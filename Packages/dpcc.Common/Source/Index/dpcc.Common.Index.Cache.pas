@@ -5,79 +5,90 @@
 // mit anderer Formatversion (auch die früheren Text- und JSON-Formate) wird
 // verworfen.
 //
-// Format 12 (#492): Prüfsumme über die ganze Datei; je Symbol Signatur,
-// Direktiven und XMLDoc-Kurztext; je Unit die Verwendungen der Bezeichner in
-// einem eigenen Block, damit sie ausgelagert bleiben können. Eine Datei mit
-// falscher Prüfsumme gilt als beschädigt: ReadEntries liefert dann leer und
-// nennt den Grund, der Aufbau liest alles neu, ohne Meldung an den Benutzer.
+// Format 34 (Speicher-Optimierung Phase 3): Jede Unit steht in einem eigenen
+// Block mit eigener String-Tabelle und eigener Prüfsumme; am Ende der Datei
+// steht ein Verzeichnis aller Units (Name, Datei, Stand, uses, Katalog der
+// importierbaren Symbole, Lage und Prüfsumme des Blocks). Der Leser liest nur
+// Kopf und Verzeichnis; den Block einer Unit liest er einzeln über ein offenes
+// Handle (IIndexBlockReader, ReadFile mit Offset), wenn er sie braucht. Format
+// 33 hatte eine gemeinsame String-Tabelle (rund 950.000 Texte) und eine
+// Prüfsumme über die ganze Datei: Einzelne Units ließen sich so nicht lesen,
+// und jeder Start dekodierte die ganze Datei. Caches im Format 33 heißen
+// index-33.dpccidx und werden nicht mehr gelesen; der erste Start baut den
+// Index einmal neu auf.
+// - Ein beschädigter Block betrifft nur seine Unit: Expand liefert False, der
+//   Aufbau liest sie aus der Datei neu. Ein beschädigtes Verzeichnis (falsche
+//   Prüfsumme, abgeschnittene Datei) verwirft den ganzen Cache wie bisher.
+// - Signaturen dekodiert der Leser nicht nach UTF-16, sondern kopiert ihre
+//   UTF-8-Bytes (TIndexSymbol.SignatureUtf8); Texte dekodiert er erst beim
+//   ersten Lesen und teilt sie innerhalb der Unit.
+// - Write schreibt Block für Block in einen Strom (IIndexFileSystem.WriteStream);
+//   Units, die nicht im Speicher sind, kopiert es als unveränderten Block aus
+//   dem alten Cache (IIndexUnitSource.ReadBlock). Der Cache liegt beim
+//   Schreiben nie am Stück im Speicher.
 //
-// Format 11 (#617, Schritt 4): binär mit String-Tabelle.
-// Format 12: gleiches Layout; nur neu einlesen, weil Vorwärtsdeklarationen
-// vollständig deklarierter Typen nicht mehr im Index stehen.
-// Format 19 (#1001): gleiches Layout; neu einlesen, weil Klassenmitglieder
-// (class var, class property, class function) die Direktive "class" tragen.
-// - Jeder Text steht genau einmal in der Tabelle; Units und Symbole
-//   verweisen per Nummer darauf. Nach dem Laden teilen sich gleiche Texte
-//   (Container, Typnamen, Dateinamen) eine Instanz, das spart Speicher.
-// - Die Symbole jeder Unit stehen in einem eigenen Block mit Länge. ReadEntries
-//   liest nur die Köpfe und überspringt die Blöcke; Expand dekodiert die
-//   Symbole einer Unit erst, wenn der Builder sie wirklich übernimmt. Units
-//   des gemeinsamen Bibliotheks-Caches, die das Projekt nicht braucht, kosten
-//   so beim Start fast nichts.
-// - Speicher (Speicher-Optimierung Phase 2, c2): Signaturen hält der Index als UTF-8 (TIndexSymbol.SignatureUtf8).
-//   ReadEntries prüft vorab, welche Texte nur als Signatur dienen (Markierlauf über alle Blöcke), und dekodiert
-//   diese nicht nach UTF-16, sondern kopiert ihre Bytes einmal je Nummer (Utf8 im Eintrag); alle Symbole mit
-//   demselben Text teilen sich die Kopie. So entsteht beim Laden nie eine UTF-16-Fassung der Signaturen.
-// - Speicher (Speicher-Optimierung Phase 2, b2): Die Einträge teilen sich eine Kopie nur des Teils hinter der
-//   String-Tabelle (Köpfe und Blöcke der Units, beim Bibliotheks-Cache rund 28 von 61 MB); die ganze Datei ist frei,
-//   sobald ReadEntries fertig ist, statt so lange zu leben wie der letzte Eintrag (bis zum Ende des Aufbaus). Ein
-//   Block am Stück statt einer Kopie je Unit: Große Blöcke gibt der Speichermanager beim Freigeben ganz zurück,
-//   viele mittlere ließen Lücken zwischen den Texten des Index (gemessen +14 MB nach dem Aufbau).
-//
-// Aufbau (alle Zahlen als Varint, vorzeichenbehaftete per ZigZag):
-//   Kopf:    'DPCCINDX' Version Prüfsumme (4 Byte, FNV-1a über alles dahinter)
-//   Texte:   Anzahl, je Text Bytelänge und UTF-8-Bytes (Nummer 0 = '')
-//   Units:   Anzahl, je Unit:
+// Aufbau (Zahlen als Varint, vorzeichenbehaftete per ZigZag; fest = Little Endian):
+//   Kopf (25 Byte): 'DPCCINDX' Version (1 Byte) Verzeichnis-Offset (8 Byte fest)
+//            Verzeichnis-Länge (4 Byte fest) Verzeichnis-Prüfsumme (4 Byte fest, FNV-1a)
+//   Blöcke:  je Unit: Texte (Anzahl, je Text Bytelänge und UTF-8-Bytes, Nummer 0 = '')
+//            Kopf der Unit, Symbolzahl, Zahl-nicht-verfügbar, Symbole, Verwendungszahl, Verwendungen
+//   Verzeichnis (am Ende): Texte wie oben, Unit-Anzahl, je Unit:
 //            Name Datei Zeitstempel Hash Merker uses(interface) uses(implementation)
-//            Include-Dateien Include-Zeitstempel Symbolzahl Zahl-nicht-verfügbar Blocklänge Block
-//            Verwendungszahl Verwendungsblocklänge Verwendungsblock
-//            Merker: 1 = Bibliothek, 2 = kompakt, 4 = initialization/finalization,
-//                    8 = Verwendungen erfasst
+//            Include-Dateien Include-Zeitstempel Symbolzahl Zahl-nicht-verfügbar Verwendungszahl
+//            Katalog: Typzahl Typen(Liste) Symbolzahl, je Symbol Name Typ Art Zeile Spalte MinArgs MaxArgs
+//            Merker Vorfahren(Liste); dann Block-Offset Block-Länge Block-Prüfsumme
+//   Kopf der Unit: Name Datei Zeitstempel Hash Merker uses(interface) uses(implementation)
+//            Include-Dateien Include-Zeitstempel Namenszählung Hinweise Grund Begründungen Folgemuster
+//            Merker: 1 = Bibliothek, 2 = kompakt, 4 = initialization/finalization, 8 = Verwendungen erfasst
 //   Symbol:  Name Container Art L1 C1 L2 C2 SL1 SC1 SL2 SC2 Merker Vorfahren Typ
 //            Typargumente Vorfahr-Typargumente Typparameter Sichtbarkeit MinArgs MaxArgs
-//            Parametertypen Include-Datei Bedingung Signatur Direktiven Kurztext
+//            Parametertypen Include-Datei Bedingung Signatur Direktiven Kurztext Grund
+//            Variante Inline-Verweise Zuordnungen Begründungen
+//            Merker: 1 = InInterface, 2 = Default, 4 = Virtuell, 8 = NichtVerfügbar, 16 = ScopedEnum
 //   Verwendung: Name Anzahl, je Stelle Zeilenabstand zur vorigen und Spalte
-//            Merker: 1 = InInterface, 2 = Default, 4 = Virtuell, 8 = NichtVerfügbar
-// Listen: Anzahl, dann die Einträge. Die Datei heißt index.dpccidx (Ablage in
+// Listen: Anzahl, dann die Einträge. Die Datei heißt index-34.dpccidx (Ablage in
 // Index.Adapters.CacheDirectory).
 
 interface
 
 uses
   System.SysUtils,
+  System.Classes,
   dpcc.Common.Index.Contract;
 
 type
-  /// <summary>Unit aus einem geladenen Cache. Header enthält alles außer den Symbolen;
-  /// TIndexCache.Expand dekodiert sie bei Bedarf.</summary>
+  /// <summary>Unit aus einem geladenen Cache: Kopf und Katalog aus dem Verzeichnis, die Symbole liest
+  /// TIndexCache.Expand bei Bedarf aus dem Block (Source).</summary>
   TIndexCacheEntry = record
+    /// <summary>Kopf aus dem Verzeichnis: Name, Datei, Stand, Merker, uses und Include-Dateien; ohne Symbole.
+    /// </summary>
     Header: TUnitIndex;
     /// <summary>Header ist schon vollständig (aus einem TUnitIndex übernommen).</summary>
     Expanded: Boolean;
-    /// <summary>Teil der Datei hinter der String-Tabelle (alle Einträge teilen ihn), nicht die ganze Datei; die
-    /// Offsets unten zählen darin.</summary>
-    Data: TBytes;
-    Strings: TArray<string>;
-    /// <summary>Texte, die als Signatur dienen, als UTF-8 (je Nummer wie Strings; '' für die übrigen).</summary>
-    Utf8: TArray<UTF8String>;
-    SymbolOffset: Integer;
-    SymbolEnd: Integer;
+    /// <summary>Katalog der Unit aus dem Verzeichnis (Speicher-Optimierung Phase 3).</summary>
+    Catalog: TCatalogUnit;
+    /// <summary>Block der Unit in der Cache-Datei; nil bei Expanded.</summary>
+    Source: IIndexUnitSource;
     SymbolCount: Integer;
     UnavailableCount: Integer;
-    UsageOffset: Integer;
-    UsageEnd: Integer;
     UsageCount: Integer;
     class function FromUnit(const AUnit: TUnitIndex): TIndexCacheEntry; static;
+  end;
+
+  /// <summary>Eine Unit für TIndexCache.Write: aus dem Speicher (Header mit Symbolen) oder als unveränderter Block
+  /// aus einem anderen Cache (Source).</summary>
+  TIndexCacheItem = record
+    /// <summary>Ohne Source die ganze Unit, sonst ihr Kopf für das Verzeichnis.</summary>
+    Header: TUnitIndex;
+    Catalog: TCatalogUnit;
+    Source: IIndexUnitSource;
+    SymbolCount: Integer;
+    UnavailableCount: Integer;
+    UsageCount: Integer;
+    /// <summary>Unit aus dem Speicher; der Katalog entsteht aus ihren Symbolen.</summary>
+    class function OfUnit(const AUnit: TUnitIndex): TIndexCacheItem; static;
+    /// <summary>Unit aus einem gelesenen Cache: ihr Block wird kopiert (ohne Source wie OfUnit).</summary>
+    class function OfEntry(const AEntry: TIndexCacheEntry): TIndexCacheItem; static;
   end;
 
   TIndexCache = class
@@ -107,14 +118,29 @@ type
     // 32: Hinweiswort vor dem Startwert (NoErrMsg: Boolean platform = False); ohne neue Version blieb System.pas
     // aus dem alten Index ohne NoErrMsg (unresolved-identifier).
     // 33: Folgemuster der Projekt-Units im Kopf (#1890, gelernte Vorschläge).
-    const cFormatVersion = 33;
+    // 34: Blöcke je Unit mit eigener String-Tabelle und Prüfsumme, Verzeichnis mit Katalog am Ende
+    // (Speicher-Optimierung Phase 3).
+    const cFormatVersion = 34;
+    /// <summary>Ganzer Cache im Speicher (Tests); im Betrieb schreibt Write in einen Strom.</summary>
     class function Serialize(const AUnits: TArray<TUnitIndex>): TBytes; static;
-    /// <summary>Liest nur die Köpfe; bei falscher Version, falscher Prüfsumme oder fremdem Inhalt leer.</summary>
+    /// <summary>Schreibt AItems als Cache an die aktuelle Stelle von AStream. Liefert die Zahl geschriebener Units;
+    /// eine Unit, deren alter Block sich nicht lesen lässt, fehlt (der nächste Aufbau liest sie neu).</summary>
+    class function Write(AStream: TStream; const AItems: TArray<TIndexCacheItem>): Integer; static;
+    /// <summary>Liest Kopf und Verzeichnis; bei falscher Version, falscher Prüfsumme oder fremdem Inhalt leer.
+    /// </summary>
     class function ReadEntries(const AData: TBytes): TArray<TIndexCacheEntry>; overload; static;
     /// <summary>Wie oben; AReason nennt bei leerem Ergebnis den Grund ('' = gültig oder leer).</summary>
     class function ReadEntries(const AData: TBytes; out AReason: string): TArray<TIndexCacheEntry>; overload;
       static;
-    /// <summary>Unit mit Symbolen und (AUsages) Verwendungen; False, wenn ein Block beschädigt ist.
+    /// <summary>Wie oben über einen Blockleser: liest nur Kopf und Verzeichnis, die Einträge lesen ihre Blöcke
+    /// später über AReader. nil = kein Cache.</summary>
+    class function ReadEntries(const AReader: IIndexBlockReader; out AReason: string): TArray<TIndexCacheEntry>;
+      overload; static;
+    /// <summary>Wie oben; ohne ACatalog bleibt der Katalog der Einträge leer (nur Kopf und Block, etwa um den Units
+    /// des Index die Blöcke einer neuen Datei zuzuweisen): Seine Texte werden dann nicht dekodiert.</summary>
+    class function ReadEntries(const AReader: IIndexBlockReader; out AReason: string;
+      ACatalog: Boolean): TArray<TIndexCacheEntry>; overload; static;
+    /// <summary>Unit mit Symbolen und (AUsages) Verwendungen; False, wenn ihr Block beschädigt ist.
     /// Ohne AUsages bleiben die Verwendungen auf der Platte: UsagesOffloaded ist dann gesetzt.</summary>
     class function Expand(const AEntry: TIndexCacheEntry; out AUnit: TUnitIndex;
       AUsages: Boolean): Boolean; overload; static;
@@ -123,7 +149,8 @@ type
     /// <summary>Nur die Verwendungen einer Unit (Nachladen ausgelagerter Verwendungen).</summary>
     class function ExpandUsages(const AEntry: TIndexCacheEntry; out AUsages: TArray<TIndexUsage>): Boolean;
       static;
-    /// <summary>Liest den ganzen Cache; bei falscher Version oder fremdem Inhalt leer.</summary>
+    /// <summary>Liest den ganzen Cache; bei falscher Version, fremdem Inhalt oder einem beschädigten Block leer.
+    /// </summary>
     class function Deserialize(const AData: TBytes): TArray<TUnitIndex>; static;
     /// <summary>Hash eines Dateiinhalts.</summary>
     class function HashOf(const AText: string): string; static;
@@ -160,67 +187,38 @@ const
   cFlagCompact = 2;
   cFlagInitialization = 4;
   cFlagUsages = 8;
-  // Magic, Version (1 Byte bis 127) und 4 Byte Prüfsumme.
-  cChecksumSize = 4;
+  // Magic, Version (1 Byte), Verzeichnis-Offset (8), -Länge (4) und -Prüfsumme (4).
+  cVersionAt = 8;
+  cDirectoryAt = 9;
+  cHeadSize = 25;
   cSymbolInInterface = 1;
   cSymbolDefault = 2;
   cSymbolVirtual = 4;
   cSymbolUnavailable = 8;
   cSymbolScopedEnum = 16;
+  /// <summary>Größter Block bzw. größtes Verzeichnis, das der Leser annimmt.</summary>
+  cMaxSection = 512 * 1024 * 1024;
 
 type
   ECacheFormat = class(Exception);
 
-  /// <summary>Wachsender Bytepuffer. Ein zählender Puffer (Counter) legt nichts ab, sondern zählt nur die
-  /// Bytes; Serialize misst damit vorab die genaue Größe.</summary>
+  /// <summary>Wachsender Bytepuffer; Clear behält die Kapazität für den nächsten Block.</summary>
   TCacheWriter = class
   private
     FData: TBytes;
     FLength: Integer;
-    FCounting: Boolean;
     procedure Grow(ACount: Integer);
   public
     constructor Create(ACapacity: Integer);
-    class function Counter: TCacheWriter; static;
+    procedure Clear;
     procedure WriteByte(AValue: Byte);
     procedure WriteBytes(const AValue: TBytes; AIndex, ACount: Integer);
     procedure WriteVar(AValue: UInt64);
     procedure WriteInt(AValue: Int64);
-    /// <summary>Übergibt den Puffer ohne Kopie, wenn er genau gefüllt ist; danach ist der Schreiber leer.</summary>
-    function TakeBytes: TBytes;
     property Length_: Integer read FLength;
   end;
 
-  /// <summary>Liest Werte aus einem Bytepuffer; jede Überschreitung löst ECacheFormat aus.</summary>
-  TCacheReader = record
-    Data: TBytes;
-    Position: Integer;
-    Limit: Integer;
-    /// <summary>Markierlauf (c2): je Textnummer cMarkText (als Text gelesen) bzw. cMarkSignature (als Signatur);
-    /// nil = normal lesen.</summary>
-    Marks: TArray<Byte>;
-    function ReadByte: Byte;
-    function ReadVar: UInt64;
-    function ReadCount: Integer;
-    /// <summary>Nicht negative Zahl bis High(Integer), unabhängig von der Dateigröße.</summary>
-    function ReadNumber: Integer;
-    function ReadInt: Int64;
-    function ReadInt32: Integer;
-    function ReadString(const AStrings: TArray<string>): string;
-    function ReadList(const AStrings: TArray<string>): TArray<string>;
-    /// <summary>Signatur als UTF-8: aus AUtf8 (geteilt), sonst aus AStrings umgewandelt.</summary>
-    function ReadSignature(const AStrings: TArray<string>; const AUtf8: TArray<UTF8String>): UTF8String;
-  end;
-
-const
-  cMarkText = 1;
-  cMarkSignature = 2;
-  /// <summary>Text im Markierlauf (Konstante: kein eigener Speicher je Eintrag).</summary>
-  cMarkPlaceholder = '?';
-
-type
-
-  /// <summary>Sammelt beim Schreiben die String-Tabelle.</summary>
+  /// <summary>Sammelt beim Schreiben die String-Tabelle eines Blocks bzw. des Verzeichnisses.</summary>
   TStringTable = class
   private
     FIndex: TDictionary<string, Integer>;
@@ -228,8 +226,61 @@ type
   public
     constructor Create;
     destructor Destroy; override;
+    procedure Clear;
     function IndexOf(const AValue: string): Integer;
     property Items: TList<string> read FItems;
+  end;
+
+  /// <summary>String-Tabelle eines gelesenen Blocks: dekodiert jeden Text erst beim ersten Lesen, als string oder
+  /// (Signaturen) als UTF-8, und teilt ihn dann innerhalb des Blocks.</summary>
+  TCacheStrings = class
+  private
+    FData: TBytes;
+    FOffsets: TArray<Integer>;
+    FSizes: TArray<Integer>;
+    FTexts: TArray<string>;
+    FTextDone: TArray<Boolean>;
+    FUtf8: TArray<UTF8String>;
+    FUtf8Done: TArray<Boolean>;
+  public
+    function Count: Integer;
+    function Text(AIndex: Integer): string;
+    function Utf8(AIndex: Integer): UTF8String;
+  end;
+
+  /// <summary>Liest Werte aus einem Bytepuffer; jede Überschreitung löst ECacheFormat aus.</summary>
+  TCacheReader = record
+    Data: TBytes;
+    Position: Integer;
+    Limit: Integer;
+    Strings: TCacheStrings;
+    function ReadByte: Byte;
+    function ReadVar: UInt64;
+    function ReadCount: Integer;
+    /// <summary>Nicht negative Zahl bis High(Integer), unabhängig von der Dateigröße.</summary>
+    function ReadNumber: Integer;
+    function ReadInt: Int64;
+    function ReadInt32: Integer;
+    function ReadString: string;
+    function ReadList: TArray<string>;
+    /// <summary>Signatur als UTF-8 (ohne UTF-16-Fassung).</summary>
+    function ReadSignature: UTF8String;
+    /// <summary>Liest die String-Tabelle an der aktuellen Stelle; der Aufrufer gibt Strings frei.</summary>
+    procedure ReadTable;
+  end;
+
+  /// <summary>Block einer Unit in einer Cache-Datei.</summary>
+  TCacheBlockSource = class(TInterfacedObject, IIndexUnitSource)
+  private
+    FReader: IIndexBlockReader;
+    FOffset: Int64;
+    FLength: Integer;
+    FChecksum: Cardinal;
+  public
+    constructor Create(const AReader: IIndexBlockReader; AOffset: Int64; ALength: Integer; AChecksum: Cardinal);
+    function Load(out AUnit: TUnitIndex): Boolean;
+    function ReadBlock(out ABlock: TBytes; out AChecksum: Cardinal): Boolean;
+    function BlockSize: Integer;
   end;
 
 procedure Fail;
@@ -237,16 +288,25 @@ begin
   raise ECacheFormat.Create(cTexts[TCacheText.IndexCacheDamaged].Text);
 end;
 
-/// <summary>FNV-1a (32 Bit) über AData ab AFrom.</summary>
-function ChecksumOf(const AData: TBytes; AFrom, ATo: Integer): Cardinal;
+/// <summary>FNV-1a (32 Bit) über AData[AFrom..ATo-1], fortgesetzt ab ASeed.</summary>
+function ChecksumAdd(ASeed: Cardinal; const AData: TBytes; AFrom, ATo: Integer): Cardinal;
 var
   mIndex: Integer;
 begin
-  Result := 2166136261;
+  Result := ASeed;
   for mIndex := AFrom to ATo - 1 do
   begin
     Result := Cardinal(UInt64(Result xor AData[mIndex]) * 16777619);
   end;
+end;
+
+const
+  cChecksumSeed = 2166136261;
+
+/// <summary>FNV-1a (32 Bit) über AData ab AFrom.</summary>
+function ChecksumOf(const AData: TBytes; AFrom, ATo: Integer): Cardinal;
+begin
+  Result := ChecksumAdd(cChecksumSeed, AData, AFrom, ATo);
 end;
 
 { TCacheWriter }
@@ -257,10 +317,9 @@ begin
   SetLength(FData, ACapacity);
 end;
 
-class function TCacheWriter.Counter: TCacheWriter;
+procedure TCacheWriter.Clear;
 begin
-  Result := TCacheWriter.Create(0);
-  Result.FCounting := True;
+  FLength := 0;
 end;
 
 procedure TCacheWriter.Grow(ACount: Integer);
@@ -286,11 +345,6 @@ end;
 
 procedure TCacheWriter.WriteByte(AValue: Byte);
 begin
-  if FCounting then
-  begin
-    Inc(FLength);
-    Exit;
-  end;
   Grow(1);
   FData[FLength] := AValue;
   Inc(FLength);
@@ -300,11 +354,6 @@ procedure TCacheWriter.WriteBytes(const AValue: TBytes; AIndex, ACount: Integer)
 begin
   if ACount <= 0 then
   begin
-    Exit;
-  end;
-  if FCounting then
-  begin
-    Inc(FLength, ACount);
     Exit;
   end;
   Grow(ACount);
@@ -338,15 +387,72 @@ begin
   WriteVar(mEncoded);
 end;
 
-function TCacheWriter.TakeBytes: TBytes;
+{ TStringTable }
+
+constructor TStringTable.Create;
 begin
-  Result := FData;
-  FData := nil;
-  if Length(Result) <> FLength then
+  inherited Create;
+  FIndex := TDictionary<string, Integer>.Create;
+  FItems := TList<string>.Create;
+  IndexOf('');
+end;
+
+destructor TStringTable.Destroy;
+begin
+  FItems.Free;
+  FIndex.Free;
+  inherited;
+end;
+
+procedure TStringTable.Clear;
+begin
+  FIndex.Clear;
+  FItems.Clear;
+  IndexOf('');
+end;
+
+function TStringTable.IndexOf(const AValue: string): Integer;
+begin
+  if FIndex.TryGetValue(AValue, Result) then
   begin
-    SetLength(Result, FLength);
+    Exit;
   end;
-  FLength := 0;
+  Result := FItems.Add(AValue);
+  FIndex.Add(AValue, Result);
+end;
+
+{ TCacheStrings }
+
+function TCacheStrings.Count: Integer;
+begin
+  Result := Length(FOffsets);
+end;
+
+function TCacheStrings.Text(AIndex: Integer): string;
+begin
+  if not FTextDone[AIndex] then
+  begin
+    if FSizes[AIndex] > 0 then
+    begin
+      FTexts[AIndex] := TEncoding.UTF8.GetString(FData, FOffsets[AIndex], FSizes[AIndex]);
+    end;
+    FTextDone[AIndex] := True;
+  end;
+  Result := FTexts[AIndex];
+end;
+
+function TCacheStrings.Utf8(AIndex: Integer): UTF8String;
+begin
+  if not FUtf8Done[AIndex] then
+  begin
+    if FSizes[AIndex] > 0 then
+    begin
+      SetLength(FUtf8[AIndex], FSizes[AIndex]);
+      Move(FData[FOffsets[AIndex]], PAnsiChar(FUtf8[AIndex])^, FSizes[AIndex]);
+    end;
+    FUtf8Done[AIndex] := True;
+  end;
+  Result := FUtf8[AIndex];
 end;
 
 { TCacheReader }
@@ -431,48 +537,35 @@ begin
   Result := Integer(mValue);
 end;
 
-function TCacheReader.ReadString(const AStrings: TArray<string>): string;
+function TCacheReader.ReadString: string;
 var
   mIndex: UInt64;
 begin
   mIndex := ReadVar;
-  if mIndex >= UInt64(Length(AStrings)) then
+  if mIndex >= UInt64(Strings.Count) then
   begin
     Fail;
   end;
-  if Marks <> nil then
-  begin
-    Marks[Integer(mIndex)] := Marks[Integer(mIndex)] or cMarkText;
-  end;
-  Result := AStrings[Integer(mIndex)];
+  Result := Strings.Text(Integer(mIndex));
 end;
 
-function TCacheReader.ReadSignature(const AStrings: TArray<string>; const AUtf8: TArray<UTF8String>): UTF8String;
+function TCacheReader.ReadSignature: UTF8String;
 var
   mIndex: UInt64;
 begin
   mIndex := ReadVar;
-  if mIndex >= UInt64(Length(AStrings)) then
+  if mIndex >= UInt64(Strings.Count) then
   begin
     Fail;
   end;
-  if Marks <> nil then
-  begin
-    Marks[Integer(mIndex)] := Marks[Integer(mIndex)] or cMarkSignature;
-    Exit('');
-  end;
-  if (mIndex = 0) then
+  if mIndex = 0 then
   begin
     Exit('');
   end;
-  if (Integer(mIndex) < Length(AUtf8)) and (AUtf8[Integer(mIndex)] <> '') then
-  begin
-    Exit(AUtf8[Integer(mIndex)]);
-  end;
-  Result := UTF8Encode(AStrings[Integer(mIndex)]);
+  Result := Strings.Utf8(Integer(mIndex));
 end;
 
-function TCacheReader.ReadList(const AStrings: TArray<string>): TArray<string>;
+function TCacheReader.ReadList: TArray<string>;
 var
   mIndex, mCount: Integer;
 begin
@@ -480,35 +573,33 @@ begin
   SetLength(Result, mCount);
   for mIndex := 0 to mCount - 1 do
   begin
-    Result[mIndex] := ReadString(AStrings);
+    Result[mIndex] := ReadString;
   end;
 end;
 
-{ TStringTable }
-
-constructor TStringTable.Create;
+procedure TCacheReader.ReadTable;
+var
+  mIndex, mSize: Integer;
 begin
-  inherited Create;
-  FIndex := TDictionary<string, Integer>.Create;
-  FItems := TList<string>.Create;
-  IndexOf('');
-end;
-
-destructor TStringTable.Destroy;
-begin
-  FItems.Free;
-  FIndex.Free;
-  inherited;
-end;
-
-function TStringTable.IndexOf(const AValue: string): Integer;
-begin
-  if FIndex.TryGetValue(AValue, Result) then
+  Strings := TCacheStrings.Create;
+  Strings.FData := Data;
+  SetLength(Strings.FOffsets, ReadCount);
+  SetLength(Strings.FSizes, Length(Strings.FOffsets));
+  SetLength(Strings.FTexts, Length(Strings.FOffsets));
+  SetLength(Strings.FTextDone, Length(Strings.FOffsets));
+  SetLength(Strings.FUtf8, Length(Strings.FOffsets));
+  SetLength(Strings.FUtf8Done, Length(Strings.FOffsets));
+  for mIndex := 0 to High(Strings.FOffsets) do
   begin
-    Exit;
+    mSize := ReadCount;
+    if Position + mSize > Limit then
+    begin
+      Fail;
+    end;
+    Strings.FSizes[mIndex] := mSize;
+    Strings.FOffsets[mIndex] := Position;
+    Inc(Position, mSize);
   end;
-  Result := FItems.Add(AValue);
-  FIndex.Add(AValue, Result);
 end;
 
 { TIndexCacheEntry }
@@ -518,6 +609,37 @@ begin
   Result := Default(TIndexCacheEntry);
   Result.Header := AUnit;
   Result.Expanded := True;
+  Result.Catalog := TCatalogUnit.FromUnit(AUnit);
+  Result.SymbolCount := Length(AUnit.Symbols);
+  Result.UnavailableCount := Length(AUnit.Unavailable);
+  Result.UsageCount := Length(AUnit.Usages);
+end;
+
+{ TIndexCacheItem }
+
+class function TIndexCacheItem.OfUnit(const AUnit: TUnitIndex): TIndexCacheItem;
+begin
+  Result := Default(TIndexCacheItem);
+  Result.Header := AUnit;
+  Result.Catalog := TCatalogUnit.FromUnit(AUnit);
+  Result.SymbolCount := Length(AUnit.Symbols);
+  Result.UnavailableCount := Length(AUnit.Unavailable);
+  Result.UsageCount := Length(AUnit.Usages);
+end;
+
+class function TIndexCacheItem.OfEntry(const AEntry: TIndexCacheEntry): TIndexCacheItem;
+begin
+  if AEntry.Expanded or (AEntry.Source = nil) then
+  begin
+    Exit(OfUnit(AEntry.Header));
+  end;
+  Result := Default(TIndexCacheItem);
+  Result.Header := AEntry.Header;
+  Result.Catalog := AEntry.Catalog;
+  Result.Source := AEntry.Source;
+  Result.SymbolCount := AEntry.SymbolCount;
+  Result.UnavailableCount := AEntry.UnavailableCount;
+  Result.UsageCount := AEntry.UsageCount;
 end;
 
 { Schreiben }
@@ -608,17 +730,6 @@ begin
   end;
 end;
 
-/// <summary>Bytes, die WriteVar für AValue schreibt.</summary>
-function VarSize(AValue: UInt64): Integer;
-begin
-  Result := 1;
-  while AValue >= $80 do
-  begin
-    Inc(Result);
-    AValue := AValue shr 7;
-  end;
-end;
-
 function UnitFlags(const AUnit: TUnitIndex): Integer;
 begin
   Result := 0;
@@ -660,11 +771,9 @@ begin
   end;
 end;
 
-/// <summary>Kopf einer Unit: Namen, Stempel, Flags, uses, Includes, Namenszählung, Hinweise und Folgemuster.
-/// </summary>
-procedure WriteUnitHeader(AWriter: TCacheWriter; ATable: TStringTable; const AUnit: TUnitIndex);
+/// <summary>Name bis Include-Zeitstempel: der Teil des Kopfes, den Block und Verzeichnis gemeinsam haben.</summary>
+procedure WriteUnitStart(AWriter: TCacheWriter; ATable: TStringTable; const AUnit: TUnitIndex);
 var
-  mKind: TNamingKind;
   mStamp: Int64;
 begin
   AWriter.WriteVar(ATable.IndexOf(AUnit.UnitName));
@@ -680,6 +789,15 @@ begin
   begin
     AWriter.WriteInt(mStamp);
   end;
+end;
+
+/// <summary>Kopf einer Unit: Namen, Stempel, Flags, uses, Includes, Namenszählung, Hinweise und Folgemuster.
+/// </summary>
+procedure WriteUnitHeader(AWriter: TCacheWriter; ATable: TStringTable; const AUnit: TUnitIndex);
+var
+  mKind: TNamingKind;
+begin
+  WriteUnitStart(AWriter, ATable, AUnit);
   for mKind := Low(TNamingKind) to High(TNamingKind) do
   begin
     AWriter.WriteVar(AUnit.Naming[mKind].Total);
@@ -691,155 +809,213 @@ begin
   WritePatterns(AWriter, ATable, AUnit.Patterns);
 end;
 
-/// <summary>Symbole und Verwendungen einer Unit, jeweils als Block mit seiner Länge davor (über ABlock gesammelt).
-/// </summary>
-procedure WriteUnitBody(AWriter, ABlock: TCacheWriter; ATable: TStringTable; const AUnit: TUnitIndex);
-var
-  mSymbol: TIndexSymbol;
-  mUsage: TIndexUsage;
-begin
-  AWriter.WriteVar(Length(AUnit.Symbols));
-  AWriter.WriteVar(Length(AUnit.Unavailable));
-  ABlock.FLength := 0;
-  for mSymbol in AUnit.Symbols do
-  begin
-    WriteSymbol(ABlock, ATable, mSymbol);
-  end;
-  for mSymbol in AUnit.Unavailable do
-  begin
-    WriteSymbol(ABlock, ATable, mSymbol);
-  end;
-  AWriter.WriteVar(ABlock.Length_);
-  AWriter.WriteBytes(ABlock.FData, 0, ABlock.Length_);
-  ABlock.FLength := 0;
-  for mUsage in AUnit.Usages do
-  begin
-    WriteUsage(ABlock, ATable, mUsage);
-  end;
-  AWriter.WriteVar(Length(AUnit.Usages));
-  AWriter.WriteVar(ABlock.Length_);
-  AWriter.WriteBytes(ABlock.FData, 0, ABlock.Length_);
-end;
-
-/// <summary>Alle Units hinter der String-Tabelle. ATable vergibt die Nummern; ein zweiter Lauf über dieselben
-/// Units findet alle Texte schon vor und schreibt dieselben Nummern.</summary>
-procedure WriteUnits(AWriter: TCacheWriter; ATable: TStringTable; const AUnits: TArray<TUnitIndex>);
-var
-  mBlock: TCacheWriter;
-  mUnit: TUnitIndex;
-begin
-  if AWriter.FCounting then
-  begin
-    mBlock := TCacheWriter.Counter;
-  end
-  else
-  begin
-    mBlock := TCacheWriter.Create(64 * 1024);
-  end;
-  try
-    AWriter.WriteVar(Length(AUnits));
-    for mUnit in AUnits do
-    begin
-      WriteUnitHeader(AWriter, ATable, mUnit);
-      // Block erst sammeln, damit seine Länge davor stehen kann.
-      WriteUnitBody(AWriter, mBlock, ATable, mUnit);
-    end;
-  finally
-    mBlock.Free;
-  end;
-end;
-
-/// <summary>Größe der Datei: Kopf, String-Tabelle und die gezählten Units.</summary>
-function SerializedSize(ATable: TStringTable; ACounter: TCacheWriter): Int64;
-var
-  mValue: string;
-  mSize: Integer;
-begin
-  Result := Int64(Length(cMagic)) + VarSize(TIndexCache.cFormatVersion) + cChecksumSize +
-    VarSize(ATable.Items.Count) + ACounter.Length_;
-  for mValue in ATable.Items do
-  begin
-    mSize := TEncoding.UTF8.GetByteCount(mValue);
-    Inc(Result, VarSize(mSize) + mSize);
-  end;
-end;
-
-/// <summary>Kopf mit Platz für die Prüfsumme und die String-Tabelle; liefert die Stelle der Prüfsumme.</summary>
-function WriteHead(AOutput: TCacheWriter; ATable: TStringTable): Integer;
+/// <summary>Inhalt eines Blocks ohne seine String-Tabelle: Kopf, Symbole, nicht geltende Deklarationen,
+/// Verwendungen.</summary>
+procedure WriteBlockContent(AWriter: TCacheWriter; ATable: TStringTable; const AUnit: TUnitIndex);
 var
   mIndex: Integer;
+begin
+  WriteUnitHeader(AWriter, ATable, AUnit);
+  AWriter.WriteVar(Length(AUnit.Symbols));
+  AWriter.WriteVar(Length(AUnit.Unavailable));
+  // Über den Index: die Symbol-Records nicht kopieren.
+  for mIndex := 0 to High(AUnit.Symbols) do
+  begin
+    WriteSymbol(AWriter, ATable, AUnit.Symbols[mIndex]);
+  end;
+  for mIndex := 0 to High(AUnit.Unavailable) do
+  begin
+    WriteSymbol(AWriter, ATable, AUnit.Unavailable[mIndex]);
+  end;
+  AWriter.WriteVar(Length(AUnit.Usages));
+  for mIndex := 0 to High(AUnit.Usages) do
+  begin
+    WriteUsage(AWriter, ATable, AUnit.Usages[mIndex]);
+  end;
+end;
+
+/// <summary>String-Tabelle: Anzahl, je Text Bytelänge und UTF-8-Bytes.</summary>
+procedure WriteTable(AWriter: TCacheWriter; ATable: TStringTable);
+var
   mValue: string;
   mBytes: TBytes;
 begin
-  for mIndex := Low(cMagic) to High(cMagic) do
-  begin
-    AOutput.WriteByte(cMagic[mIndex]);
-  end;
-  AOutput.WriteVar(TIndexCache.cFormatVersion);
-  // Platz für die Prüfsumme; sie wird zuletzt über alles dahinter berechnet.
-  Result := AOutput.Length_;
-  for mIndex := 1 to cChecksumSize do
-  begin
-    AOutput.WriteByte(0);
-  end;
-  AOutput.WriteVar(ATable.Items.Count);
+  AWriter.WriteVar(ATable.Items.Count);
   for mValue in ATable.Items do
   begin
     mBytes := TEncoding.UTF8.GetBytes(mValue);
-    AOutput.WriteVar(Length(mBytes));
-    AOutput.WriteBytes(mBytes, 0, Length(mBytes));
+    AWriter.WriteVar(Length(mBytes));
+    AWriter.WriteBytes(mBytes, 0, Length(mBytes));
   end;
 end;
 
-procedure StoreChecksum(var AData: TBytes; AChecksumAt: Integer);
+/// <summary>Katalog einer Unit im Verzeichnis.</summary>
+procedure WriteCatalog(AWriter: TCacheWriter; ATable: TStringTable; const ACatalog: TCatalogUnit);
 var
-  mChecksum: Cardinal;
   mIndex: Integer;
 begin
-  mChecksum := ChecksumOf(AData, AChecksumAt + cChecksumSize, Length(AData));
-  for mIndex := 0 to cChecksumSize - 1 do
+  AWriter.WriteVar(ACatalog.ExportedTypeCount);
+  WriteList(AWriter, ATable, ACatalog.ExportedTypes);
+  AWriter.WriteVar(Length(ACatalog.Symbols));
+  for mIndex := 0 to High(ACatalog.Symbols) do
   begin
-    AData[AChecksumAt + mIndex] := Byte(mChecksum shr (8 * mIndex));
+    AWriter.WriteVar(ATable.IndexOf(ACatalog.Symbols[mIndex].Name));
+    AWriter.WriteVar(ATable.IndexOf(ACatalog.Symbols[mIndex].TypeName));
+    AWriter.WriteVar(Ord(ACatalog.Symbols[mIndex].Kind));
+    AWriter.WriteInt(ACatalog.Symbols[mIndex].Start.Line);
+    AWriter.WriteInt(ACatalog.Symbols[mIndex].Start.Character);
+    AWriter.WriteInt(ACatalog.Symbols[mIndex].MinArgs);
+    AWriter.WriteInt(ACatalog.Symbols[mIndex].MaxArgs);
+    AWriter.WriteVar(ACatalog.Symbols[mIndex].Flags);
+    WriteList(AWriter, ATable, ACatalog.Symbols[mIndex].Ancestors);
   end;
+end;
+
+/// <summary>Eintrag einer Unit im Verzeichnis samt Lage ihres Blocks.</summary>
+procedure WriteDirectoryEntry(AWriter: TCacheWriter; ATable: TStringTable; const AItem: TIndexCacheItem;
+  AOffset: Int64; ALength: Integer; AChecksum: Cardinal);
+begin
+  WriteUnitStart(AWriter, ATable, AItem.Header);
+  AWriter.WriteVar(AItem.SymbolCount);
+  AWriter.WriteVar(AItem.UnavailableCount);
+  AWriter.WriteVar(AItem.UsageCount);
+  WriteCatalog(AWriter, ATable, AItem.Catalog);
+  AWriter.WriteVar(UInt64(AOffset));
+  AWriter.WriteVar(ALength);
+  AWriter.WriteVar(AChecksum);
+end;
+
+/// <summary>Schreibt den Puffer in den Strom.</summary>
+procedure Emit(AStream: TStream; AWriter: TCacheWriter);
+begin
+  if AWriter.Length_ > 0 then
+  begin
+    AStream.WriteBuffer(AWriter.FData[0], AWriter.Length_);
+  end;
+end;
+
+/// <summary>Zahl in ACount Byte Little Endian an AData[AAt].</summary>
+procedure PutFixed(var AData: TBytes; AAt: Integer; AValue: UInt64; ACount: Integer);
+var
+  mIndex: Integer;
+begin
+  for mIndex := 0 to ACount - 1 do
+  begin
+    AData[AAt + mIndex] := Byte(AValue shr (8 * mIndex));
+  end;
+end;
+
+function GetFixed(const AData: TBytes; AAt, ACount: Integer): UInt64;
+var
+  mIndex: Integer;
+begin
+  Result := 0;
+  for mIndex := ACount - 1 downto 0 do
+  begin
+    Result := (Result shl 8) or AData[AAt + mIndex];
+  end;
+end;
+
+class function TIndexCache.Write(AStream: TStream; const AItems: TArray<TIndexCacheItem>): Integer;
+var
+  mStart, mOffset: Int64;
+  mHead, mBlock: TBytes;
+  mTable, mDirectoryTable: TStringTable;
+  mText, mContent, mDirectory, mDirectoryText: TCacheWriter;
+  mItem: TIndexCacheItem;
+  mChecksum: Cardinal;
+  mLength: Integer;
+begin
+  Result := 0;
+  mStart := AStream.Position;
+  // Platz für den Kopf; Lage und Prüfsumme des Verzeichnisses kommen zuletzt.
+  SetLength(mHead, cHeadSize);
+  AStream.WriteBuffer(mHead[0], cHeadSize);
+  mTable := TStringTable.Create;
+  mDirectoryTable := TStringTable.Create;
+  mText := TCacheWriter.Create(64 * 1024);
+  mContent := TCacheWriter.Create(256 * 1024);
+  mDirectory := TCacheWriter.Create(1024 * 1024);
+  mDirectoryText := nil;
+  try
+    for mItem in AItems do
+    begin
+      mOffset := AStream.Position - mStart;
+      if mItem.Source <> nil then
+      begin
+        // Nicht im Speicher: der Block aus dem alten Cache, unverändert. Unlesbar = weglassen.
+        if not mItem.Source.ReadBlock(mBlock, mChecksum) then
+        begin
+          Continue;
+        end;
+        mLength := Length(mBlock);
+        if mLength > 0 then
+        begin
+          AStream.WriteBuffer(mBlock[0], mLength);
+        end;
+        mBlock := nil;
+      end
+      else
+      begin
+        // Inhalt zuerst sammeln: Er vergibt die Nummern der String-Tabelle, die im Block davor steht.
+        mTable.Clear;
+        mContent.Clear;
+        mText.Clear;
+        WriteBlockContent(mContent, mTable, mItem.Header);
+        WriteTable(mText, mTable);
+        mChecksum := ChecksumAdd(ChecksumOf(mText.FData, 0, mText.Length_), mContent.FData, 0, mContent.Length_);
+        mLength := mText.Length_ + mContent.Length_;
+        Emit(AStream, mText);
+        Emit(AStream, mContent);
+      end;
+      WriteDirectoryEntry(mDirectory, mDirectoryTable, mItem, mOffset, mLength, mChecksum);
+      Inc(Result);
+    end;
+    // Verzeichnis: seine String-Tabelle, dann die Anzahl und die Einträge.
+    mDirectoryText := TCacheWriter.Create(1024 * 1024);
+    WriteTable(mDirectoryText, mDirectoryTable);
+    mDirectoryText.WriteVar(Result);
+    mChecksum := ChecksumAdd(ChecksumOf(mDirectoryText.FData, 0, mDirectoryText.Length_), mDirectory.FData, 0,
+      mDirectory.Length_);
+    mOffset := AStream.Position - mStart;
+    mLength := mDirectoryText.Length_ + mDirectory.Length_;
+    Emit(AStream, mDirectoryText);
+    Emit(AStream, mDirectory);
+  finally
+    mDirectoryText.Free;
+    mDirectory.Free;
+    mContent.Free;
+    mText.Free;
+    mDirectoryTable.Free;
+    mTable.Free;
+  end;
+  Move(cMagic[0], mHead[0], Length(cMagic));
+  mHead[cVersionAt] := cFormatVersion;
+  PutFixed(mHead, cDirectoryAt, UInt64(mOffset), 8);
+  PutFixed(mHead, cDirectoryAt + 8, Cardinal(mLength), 4);
+  PutFixed(mHead, cDirectoryAt + 12, mChecksum, 4);
+  AStream.Position := mStart;
+  AStream.WriteBuffer(mHead[0], cHeadSize);
+  AStream.Seek(0, soEnd);
 end;
 
 class function TIndexCache.Serialize(const AUnits: TArray<TUnitIndex>): TBytes;
 var
-  mTable: TStringTable;
-  mCounter, mOutput: TCacheWriter;
-  mChecksumAt, mTextCount: Integer;
-  mCapacity: Int64;
+  mItems: TArray<TIndexCacheItem>;
+  mIndex: Integer;
+  mStream: TBytesStream;
 begin
-  // Speicher (Rückmeldung 22.10.2026, 3 GB bei acht Projekten): Früher wuchs der Rumpf in einem eigenen
-  // Puffer bis auf das Doppelte, wurde hinter die Tabelle kopiert und am Ende noch einmal kopiert; das
-  // kostete kurzzeitig das Vier- bis Fünffache der Datei. Jetzt zählt ein erster Lauf nur die Bytes und
-  // füllt die Tabelle, der zweite schreibt in einen Puffer genau passender Größe, der ohne Kopie das
-  // Ergebnis wird.
-  mTable := TStringTable.Create;
-  mCounter := TCacheWriter.Counter;
-  mOutput := nil;
+  SetLength(mItems, Length(AUnits));
+  for mIndex := 0 to High(AUnits) do
+  begin
+    mItems[mIndex] := TIndexCacheItem.OfUnit(AUnits[mIndex]);
+  end;
+  mStream := TBytesStream.Create;
   try
-    WriteUnits(mCounter, mTable, AUnits);
-    mTextCount := mTable.Items.Count;
-    mCapacity := SerializedSize(mTable, mCounter);
-    if mCapacity > MaxInt then
-    begin
-      raise ECacheFormat.Create(cTexts[TCacheText.IndexCacheTooLarge].Text);
-    end;
-    mOutput := TCacheWriter.Create(Integer(mCapacity));
-    mChecksumAt := WriteHead(mOutput, mTable);
-    WriteUnits(mOutput, mTable, AUnits);
-    // Beide Läufe müssen dieselben Texte in derselben Reihenfolge sehen.
-    if (mTable.Items.Count <> mTextCount) or (mOutput.Length_ <> mCapacity) then
-    begin
-      raise EInvalidOpException.Create(cTexts[TCacheText.IndexCacheSizeDiffersFrom].Text);
-    end;
-    Result := mOutput.TakeBytes;
-    StoreChecksum(Result, mChecksumAt);
+    Write(mStream, mItems);
+    Result := Copy(mStream.Bytes, 0, mStream.Size);
   finally
-    mOutput.Free;
-    mCounter.Free;
-    mTable.Free;
+    mStream.Free;
   end;
 end;
 
@@ -858,22 +1034,28 @@ begin
   Result := mValue;
 end;
 
-function ReadSymbol(var AReader: TCacheReader; const AStrings: TArray<string>;
-  const AUtf8: TArray<UTF8String>): TIndexSymbol;
+function ReadKind(var AReader: TCacheReader): TIndexSymbolKind;
 var
   mKind: UInt64;
-  mFlags: Integer;
-  mL1, mC1, mL2, mC2: Integer;
 begin
-  Result := Default(TIndexSymbol);
-  Result.Name := AReader.ReadString(AStrings);
-  Result.Container := AReader.ReadString(AStrings);
   mKind := AReader.ReadVar;
   if mKind > UInt64(Ord(High(TIndexSymbolKind))) then
   begin
     Fail;
   end;
-  Result.Kind := TIndexSymbolKind(Integer(mKind));
+  Result := TIndexSymbolKind(Integer(mKind));
+end;
+
+function ReadSymbol(var AReader: TCacheReader): TIndexSymbol;
+var
+  mVisibility: UInt64;
+  mFlags: Integer;
+  mL1, mC1, mL2, mC2: Integer;
+begin
+  Result := Default(TIndexSymbol);
+  Result.Name := AReader.ReadString;
+  Result.Container := AReader.ReadString;
+  Result.Kind := ReadKind(AReader);
   mL1 := AReader.ReadInt32;
   mC1 := AReader.ReadInt32;
   mL2 := AReader.ReadInt32;
@@ -890,37 +1072,37 @@ begin
   Result.IsVirtual := (mFlags and cSymbolVirtual) <> 0;
   Result.Unavailable := (mFlags and cSymbolUnavailable) <> 0;
   Result.ScopedEnum := (mFlags and cSymbolScopedEnum) <> 0;
-  Result.Ancestors := AReader.ReadList(AStrings);
-  Result.TypeName := AReader.ReadString(AStrings);
-  Result.TypeArgs := AReader.ReadString(AStrings);
-  Result.AncestorArgs := AReader.ReadList(AStrings);
-  Result.TypeParams := AReader.ReadString(AStrings);
-  mKind := AReader.ReadVar;
-  if mKind > UInt64(Ord(High(TIndexVisibility))) then
+  Result.Ancestors := AReader.ReadList;
+  Result.TypeName := AReader.ReadString;
+  Result.TypeArgs := AReader.ReadString;
+  Result.AncestorArgs := AReader.ReadList;
+  Result.TypeParams := AReader.ReadString;
+  mVisibility := AReader.ReadVar;
+  if mVisibility > UInt64(Ord(High(TIndexVisibility))) then
   begin
     Fail;
   end;
-  Result.Visibility := TIndexVisibility(Integer(mKind));
+  Result.Visibility := TIndexVisibility(Integer(mVisibility));
   Result.MinArgs := ReadArgCount(AReader);
   Result.MaxArgs := ReadArgCount(AReader);
-  Result.ParamTypes := AReader.ReadList(AStrings);
-  Result.FileName := AReader.ReadString(AStrings);
-  Result.Condition := AReader.ReadString(AStrings);
-  Result.SignatureUtf8 := AReader.ReadSignature(AStrings, AUtf8);
-  Result.Directives := AReader.ReadList(AStrings);
-  Result.Summary := AReader.ReadString(AStrings);
-  Result.DeprecatedText := AReader.ReadString(AStrings);
-  Result.VariantBranch := AReader.ReadString(AStrings);
-  Result.InlineRefs := AReader.ReadList(AStrings);
-  Result.Resolutions := AReader.ReadList(AStrings);
-  Result.Rationale := AReader.ReadList(AStrings);
+  Result.ParamTypes := AReader.ReadList;
+  Result.FileName := AReader.ReadString;
+  Result.Condition := AReader.ReadString;
+  Result.SignatureUtf8 := AReader.ReadSignature;
+  Result.Directives := AReader.ReadList;
+  Result.Summary := AReader.ReadString;
+  Result.DeprecatedText := AReader.ReadString;
+  Result.VariantBranch := AReader.ReadString;
+  Result.InlineRefs := AReader.ReadList;
+  Result.Resolutions := AReader.ReadList;
+  Result.Rationale := AReader.ReadList;
 end;
 
-function ReadUsage(var AReader: TCacheReader; const AStrings: TArray<string>): TIndexUsage;
+function ReadUsage(var AReader: TCacheReader): TIndexUsage;
 var
   mIndex, mLine: Integer;
 begin
-  Result.Name := AReader.ReadString(AStrings);
+  Result.Name := AReader.ReadString;
   SetLength(Result.Positions, AReader.ReadCount);
   mLine := 0;
   for mIndex := 0 to High(Result.Positions) do
@@ -930,11 +1112,253 @@ begin
   end;
 end;
 
-class function TIndexCache.ReadEntries(const AData: TBytes): TArray<TIndexCacheEntry>;
+function ReadPatterns(var AReader: TCacheReader): TArray<TIndexFollowPattern>;
 var
-  mReason: string;
+  mIndex, mLine: Integer;
 begin
-  Result := ReadEntries(AData, mReason);
+  SetLength(Result, AReader.ReadCount);
+  for mIndex := 0 to High(Result) do
+  begin
+    Result[mIndex].Trigger := AReader.ReadString;
+    Result[mIndex].Follow := AReader.ReadString;
+    Result[mIndex].Count := AReader.ReadNumber;
+    SetLength(Result[mIndex].Lines, AReader.ReadCount);
+    for mLine := 0 to High(Result[mIndex].Lines) do
+    begin
+      Result[mIndex].Lines[mLine] := AReader.ReadNumber;
+    end;
+  end;
+end;
+
+/// <summary>Gegenstück zu WriteUnitStart.</summary>
+function ReadUnitStart(var AReader: TCacheReader): TUnitIndex;
+var
+  mFlags, mIndex: Integer;
+begin
+  Result := Default(TUnitIndex);
+  Result.UnitName := AReader.ReadString;
+  Result.FileName := AReader.ReadString;
+  Result.Stamp := AReader.ReadInt;
+  Result.Hash := AReader.ReadString;
+  mFlags := AReader.ReadCount;
+  Result.Library_ := (mFlags and cFlagLibrary) <> 0;
+  Result.Compact := (mFlags and cFlagCompact) <> 0;
+  Result.HasInitialization := (mFlags and cFlagInitialization) <> 0;
+  Result.UsagesIndexed := (mFlags and cFlagUsages) <> 0;
+  Result.InterfaceUses := AReader.ReadList;
+  Result.ImplementationUses := AReader.ReadList;
+  Result.Includes := AReader.ReadList;
+  SetLength(Result.IncludeStamps, AReader.ReadCount);
+  for mIndex := 0 to High(Result.IncludeStamps) do
+  begin
+    Result.IncludeStamps[mIndex] := AReader.ReadInt;
+  end;
+  if Result.FileName = '' then
+  begin
+    Fail;
+  end;
+end;
+
+function ReadUnitHeader(var AReader: TCacheReader): TUnitIndex;
+var
+  mKind: TNamingKind;
+begin
+  Result := ReadUnitStart(AReader);
+  // Zahlen, keine Längen: ReadCount begrenzte sie auf die Dateigröße.
+  for mKind := Low(TNamingKind) to High(TNamingKind) do
+  begin
+    Result.Naming[mKind].Total := AReader.ReadNumber;
+    Result.Naming[mKind].Prefixed := AReader.ReadNumber;
+  end;
+  Result.Directives := AReader.ReadList;
+  Result.DeprecatedText := AReader.ReadString;
+  Result.Rationale := AReader.ReadList;
+  Result.Patterns := ReadPatterns(AReader);
+end;
+
+/// <summary>Ganzer Block einer Unit: String-Tabelle, Kopf, Symbole, nicht geltende Deklarationen, Verwendungen.
+/// </summary>
+function DecodeBlock(const ABlock: TBytes; out AUnit: TUnitIndex): Boolean;
+var
+  mReader: TCacheReader;
+  mIndex: Integer;
+begin
+  mReader := Default(TCacheReader);
+  mReader.Data := ABlock;
+  mReader.Limit := Length(ABlock);
+  try
+    try
+      mReader.ReadTable;
+      AUnit := ReadUnitHeader(mReader);
+      SetLength(AUnit.Symbols, mReader.ReadCount);
+      SetLength(AUnit.Unavailable, mReader.ReadCount);
+      for mIndex := 0 to High(AUnit.Symbols) do
+      begin
+        AUnit.Symbols[mIndex] := ReadSymbol(mReader);
+      end;
+      for mIndex := 0 to High(AUnit.Unavailable) do
+      begin
+        AUnit.Unavailable[mIndex] := ReadSymbol(mReader);
+      end;
+      SetLength(AUnit.Usages, mReader.ReadCount);
+      for mIndex := 0 to High(AUnit.Usages) do
+      begin
+        AUnit.Usages[mIndex] := ReadUsage(mReader);
+      end;
+      Result := mReader.Position = mReader.Limit;
+    except
+      on ECacheFormat do
+        Result := False;
+    end;
+  finally
+    mReader.Strings.Free;
+  end;
+  if not Result then
+  begin
+    AUnit := Default(TUnitIndex);
+  end;
+end;
+
+{ TCacheBlockSource }
+
+constructor TCacheBlockSource.Create(const AReader: IIndexBlockReader; AOffset: Int64; ALength: Integer;
+  AChecksum: Cardinal);
+begin
+  inherited Create;
+  FReader := AReader;
+  FOffset := AOffset;
+  FLength := ALength;
+  FChecksum := AChecksum;
+end;
+
+function TCacheBlockSource.BlockSize: Integer;
+begin
+  Result := FLength;
+end;
+
+function TCacheBlockSource.ReadBlock(out ABlock: TBytes; out AChecksum: Cardinal): Boolean;
+begin
+  AChecksum := FChecksum;
+  // Prüfsumme je Block: Ein beschädigter Block betrifft nur seine Unit.
+  Result := FReader.Read(FOffset, FLength, ABlock) and (ChecksumOf(ABlock, 0, Length(ABlock)) = FChecksum);
+  if not Result then
+  begin
+    ABlock := nil;
+  end;
+end;
+
+function TCacheBlockSource.Load(out AUnit: TUnitIndex): Boolean;
+var
+  mBlock: TBytes;
+  mChecksum: Cardinal;
+begin
+  AUnit := Default(TUnitIndex);
+  Result := ReadBlock(mBlock, mChecksum) and DecodeBlock(mBlock, AUnit);
+end;
+
+/// <summary>Katalog einer Unit aus dem Verzeichnis.</summary>
+function ReadCatalog(var AReader: TCacheReader; const AHeader: TUnitIndex): TCatalogUnit;
+var
+  mIndex: Integer;
+begin
+  Result := Default(TCatalogUnit);
+  Result.UnitName := AHeader.UnitName;
+  Result.FileName := AHeader.FileName;
+  Result.Library_ := AHeader.Library_;
+  Result.InterfaceUses := AHeader.InterfaceUses;
+  Result.ExportedTypeCount := AReader.ReadNumber;
+  Result.ExportedTypes := AReader.ReadList;
+  SetLength(Result.Symbols, AReader.ReadCount);
+  for mIndex := 0 to High(Result.Symbols) do
+  begin
+    Result.Symbols[mIndex].Name := AReader.ReadString;
+    Result.Symbols[mIndex].TypeName := AReader.ReadString;
+    Result.Symbols[mIndex].Kind := ReadKind(AReader);
+    Result.Symbols[mIndex].Start.Line := AReader.ReadInt32;
+    Result.Symbols[mIndex].Start.Character := AReader.ReadInt32;
+    Result.Symbols[mIndex].MinArgs := ReadArgCount(AReader);
+    Result.Symbols[mIndex].MaxArgs := ReadArgCount(AReader);
+    Result.Symbols[mIndex].Flags := Byte(AReader.ReadNumber);
+    Result.Symbols[mIndex].Ancestors := AReader.ReadList;
+  end;
+end;
+
+/// <summary>Überspringt den Katalog einer Unit im Verzeichnis, ohne seine Texte zu dekodieren.</summary>
+procedure SkipCatalog(var AReader: TCacheReader);
+var
+  mIndex, mCount, mEntry: Integer;
+begin
+  AReader.ReadNumber;
+  for mIndex := 1 to AReader.ReadCount do
+  begin
+    AReader.ReadVar;
+  end;
+  mCount := AReader.ReadCount;
+  for mIndex := 1 to mCount do
+  begin
+    AReader.ReadVar;
+    AReader.ReadVar;
+    ReadKind(AReader);
+    AReader.ReadInt32;
+    AReader.ReadInt32;
+    ReadArgCount(AReader);
+    ReadArgCount(AReader);
+    AReader.ReadNumber;
+    for mEntry := 1 to AReader.ReadCount do
+    begin
+      AReader.ReadVar;
+    end;
+  end;
+end;
+
+/// <summary>Einträge des Verzeichnisses; Blöcke liegen vor ADirectoryAt.</summary>
+function ReadDirectory(const ADirectory: TBytes; const AReader: IIndexBlockReader;
+  ADirectoryAt: Int64; ACatalog: Boolean): TArray<TIndexCacheEntry>;
+var
+  mReader: TCacheReader;
+  mIndex: Integer;
+  mOffset: UInt64;
+  mLength: Integer;
+  mChecksum: UInt64;
+begin
+  mReader := Default(TCacheReader);
+  mReader.Data := ADirectory;
+  mReader.Limit := Length(ADirectory);
+  try
+    mReader.ReadTable;
+    SetLength(Result, mReader.ReadCount);
+    for mIndex := 0 to High(Result) do
+    begin
+      Result[mIndex] := Default(TIndexCacheEntry);
+      Result[mIndex].Header := ReadUnitStart(mReader);
+      Result[mIndex].SymbolCount := mReader.ReadNumber;
+      Result[mIndex].UnavailableCount := mReader.ReadNumber;
+      Result[mIndex].UsageCount := mReader.ReadNumber;
+      if ACatalog then
+      begin
+        Result[mIndex].Catalog := ReadCatalog(mReader, Result[mIndex].Header);
+      end
+      else
+      begin
+        SkipCatalog(mReader);
+      end;
+      mOffset := mReader.ReadVar;
+      mLength := mReader.ReadNumber;
+      mChecksum := mReader.ReadVar;
+      if (mOffset < cHeadSize) or (mLength > cMaxSection) or (mOffset + UInt64(mLength) > UInt64(ADirectoryAt)) or
+        (mChecksum > High(Cardinal)) then
+      begin
+        Fail;
+      end;
+      Result[mIndex].Source := TCacheBlockSource.Create(AReader, Int64(mOffset), mLength, Cardinal(mChecksum));
+    end;
+    if mReader.Position <> mReader.Limit then
+    begin
+      Fail;
+    end;
+  finally
+    mReader.Strings.Free;
+  end;
 end;
 
 function HasMagic(const AData: TBytes): Boolean;
@@ -952,273 +1376,81 @@ begin
   end;
 end;
 
-/// <summary>Liest die gespeicherte Prüfsumme und vergleicht sie mit dem Rest der Datei.</summary>
-function ChecksumMatches(var AReader: TCacheReader; const AData: TBytes): Boolean;
+class function TIndexCache.ReadEntries(const AData: TBytes): TArray<TIndexCacheEntry>;
 var
-  mStored: Cardinal;
-  mIndex: Integer;
+  mReason: string;
 begin
-  if AReader.Position + cChecksumSize > AReader.Limit then
-  begin
-    Fail;
-  end;
-  mStored := 0;
-  for mIndex := cChecksumSize - 1 downto 0 do
-  begin
-    mStored := (mStored shl 8) or AData[AReader.Position + mIndex];
-  end;
-  Inc(AReader.Position, cChecksumSize);
-  Result := mStored = ChecksumOf(AData, AReader.Position, Length(AData));
-end;
-
-/// <summary>Die Länge davor und Platz dahinter prüfen; liefert die Länge.</summary>
-function ReadBlockSize(var AReader: TCacheReader): Integer;
-begin
-  Result := AReader.ReadCount;
-  if AReader.Position + Result > AReader.Limit then
-  begin
-    Fail;
-  end;
-end;
-
-function ReadPatterns(var AReader: TCacheReader; const AStrings: TArray<string>): TArray<TIndexFollowPattern>;
-var
-  mIndex, mLine: Integer;
-begin
-  SetLength(Result, AReader.ReadCount);
-  for mIndex := 0 to High(Result) do
-  begin
-    Result[mIndex].Trigger := AReader.ReadString(AStrings);
-    Result[mIndex].Follow := AReader.ReadString(AStrings);
-    Result[mIndex].Count := AReader.ReadNumber;
-    SetLength(Result[mIndex].Lines, AReader.ReadCount);
-    for mLine := 0 to High(Result[mIndex].Lines) do
-    begin
-      Result[mIndex].Lines[mLine] := AReader.ReadNumber;
-    end;
-  end;
-end;
-
-function ReadUnitHeader(var AReader: TCacheReader; const AStrings: TArray<string>): TUnitIndex;
-var
-  mFlags, mIndex: Integer;
-  mKind: TNamingKind;
-begin
-  Result := Default(TUnitIndex);
-  Result.UnitName := AReader.ReadString(AStrings);
-  Result.FileName := AReader.ReadString(AStrings);
-  Result.Stamp := AReader.ReadInt;
-  Result.Hash := AReader.ReadString(AStrings);
-  mFlags := AReader.ReadCount;
-  Result.Library_ := (mFlags and cFlagLibrary) <> 0;
-  Result.Compact := (mFlags and cFlagCompact) <> 0;
-  Result.HasInitialization := (mFlags and cFlagInitialization) <> 0;
-  Result.UsagesIndexed := (mFlags and cFlagUsages) <> 0;
-  Result.InterfaceUses := AReader.ReadList(AStrings);
-  Result.ImplementationUses := AReader.ReadList(AStrings);
-  Result.Includes := AReader.ReadList(AStrings);
-  SetLength(Result.IncludeStamps, AReader.ReadCount);
-  for mIndex := 0 to High(Result.IncludeStamps) do
-  begin
-    Result.IncludeStamps[mIndex] := AReader.ReadInt;
-  end;
-  // Zahlen, keine Längen: ReadCount begrenzte sie auf die Dateigröße.
-  for mKind := Low(TNamingKind) to High(TNamingKind) do
-  begin
-    Result.Naming[mKind].Total := AReader.ReadNumber;
-    Result.Naming[mKind].Prefixed := AReader.ReadNumber;
-  end;
-  Result.Directives := AReader.ReadList(AStrings);
-  Result.DeprecatedText := AReader.ReadString(AStrings);
-  Result.Rationale := AReader.ReadList(AStrings);
-  Result.Patterns := ReadPatterns(AReader, AStrings);
-end;
-
-/// <summary>Kopf einer Unit; ABody ist der Teil der Datei ab ABodyStart, auf den die Blöcke des Eintrags zeigen.
-/// </summary>
-function ReadEntry(var AReader: TCacheReader; const ABody: TBytes; ABodyStart: Integer;
-  const AStrings: TArray<string>): TIndexCacheEntry;
-var
-  mSize: Integer;
-begin
-  Result := Default(TIndexCacheEntry);
-  Result.Header := ReadUnitHeader(AReader, AStrings);
-  Result.SymbolCount := AReader.ReadCount;
-  Result.UnavailableCount := AReader.ReadCount;
-  mSize := ReadBlockSize(AReader);
-  Result.Data := ABody;
-  Result.Strings := AStrings;
-  Result.SymbolOffset := AReader.Position - ABodyStart;
-  Result.SymbolEnd := Result.SymbolOffset + mSize;
-  Inc(AReader.Position, mSize);
-  Result.UsageCount := AReader.ReadCount;
-  mSize := ReadBlockSize(AReader);
-  Result.UsageOffset := AReader.Position - ABodyStart;
-  Result.UsageEnd := Result.UsageOffset + mSize;
-  Inc(AReader.Position, mSize);
-  if Result.Header.FileName = '' then
-  begin
-    Fail;
-  end;
-end;
-
-/// <summary>Überspringt die String-Tabelle und liefert je Text Anfang und Länge seiner UTF-8-Bytes.</summary>
-procedure SkipStringTable(var AReader: TCacheReader; out AOffsets, ASizes: TArray<Integer>);
-var
-  mIndex: Integer;
-begin
-  SetLength(AOffsets, AReader.ReadCount);
-  SetLength(ASizes, Length(AOffsets));
-  for mIndex := 0 to High(AOffsets) do
-  begin
-    ASizes[mIndex] := ReadBlockSize(AReader);
-    AOffsets[mIndex] := AReader.Position;
-    Inc(AReader.Position, ASizes[mIndex]);
-  end;
-end;
-
-/// <summary>Markierlauf (c2): liest alle Einträge samt Symbol- und Verwendungsblöcken mit leeren Texten und hält in
-/// AReader.Marks fest, wie jede Textnummer gelesen wird. Das Ergebnis wird verworfen.</summary>
-procedure MarkTexts(AReader: TCacheReader; const ABlank: TArray<string>);
-var
-  mCount, mIndex, mSymbol: Integer;
-  mEntry: TIndexCacheEntry;
-  mBlock: TCacheReader;
-  mNoUtf8: TArray<UTF8String>;
-begin
-  mNoUtf8 := nil;
-  mCount := AReader.ReadCount;
-  for mIndex := 0 to mCount - 1 do
-  begin
-    mEntry := ReadEntry(AReader, AReader.Data, 0, ABlank);
-    mBlock.Data := AReader.Data;
-    mBlock.Marks := AReader.Marks;
-    mBlock.Position := mEntry.SymbolOffset;
-    mBlock.Limit := mEntry.SymbolEnd;
-    for mSymbol := 0 to mEntry.SymbolCount + mEntry.UnavailableCount - 1 do
-    begin
-      ReadSymbol(mBlock, ABlank, mNoUtf8);
-    end;
-    mBlock.Position := mEntry.UsageOffset;
-    mBlock.Limit := mEntry.UsageEnd;
-    for mSymbol := 0 to mEntry.UsageCount - 1 do
-    begin
-      ReadUsage(mBlock, ABlank);
-    end;
-  end;
-end;
-
-/// <summary>Liest den Inhalt hinter Kopf und Version; '' in AReason, wenn alles stimmt.</summary>
-function ReadBody(var AReader: TCacheReader; const AData: TBytes; out AReason: string): TArray<TIndexCacheEntry>;
-var
-  mStrings, mBlank: TArray<string>;
-  mUtf8: TArray<UTF8String>;
-  mOffsets, mSizes: TArray<Integer>;
-  mMarks: TArray<Byte>;
-  mIndex, mBodyStart: Integer;
-  mBody: TBytes;
-  mMarking: TCacheReader;
-begin
-  Result := nil;
-  // Prüfsumme (#492): abgeschnittene oder veränderte Dateien vor dem Dekodieren erkennen.
-  if not ChecksumMatches(AReader, AData) then
-  begin
-    AReason := cTexts[TCacheText.ChecksumDoesNotMatch].Text;
-    Exit;
-  end;
-  // Erst feststellen, welche Texte nur als Signatur dienen (c2); dann jeden Text nur in der nötigen Form anlegen.
-  SkipStringTable(AReader, mOffsets, mSizes);
-  SetLength(mMarks, Length(mOffsets));
-  // Platzhalter statt der Texte: Der Kopf einer Unit braucht einen nicht leeren Dateinamen.
-  SetLength(mBlank, Length(mOffsets));
-  for mIndex := 0 to High(mBlank) do
-  begin
-    mBlank[mIndex] := cMarkPlaceholder;
-  end;
-  mMarking := AReader;
-  mMarking.Marks := mMarks;
-  MarkTexts(mMarking, mBlank);
-  mBlank := nil;
-  SetLength(mStrings, Length(mOffsets));
-  SetLength(mUtf8, Length(mOffsets));
-  for mIndex := 1 to High(mOffsets) do
-  begin
-    if mSizes[mIndex] = 0 then
-    begin
-      Continue;
-    end;
-    // Ungelesene Texte wie bisher als string: lieber zu viel als ein fehlender.
-    if (mMarks[mIndex] and cMarkSignature = 0) or (mMarks[mIndex] and cMarkText <> 0) then
-    begin
-      mStrings[mIndex] := TEncoding.UTF8.GetString(AData, mOffsets[mIndex], mSizes[mIndex]);
-    end;
-    if mMarks[mIndex] and cMarkSignature <> 0 then
-    begin
-      SetLength(mUtf8[mIndex], mSizes[mIndex]);
-      Move(AData[mOffsets[mIndex]], PAnsiChar(mUtf8[mIndex])^, mSizes[mIndex]);
-    end;
-  end;
-  mMarks := nil;
-  mOffsets := nil;
-  mSizes := nil;
-  // Nur der Teil hinter der String-Tabelle lebt mit den Einträgen weiter (b2).
-  mBodyStart := AReader.Position;
-  mBody := Copy(AData, mBodyStart, AReader.Limit - mBodyStart);
-  SetLength(Result, AReader.ReadCount);
-  for mIndex := 0 to High(Result) do
-  begin
-    Result[mIndex] := ReadEntry(AReader, mBody, mBodyStart, mStrings);
-    Result[mIndex].Utf8 := mUtf8;
-  end;
-  if AReader.Position <> AReader.Limit then
-  begin
-    Fail;
-  end;
-  AReason := '';
+  Result := ReadEntries(AData, mReason);
 end;
 
 class function TIndexCache.ReadEntries(const AData: TBytes; out AReason: string): TArray<TIndexCacheEntry>;
+begin
+  Result := ReadEntries(TIndexBlockFiles.OfBytes(AData, 0), AReason);
+end;
+
+class function TIndexCache.ReadEntries(const AReader: IIndexBlockReader;
+  out AReason: string): TArray<TIndexCacheEntry>;
+begin
+  Result := ReadEntries(AReader, AReason, True);
+end;
+
+class function TIndexCache.ReadEntries(const AReader: IIndexBlockReader; out AReason: string;
+  ACatalog: Boolean): TArray<TIndexCacheEntry>;
 var
-  mReader: TCacheReader;
-  mVersion: UInt64;
+  mHead, mDirectory: TBytes;
+  mDirectoryAt: UInt64;
+  mLength: Cardinal;
+  mChecksum: Cardinal;
 begin
   Result := nil;
   AReason := '';
-  if Length(AData) = 0 then
+  if (AReader = nil) or (AReader.Size = 0) then
   begin
     Exit;
   end;
   AReason := cTexts[TCacheText.NoDpccIndexHeaderMissing].Text;
-  if not HasMagic(AData) then
+  if (AReader.Size < cHeadSize) or not AReader.Read(0, cHeadSize, mHead) or not HasMagic(mHead) then
+  begin
+    // Älteres Format mit kürzerem Kopf: die Version steht wie hier hinter dem Magic.
+    if (Length(mHead) = 0) and AReader.Read(0, Length(cMagic) + 1, mHead) and HasMagic(mHead) and
+      (mHead[cVersionAt] <> cFormatVersion) then
+    begin
+      AReason := cTexts[TCacheText.FormatVersionInsteadOf].Fmt([mHead[cVersionAt], cFormatVersion]);
+    end;
+    Exit;
+  end;
+  if mHead[cVersionAt] <> cFormatVersion then
+  begin
+    AReason := cTexts[TCacheText.FormatVersionInsteadOf].Fmt([mHead[cVersionAt], cFormatVersion]);
+    Exit;
+  end;
+  mDirectoryAt := GetFixed(mHead, cDirectoryAt, 8);
+  mLength := Cardinal(GetFixed(mHead, cDirectoryAt + 8, 4));
+  mChecksum := Cardinal(GetFixed(mHead, cDirectoryAt + 12, 4));
+  // Das Verzeichnis steht am Ende: Eine abgeschnittene Datei fällt hier auf.
+  AReason := cTexts[TCacheText.ContentDamaged].Text;
+  if (mDirectoryAt < cHeadSize) or (mLength > cMaxSection) or (mDirectoryAt + mLength <> UInt64(AReader.Size)) or
+    not AReader.Read(Int64(mDirectoryAt), Integer(mLength), mDirectory) then
   begin
     Exit;
   end;
-  mReader.Data := AData;
-  mReader.Position := Length(cMagic);
-  mReader.Limit := Length(AData);
+  if ChecksumOf(mDirectory, 0, Length(mDirectory)) <> mChecksum then
+  begin
+    AReason := cTexts[TCacheText.ChecksumDoesNotMatch].Text;
+    Exit;
+  end;
   try
-    mVersion := mReader.ReadVar;
-    if mVersion <> cFormatVersion then
-    begin
-      AReason := cTexts[TCacheText.FormatVersionInsteadOf].Fmt([mVersion, cFormatVersion]);
-    end
-    else
-    begin
-      Result := ReadBody(mReader, AData, AReason);
-    end;
+    Result := ReadDirectory(mDirectory, AReader, Int64(mDirectoryAt), ACatalog);
+    AReason := '';
   except
     on ECacheFormat do
-    begin
       Result := nil;
-      AReason := cTexts[TCacheText.ContentDamaged].Text;
-    end;
   end;
 end;
 
 class function TIndexCache.ExpandUsages(const AEntry: TIndexCacheEntry; out AUsages: TArray<TIndexUsage>): Boolean;
 var
-  mReader: TCacheReader;
-  mIndex: Integer;
+  mUnit: TUnitIndex;
 begin
   AUsages := nil;
   if AEntry.Expanded then
@@ -1226,23 +1458,10 @@ begin
     AUsages := AEntry.Header.Usages;
     Exit(True);
   end;
-  mReader.Data := AEntry.Data;
-  mReader.Position := AEntry.UsageOffset;
-  mReader.Limit := AEntry.UsageEnd;
-  try
-    SetLength(AUsages, AEntry.UsageCount);
-    for mIndex := 0 to AEntry.UsageCount - 1 do
-    begin
-      AUsages[mIndex] := ReadUsage(mReader, AEntry.Strings);
-    end;
-    Result := mReader.Position = mReader.Limit;
-  except
-    on ECacheFormat do
-      Result := False;
-  end;
-  if not Result then
+  Result := (AEntry.Source <> nil) and AEntry.Source.Load(mUnit);
+  if Result then
   begin
-    AUsages := nil;
+    AUsages := mUnit.Usages;
   end;
 end;
 
@@ -1252,48 +1471,22 @@ begin
 end;
 
 class function TIndexCache.Expand(const AEntry: TIndexCacheEntry; out AUnit: TUnitIndex; AUsages: Boolean): Boolean;
-var
-  mReader: TCacheReader;
-  mIndex: Integer;
 begin
   AUnit := AEntry.Header;
   if AEntry.Expanded then
   begin
     Exit(True);
   end;
-  mReader.Data := AEntry.Data;
-  mReader.Position := AEntry.SymbolOffset;
-  mReader.Limit := AEntry.SymbolEnd;
-  try
-    SetLength(AUnit.Symbols, AEntry.SymbolCount);
-    for mIndex := 0 to AEntry.SymbolCount - 1 do
-    begin
-      AUnit.Symbols[mIndex] := ReadSymbol(mReader, AEntry.Strings, AEntry.Utf8);
-    end;
-    SetLength(AUnit.Unavailable, AEntry.UnavailableCount);
-    for mIndex := 0 to AEntry.UnavailableCount - 1 do
-    begin
-      AUnit.Unavailable[mIndex] := ReadSymbol(mReader, AEntry.Strings, AEntry.Utf8);
-    end;
-    Result := mReader.Position = mReader.Limit;
-  except
-    on ECacheFormat do
-      Result := False;
-  end;
-  if Result and AEntry.Header.UsagesIndexed then
-  begin
-    if AUsages then
-    begin
-      Result := ExpandUsages(AEntry, AUnit.Usages);
-    end
-    else
-    begin
-      AUnit.UsagesOffloaded := AEntry.UsageCount > 0;
-    end;
-  end;
+  Result := (AEntry.Source <> nil) and AEntry.Source.Load(AUnit);
   if not Result then
   begin
     AUnit := AEntry.Header;
+    Exit;
+  end;
+  if AUnit.UsagesIndexed and not AUsages then
+  begin
+    AUnit.Usages := nil;
+    AUnit.UsagesOffloaded := AEntry.UsageCount > 0;
   end;
 end;
 

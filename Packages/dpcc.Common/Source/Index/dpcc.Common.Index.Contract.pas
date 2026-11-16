@@ -15,6 +15,7 @@ interface
 
 uses
   System.SysUtils,
+  System.Classes,
   System.Generics.Collections,
   dpcc.Common.Documents.Contract;
 
@@ -245,6 +246,86 @@ type
     Symbol: TIndexSymbol;
   end;
 
+  /// <summary>Katalogeintrag eines importierbaren Symbols (interface, oberste Ebene; Speicher-Optimierung Phase 3):
+  /// nur, was "+ Unit", gleichnamige Symbole und die Helfer-Suche brauchen. Der Katalog kennt alle Units, auch die,
+  /// deren volle Symbole nicht im Speicher sind; die Texte teilt er sich mit den Symbolen geladener Units.</summary>
+  TCatalogSymbol = record
+    Name: string;
+    /// <summary>Wie TIndexSymbol.TypeName.</summary>
+    TypeName: string;
+    /// <summary>Vorfahren bei Klassen, Interfaces, Objekten und Helfern (beim Helfer der Zieltyp zuletzt); sonst
+    /// nil.</summary>
+    Ancestors: TArray<string>;
+    /// <summary>Anfang des Namens (TIndexSymbol.SelectionRange.StartPos).</summary>
+    Start: TTextPosition;
+    MinArgs: SmallInt;
+    MaxArgs: SmallInt;
+    Kind: TIndexSymbolKind;
+    /// <summary>cCatalogUnavailable, cCatalogScopedEnum.</summary>
+    Flags: Byte;
+    /// <summary>Class- oder Record-Helper mit Zieltyp (#456)?</summary>
+    function IsHelper: Boolean;
+    /// <summary>TIndexSymbol mit den Feldern des Katalogs (InInterface, ohne Container); der Rest bleibt leer.
+    /// </summary>
+    function ToSymbol: TIndexSymbol;
+  public const
+    cCatalogUnavailable = 1;
+    cCatalogScopedEnum = 2;
+  end;
+
+  /// <summary>Katalog einer Unit (Speicher-Optimierung Phase 3): Kopf für die uses-Vervollständigung und die
+  /// importierbaren Symbole. Bleibt im Speicher, auch wenn die Unit selbst verdrängt ist.</summary>
+  TCatalogUnit = record
+    UnitName: string;
+    FileName: string;
+    Library_: Boolean;
+    InterfaceUses: TArray<string>;
+    /// <summary>Die ersten cExportedTypes Typen des interface in Deklarationsreihenfolge, generische mit
+    /// Typparametern (TList&lt;T&gt;); ExportedTypeCount ist die Gesamtzahl.</summary>
+    ExportedTypes: TArray<string>;
+    ExportedTypeCount: Integer;
+    Symbols: TArray<TCatalogSymbol>;
+    /// <summary>Katalog aus einer Unit mit Symbolen.</summary>
+    class function FromUnit(const AUnit: TUnitIndex): TCatalogUnit; static;
+    /// <summary>Ist ASymbol ein Eintrag des Katalogs (im interface, oberste Ebene)?</summary>
+    class function IsEntry(const ASymbol: TIndexSymbol): Boolean; static;
+    /// <summary>TUnitIndex mit Name, Datei, Bibliotheksmerker und interface-uses; ohne Symbole.</summary>
+    function Header: TUnitIndex;
+    /// <summary>Geschätzter Bedarf in Byte (geteilte Texte zählen bei jeder Verwendung).</summary>
+    function Bytes: Int64;
+  public const
+    cExportedTypes = 6;
+  end;
+
+  /// <summary>Liest Abschnitte einer Datei über ein offenes Handle (Index-Cache Format 34, Speicher-Optimierung
+  /// Phase 3). Unter Windows teilt das Handle Lesen, Schreiben und Löschen: Ersetzt jemand die Datei
+  /// (TFile.Replace), liest es weiter den alten Stand, zu dem sein Verzeichnis passt. Threadsicher.</summary>
+  IIndexBlockReader = interface
+    ['{5B8E2D41-6C37-4A92-B1F0-7E3D9A4C2B58}']
+    /// <summary>Liest genau ACount Byte ab AOffset; False bei Lese- oder Bereichsfehler.</summary>
+    function Read(AOffset: Int64; ACount: Integer; out ABytes: TBytes): Boolean;
+    /// <summary>Größe der Datei beim Öffnen.</summary>
+    function Size: Int64;
+    /// <summary>Zeitstempel der Datei beim Öffnen (wie IIndexFileSystem.FileStamp).</summary>
+    function Stamp: Int64;
+  end;
+
+  /// <summary>Schreibt den Inhalt einer Datei in AStream; False bricht ab, die alte Datei bleibt.</summary>
+  TIndexStreamWrite = reference to function(AStream: TStream): Boolean;
+
+  /// <summary>Herkunft der vollen Symbole einer Unit, die nicht im Speicher ist: ihr Block im Index-Cache
+  /// (Speicher-Optimierung Phase 3). Threadsicher.</summary>
+  IIndexUnitSource = interface
+    ['{9D41C7E2-3A58-4B16-8F2D-6E0B5A9C1D73}']
+    /// <summary>Liest und dekodiert die ganze Unit (Symbole, nicht geltende Deklarationen, Verwendungen); False,
+    /// wenn der Block fehlt oder beschädigt ist.</summary>
+    function Load(out AUnit: TUnitIndex): Boolean;
+    /// <summary>Der Block unverändert samt Prüfsumme, zum Kopieren in einen neuen Cache.</summary>
+    function ReadBlock(out ABlock: TBytes; out AChecksum: Cardinal): Boolean;
+    /// <summary>Größe des Blocks in Byte.</summary>
+    function BlockSize: Integer;
+  end;
+
   /// <summary>Geschätzter Speicher des Index nach Bereichen in Byte (#1356); die drei ergeben MemoryBytes.</summary>
   TIndexMemoryParts = record
     /// <summary>Symbole und uses der Projekt-Units (ohne Verwendungen).</summary>
@@ -257,6 +338,66 @@ type
 
   /// <summary>Prüffunktion für ISymbolIndex.HasSymbol.</summary>
   TSymbolMatch = reference to function(const ASymbol: TIndexSymbol): Boolean;
+
+  /// <summary>Eine Unit des Index zum Schreiben des Caches (Speicher-Optimierung Phase 3): geladen mit Symbolen oder
+  /// verdrängt als Kopf mit Katalog und Block (Source).</summary>
+  TIndexStoredUnit = record
+    /// <summary>Mit Symbolen, wenn Loaded; sonst nur der Kopf.</summary>
+    Unit_: TUnitIndex;
+    Catalog: TCatalogUnit;
+    /// <summary>Block im Cache, aus dem die Unit nachgeladen werden kann; nil, solange keiner geschrieben ist.
+    /// </summary>
+    Source: IIndexUnitSource;
+    Loaded: Boolean;
+    /// <summary>Wird nie verdrängt (Projekt, Suchpfade, uses-Hülle, oft genutzt).</summary>
+    Pinned: Boolean;
+    SymbolCount: Integer;
+    UnavailableCount: Integer;
+    UsageCount: Integer;
+  end;
+
+  /// <summary>Zustand des bedarfsweisen Ladens (Speicher-Optimierung Phase 3) für das Diagnoselog "mem".</summary>
+  TIndexLazyStats = record
+    /// <summary>Units im Katalog (alle) und sein geschätzter Bedarf.</summary>
+    CatalogUnits: Integer;
+    CatalogBytes: Int64;
+    /// <summary>Units mit Symbolen im Speicher, davon gepinnt (nie verdrängt) und verdrängbar.</summary>
+    Loaded: Integer;
+    Pinned: Integer;
+    Evictable: Integer;
+    /// <summary>Geschätzter Bedarf der verdrängbaren Units; Obergrenze TSymbolIndex.cEvictableBudget.</summary>
+    EvictableBytes: Int64;
+    /// <summary>Units nur im Katalog (verdrängt oder nie geladen).</summary>
+    Cold: Integer;
+    /// <summary>Nachgeladene und verdrängte Units seit dem Start des Index.</summary>
+    Loads: Integer;
+    Evictions: Integer;
+    /// <summary>Dauer des Nachladens (Block lesen und dekodieren) in ms: Median der letzten Ladevorgänge, Höchstwert
+    /// und die größte nachgeladene Unit (Byte) samt ihrer Dauer.</summary>
+    LoadMedianMs: Double;
+    LoadMaxMs: Double;
+    LargestLoadBytes: Int64;
+    LargestLoadMs: Double;
+  end;
+
+  /// <summary>Nutzungsstatistik der Bibliotheks-Units (Speicher-Optimierung Phase 3): Zähler mit Zerfall, die
+  /// entscheiden, welche Units beim Aufbau geladen und nie verdrängt werden. Threadsicher.</summary>
+  IIndexUsage = interface
+    ['{E2A7C5D3-91B4-4F68-8C0E-3D5B7A1F9E26}']
+    /// <summary>Zählt eine Nutzung der Unit AUnitName mit AWeight Punkten.</summary>
+    procedure Note(const AUnitName: string; AWeight: Integer);
+    /// <summary>Punkte der Unit nach Zerfall; 0 = unbekannt.</summary>
+    function Score(const AUnitName: string): Integer;
+    /// <summary>Datei, in der die Statistik steht ('' = nur im Speicher).</summary>
+    function FileName: string;
+  end;
+
+const
+  /// <summary>Ab so vielen Punkten der Nutzungsstatistik gilt eine Bibliotheks-Unit als oft genutzt (Phase 3): Der
+  /// Aufbau lädt sie gleich, der Index verdrängt sie nie.</summary>
+  cIndexHotScore = 24;
+
+type
 
   ISymbolIndex = interface
     ['{8E3A51C4-7B29-4D6E-A0F8-2C9D41E7B635}']
@@ -304,6 +445,34 @@ type
     /// Phase 2). Die Units behalten ihre geteilten Strings; erst später hinzukommende teilen sie nicht mehr mit
     /// früheren. Die Ablage wuchs sonst mit jedem Text und hielt auch die ersetzter Fassungen.</summary>
     procedure ReleaseStringPool;
+    /// <summary>Wie FindFile, lädt aber nichts nach (Speicher-Optimierung Phase 3): eine verdrängte Unit kommt als
+    /// Kopf ohne Symbole. Für Entscheidungen des Aufbaus (Stand, Defines, Includes).</summary>
+    function FindHeader(const AFileName: string; out AUnit: TUnitIndex): Boolean;
+    /// <summary>Wie FindUnit ohne Nachladen.</summary>
+    function FindUnitHeader(const AUnitName: string; out AUnit: TUnitIndex): Boolean;
+    /// <summary>Katalog aller Units, auch der verdrängten; geteilter Schnappschuss bis zur nächsten Änderung
+    /// (Generation). Nachladen und Verdrängen ändern ihn nicht.</summary>
+    function CatalogUnits: TArray<TCatalogUnit>;
+    /// <summary>Alle Units zum Schreiben des Caches.</summary>
+    function StoredUnits: TArray<TIndexStoredUnit>;
+    /// <summary>Wie AddUnit für eine Bibliotheks-Unit, die verdrängt werden darf, sobald ihr Block bekannt ist
+    /// (ASource; nil = noch nicht im Cache).</summary>
+    procedure AddEvictable(const AUnit: TUnitIndex; const ASource: IIndexUnitSource);
+    /// <summary>Nur Kopf und Katalog einer Unit; ihre Symbole lädt FindUnit bzw. FindFile bei Bedarf aus ASource.
+    /// </summary>
+    procedure AddCold(const AHeader: TUnitIndex; const ACatalog: TCatalogUnit; const ASource: IIndexUnitSource;
+      ASymbolCount, AUnavailableCount, AUsageCount: Integer);
+    /// <summary>Hält die Unit AFileName dauerhaft im Speicher und lädt sie dafür nach; AWasPinned sagt, ob sie es
+    /// schon war. False, wenn sie unbekannt ist oder sich nicht laden lässt.</summary>
+    function Pin(const AFileName: string; out AWasPinned: Boolean): Boolean;
+    /// <summary>Gibt den Units mit gleichem Stand (Datei, Zeitstempel, Hash wie in AHeaders) die Blöcke ASources (nach
+    /// dem Schreiben oder Lesen eines Caches); liefert ihre Zahl. Nicht gepinnte dürfen danach verdrängt werden, bei
+    /// gepinnten dient der Block dem nächsten Cache als Kopie.</summary>
+    function BindSources(const AHeaders: TArray<TUnitIndex>; const ASources: TArray<IIndexUnitSource>): Integer;
+    function LazyStats: TIndexLazyStats;
+    /// <summary>Nutzungsstatistik der Bibliotheks-Units; nil = keine.</summary>
+    procedure SetUsage(const AUsage: IIndexUsage);
+    function Usage: IIndexUsage;
   end;
 
   /// <summary>Antworten, die nur vom Index und einem Namen abhängen, über alle Units eines Arbeitsbereichs
@@ -329,6 +498,31 @@ type
     /// <summary>Ein Schreiber je Datei über alle Prozesse: sperrt AFileName, ohne zu warten; nil,
     /// wenn ein anderer sie hält. Freigeben des Ergebnisses hebt die Sperre auf.</summary>
     function TryLockWrite(const AFileName: string): IInterface;
+    /// <summary>Öffnet AFileName zum Lesen einzelner Abschnitte (Index-Cache Format 34); nil, wenn sie fehlt oder
+    /// sich nicht öffnen lässt.</summary>
+    function OpenBlocks(const AFileName: string): IIndexBlockReader;
+    /// <summary>Wie WriteBytes, nur schreibt AWrite den Inhalt nach und nach in einen Strom (Index-Cache Format 34):
+    /// Der ganze Cache liegt nie am Stück im Speicher. Ein Leser sieht nie einen halben Stand.</summary>
+    function WriteStream(const AFileName: string; const AWrite: TIndexStreamWrite; out AError: string): Boolean;
+  end;
+
+  /// <summary>Öffnet eine Datei für IIndexBlockReader; von der Plattform gesetzt (TIndexBlockFiles).</summary>
+  TIndexBlockOpener = reference to function(const AFileName: string): IIndexBlockReader;
+
+  /// <summary>Lesen einzelner Abschnitte einer Datei (Speicher-Optimierung Phase 3). Ohne Opener öffnet jeder
+  /// Lesevorgang die Datei neu (RTL, ohne Löschen zu teilen) und prüft, dass sie seit dem Öffnen nicht ersetzt
+  /// wurde; unter Windows trägt die Plattform einen Opener ein, der das Handle hält und Löschen teilt
+  /// (dpcc.Windows.Documents.SharedRead).</summary>
+  TIndexBlockFiles = class
+  private
+    class var FOpener: TIndexBlockOpener;
+  public
+    /// <summary>Reader über AFileName; nil, wenn sie fehlt.</summary>
+    class function Open(const AFileName: string): IIndexBlockReader; static;
+    /// <summary>Reader über Bytes im Speicher (Tests, Dateisystem im Speicher).</summary>
+    class function OfBytes(const ABytes: TBytes; AStamp: Int64): IIndexBlockReader; static;
+    /// <summary>Nur beim Start setzen.</summary>
+    class property Opener: TIndexBlockOpener read FOpener write FOpener;
   end;
 
   TIndexProgressKind = (Started, Report, Finished);
@@ -577,6 +771,315 @@ constructor TFileChange.Create(const AFileName: string; AKind: TFileChangeKind);
 begin
   FileName := AFileName;
   Kind := AKind;
+end;
+
+{ TCatalogSymbol }
+
+function TCatalogSymbol.IsHelper: Boolean;
+begin
+  Result := (Kind = TIndexSymbolKind.HelperType) and (Length(Ancestors) > 0);
+end;
+
+function TCatalogSymbol.ToSymbol: TIndexSymbol;
+begin
+  Result := Default(TIndexSymbol);
+  Result.Name := Name;
+  Result.Kind := Kind;
+  Result.InInterface := True;
+  Result.TypeName := TypeName;
+  Result.Ancestors := Ancestors;
+  Result.SelectionRange.StartPos := Start;
+  Result.SelectionRange.EndPos := TTextPosition.Create(Start.Line, Start.Character + Length(Name));
+  Result.Range := Result.SelectionRange;
+  Result.MinArgs := MinArgs;
+  Result.MaxArgs := MaxArgs;
+  Result.Unavailable := (Flags and cCatalogUnavailable) <> 0;
+  Result.ScopedEnum := (Flags and cCatalogScopedEnum) <> 0;
+end;
+
+{ TCatalogUnit }
+
+const
+  /// <summary>Typen für die uses-Vervollständigung (wie cIndexTypeKinds der Vervollständigung).</summary>
+  cCatalogTypeKinds = [TIndexSymbolKind.ClassType, TIndexSymbolKind.ObjectType, TIndexSymbolKind.RecordType,
+    TIndexSymbolKind.InterfaceType, TIndexSymbolKind.HelperType, TIndexSymbolKind.EnumType,
+    TIndexSymbolKind.TypeAlias];
+  /// <summary>Arten, deren Vorfahren der Katalog behält (Filter für Exceptions und Attribute, Helfer).</summary>
+  cCatalogAncestorKinds = [TIndexSymbolKind.ClassType, TIndexSymbolKind.ObjectType,
+    TIndexSymbolKind.InterfaceType, TIndexSymbolKind.HelperType];
+
+class function TCatalogUnit.IsEntry(const ASymbol: TIndexSymbol): Boolean;
+begin
+  Result := ASymbol.InInterface and (ASymbol.Container = '');
+end;
+
+class function TCatalogUnit.FromUnit(const AUnit: TUnitIndex): TCatalogUnit;
+var
+  mPosition, mCount: Integer;
+  mName: string;
+begin
+  Result := Default(TCatalogUnit);
+  Result.UnitName := AUnit.UnitName;
+  Result.FileName := AUnit.FileName;
+  Result.Library_ := AUnit.Library_;
+  Result.InterfaceUses := AUnit.InterfaceUses;
+  mCount := 0;
+  for mPosition := 0 to High(AUnit.Symbols) do
+  begin
+    Inc(mCount, Ord(IsEntry(AUnit.Symbols[mPosition])));
+  end;
+  SetLength(Result.Symbols, mCount);
+  mCount := 0;
+  // Über den Index: die Symbol-Records nicht kopieren.
+  for mPosition := 0 to High(AUnit.Symbols) do
+  begin
+    if not IsEntry(AUnit.Symbols[mPosition]) then
+    begin
+      Continue;
+    end;
+    Result.Symbols[mCount].Name := AUnit.Symbols[mPosition].Name;
+    Result.Symbols[mCount].TypeName := AUnit.Symbols[mPosition].TypeName;
+    if AUnit.Symbols[mPosition].Kind in cCatalogAncestorKinds then
+    begin
+      Result.Symbols[mCount].Ancestors := AUnit.Symbols[mPosition].Ancestors;
+    end;
+    Result.Symbols[mCount].Start := AUnit.Symbols[mPosition].SelectionRange.StartPos;
+    Result.Symbols[mCount].MinArgs := AUnit.Symbols[mPosition].MinArgs;
+    Result.Symbols[mCount].MaxArgs := AUnit.Symbols[mPosition].MaxArgs;
+    Result.Symbols[mCount].Kind := AUnit.Symbols[mPosition].Kind;
+    Result.Symbols[mCount].Flags := 0;
+    if AUnit.Symbols[mPosition].Unavailable then
+    begin
+      Result.Symbols[mCount].Flags := Result.Symbols[mCount].Flags or TCatalogSymbol.cCatalogUnavailable;
+    end;
+    if AUnit.Symbols[mPosition].ScopedEnum then
+    begin
+      Result.Symbols[mCount].Flags := Result.Symbols[mCount].Flags or TCatalogSymbol.cCatalogScopedEnum;
+    end;
+    Inc(mCount);
+    if AUnit.Symbols[mPosition].Kind in cCatalogTypeKinds then
+    begin
+      Inc(Result.ExportedTypeCount);
+      if Length(Result.ExportedTypes) < cExportedTypes then
+      begin
+        mName := AUnit.Symbols[mPosition].Name;
+        if AUnit.Symbols[mPosition].TypeParams <> '' then
+        begin
+          mName := mName + '<' + AUnit.Symbols[mPosition].TypeParams.Replace(' ', '') + '>';
+        end;
+        Result.ExportedTypes := Result.ExportedTypes + [mName];
+      end;
+    end;
+  end;
+end;
+
+function TCatalogUnit.Header: TUnitIndex;
+begin
+  Result := Default(TUnitIndex);
+  Result.UnitName := UnitName;
+  Result.FileName := FileName;
+  Result.Library_ := Library_;
+  Result.InterfaceUses := InterfaceUses;
+end;
+
+/// <summary>Kopf, UTF-16-Zeichen und Endnull eines Strings wie in TIndexMemory.</summary>
+function CatalogStringBytes(const AValue: string): Int64;
+begin
+  if AValue = '' then
+  begin
+    Result := 0;
+  end
+  else
+  begin
+    Result := 12 + (Length(AValue) + 1) * SizeOf(Char);
+  end;
+end;
+
+function TCatalogUnit.Bytes: Int64;
+var
+  mIndex: Integer;
+begin
+  // Namen der Symbole zählen voll, Typnamen und Vorfahren nur als Verweis: Sie teilen sich wenige Texte.
+  Result := SizeOf(TCatalogUnit) + CatalogStringBytes(UnitName) + CatalogStringBytes(FileName) +
+    16 + Length(InterfaceUses) * SizeOf(Pointer);
+  for mIndex := 0 to High(ExportedTypes) do
+  begin
+    Inc(Result, CatalogStringBytes(ExportedTypes[mIndex]) + SizeOf(Pointer));
+  end;
+  if Length(Symbols) > 0 then
+  begin
+    Inc(Result, 16 + Int64(Length(Symbols)) * SizeOf(TCatalogSymbol));
+  end;
+  for mIndex := 0 to High(Symbols) do
+  begin
+    Inc(Result, CatalogStringBytes(Symbols[mIndex].Name));
+  end;
+end;
+
+{ Blockleser }
+
+type
+  /// <summary>Abschnitte aus Bytes im Speicher.</summary>
+  TBytesBlockReader = class(TInterfacedObject, IIndexBlockReader)
+  private
+    FBytes: TBytes;
+    FStamp: Int64;
+  public
+    constructor Create(const ABytes: TBytes; AStamp: Int64);
+    function Read(AOffset: Int64; ACount: Integer; out ABytes: TBytes): Boolean;
+    function Size: Int64;
+    function Stamp: Int64;
+  end;
+
+  /// <summary>Ohne Opener der Plattform: öffnet die Datei je Lesevorgang neu (die RTL teilt Löschen nicht, ein
+  /// gehaltenes Handle verhinderte das Ersetzen) und liest nur, solange sie den Zeitstempel vom Öffnen hat.
+  /// </summary>
+  TReopeningBlockReader = class(TInterfacedObject, IIndexBlockReader)
+  private
+    FFileName: string;
+    FSize: Int64;
+    FStamp: Int64;
+  public
+    constructor Create(const AFileName: string; ASize, AStamp: Int64);
+    function Read(AOffset: Int64; ACount: Integer; out ABytes: TBytes): Boolean;
+    function Size: Int64;
+    function Stamp: Int64;
+  end;
+
+constructor TBytesBlockReader.Create(const ABytes: TBytes; AStamp: Int64);
+begin
+  inherited Create;
+  FBytes := ABytes;
+  FStamp := AStamp;
+end;
+
+function TBytesBlockReader.Read(AOffset: Int64; ACount: Integer; out ABytes: TBytes): Boolean;
+begin
+  ABytes := nil;
+  Result := (AOffset >= 0) and (ACount >= 0) and (AOffset + ACount <= Length(FBytes));
+  if Result then
+  begin
+    ABytes := Copy(FBytes, Integer(AOffset), ACount);
+  end;
+end;
+
+function TBytesBlockReader.Size: Int64;
+begin
+  Result := Length(FBytes);
+end;
+
+function TBytesBlockReader.Stamp: Int64;
+begin
+  Result := FStamp;
+end;
+
+/// <summary>Zeitstempel wie TDiskIndexFileSystem.FileStamp; False, wenn die Datei fehlt.</summary>
+function DiskStamp(const AFileName: string; out AStamp: Int64): Boolean;
+var
+  mAge: TDateTime;
+begin
+  Result := FileAge(AFileName, mAge);
+  AStamp := 0;
+  if Result then
+  begin
+    AStamp := Round(mAge * MSecsPerDay);
+  end;
+end;
+
+constructor TReopeningBlockReader.Create(const AFileName: string; ASize, AStamp: Int64);
+begin
+  inherited Create;
+  FFileName := AFileName;
+  FSize := ASize;
+  FStamp := AStamp;
+end;
+
+function TReopeningBlockReader.Read(AOffset: Int64; ACount: Integer; out ABytes: TBytes): Boolean;
+var
+  mStream: TFileStream;
+  mStamp: Int64;
+begin
+  ABytes := nil;
+  if (AOffset < 0) or (ACount < 0) or (AOffset + ACount > FSize) or not DiskStamp(FFileName, mStamp) or
+    (mStamp <> FStamp) then
+  begin
+    Exit(False);
+  end;
+  try
+    mStream := TFileStream.Create(FFileName, fmOpenRead or fmShareDenyNone);
+    try
+      Result := mStream.Size = FSize;
+      if Result then
+      begin
+        SetLength(ABytes, ACount);
+        mStream.Position := AOffset;
+        if ACount > 0 then
+        begin
+          mStream.ReadBuffer(ABytes[0], ACount);
+        end;
+      end;
+    finally
+      mStream.Free;
+    end;
+  except
+    on EStreamError do
+      Result := False;
+    on EInOutError do
+      Result := False;
+  end;
+  if not Result then
+  begin
+    ABytes := nil;
+  end;
+end;
+
+function TReopeningBlockReader.Size: Int64;
+begin
+  Result := FSize;
+end;
+
+function TReopeningBlockReader.Stamp: Int64;
+begin
+  Result := FStamp;
+end;
+
+{ TIndexBlockFiles }
+
+class function TIndexBlockFiles.Open(const AFileName: string): IIndexBlockReader;
+var
+  mOpener: TIndexBlockOpener;
+  mStamp, mSize: Int64;
+  mStream: TFileStream;
+begin
+  mOpener := FOpener;
+  if Assigned(mOpener) then
+  begin
+    Exit(mOpener(AFileName));
+  end;
+  Result := nil;
+  if not FileExists(AFileName) or not DiskStamp(AFileName, mStamp) then
+  begin
+    Exit;
+  end;
+  try
+    mStream := TFileStream.Create(AFileName, fmOpenRead or fmShareDenyNone);
+    try
+      mSize := mStream.Size;
+    finally
+      mStream.Free;
+    end;
+  except
+    on EStreamError do
+      Exit(nil);
+    on EInOutError do
+      Exit(nil);
+  end;
+  Result := TReopeningBlockReader.Create(AFileName, mSize, mStamp);
+end;
+
+class function TIndexBlockFiles.OfBytes(const ABytes: TBytes; AStamp: Int64): IIndexBlockReader;
+begin
+  Result := TBytesBlockReader.Create(ABytes, AStamp);
 end;
 
 end.

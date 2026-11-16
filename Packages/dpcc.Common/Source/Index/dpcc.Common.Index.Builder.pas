@@ -35,6 +35,20 @@
 //   15.10.2026): Jeder Eintrag hält die ganze gelesene Cache-Datei; mit sechs
 //   Projekten lagen so Projekt- und Bibliotheks-Cache sechsmal im Speicher,
 //   obwohl der Index sie längst übernommen hatte.
+// - Bedarfsweises Laden (Speicher-Optimierung Phase 3, LazyLibrary): Die
+//   Bibliotheksstufe übernimmt Units aus dem Cache nur mit Kopf, Katalog und
+//   Block (ISymbolIndex.AddCold); neu gelesene kommen verdrängbar in den Index
+//   (AddEvictable). Die Projektstufe (Projektdateien und ihre uses-Hülle wie
+//   IndexReferenced) lädt und pinnt; trifft sie auf eine Unit, die nur im
+//   Katalog steht, lädt und pinnt sie diese und folgt ihren uses. Oft genutzte
+//   Units (Nutzungsstatistik, Usage) lädt auch die Bibliotheksstufe gleich.
+//   Ohne Cache (erster Start) liest die Bibliotheksstufe alle Units neu; sie
+//   bleiben im Speicher, bis ihr Block im Cache steht. Damit die Spitze dabei
+//   begrenzt bleibt, ruft sie OnLibraryFlush, sobald neu gelesene Units rund
+//   cFlushBytes belegen: Der Dienst schreibt dann den Bibliotheks-Cache, und der
+//   Index darf diese Units verdrängen.
+//   Entscheidungen über den Stand einer Unit (AlreadyIndexed, Stufen) laden
+//   nichts nach (FindHeader).
 
 interface
 
@@ -124,6 +138,10 @@ type
   end;
 
   TIndexBuilder = class
+  public const
+    /// <summary>Ab so vielen (geschätzten) Bytes neu gelesener Units ruft die Bibliotheksstufe OnLibraryFlush.
+    /// </summary>
+    cFlushBytes = 32 * 1024 * 1024;
   private
     FIndex: ISymbolIndex;
     FFileSystem: IIndexFileSystem;
@@ -138,7 +156,16 @@ type
     FUsages: Boolean;
     FOnProjectDone: TIndexStageDone;
     FRarelyUsedRoots: TArray<string>;
+    FLazyLibrary: Boolean;
+    FUsage: IIndexUsage;
+    FOnLibraryFlush: TIndexStageDone;
+    // Geschätzte Bytes der neu gelesenen, noch nicht im Cache stehenden Units seit dem letzten OnLibraryFlush.
+    FUnboundBytes: Int64;
     function WantsUsages(ALibrary: Boolean): Boolean;
+    /// <summary>Oft genutzte Unit (Nutzungsstatistik): beim Aufbau laden und nie verdrängen.</summary>
+    function Hot(const AUnitName: string): Boolean;
+    /// <summary>Übernimmt den Cache-Eintrag nur mit Kopf, Katalog und Block (Phase 3).</summary>
+    procedure AddColdFrom(const AEntry: TIndexCacheEntry; AStamp: Int64; ALibrary: Boolean);
     /// <summary>Taugt der Cache-Eintrag? AMiss nennt bei False den Grund.</summary>
     function CacheFits(const AEntry: TIndexCacheEntry; ALibrary: Boolean; out AMiss: TIndexCacheMiss): Boolean;
     function FromCache(const AEntry: TIndexCacheEntry; ALibrary: Boolean; out AUnit: TUnitIndex): Boolean;
@@ -148,10 +175,14 @@ type
     function AlreadyIndexed(const AFileName: string; AStamp: Int64; ALibrary: Boolean): Boolean;
     /// <summary>Indiziert AFileName; liest ein anderer Thread die Datei gerade, wartet es auf ihn und übernimmt sein
     /// Ergebnis (#1236).</summary>
-    function IndexFile(const AFileName: string; ALibrary: Boolean; var AResult: TIndexBuildResult): Boolean;
-    function IndexFileNow(const AFileName: string; ALibrary: Boolean; var AResult: TIndexBuildResult): Boolean;
-    /// <summary>Liest AText neu ein und übernimmt die Unit in den Index (Parsed).</summary>
-    procedure ParseFile(const AFileName, AText, AHash: string; AStamp: Int64; ALibrary: Boolean;
+    /// <summary>ALazy (Bibliotheksstufe mit LazyLibrary): aus dem Cache nur Kopf und Katalog, neu gelesen
+    /// verdrängbar.</summary>
+    function IndexFile(const AFileName: string; ALibrary: Boolean; var AResult: TIndexBuildResult;
+      ALazy: Boolean = False): Boolean;
+    function IndexFileNow(const AFileName: string; ALibrary: Boolean; var AResult: TIndexBuildResult;
+      ALazy: Boolean): Boolean;
+    /// <summary>Liest AText neu ein und übernimmt die Unit in den Index (Parsed); mit ALazy verdrängbar.</summary>
+    procedure ParseFile(const AFileName, AText, AHash: string; AStamp: Int64; ALibrary, ALazy: Boolean;
       var AResult: TIndexBuildResult);
     procedure IndexReferenced(var AResult: TIndexBuildResult; const ARun: TIndexStageRun);
     /// <summary>Holt die über uses genannte Unit AName in den Index, falls nötig; AUses sind die uses, denen der
@@ -216,12 +247,20 @@ type
     /// ein, wenn eine Unit außerhalb der Installation (LibraryRoots) sie in den uses nennt, nicht über die uses der
     /// Bibliothek; EnsureUnit lädt sie weiter bei Bedarf. Leer = keine Ausnahme.</summary>
     property RarelyUsedRoots: TArray<string> read FRarelyUsedRoots write FRarelyUsedRoots;
+    /// <summary>Bibliotheksstufe lädt nur Kopf und Katalog (Speicher-Optimierung Phase 3); Standard aus.</summary>
+    property LazyLibrary: Boolean read FLazyLibrary write FLazyLibrary;
+    /// <summary>Nutzungsstatistik: oft genutzte Units lädt auch die Bibliotheksstufe gleich; nil = keine.</summary>
+    property Usage: IIndexUsage read FUsage write FUsage;
+    /// <summary>Läuft in der Bibliotheksstufe mit LazyLibrary, sobald neu gelesene Units ohne Block rund cFlushBytes
+    /// belegen (Phase 3): z. B. den Bibliotheks-Cache schreiben, damit der Index sie verdrängen darf.</summary>
+    property OnLibraryFlush: TIndexStageDone read FOnLibraryFlush write FOnLibraryFlush;
   end;
 
 implementation
 
 uses
   dpcc.Common.Pascal.IncludeFiles,
+  dpcc.Common.Index.Memory,
   dpcc.Common.Index.Extractor,
   dpcc.Common.Localization.Texts;
 
@@ -295,16 +334,22 @@ end;
 procedure SeedReferenced(const AIndex: ISymbolIndex; APending: TQueue<TReferencedName>;
   ASeen: TDictionary<string, Boolean>; const ALibraryRoots: TArray<string>);
 var
-  mUnit: TUnitIndex;
+  mStored: TIndexStoredUnit;
   mFromLibrary: Boolean;
 begin
-  for mUnit in AIndex.Units do
+  // Nur die gepinnten Units (Phase 3): Die uses einer nur bei Bedarf geladenen Bibliotheks-Unit gehören nicht zur
+  // Hülle der Projekte; sonst wüchse sie mit jedem Nachladen.
+  for mStored in AIndex.StoredUnits do
   begin
-    ASeen.AddOrSetValue(UpperCase(mUnit.UnitName), True);
+    if not mStored.Pinned then
+    begin
+      Continue;
+    end;
+    ASeen.AddOrSetValue(UpperCase(mStored.Unit_.UnitName), True);
     // Bibliothek heißt hier: Datei der Delphi-Installation (nicht: über uses nachgeladen).
-    mFromLibrary := TIndexFileDefines.IsUnder(mUnit.FileName, ALibraryRoots);
-    EnqueueAll(APending, mUnit.InterfaceUses, mFromLibrary);
-    EnqueueAll(APending, mUnit.ImplementationUses, mFromLibrary);
+    mFromLibrary := TIndexFileDefines.IsUnder(mStored.Unit_.FileName, ALibraryRoots);
+    EnqueueAll(APending, mStored.Unit_.InterfaceUses, mFromLibrary);
+    EnqueueAll(APending, mStored.Unit_.ImplementationUses, mFromLibrary);
   end;
 end;
 
@@ -312,13 +357,16 @@ end;
 function DependentsOf(const AIndex: ISymbolIndex; const AFileName: string): TArray<TUnitIndex>;
 var
   mList: TList<TUnitIndex>;
+  mStored: TIndexStoredUnit;
   mUnit: TUnitIndex;
   mInclude: string;
 begin
   mList := TList<TUnitIndex>.Create;
   try
-    for mUnit in AIndex.Units do
+    // Alle Units samt verdrängter (Phase 3): Ihr Kopf kennt die Include-Dateien.
+    for mStored in AIndex.StoredUnits do
     begin
+      mUnit := mStored.Unit_;
       for mInclude in mUnit.Includes do
       begin
         if SameText(mInclude, AFileName) then
@@ -532,7 +580,8 @@ begin
   // Ohne diese Prüfung übernahm jedes Projekt einer Gruppe die gemeinsamen Units erneut (aus dem Cache oder
   // geparst) und ersetzte die des vorigen; die Namenslisten des Index behielten die ersetzten Einträge, bis es
   // mehr tote als lebende gab (Speicher, Rückmeldung 01.11.2026). Bedingungen wie bei CacheFits.
-  Result := FIndex.FindFile(AFileName, mExisting) and (mExisting.Stamp = AStamp) and
+  // Ohne Nachladen (Phase 3): Kopf einer verdrängten Unit reicht.
+  Result := FIndex.FindHeader(AFileName, mExisting) and (mExisting.Stamp = AStamp) and
     (mExisting.Library_ = ALibrary) and Keeps(mExisting) and IncludesUnchanged(FFileSystem, mExisting);
 end;
 
@@ -605,6 +654,29 @@ begin
   Result := FUsages and not ALibrary;
 end;
 
+function TIndexBuilder.Hot(const AUnitName: string): Boolean;
+begin
+  Result := (FUsage <> nil) and (FUsage.Score(AUnitName) >= cIndexHotScore);
+end;
+
+procedure TIndexBuilder.AddColdFrom(const AEntry: TIndexCacheEntry; AStamp: Int64; ALibrary: Boolean);
+var
+  mHeader: TUnitIndex;
+  mCatalog: TCatalogUnit;
+begin
+  mHeader := AEntry.Header;
+  mHeader.Stamp := AStamp;
+  mHeader.Library_ := ALibrary;
+  mHeader.DefinesKey := FDefines.KeyOf(mHeader.FileName);
+  if not WantsUsages(ALibrary) then
+  begin
+    mHeader.UsagesIndexed := False;
+  end;
+  mCatalog := AEntry.Catalog;
+  mCatalog.Library_ := ALibrary;
+  FIndex.AddCold(mHeader, mCatalog, AEntry.Source, AEntry.SymbolCount, AEntry.UnavailableCount, AEntry.UsageCount);
+end;
+
 function TIndexBuilder.CacheFits(const AEntry: TIndexCacheEntry; ALibrary: Boolean;
   out AMiss: TIndexCacheMiss): Boolean;
 begin
@@ -661,7 +733,7 @@ begin
 end;
 
 function TIndexBuilder.IndexFile(const AFileName: string; ALibrary: Boolean;
-  var AResult: TIndexBuildResult): Boolean;
+  var AResult: TIndexBuildResult; ALazy: Boolean): Boolean;
 var
   mIndex: ISymbolIndex;
   mFileName: string;
@@ -674,26 +746,26 @@ begin
     var
       mExisting: TUnitIndex;
     begin
-      Result := mIndex.FindFile(mFileName, mExisting);
+      Result := mIndex.FindHeader(mFileName, mExisting);
     end) then
   begin
     Exit(True);
   end;
   try
-    Result := IndexFileNow(AFileName, ALibrary, AResult);
+    Result := IndexFileNow(AFileName, ALibrary, AResult, ALazy);
   finally
     FInFlight.Remove(AFileName);
   end;
 end;
 
 function TIndexBuilder.IndexFileNow(const AFileName: string; ALibrary: Boolean;
-  var AResult: TIndexBuildResult): Boolean;
+  var AResult: TIndexBuildResult; ALazy: Boolean): Boolean;
 var
   mStamp: Int64;
   mText, mHash: string;
   mEntry: TIndexCacheEntry;
   mCached: TUnitIndex;
-  mHasCache, mTaken: Boolean;
+  mHasCache, mTaken, mCold: Boolean;
   mMiss: TIndexCacheMiss;
 begin
   if not FFileSystem.FileStamp(AFileName, mStamp) then
@@ -708,9 +780,18 @@ begin
   end;
   mMiss := TIndexCacheMiss.NoEntry;
   mHasCache := FCache.TryGet(AFileName, mEntry) and CacheFits(mEntry, ALibrary, mMiss);
+  // Phase 3: In der Bibliotheksstufe genügen Kopf, Katalog und Block; die Symbole lädt der Index bei Bedarf.
+  mCold := ALazy and mHasCache and not mEntry.Expanded and (mEntry.Source <> nil) and
+    not Hot(mEntry.Header.UnitName);
+  if mCold and (mEntry.Header.Stamp = mStamp) then
+  begin
+    AddColdFrom(mEntry, mStamp, ALibrary);
+    Inc(AResult.FromCache);
+    Exit(True);
+  end;
   // Zeitstempel oder Inhalt passen: erst jetzt die Symbole dekodieren; ein beschädigter Block
   // zählt wie ein fehlender Cache-Eintrag.
-  mTaken := mHasCache and (mEntry.Header.Stamp = mStamp) and FromCache(mEntry, ALibrary, mCached);
+  mTaken := not mCold and mHasCache and (mEntry.Header.Stamp = mStamp) and FromCache(mEntry, ALibrary, mCached);
   if not mTaken then
   begin
     if not FFileSystem.ReadText(AFileName, mText) then
@@ -719,6 +800,13 @@ begin
       Exit(False);
     end;
     mHash := TIndexCache.HashOf(mText);
+    if mCold and (mEntry.Header.Hash = mHash) then
+    begin
+      // Nur der Zeitstempel ist neu: Der Kopf trägt ihn, der Block bleibt.
+      AddColdFrom(mEntry, mStamp, ALibrary);
+      Inc(AResult.FromCache);
+      Exit(True);
+    end;
     if mHasCache and (mEntry.Header.Hash = mHash) then
     begin
       mTaken := FromCache(mEntry, ALibrary, mCached);
@@ -734,16 +822,28 @@ begin
     mCached.Stamp := mStamp;
     mCached.Library_ := ALibrary;
     mCached.DefinesKey := FDefines.KeyOf(AFileName);
-    FIndex.AddUnit(mCached);
+    if ALazy and not Hot(mCached.UnitName) then
+    begin
+      // Aus dem Cache, aber vollständig (z. B. ohne Block): verdrängbar, sobald der Block bekannt ist.
+      FIndex.AddEvictable(mCached, mEntry.Source);
+      if mEntry.Source = nil then
+      begin
+        Inc(FUnboundBytes, TIndexMemory.UnitBytes(mCached));
+      end;
+    end
+    else
+    begin
+      FIndex.AddUnit(mCached);
+    end;
     Inc(AResult.FromCache);
     Exit(True);
   end;
-  ParseFile(AFileName, mText, mHash, mStamp, ALibrary, AResult);
+  ParseFile(AFileName, mText, mHash, mStamp, ALibrary, ALazy, AResult);
   Inc(AResult.Misses[mMiss]);
   Result := True;
 end;
 
-procedure TIndexBuilder.ParseFile(const AFileName, AText, AHash: string; AStamp: Int64; ALibrary: Boolean;
+procedure TIndexBuilder.ParseFile(const AFileName, AText, AHash: string; AStamp: Int64; ALibrary, ALazy: Boolean;
   var AResult: TIndexBuildResult);
 var
   mWatch: TStopwatch;
@@ -758,7 +858,16 @@ begin
   mUnit.IncludeStamps := IncludeStampsOf(FFileSystem, mUnit.Includes);
   mUnit.Library_ := ALibrary;
   mUnit.DefinesKey := FDefines.KeyOf(AFileName);
-  FIndex.AddUnit(mUnit);
+  if ALazy and not Hot(mUnit.UnitName) then
+  begin
+    // Noch ohne Block im Cache: verdrängbar erst, wenn der Cache geschrieben ist (TIndexCacheWriter bindet ihn).
+    FIndex.AddEvictable(mUnit, nil);
+    Inc(FUnboundBytes, TIndexMemory.UnitBytes(mUnit));
+  end
+  else
+  begin
+    FIndex.AddUnit(mUnit);
+  end;
   Inc(AResult.Parsed);
 end;
 
@@ -769,12 +878,21 @@ var
   mFileName: string;
   mStamp: Int64;
   mWatch: TStopwatch;
+  mWasPinned: Boolean;
 begin
   AUses := nil;
   ALibrary := True;
-  if FIndex.FindUnit(AName, mExisting) then
+  if FIndex.FindUnitHeader(AName, mExisting) then
   begin
-    Exit(False);
+    // Phase 3: Steht sie nur im Katalog (Bibliotheksstufe), gehört sie jetzt zur Hülle: laden, pinnen und ihren uses
+    // folgen. Sonst wie bisher nichts zu tun.
+    if not FIndex.Pin(mExisting.FileName, mWasPinned) or mWasPinned then
+    begin
+      Exit(False);
+    end;
+    AUses := mExisting.InterfaceUses;
+    ALibrary := TIndexFileDefines.IsUnder(mExisting.FileName, FDefines.LibraryRoots);
+    Exit(True);
   end;
   mWatch := TStopwatch.StartNew;
   mFileName := FResolveUnit(AName);
@@ -792,18 +910,20 @@ begin
   end;
   // Unter anderem Namen schon im Index, z. B. "Forms" als Vcl.Forms aus einem anderen Projekt
   // der Gruppe: nicht neu einlesen. Sonst las jedes Projekt dieselben Units erneut (#647).
-  if not (FIndex.FindFile(mFileName, mExisting) and FFileSystem.FileStamp(mFileName, mStamp) and
+  if not (FIndex.FindHeader(mFileName, mExisting) and FFileSystem.FileStamp(mFileName, mStamp) and
     (mStamp = mExisting.Stamp)) then
   begin
     if Assigned(AProgress) then
     begin
       AProgress(TIndexProgressKind.Report, AName, -1);
     end;
-    if not (IndexFile(mFileName, True, AResult) and FIndex.FindFile(mFileName, mExisting)) then
+    if not (IndexFile(mFileName, True, AResult) and FIndex.FindHeader(mFileName, mExisting)) then
     begin
       Exit(False);
     end;
   end;
+  // Zur Hülle der Projekte: geladen halten (auch wenn sie bisher nur im Katalog stand).
+  FIndex.Pin(mFileName, mWasPinned);
   // Nur das interface ist von außen sichtbar; dessen uses reichen.
   AUses := mExisting.InterfaceUses;
   ALibrary := TIndexFileDefines.IsUnder(mExisting.FileName, FDefines.LibraryRoots);
@@ -876,13 +996,21 @@ begin
       AResult.Cancelled := IsCancelled(ARun.Cancelled);
       // Schon da (anderes Projekt der Gruppe, über uses erreicht): Suchpfade und Bibliothek nicht noch einmal
       // lesen. Projektdateien prüft IndexFile selbst (gleiche Defines, AlreadyIndexed).
-      if not AResult.Cancelled and (mProject or not FIndex.FindFile(AFiles[mIndex], mExisting)) then
+      if not AResult.Cancelled and (mProject or not FIndex.FindHeader(AFiles[mIndex], mExisting)) then
       begin
         if Assigned(ARun.Progress) then
         begin
           ARun.Progress(TIndexProgressKind.Report, ALabel + AFiles[mIndex], ((ADone + mIndex) * 100) div ARun.Total);
         end;
-        IndexFile(AFiles[mIndex], AStage = TIndexStage.Library_, AResult);
+        IndexFile(AFiles[mIndex], AStage = TIndexStage.Library_, AResult,
+          (AStage = TIndexStage.Library_) and FLazyLibrary);
+        // Erster Start ohne Cache: zwischendurch schreiben lassen, damit die neu gelesenen Units gehen dürfen.
+        if (AStage = TIndexStage.Library_) and FLazyLibrary and (FUnboundBytes >= cFlushBytes) and
+          Assigned(FOnLibraryFlush) then
+        begin
+          FUnboundBytes := 0;
+          FOnLibraryFlush(AResult);
+        end;
       end;
       Inc(mIndex);
     end;
@@ -975,7 +1103,7 @@ var
 begin
   Result := False;
   // Nur Units, die der Index kennt; neue Dateien kommen wie bisher beim Speichern dazu.
-  if not FIndex.FindFile(AFileName, mExisting) then
+  if not FIndex.FindHeader(AFileName, mExisting) then
   begin
     Exit;
   end;
@@ -1008,7 +1136,7 @@ begin
       Inc(Result);
     end;
   end;
-  if not FIndex.FindFile(AChange.FileName, mExisting) then
+  if not FIndex.FindHeader(AChange.FileName, mExisting) then
   begin
     // Eine neue Datei kann eine bisher fehlende Unit sein.
     if AChange.Kind <> TFileChangeKind.Deleted then

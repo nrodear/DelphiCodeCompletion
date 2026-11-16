@@ -42,6 +42,18 @@ type
     function Budget: Int64;
     function Generation: Int64;
     procedure ReleaseStringPool;
+    function FindHeader(const AFileName: string; out AUnit: TUnitIndex): Boolean;
+    function FindUnitHeader(const AUnitName: string; out AUnit: TUnitIndex): Boolean;
+    function CatalogUnits: TArray<TCatalogUnit>;
+    function StoredUnits: TArray<TIndexStoredUnit>;
+    procedure AddEvictable(const AUnit: TUnitIndex; const ASource: IIndexUnitSource);
+    procedure AddCold(const AHeader: TUnitIndex; const ACatalog: TCatalogUnit; const ASource: IIndexUnitSource;
+      ASymbolCount, AUnavailableCount, AUsageCount: Integer);
+    function Pin(const AFileName: string; out AWasPinned: Boolean): Boolean;
+    function BindSources(const AHeaders: TArray<TUnitIndex>; const ASources: TArray<IIndexUnitSource>): Integer;
+    function LazyStats: TIndexLazyStats;
+    procedure SetUsage(const AUsage: IIndexUsage);
+    function Usage: IIndexUsage;
   end;
 
 implementation
@@ -197,6 +209,78 @@ function TIdeIndex.Generation: Int64;
 begin
   // Beide zählen nur hoch: Die Summe ändert sich bei jeder Änderung an einem der beiden.
   Result := FInner.Generation + FIde.Generation;
+end;
+
+function TIdeIndex.FindHeader(const AFileName: string; out AUnit: TUnitIndex): Boolean;
+begin
+  Result := FInner.FindHeader(AFileName, AUnit) or FIde.FindHeader(AFileName, AUnit);
+end;
+
+function TIdeIndex.FindUnitHeader(const AUnitName: string; out AUnit: TUnitIndex): Boolean;
+begin
+  Result := FInner.FindUnitHeader(AUnitName, AUnit) or FIde.FindUnitHeader(AUnitName, AUnit);
+end;
+
+function TIdeIndex.CatalogUnits: TArray<TCatalogUnit>;
+var
+  mIde: TArray<TCatalogUnit>;
+  mInner, mIndex: Integer;
+begin
+  Result := FInner.CatalogUnits;
+  // Wie Units: ohne Ersatz-Units den Schnappschuss des gemeinsamen Index unverändert weitergeben.
+  mIde := FIde.CatalogUnits;
+  if Length(mIde) = 0 then
+  begin
+    Exit;
+  end;
+  mInner := Length(Result);
+  Result := Copy(Result);
+  SetLength(Result, mInner + Length(mIde));
+  for mIndex := 0 to High(mIde) do
+  begin
+    Result[mInner + mIndex] := mIde[mIndex];
+  end;
+end;
+
+function TIdeIndex.StoredUnits: TArray<TIndexStoredUnit>;
+begin
+  Result := FInner.StoredUnits;
+end;
+
+procedure TIdeIndex.AddEvictable(const AUnit: TUnitIndex; const ASource: IIndexUnitSource);
+begin
+  FInner.AddEvictable(AUnit, ASource);
+end;
+
+procedure TIdeIndex.AddCold(const AHeader: TUnitIndex; const ACatalog: TCatalogUnit; const ASource: IIndexUnitSource;
+  ASymbolCount, AUnavailableCount, AUsageCount: Integer);
+begin
+  FInner.AddCold(AHeader, ACatalog, ASource, ASymbolCount, AUnavailableCount, AUsageCount);
+end;
+
+function TIdeIndex.Pin(const AFileName: string; out AWasPinned: Boolean): Boolean;
+begin
+  Result := FInner.Pin(AFileName, AWasPinned);
+end;
+
+function TIdeIndex.BindSources(const AHeaders: TArray<TUnitIndex>; const ASources: TArray<IIndexUnitSource>): Integer;
+begin
+  Result := FInner.BindSources(AHeaders, ASources);
+end;
+
+function TIdeIndex.LazyStats: TIndexLazyStats;
+begin
+  Result := FInner.LazyStats;
+end;
+
+procedure TIdeIndex.SetUsage(const AUsage: IIndexUsage);
+begin
+  FInner.SetUsage(AUsage);
+end;
+
+function TIdeIndex.Usage: IIndexUsage;
+begin
+  Result := FInner.Usage;
 end;
 
 end.

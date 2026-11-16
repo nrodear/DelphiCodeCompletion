@@ -299,6 +299,9 @@ begin
   end;
   Result.LibraryCacheFile := TIndexCacheDirectory.LibraryFileFor(ATarget.CacheRoot, ALoaded.Version,
     mLibrarySignature);
+  // Speicher-Optimierung Phase 3: Die Bibliotheksstufe übernimmt Units aus diesem Cache nur mit Kopf und Katalog;
+  // ihre Symbole lädt der Index bei Bedarf. Bewusst ohne Einstellung.
+  Result.LazyLibrary := True;
   if Length(AFiles.SearchFiles) > 0 then
   begin
     Result.SearchCacheFile := TIndexCacheDirectory.SearchFileFor(ATarget.CacheRoot, ALoaded.Version,

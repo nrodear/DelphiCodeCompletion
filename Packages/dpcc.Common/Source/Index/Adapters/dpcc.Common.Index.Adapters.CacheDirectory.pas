@@ -481,10 +481,12 @@ end;
 function ProjectUnitsOf(const ACacheFile: string): TArray<string>;
 var
   mEntry: TIndexCacheEntry;
+  mReason: string;
 begin
   Result := nil;
   try
-    for mEntry in TIndexCache.ReadEntries(TFile.ReadAllBytes(ACacheFile)) do
+    // Format 34: nur Kopf und Verzeichnis lesen, nicht die ganze Datei.
+    for mEntry in TIndexCache.ReadEntries(TIndexBlockFiles.Open(ACacheFile), mReason) do
     begin
       if not mEntry.Header.Library_ and (mEntry.Header.FileName <> '') then
       begin

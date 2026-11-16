@@ -167,7 +167,9 @@ begin
   while mDot > 0 do
   begin
     mPrefix := Copy(AChain, 1, mDot - 1);
-    if ((AOwnUnit <> '') and SameText(mPrefix, AOwnUnit)) or ((AIndex <> nil) and AIndex.FindUnit(mPrefix, mUnit)) then
+    // Nur ob es eine Unit ist: ohne sie nachzuladen (Speicher-Optimierung Phase 3).
+    if ((AOwnUnit <> '') and SameText(mPrefix, AOwnUnit)) or ((AIndex <> nil) and AIndex.FindUnitHeader(mPrefix,
+      mUnit)) then
     begin
       Exit(Copy(AChain, mDot + 1, MaxInt));
     end;

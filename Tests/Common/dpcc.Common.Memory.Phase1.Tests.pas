@@ -13,7 +13,8 @@ uses
   dpcc.Common.Index.Contract;
 
 type
-  /// <summary>Dateisystem im Speicher; zählt ReadBytes je Datei (aus den früheren Index-Tests).</summary>
+  /// <summary>Dateisystem im Speicher; zählt ReadBytes und OpenBlocks je Datei (aus den früheren Index-Tests).
+  /// </summary>
   TCountingIndexFileSystem = class(TInterfacedObject, IIndexFileSystem)
   private
     FTexts: TDictionary<string, string>;
@@ -25,7 +26,7 @@ type
     constructor Create;
     destructor Destroy; override;
     procedure Put(const AFileName, AText: string; AStamp: Int64);
-    /// <summary>So oft wurde AFileName mit ReadBytes gelesen.</summary>
+    /// <summary>So oft wurde AFileName mit ReadBytes gelesen oder mit OpenBlocks geöffnet.</summary>
     function ByteReads(const AFileName: string): Integer;
     function FileStamp(const AFileName: string; out AStamp: Int64): Boolean;
     function ReadText(const AFileName: string; out AText: string): Boolean;
@@ -33,6 +34,8 @@ type
     function ReadBytes(const AFileName: string; out ABytes: TBytes): Boolean;
     function WriteBytes(const AFileName: string; const ABytes: TBytes; out AError: string): Boolean;
     function TryLockWrite(const AFileName: string): IInterface;
+    function OpenBlocks(const AFileName: string): IIndexBlockReader;
+    function WriteStream(const AFileName: string; const AWrite: TIndexStreamWrite; out AError: string): Boolean;
     procedure Unlock(const AFileName: string);
   end;
 
@@ -199,6 +202,33 @@ begin
     Result := True;
   finally
     TMonitor.Exit(Self);
+  end;
+end;
+
+function TCountingIndexFileSystem.OpenBlocks(const AFileName: string): IIndexBlockReader;
+var
+  mBytes: TBytes;
+  mStamp: Int64;
+begin
+  if not ReadBytes(AFileName, mBytes) or not FileStamp(AFileName, mStamp) then
+  begin
+    Exit(nil);
+  end;
+  // Die Bytes ersetzt WriteBytes als Ganzes: Der Leser behält den Stand vom Öffnen wie ein Handle unter Windows.
+  Result := TIndexBlockFiles.OfBytes(mBytes, mStamp);
+end;
+
+function TCountingIndexFileSystem.WriteStream(const AFileName: string; const AWrite: TIndexStreamWrite;
+  out AError: string): Boolean;
+var
+  mStream: TBytesStream;
+begin
+  AError := '';
+  mStream := TBytesStream.Create;
+  try
+    Result := AWrite(mStream) and WriteBytes(AFileName, Copy(mStream.Bytes, 0, mStream.Size), AError);
+  finally
+    mStream.Free;
   end;
 end;
 

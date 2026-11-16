@@ -136,7 +136,7 @@ Den Speicher des IDE-Prozesses meldet es in Zeilen „mem“: beim Start und am 
 10 Minuten, sobald eine Anfrage endet. Beispiel:
 
 ```
-14:02:10.521 mem indexDone private 778 MB peak 2011 MB ws 790 MB free 1294 MB index 376 MB units 2131 lib 1557 docs 0 trees 0 0 MB dcp 4 27 kb
+14:02:10.521 mem indexDone private 104 MB peak 127 MB ws 118 MB free 2003 MB index 56 MB units 2027 lib 1481 docs 0 trees 0 0 MB dcp 4 27 kb loaded 703 pinned 701 evictable 2 1 MB cold 1324 catalog 13 MB loads 15 evicted 0 loadms 0.2 max 3.6
 ```
 
 | Feld | Bedeutung |
@@ -146,17 +146,24 @@ Den Speicher des IDE-Prozesses meldet es in Zeilen „mem“: beim Start und am 
 | `peak` | höchster Stand von `private` seit dem Start der IDE |
 | `ws` | Working Set (Speicher im RAM; sinkt beim Auslagern, `private` nicht) |
 | `free` | größter zusammenhängender freier Bereich im Adressraum; wird er klein, droht „Out of memory“ trotz freiem RAM |
-| `index` | geschätzter Speicher des Symbolindex |
+| `index` | geschätzter Speicher des Symbolindex: geladene Units und Katalog |
 | `units`, `lib` | Units im Index, davon aus der Bibliothek |
 | `docs` | geöffnete Dokumente beim Server |
 | `trees` | Syntaxbäume und ihr geschätzter Speicher |
 | `dcp` | gemerkte übersetzte Packages (`.dcp`) und ihre Namen in KB |
+| `loaded`, `pinned`, `evictable` | Units mit allen Symbolen im Speicher; davon gepinnt (nie freigegeben) und freigebbar, dazu deren Speicher (Obergrenze 32 MB). Siehe [Bibliothek bei Bedarf](index-cache.md#bibliothek-bei-bedarf) |
+| `cold` | Units nur im Katalog |
+| `catalog` | geschätzter Speicher des Katalogs aller Units |
+| `loads`, `evicted` | seit dem Start des Servers nachgeladene und wieder freigegebene Units |
+| `loadms`, `max` | Dauer des Nachladens in ms: Median der letzten Ladevorgänge und Höchstwert |
 
 Auch „run start … mem n MB“ und die Zeilen „index … mem n MB“ nennen die Private Bytes des Prozesses.
 
 ## Die IDE braucht viel Speicher
 
 - Das Diagnoselog des Servers zeigt in den Zeilen „mem“, wie viel davon auf den Index entfällt (siehe oben).
+- Von der Bibliothek hält der Index nur die Units ständig im Speicher, die die Projekte erreichen oder oft brauchen;
+  die übrigen lädt er bei Bedarf und gibt sie wieder frei. Siehe [Index und Cache](index-cache.md#bibliothek-bei-bedarf).
 - Die Office-Typbibliotheken und WinRT sind ohne den Schalter „Office-Typbibliotheken und WinRT vorab indizieren“ nicht
   im Index. Siehe [Index und Cache](index-cache.md#office-typbibliotheken-und-winrt).
 - Nur die 16 zuletzt benutzten Dateien behalten im Server ihren Syntaxbaum; für ältere baut er ihn beim nächsten Zugriff

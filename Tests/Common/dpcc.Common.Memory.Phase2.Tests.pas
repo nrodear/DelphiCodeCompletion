@@ -115,7 +115,7 @@ begin
   Result := RefsAt(Pointer(AArray));
 end;
 
-function UnitArrayRefs(const AArray: TArray<TUnitIndex>): Integer;
+function CatalogArrayRefs(const AArray: TArray<TCatalogUnit>): Integer;
 begin
   Result := RefsAt(Pointer(AArray));
 end;
@@ -145,10 +145,10 @@ begin
   Result := AIndex.Units[0].Symbols;
 end;
 
-/// <summary>Schnappschuss der Units; eigene Routine wie FirstSymbols.</summary>
-function UnitsOf(const AIndex: ISymbolIndex): TArray<TUnitIndex>;
+/// <summary>Schnappschuss des Katalogs; eigene Routine wie FirstSymbols.</summary>
+function CatalogOf(const AIndex: ISymbolIndex): TArray<TCatalogUnit>;
 begin
-  Result := AIndex.Units;
+  Result := AIndex.CatalogUnits;
 end;
 
 /// <summary>Einträge des Namensindex zu AIndex; eigene Routine wie FirstSymbols.</summary>
@@ -300,15 +300,19 @@ procedure TDpccMemoryPhase2Tests.EditorIndexReleasesImportSnapshot;
 var
   mInner, mIde, mEditor: ISymbolIndex;
   mSymbols: TArray<TIndexSymbol>;
+  mBefore: Integer;
 begin
   mInner := TSymbolIndex.Create;
   mIde := TSymbolIndex.Create;
   mEditor := TIdeIndex.Create(mInner, mIde);
   mInner.AddUnit(UnitWith('UA', 'C:\P\UA.pas', ['TFoo', 'TBar']));
   mSymbols := FirstSymbols(mInner);
+  mBefore := DynArrayRefs(mSymbols);
+  Assert.IsTrue(mBefore > 1, 'der Index hält die Symbole');
   // Hover, Vervollständigung und Parameterhilfe fragen über den Index mit den Ersatz-Units der IDE.
   Assert.AreEqual(2, ImportCount(mEditor), 'Namensindex über den Editor-Index');
-  Assert.IsTrue(DynArrayRefs(mSymbols) > 1, 'Index und Namensindex halten die Symbole');
+  // Phase 3: Der Namensindex steht auf dem Katalog und hält keine Symbol-Arrays fest.
+  Assert.AreEqual(mBefore, DynArrayRefs(mSymbols), 'Namensindex hält die Symbole nicht');
   mEditor := nil;
   mIde := nil;
   mInner := nil;
@@ -318,21 +322,21 @@ end;
 procedure TDpccMemoryPhase2Tests.LastServerReleasesImportSnapshot;
 var
   mIndex: ISymbolIndex;
-  mUnits: TArray<TUnitIndex>;
+  mCatalog: TArray<TCatalogUnit>;
   mBefore: Integer;
 begin
   Assert.AreEqual(0, TShellInProcessServer.ActiveCount, 'kein Server läuft');
   mIndex := TSymbolIndex.Create;
   mIndex.AddUnit(UnitWith('UB', 'C:\P\UB.pas', ['TBaz']));
-  // Der Namensindex hält den Schnappschuss der Units (dasselbe Array wie der Index).
-  mUnits := UnitsOf(mIndex);
+  // Der Namensindex hält den Schnappschuss des Katalogs (dasselbe Array wie der Index, Phase 3).
+  mCatalog := CatalogOf(mIndex);
   Assert.AreEqual(1, ImportCount(mIndex), 'Namensindex angelegt');
-  mBefore := UnitArrayRefs(mUnits);
+  mBefore := CatalogArrayRefs(mCatalog);
   StartAndStopServer;
   Assert.AreEqual(0, TShellInProcessServer.ActiveCount, 'abgemeldet');
-  Assert.AreEqual(mBefore - 1, UnitArrayRefs(mUnits), 'der letzte Server hat den Namensindex verworfen');
+  Assert.AreEqual(mBefore - 1, CatalogArrayRefs(mCatalog), 'der letzte Server hat den Namensindex verworfen');
   mIndex := nil;
-  Assert.AreEqual(1, UnitArrayRefs(mUnits), 'Index frei');
+  Assert.AreEqual(1, CatalogArrayRefs(mCatalog), 'Index frei');
 end;
 
 function DocumentUri(AIndex: Integer): string;

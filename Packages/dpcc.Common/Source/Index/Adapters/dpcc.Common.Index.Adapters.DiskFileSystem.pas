@@ -1,8 +1,9 @@
 ﻿unit dpcc.Common.Index.Adapters.DiskFileSystem;
 
 // IIndexFileSystem auf der echten Platte. Lesen erkennt die Kodierung wie
-// beim Öffnen im Editor; der binäre Index-Cache (#617) geht über ReadBytes und
-// WriteBytes. Schreiben (Cache) geht über eine temporäre Datei,
+// beim Öffnen im Editor; der binäre Index-Cache (#617) geht seit Format 34
+// über OpenBlocks (einzelne Blöcke über ein offenes Handle, TIndexBlockFiles)
+// und WriteStream. Schreiben (Cache) geht über eine temporäre Datei,
 // die die alte in einem Schritt ersetzt (TFile.Replace). So sieht ein Leser
 // nie einen halben Cache, auch nicht nach einem Abbruch (#184).
 //
@@ -36,6 +37,8 @@ type
     function ReadBytes(const AFileName: string; out ABytes: TBytes): Boolean;
     function WriteBytes(const AFileName: string; const ABytes: TBytes; out AError: string): Boolean;
     function TryLockWrite(const AFileName: string): IInterface;
+    function OpenBlocks(const AFileName: string): IIndexBlockReader;
+    function WriteStream(const AFileName: string; const AWrite: TIndexStreamWrite; out AError: string): Boolean;
   end;
 
 implementation
@@ -169,33 +172,62 @@ end;
 
 function TDiskIndexFileSystem.WriteBytes(const AFileName: string; const ABytes: TBytes; out AError: string): Boolean;
 var
+  mBytes: TBytes;
+begin
+  mBytes := ABytes;
+  Result := WriteStream(AFileName,
+    function(AStream: TStream): Boolean
+    begin
+      if Length(mBytes) > 0 then
+      begin
+        AStream.WriteBuffer(mBytes[0], Length(mBytes));
+      end;
+      Result := True;
+    end, AError);
+end;
+
+function TDiskIndexFileSystem.WriteStream(const AFileName: string; const AWrite: TIndexStreamWrite;
+  out AError: string): Boolean;
+var
   mTemp, mBackup: string;
   mWritten: Boolean;
+  mStream: TFileStream;
 begin
   AError := '';
   // Name je Thread: Auch ein Schreiber ohne Sperre (Tests, Aufräumen) überschreibt keine fremde Zwischendatei.
   mTemp := Format('%s.%d.tmp', [AFileName, TThread.CurrentThread.ThreadID]);
   // TFile.Replace braucht eine Sicherungsdatei: Mit '' scheitert es an
-  // TPath.GetFullPath('') ("Pfad ist leer"), sobald die Zieldatei existiert.
-  mBackup := Format('%s.%d.bak', [AFileName, TThread.CurrentThread.ThreadID]);
-  mWritten := False;
+  // TPath.GetFullPath('') ("Pfad ist leer"), sobald die Zieldatei existiert. Eindeutig je Schreibvorgang: Hält ein
+  // Leser die alte Datei noch offen (Format 34, Blockleser), bleibt die Sicherung bis zu seinem Ende bestehen.
+  mBackup := Format('%s.%d.%d.bak', [AFileName, TThread.CurrentThread.ThreadID, TThread.GetTickCount64]);
   try
     ForceDirectories(ExtractFileDir(AFileName));
-    TFile.WriteAllBytes(mTemp, ABytes);
-    mWritten := True;
-    if FileExists(AFileName) then
+    // Format 34: Der Cache entsteht Block für Block in der temporären Datei (Speicher-Optimierung Phase 3).
+    mStream := TFileStream.Create(mTemp, fmCreate);
+    try
+      mWritten := AWrite(mStream);
+    finally
+      mStream.Free;
+    end;
+    if mWritten then
     begin
-      TFile.Replace(mTemp, AFileName, mBackup);
-    end
-    else
-    begin
-      RenameFile(mTemp, AFileName); // lsp-ignore: inline-not-expanded -- Common ohne Winapi
+      if FileExists(AFileName) then
+      begin
+        TFile.Replace(mTemp, AFileName, mBackup);
+      end
+      else
+      begin
+        RenameFile(mTemp, AFileName); // lsp-ignore: inline-not-expanded -- Common ohne Winapi
+      end;
     end;
   except
     // Gemeldet, nicht verschluckt: Der Aufrufer schreibt den Grund ins Log.
     // lsp-ignore: catch-all-without-raise -- Fehler geht als AError an den Aufrufer
     on E: Exception do
+    begin
       AError := ErrorReason(E);
+      mWritten := False;
+    end;
   end;
   // TFile.Replace wertet das Ergebnis von ReplaceFile nicht aus und wirft bei einem Fehler
   // nichts (etwa ein Ziel, das ein fremdes Programm ohne FILE_SHARE_DELETE offen hält).
@@ -222,6 +254,16 @@ begin
   begin
     System.SysUtils.DeleteFile(mBackup);
   end;
+end;
+
+function TDiskIndexFileSystem.OpenBlocks(const AFileName: string): IIndexBlockReader;
+begin
+  // Ohne Datei kein Leser: Der erste Start hat noch keinen Cache.
+  if not FileExists(AFileName) then
+  begin
+    Exit(nil);
+  end;
+  Result := TIndexBlockFiles.Open(AFileName);
 end;
 
 function TDiskIndexFileSystem.TryLockWrite(const AFileName: string): IInterface;

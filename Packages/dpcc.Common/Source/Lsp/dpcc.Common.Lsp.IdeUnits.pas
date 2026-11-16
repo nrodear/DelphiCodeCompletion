@@ -121,8 +121,9 @@ begin
     for mUnit in ACandidates do
     begin
       mKey := UpperCase(mUnit);
-      if (mUnit = '') or FRequested.ContainsKey(mKey) or FIndex.FindUnit(mUnit, mFound) or
-        ((AIndex <> nil) and AIndex.FindUnit(mUnit, mFound)) then
+      // Nur ob der Index die Unit kennt, ohne sie nachzuladen (Speicher-Optimierung Phase 3).
+      if (mUnit = '') or FRequested.ContainsKey(mKey) or FIndex.FindUnitHeader(mUnit, mFound) or
+        ((AIndex <> nil) and AIndex.FindUnitHeader(mUnit, mFound)) then
       begin
         Continue;
       end;

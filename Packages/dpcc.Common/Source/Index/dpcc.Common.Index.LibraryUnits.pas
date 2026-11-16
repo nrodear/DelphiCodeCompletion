@@ -52,7 +52,8 @@ var
   mFound: TUnitIndex;
 begin
   Result := IsLibraryUnit(AUnitName);
-  if not Result and (AIndex <> nil) and (AUnitName <> '') and AIndex.FindUnit(AUnitName, mFound) then
+  // Der Kopf genügt; eine Unit nur im Katalog nicht nachladen (Speicher-Optimierung Phase 3).
+  if not Result and (AIndex <> nil) and (AUnitName <> '') and AIndex.FindUnitHeader(AUnitName, mFound) then
   begin
     Result := mFound.Library_;
   end;
