@@ -1,0 +1,371 @@
+﻿unit dpcc.Common.Configuration.Parser;
+
+// Liest dpcc.json und prüft sie. Fehlerhafte Einträge werden mit
+// Position gemeldet und ignoriert; der Rest gilt trotzdem. Bei einem
+// Syntaxfehler gelten die Vorgaben.
+//
+// ParseLayered führt Einstellungen aus dem Editor (z. B. VS-Code-Settings)
+// mit dpcc.json zusammen: Jeder Schlüssel, den die Datei setzt, hat
+// Vorrang.
+//
+// Rückbau R3 (Frage 20): Die Abschnitte der Prüfregeln (rules, profile,
+// profiles, overrides …), des MCP-Modus (mcp), der Workflows (tasks, issues,
+// vcs), "server" (Absturzfälle, Statusdatei) und "slashCommands" liest der
+// Parser nicht mehr; stehen sie noch in einer Datei, übergeht er sie ohne
+// Meldung (RetiredSections). Die Felder in TServerSettings behalten ihre
+// Vorgaben.
+
+interface
+
+uses
+  System.SysUtils,
+  dpcc.Common.Configuration.Contract;
+
+type
+  TConfigurationParser = class
+  public
+    class function Parse(const AText: string; out AIssues: TArray<TConfigurationIssue>): TServerSettings; static;
+    /// <summary>Editor-Einstellungen (JSON, '' = keine) unter dpcc.json (Text, '' = keine Datei).
+    /// AIssues betreffen nur die Datei.</summary>
+    class function ParseLayered(const AEditorText, AFileText: string;
+      out AIssues: TArray<TConfigurationIssue>): TServerSettings; static;
+    /// <summary>Führt zwei Ebenen im Format von dpcc.json zu einem JSON-Text zusammen (#227: globale
+    /// Benutzerdatei unter den Editor-Einstellungen). AUpper hat je Schlüssel Vorrang; Objekte (rules,
+    /// format …) werden je Schlüssel zusammengeführt, Listen ersetzt. Leerer oder ungültiger Text zählt als
+    /// nicht da.</summary>
+    class function MergeText(const ALower, AUpper: string): string; static;
+  end;
+
+implementation
+
+uses
+  dpcc.Common.Configuration.Internals.JsonTree,
+  dpcc.Common.Configuration.Internals.Reader,
+  dpcc.Common.Configuration.Internals.GeneralOptions,
+  dpcc.Common.Configuration.Internals.EditorOptions,
+  dpcc.Common.Configuration.Internals.RefactoringOptions,
+  dpcc.Common.Configuration.Internals.AnalysisOptions,
+  dpcc.Common.Configuration.Internals.ProjectOptions,
+  dpcc.Common.Configuration.Internals.SuggestionOptions,
+  dpcc.Common.Localization.Texts;
+
+{$SCOPEDENUMS ON}
+
+type
+  /// <summary>Texte der Unit in beiden Sprachen (#1458).</summary>
+  TConfigurationParserText = (JSONError, UnknownSetting, TheConfigurationMustBeA);
+
+const
+  cTexts: array[TConfigurationParserText] of TDpccText = (
+    (De: 'JSON-Fehler: '; En: 'JSON error: '),
+    (De: 'Unbekannte Einstellung "%s"'; En: 'Unknown setting "%s"'),
+    (De: 'Die Konfiguration muss ein JSON-Objekt sein'; En: 'The configuration must be a JSON object'));
+
+{$SCOPEDENUMS OFF}
+
+const
+  /// <summary>Abschnitte entfernter Funktionen (Rückbau R3): werden ohne Meldung übergangen.</summary>
+  cRetiredSections: array[0..15] of string = ('rules', 'profile', 'profiles', 'overrides', 'excludeTests',
+    'testProfile', 'exclude', 'minConfidence', 'fix', 'metrics', 'mcp', 'tasks', 'issues', 'vcs', 'server',
+    'slashCommands');
+
+function RetiredSections: TArray<TConfigurationSection>;
+var
+  mName: string;
+  mSection: TConfigurationSection;
+begin
+  Result := nil;
+  for mName in cRetiredSections do
+  begin
+    mSection := Default(TConfigurationSection);
+    mSection.Section := mName;
+    Result := Result + [mSection];
+  end;
+end;
+
+/// <summary>Alle Abschnitte der obersten Ebene, je Thema in einer eigenen Unit.</summary>
+function AllSections: TArray<TConfigurationSection>;
+begin
+  Result := GeneralSections + EditorSections + RefactoringSections + AnalysisSections + ProjectSections +
+    SuggestionSections + RetiredSections;
+end;
+
+/// <summary>Abschnitt zum Schlüssel AKey; False, wenn es keinen gibt.</summary>
+function FindSection(const ASections: TArray<TConfigurationSection>; const AKey: string;
+  out ASection: TConfigurationSection): Boolean;
+var
+  mSection: TConfigurationSection;
+begin
+  for mSection in ASections do
+  begin
+    if mSection.Section = AKey then
+    begin
+      ASection := mSection;
+      Exit(True);
+    end;
+  end;
+  ASection := Default(TConfigurationSection);
+  Result := False;
+end;
+
+/// <summary>Wurzel oder nil nach gemeldetem Syntaxfehler.</summary>
+function ParseRoot(AReader: TConfigurationReader): TJsonNode;
+begin
+  try
+    Result := TJsonTree.Parse(AReader.Text);
+  except
+    on E: EJsonTreeError do
+    begin
+      AReader.Report(E.Offset, E.Offset + 1, cTexts[TConfigurationParserText.JSONError].Text + E.Message, True);
+      Result := nil;
+    end;
+  end;
+end;
+
+/// <summary>Liest alle Schlüssel der Wurzel über ihre Abschnitte; unbekannte werden als Warnung gemeldet.</summary>
+procedure ReadSections(AReader: TConfigurationReader; ARoot: TJsonNode; var ASettings: TServerSettings);
+var
+  mSections: TArray<TConfigurationSection>;
+  mSection: TConfigurationSection;
+  mIndex: Integer;
+  mKey: string;
+begin
+  mSections := AllSections;
+  for mIndex := 0 to ARoot.Count - 1 do
+  begin
+    mKey := ARoot.Keys[mIndex];
+    if not FindSection(mSections, mKey, mSection) then
+    begin
+      AReader.Report(ARoot.KeyStarts[mIndex], ARoot.KeyStarts[mIndex] + Length(mKey) + 2,
+        cTexts[TConfigurationParserText.UnknownSetting].Fmt([mKey]), False);
+    end
+    else if Assigned(mSection.Read) then
+    begin
+      mSection.Read(AReader, ARoot[mIndex], ASettings);
+    end;
+  end;
+end;
+
+/// <summary>Liest AText in ASettings; Meldungen sammelt AReader.</summary>
+procedure ReadConfiguration(AReader: TConfigurationReader; var ASettings: TServerSettings);
+var
+  mRoot: TJsonNode;
+begin
+  mRoot := ParseRoot(AReader);
+  if mRoot = nil then
+  begin
+    Exit;
+  end;
+  try
+    if mRoot.Kind <> TJsonKind.Object_ then
+    begin
+      AReader.ReportNode(mRoot, cTexts[TConfigurationParserText.TheConfigurationMustBeA].Text);
+      Exit;
+    end;
+    ReadSections(AReader, mRoot, ASettings);
+  finally
+    mRoot.Free;
+  end;
+end;
+
+{ TConfigurationParser }
+
+// Schlüssel der obersten Ebene; leer bei Syntaxfehler.
+function RootKeys(const AText: string): TArray<string>;
+var
+  mRoot: TJsonNode;
+  mIndex: Integer;
+begin
+  Result := nil;
+  try
+    mRoot := TJsonTree.Parse(AText);
+  except
+    on EJsonTreeError do
+      Exit;
+  end;
+  try
+    if mRoot.Kind = TJsonKind.Object_ then
+    begin
+      for mIndex := 0 to mRoot.Count - 1 do
+      begin
+        Result := Result + [mRoot.Keys[mIndex]];
+      end;
+    end;
+  finally
+    mRoot.Free;
+  end;
+end;
+
+function QuoteKey(const AKey: string): string;
+var
+  mCh: Char;
+begin
+  Result := '"';
+  for mCh in AKey do
+  begin
+    if (mCh = '"') or (mCh = '\') then
+    begin
+      Result := Result + '\' + mCh;
+    end
+    else if Ord(mCh) < 32 then
+    begin
+      Result := Result + Format('\u%.4x', [Ord(mCh)]);
+    end
+    else
+    begin
+      Result := Result + mCh;
+    end;
+  end;
+  Result := Result + '"';
+end;
+
+function NodeText(const AText: string; ANode: TJsonNode): string;
+begin
+  Result := Copy(AText, ANode.Start + 1, ANode.Stop - ANode.Start);
+end;
+
+/// <summary>Letzter Index des Schlüssels AKey in ANode; -1, wenn es ihn nicht gibt.</summary>
+function LastKeyIndex(ANode: TJsonNode; const AKey: string): Integer;
+begin
+  Result := ANode.Count - 1;
+  while (Result >= 0) and (ANode.Keys[Result] <> AKey) do
+  begin
+    Dec(Result);
+  end;
+end;
+
+/// <summary>Schlüssel der unteren Ebene, die die obere nicht setzt, mit ihrem Text.</summary>
+function LowerOnlyParts(const ALowerText: string; ALower, AUpper: TJsonNode): TArray<string>;
+var
+  mIndex: Integer;
+begin
+  Result := nil;
+  for mIndex := 0 to ALower.Count - 1 do
+  begin
+    if LastKeyIndex(AUpper, ALower.Keys[mIndex]) < 0 then
+    begin
+      Result := Result + [QuoteKey(ALower.Keys[mIndex]) + ': ' + NodeText(ALowerText, ALower[mIndex])];
+    end;
+  end;
+end;
+
+function MergeObjects(const ALowerText: string; ALower: TJsonNode; const AUpperText: string;
+  AUpper: TJsonNode): string;
+var
+  mIndex, mOther: Integer;
+  mParts: TArray<string>;
+  mValue: string;
+begin
+  mParts := LowerOnlyParts(ALowerText, ALower, AUpper);
+  for mIndex := 0 to AUpper.Count - 1 do
+  begin
+    mOther := LastKeyIndex(ALower, AUpper.Keys[mIndex]);
+    if (mOther >= 0) and (ALower[mOther].Kind = TJsonKind.Object_) and (AUpper[mIndex].Kind = TJsonKind.Object_) then
+    begin
+      mValue := MergeObjects(ALowerText, ALower[mOther], AUpperText, AUpper[mIndex]);
+    end
+    else
+    begin
+      mValue := NodeText(AUpperText, AUpper[mIndex]);
+    end;
+    mParts := mParts + [QuoteKey(AUpper.Keys[mIndex]) + ': ' + mValue];
+  end;
+  Result := '{' + string.Join(', ', mParts) + '}';
+end;
+
+function ParseObject(const AText: string): TJsonNode;
+begin
+  Result := nil;
+  if Trim(AText) = '' then
+  begin
+    Exit;
+  end;
+  try
+    Result := TJsonTree.Parse(AText);
+  except
+    on EJsonTreeError do
+      Exit(nil);
+  end;
+  if Result.Kind <> TJsonKind.Object_ then
+  begin
+    FreeAndNil(Result);
+  end;
+end;
+
+class function TConfigurationParser.MergeText(const ALower, AUpper: string): string;
+var
+  mLower, mUpper: TJsonNode;
+begin
+  mLower := ParseObject(ALower);
+  mUpper := ParseObject(AUpper);
+  try
+    if mLower = nil then
+    begin
+      if mUpper = nil then
+      begin
+        Exit('');
+      end;
+      Exit(AUpper);
+    end;
+    if mUpper = nil then
+    begin
+      Exit(ALower);
+    end;
+    Result := MergeObjects(ALower, mLower, AUpper, mUpper);
+  finally
+    mLower.Free;
+    mUpper.Free;
+  end;
+end;
+
+class function TConfigurationParser.ParseLayered(const AEditorText, AFileText: string;
+  out AIssues: TArray<TConfigurationIssue>): TServerSettings;
+var
+  mFileSettings: TServerSettings;
+  mIgnored: TArray<TConfigurationIssue>;
+  mSections: TArray<TConfigurationSection>;
+  mSection: TConfigurationSection;
+  mKey: string;
+begin
+  AIssues := nil;
+  mFileSettings := TServerSettings.Default;
+  if AFileText <> '' then
+  begin
+    mFileSettings := Parse(AFileText, AIssues);
+  end;
+  if Trim(AEditorText) = '' then
+  begin
+    Exit(mFileSettings);
+  end;
+  // Unbekannte Schlüssel wie serverPath gehören dem Editor; ihre Meldungen entfallen.
+  Result := Parse(AEditorText, mIgnored);
+  mSections := AllSections;
+  // Jeder Abschnitt, den die Datei setzt, hat Vorrang; wie, weiß der Abschnitt.
+  for mKey in RootKeys(AFileText) do
+  begin
+    if FindSection(mSections, mKey, mSection) and Assigned(mSection.Take) then
+    begin
+      mSection.Take(mFileSettings, AFileText, Result);
+    end;
+  end;
+end;
+
+class function TConfigurationParser.Parse(const AText: string;
+  out AIssues: TArray<TConfigurationIssue>): TServerSettings;
+var
+  mReader: TConfigurationReader;
+begin
+  Result := TServerSettings.Default;
+  mReader := TConfigurationReader.Create(AText);
+  try
+    ReadConfiguration(mReader, Result);
+    AIssues := mReader.Issues;
+  finally
+    mReader.Free;
+  end;
+end;
+
+initialization
+  TDpccTextTables.Add('dpcc.Common.Configuration.Parser', cTexts);
+
+end.

@@ -1,0 +1,228 @@
+﻿unit dpcc.Core.Signature.Controller;
+
+// Ablauf des Parameter-Hints ohne Fenster (#436, #437): hält die Signaturen
+// eines Aufrufs, den aktiven Parameter und die gezeigte Überladung.
+//   - Start: die vom Server gewählte Signatur, sonst die kürzeste, die zum
+//     aktiven Parameter passt.
+//   - Weitertippen: Übersteigt der aktive Parameter die gezeigte Signatur, wechselt
+//     der Hint zur nächsten passenden (z. B. Format mit TFormatSettings). Von Hand
+//     gewählte Überladungen (Alt+↑/↓) bleiben erreichbar, auch wenn sie nicht passen.
+//   - Argumenttypen (#498): Meldet der Server, dass ein bisheriges Argument nicht zum Parametertyp passt
+//     (TypeMismatch), passt die Überladung nicht, erscheint gedämpft und wird nicht vorgewählt. Die Zahl der
+//     Argumente zählt weiter lokal.
+//   - Platzhalter (#451): Ändert sich der Text im Aufruf einer Formatroutine, fragt der Editor neu; UpdateFormat
+//     übernimmt nur die neue Zuordnung, Überladung und Parameter bleiben.
+
+interface
+
+uses
+  System.SysUtils,
+  dpcc.Core.Signature.Contract;
+
+type
+  IDpccSignatureView = interface
+    ['{2A6C9E14-7B3D-4F58-9C21-E5D84B7A0F36}']
+    /// <summary>Zeigt bzw. aktualisiert den Hint. AParameter kann über die Parameter der Signatur
+    /// hinausgehen (dann ist keiner hervorgehoben).</summary>
+    procedure ShowSignature(const AHelp: TDpccSignatureHelp; ASignature, AParameter: Integer);
+    procedure HideSignature;
+  end;
+
+  TDpccSignatureController = class
+  private
+    FView: IDpccSignatureView;
+    FHelp: TDpccSignatureHelp;
+    FSignature: Integer;
+    FParameter: Integer;
+    FActive: Boolean;
+    function Fits(ASignature, AParameter: Integer): Boolean;
+    function FirstFitting(AParameter: Integer): Integer;
+    procedure Update;
+  public
+    constructor Create(const AView: IDpccSignatureView);
+    /// <summary>Zeigt AHelp; AParameter ist der lokal gezählte aktive Parameter.</summary>
+    procedure Show(const AHelp: TDpccSignatureHelp; AParameter: Integer);
+    /// <summary>Der aktive Parameter hat sich beim Tippen geändert.</summary>
+    procedure UpdateParameter(AParameter: Integer);
+    /// <summary>Neue Platzhalter-Zuordnung zum selben Aufruf (#451).</summary>
+    procedure UpdateFormat(const AFormat: TDpccSignatureFormat);
+    procedure NextOverload;
+    procedure PreviousOverload;
+    /// <summary>Wählt die Überladung AIndex (Klick im Hint).</summary>
+    procedure SelectOverload(AIndex: Integer);
+    /// <summary>Passt der aktive Parameter zur Überladung AIndex (sonst gedämpft gezeigt)?</summary>
+    function OverloadFits(AIndex: Integer): Boolean;
+    procedure Close;
+    /// <summary>Reicht ASignature für so viele Argumente (AParameter 0-basiert)? Nur die Anzahl: Der erste
+    /// Parameter passt immer, auch bei leeren Klammern.</summary>
+    class function CountFits(const ASignature: TDpccSignature; AParameter: Integer): Boolean; static;
+    /// <summary>Fehlerzustand (#439): Keine Überladung erlaubt so viele Argumente; Typen zählen nicht.</summary>
+    class function TooManyArguments(const AHelp: TDpccSignatureHelp; AParameter: Integer): Boolean; static;
+    property Active: Boolean read FActive;
+    property Signature: Integer read FSignature;
+    property Parameter: Integer read FParameter;
+    property Help: TDpccSignatureHelp read FHelp;
+  end;
+
+implementation
+
+{ TDpccSignatureController }
+
+constructor TDpccSignatureController.Create(const AView: IDpccSignatureView);
+begin
+  inherited Create;
+  FView := AView;
+end;
+
+class function TDpccSignatureController.CountFits(const ASignature: TDpccSignature; AParameter: Integer): Boolean;
+begin
+  Result := (AParameter = 0) or (AParameter < Length(ASignature.Parameters));
+end;
+
+class function TDpccSignatureController.TooManyArguments(const AHelp: TDpccSignatureHelp;
+  AParameter: Integer): Boolean;
+var
+  mSignature: TDpccSignature;
+begin
+  Result := Length(AHelp.Signatures) > 0;
+  for mSignature in AHelp.Signatures do
+  begin
+    if CountFits(mSignature, AParameter) then
+    begin
+      Exit(False);
+    end;
+  end;
+end;
+
+function TDpccSignatureController.Fits(ASignature, AParameter: Integer): Boolean;
+begin
+  // Nach der Anzahl; ein Argument mit unverträglichem Typ passt nie (#498).
+  Result := CountFits(FHelp.Signatures[ASignature], AParameter) and not FHelp.Signatures[ASignature].TypeMismatch;
+end;
+
+function TDpccSignatureController.FirstFitting(AParameter: Integer): Integer;
+var
+  mIndex, mBest: Integer;
+begin
+  // Die kürzeste passende Signatur; gibt es keine, die längste.
+  mBest := -1;
+  for mIndex := 0 to High(FHelp.Signatures) do
+  begin
+    if Fits(mIndex, AParameter) and ((mBest < 0) or
+      (Length(FHelp.Signatures[mIndex].Parameters) < Length(FHelp.Signatures[mBest].Parameters))) then
+    begin
+      mBest := mIndex;
+    end;
+  end;
+  if mBest < 0 then
+  begin
+    for mIndex := 0 to High(FHelp.Signatures) do
+    begin
+      if (mBest < 0) or (Length(FHelp.Signatures[mIndex].Parameters) > Length(FHelp.Signatures[mBest].Parameters)) then
+      begin
+        mBest := mIndex;
+      end;
+    end;
+  end;
+  Result := mBest;
+end;
+
+procedure TDpccSignatureController.Show(const AHelp: TDpccSignatureHelp; AParameter: Integer);
+begin
+  if AHelp.IsEmpty then
+  begin
+    Close;
+    Exit;
+  end;
+  FHelp := AHelp;
+  FParameter := AParameter;
+  if (AHelp.ActiveSignature >= 0) and (AHelp.ActiveSignature <= High(AHelp.Signatures)) and
+    Fits(AHelp.ActiveSignature, AParameter) then
+  begin
+    FSignature := AHelp.ActiveSignature;
+  end
+  else
+  begin
+    FSignature := FirstFitting(AParameter);
+  end;
+  FActive := True;
+  Update;
+end;
+
+procedure TDpccSignatureController.UpdateParameter(AParameter: Integer);
+begin
+  if not FActive or (AParameter = FParameter) then
+  begin
+    Exit;
+  end;
+  FParameter := AParameter;
+  // Automatischer Wechsel nur, wenn die gezeigte Variante nicht mehr passt (#437).
+  if not Fits(FSignature, AParameter) then
+  begin
+    FSignature := FirstFitting(AParameter);
+  end;
+  Update;
+end;
+
+procedure TDpccSignatureController.UpdateFormat(const AFormat: TDpccSignatureFormat);
+begin
+  if not FActive then
+  begin
+    Exit;
+  end;
+  FHelp.Format := AFormat;
+  Update;
+end;
+
+procedure TDpccSignatureController.NextOverload;
+begin
+  if not FActive or (Length(FHelp.Signatures) < 2) then
+  begin
+    Exit;
+  end;
+  FSignature := (FSignature + 1) mod Length(FHelp.Signatures);
+  Update;
+end;
+
+procedure TDpccSignatureController.PreviousOverload;
+begin
+  if not FActive or (Length(FHelp.Signatures) < 2) then
+  begin
+    Exit;
+  end;
+  FSignature := (FSignature + Length(FHelp.Signatures) - 1) mod Length(FHelp.Signatures);
+  Update;
+end;
+
+procedure TDpccSignatureController.SelectOverload(AIndex: Integer);
+begin
+  if not FActive or (AIndex < 0) or (AIndex > High(FHelp.Signatures)) or (AIndex = FSignature) then
+  begin
+    Exit;
+  end;
+  FSignature := AIndex;
+  Update;
+end;
+
+function TDpccSignatureController.OverloadFits(AIndex: Integer): Boolean;
+begin
+  Result := FActive and (AIndex >= 0) and (AIndex <= High(FHelp.Signatures)) and Fits(AIndex, FParameter);
+end;
+
+procedure TDpccSignatureController.Close;
+begin
+  if not FActive then
+  begin
+    Exit;
+  end;
+  FActive := False;
+  FHelp := Default(TDpccSignatureHelp);
+  FView.HideSignature;
+end;
+
+procedure TDpccSignatureController.Update;
+begin
+  FView.ShowSignature(FHelp, FSignature, FParameter);
+end;
+
+end.

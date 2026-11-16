@@ -1,0 +1,641 @@
+﻿unit dpcc.Common.Pascal.TreeCache;
+
+// Gemeinsamer Syntaxbaum je Dokumentversion (#262). Alle Features holen den
+// Baum eines geöffneten Dokuments hier ab, statt selbst zu parsen:
+// - Der Baum hängt an der unveränderlichen Momentaufnahme (ITextDocument.Derived).
+//   Der erste Zugriff parst, gleichzeitige Zugriffe warten auf dasselbe Ergebnis.
+// - Der Baum ist unveränderlich und referenzgezählt (ISharedSyntaxTree). Ältere
+//   Versionen werden frei, sobald weder Dokument noch Feature sie mehr halten.
+// - Wird für eine Datei eine neuere Version geparst, bricht ein noch laufender
+//   Parse der älteren ab; sein unvollständiger Baum wird nicht abgelegt.
+// - Get liefert den Baum nur aus den aktiven {$IFDEF}-Zweigen (#845), mit den
+//   Symbolen des Projekts aus dem DefinesProvider (ohne: Vordefinitionen). Die
+//   Symbole gehören zum Schlüssel: Nach einem Wechsel von Plattform oder
+//   Konfiguration parst der nächste Zugriff neu. GetAll liefert den Baum aus
+//   allen Zweigen für Funktionen, die bewusst beide Seiten sehen müssen.
+// - Mit IncludeProvider (#860) liest der Präprozessor {$I datei.inc}: Dort
+//   gesetzte Symbole wählen die Zweige der Datei. Der Lauf steht in Processed,
+//   damit Abblenden, Include-Befunde und Inlay-Hinweise ihn nicht wiederholen.
+//   Ändert sich eine Include-Datei, macht IncludesChanged die Bäume mit $I ungültig.
+// Texte ohne geöffnetes Dokument (Index, andere Dateien, Kommandozeile) parst
+// Parse ohne Cache; dort gilt das Speicherbudget aus #185.
+// Kennzahlen (#1356): Stats zählt Zugriffe und Parse-Läufe (Trefferquote) und
+// schätzt den Speicher der lebenden gemeinsamen Bäume (Token und Knoten,
+// einmal beim Anlegen geschätzt, beim Freigeben wieder abgezogen).
+
+interface
+
+uses
+  System.SysUtils,
+  dpcc.Common.Documents.Contract,
+  dpcc.Common.Pascal.Contract,
+  dpcc.Common.Pascal.Preprocessor,
+  dpcc.Common.Pascal.SyntaxTree;
+
+type
+  /// <summary>Gemeinsam genutzter Syntaxbaum; nur lesen, nicht freigeben.</summary>
+  ISharedSyntaxTree = interface
+    ['{5E2B7C14-9A3D-4F61-B8E2-3C7D0A9F1B46}']
+    function Tree: TSyntaxTree;
+    /// <summary>Zweige der bedingten Kompilierung mit Bedingung und ob sie gelten; leer beim Vollbaum
+    /// und bei Texten ohne bedingte Direktive.</summary>
+    function Conditionals: TArray<TConditionalRange>;
+    /// <summary>Präprozessor-Lauf zum Baum (#860); Files leer, wenn keiner nötig war (Vollbaum, Text ohne
+    /// bedingte Direktive und ohne auflösbares $I).</summary>
+    function Processed: TPreprocessorResult;
+    /// <summary>Lief der Präprozessor mit Include-Resolver? Nur dann sind Include-Befunde echt.</summary>
+    function IncludesResolved: Boolean;
+  end;
+
+  /// <summary>Symbole des Projekts zu einer Datei; False, wenn keine bekannt sind.</summary>
+  TTreeDefinesProvider = reference to function(const AUri: string; out ADefines: TArray<string>): Boolean;
+
+  /// <summary>Include-Resolver zu einer Datei (#860, Server: Suchpfade ihres Projekts); nil = $I nicht lesen.
+  /// </summary>
+  TTreeIncludeProvider = reference to function(const AUri: string): TIncludeResolver;
+
+  /// <summary>Kennzahlen des Caches seit Programmstart (#1356).</summary>
+  TSyntaxTreeCacheStats = record
+    /// <summary>Zugriffe über Get, GetFor und GetAll.</summary>
+    Lookups: Int64;
+    /// <summary>Davon neu geparst.</summary>
+    Parses: Int64;
+    /// <summary>Lebende gemeinsame Bäume und ihr geschätzter Speicher.</summary>
+    Trees: Integer;
+    Bytes: Int64;
+    /// <summary>Anteil der Zugriffe ohne neuen Parse in Prozent; -1 ohne Zugriff.</summary>
+    function HitPercent: Integer;
+  end;
+
+  TSyntaxTreeCache = class
+  public
+    /// <summary>Baum der Momentaufnahme aus den aktiven Zweigen, höchstens einmal je Version und
+    /// Symbolstand geparst. ACancellation bricht nur den Ausweichweg ab, wenn der gemeinsame Parse von
+    /// einer neueren Version überholt wurde.</summary>
+    class function Get(const ADocument: ITextDocument;
+      const ACancellation: IPascalCancellation): ISharedSyntaxTree; overload; static;
+    /// <summary>Wie oben ohne Abbruch (ACancellation = nil).</summary>
+    class function Get(const ADocument: ITextDocument): ISharedSyntaxTree; overload; static;
+    /// <summary>Wie Get, mit ausdrücklichen Symbolen statt denen des DefinesProvider.</summary>
+    class function GetFor(const ADocument: ITextDocument; const ADefines: TArray<string>;
+      const ACancellation: IPascalCancellation): ISharedSyntaxTree; overload; static;
+    /// <summary>Wie oben ohne Abbruch (ACancellation = nil).</summary>
+    class function GetFor(const ADocument: ITextDocument; const ADefines: TArray<string>): ISharedSyntaxTree;
+      overload; static;
+    /// <summary>Wie Get, aber aus allen Zweigen der bedingten Kompilierung (#845).</summary>
+    class function GetAll(const ADocument: ITextDocument;
+      const ACancellation: IPascalCancellation): ISharedSyntaxTree; overload; static;
+    /// <summary>Wie oben ohne Abbruch (ACancellation = nil).</summary>
+    class function GetAll(const ADocument: ITextDocument): ISharedSyntaxTree; overload; static;
+    /// <summary>Symbole, unter denen Get die Datei liest; leer = Vordefinitionen.</summary>
+    class function DefinesOf(const AUri: string): TArray<string>; static;
+    /// <summary>Quelle der Projektsymbole (Server: aktives Projekt der Datei); nil = Vordefinitionen.</summary>
+    class procedure SetDefinesProvider(const AProvider: TTreeDefinesProvider); static;
+    /// <summary>Quelle der Include-Resolver (#860); nil = {$I} wird nicht gelesen.</summary>
+    class procedure SetIncludeProvider(const AProvider: TTreeIncludeProvider); static;
+    /// <summary>Setzt die Quellen auf nil, aber nur, wenn noch AProvider gesetzt ist: Ein abgebauter Server darf die
+    /// eines neueren im selben Prozess (In-Process-Modus, Neustart) nicht löschen.</summary>
+    class procedure ReleaseDefinesProvider(const AProvider: TTreeDefinesProvider); static;
+    class procedure ReleaseIncludeProvider(const AProvider: TTreeIncludeProvider); static;
+    /// <summary>Für Tests: Quellen gesetzt.</summary>
+    class function HasDefinesProvider: Boolean; static;
+    class function HasIncludeProvider: Boolean; static;
+    /// <summary>Include-Resolver, mit dem Get die Datei liest; nil ohne IncludeProvider.</summary>
+    class function IncludeResolverOf(const AUri: string): TIncludeResolver; static;
+    /// <summary>Eine Include-Datei hat sich geändert: Bäume von Texten mit $I werden beim nächsten Zugriff
+    /// neu geparst.</summary>
+    class procedure IncludesChanged; static;
+    /// <summary>Parst ohne Cache; der Aufrufer gibt den Baum frei.</summary>
+    class function Parse(const AText: string; const ACancellation: IPascalCancellation): TSyntaxTree;
+      overload; static;
+    /// <summary>Wie oben ohne Abbruch (ACancellation = nil).</summary>
+    class function Parse(const AText: string): TSyntaxTree; overload; static;
+    /// <summary>Wie Parse, aus den aktiven Zweigen unter AOptions (Dateiname, Include-Resolver, #860); AProcessed
+    /// erhält den Präprozessor-Lauf.</summary>
+    class function ParseActive(const AText: string; const AOptions: TPreprocessorOptions;
+      const ACancellation: IPascalCancellation; out AProcessed: TPreprocessorResult): TSyntaxTree; static;
+    /// <summary>Anzahl der Parse-Läufe über Get seit Programmstart, für Tests und Status.</summary>
+    class function ParseCount: Integer; static;
+    /// <summary>Zugriffe, Parse-Läufe und Speicher der lebenden Bäume (#1356).</summary>
+    class function Stats: TSyntaxTreeCacheStats; static;
+    /// <summary>Geschätzter Speicher eines Baums in Byte: Token mit Text, Knoten mit Namen und Kinderlisten.</summary>
+    class function EstimatedBytes(ATree: TSyntaxTree): Int64; static;
+  end;
+
+implementation
+
+uses
+  System.SyncObjs,
+  System.Generics.Collections,
+  System.Generics.Defaults,
+  dpcc.Common.Documents.Uris,
+  dpcc.Common.Pascal.Parser;
+
+const
+  cTreeKey = 'pascal.syntaxtree';
+  /// <summary>Schlüssel des Vollbaums aus allen Zweigen.</summary>
+  cAllKey = 'pascal.syntaxtree.all';
+
+type
+  TSharedSyntaxTree = class(TInterfacedObject, ISharedSyntaxTree)
+  private
+    FTree: TSyntaxTree;
+    FConditionals: TArray<TConditionalRange>;
+    FProcessed: TPreprocessorResult;
+    FIncludesResolved: Boolean;
+    // Geschätzter Speicher, beim Anlegen zu LiveBytes gezählt (#1356).
+    FBytes: Int64;
+  public
+    constructor Create(ATree: TSyntaxTree; const AProcessed: TPreprocessorResult; AIncludesResolved: Boolean);
+    destructor Destroy; override;
+    function Tree: TSyntaxTree;
+    function Conditionals: TArray<TConditionalRange>;
+    function Processed: TPreprocessorResult;
+    function IncludesResolved: Boolean;
+  end;
+
+  /// <summary>Abbruchsignal eines gemeinsamen Parse-Laufs.</summary>
+  TParseRun = class(TInterfacedObject, IPascalCancellation)
+  private
+    FVersion: Integer;
+    FCancelled: Integer;
+  public
+    constructor Create(AVersion: Integer);
+    procedure Cancel;
+    function IsCancelled: Boolean;
+    property Version: Integer read FVersion;
+  end;
+
+  /// <summary>Wie ein Baum entsteht: aus allen oder nur aus den aktiven Zweigen.</summary>
+  TTreeMode = record
+    All: Boolean;
+    Defines: TArray<string>;
+    FileName: string;
+    Resolver: TIncludeResolver;
+    function Key(const AText: string): string;
+    function ReadsIncludes(const AText: string): Boolean;
+  end;
+
+var
+  // TCriticalSection statt TMonitor: TMonitor legt Sperrdaten erst beim ersten Zugriff
+  // bzw. Konflikt an und behält sie; der Leck-Monitor meldete das im ersten Test.
+  RunLock: TCriticalSection;
+  // Laufender gemeinsamer Parse je URI und Schlüssel; hält die Läufe über ihre Schnittstelle am Leben.
+  Running: TDictionary<string, IPascalCancellation>;
+  Parses: Integer;
+  DefinesProvider: TTreeDefinesProvider;
+  IncludeProvider: TTreeIncludeProvider;
+  // Stand der Include-Dateien; gehört bei Texten mit $I zum Schlüssel.
+  IncludeGeneration: Integer;
+  // Kennzahlen (#1356), über TInterlocked.
+  Lookups: Int64;
+  LiveTrees: Integer;
+  LiveBytes: Int64;
+
+{ TSharedSyntaxTree }
+
+constructor TSharedSyntaxTree.Create(ATree: TSyntaxTree; const AProcessed: TPreprocessorResult;
+  AIncludesResolved: Boolean);
+begin
+  inherited Create;
+  FTree := ATree;
+  FProcessed := AProcessed;
+  FIncludesResolved := AIncludesResolved;
+  FConditionals := TPascalPreprocessor.MainConditionals(AProcessed);
+  FBytes := TSyntaxTreeCache.EstimatedBytes(FTree);
+  TInterlocked.Add(LiveBytes, FBytes);
+  TInterlocked.Increment(LiveTrees);
+end;
+
+destructor TSharedSyntaxTree.Destroy;
+begin
+  TInterlocked.Add(LiveBytes, -FBytes);
+  TInterlocked.Decrement(LiveTrees);
+  FTree.Free;
+  inherited;
+end;
+
+function TSharedSyntaxTree.Tree: TSyntaxTree;
+begin
+  Result := FTree;
+end;
+
+function TSharedSyntaxTree.Conditionals: TArray<TConditionalRange>;
+begin
+  Result := FConditionals;
+end;
+
+function TSharedSyntaxTree.Processed: TPreprocessorResult;
+begin
+  Result := FProcessed;
+end;
+
+function TSharedSyntaxTree.IncludesResolved: Boolean;
+begin
+  Result := FIncludesResolved;
+end;
+
+{ TParseRun }
+
+constructor TParseRun.Create(AVersion: Integer);
+begin
+  inherited Create;
+  FVersion := AVersion;
+end;
+
+procedure TParseRun.Cancel;
+begin
+  TInterlocked.Exchange(FCancelled, 1);
+end;
+
+function TParseRun.IsCancelled: Boolean;
+begin
+  Result := TInterlocked.CompareExchange(FCancelled, 0, 0) = 1;
+end;
+
+{ TTreeMode }
+
+function TTreeMode.Key(const AText: string): string;
+var
+  mSorted: TArray<string>;
+  mIndex: Integer;
+begin
+  if All then
+  begin
+    Exit(cAllKey);
+  end;
+  // Ohne bedingte Direktive und $I ist der Baum für alle Symbole gleich: kein neuer Parse beim Plattformwechsel.
+  if not TPascalPreprocessor.HasConditionals(AText) and not ReadsIncludes(AText) then
+  begin
+    Exit(cTreeKey);
+  end;
+  mSorted := Copy(Defines);
+  for mIndex := 0 to High(mSorted) do
+  begin
+    mSorted[mIndex] := UpperCase(Trim(mSorted[mIndex]));
+  end;
+  TArray.Sort<string>(mSorted);
+  Result := cTreeKey + '|' + string.Join(';', mSorted);
+  if ReadsIncludes(AText) then
+  begin
+    Result := Result + '|inc' + IntToStr(TInterlocked.CompareExchange(IncludeGeneration, 0, 0));
+  end;
+end;
+
+function TTreeMode.ReadsIncludes(const AText: string): Boolean;
+begin
+  Result := not All and Assigned(Resolver) and TPascalPreprocessor.HasIncludes(AText);
+end;
+
+/// <summary>Baum nach AMode ohne Cache.</summary>
+function ParseFor(const AText: string; const AMode: TTreeMode;
+  const ACancellation: IPascalCancellation): ISharedSyntaxTree;
+var
+  mProcessed: TPreprocessorResult;
+  mTree: TSyntaxTree;
+begin
+  mProcessed := Default(TPreprocessorResult);
+  if AMode.All then
+  begin
+    mTree := TPascalParser.Parse(AText, ACancellation);
+  end
+  else
+  begin
+    mTree := TPascalParser.ParseActive(AText, TPascalPreprocessor.EditorOptions(AMode.Defines, AMode.FileName,
+      AMode.Resolver), ACancellation, mProcessed);
+  end;
+  Result := TSharedSyntaxTree.Create(mTree, mProcessed, AMode.ReadsIncludes(AText));
+end;
+
+/// <summary>Parst ADocument als gemeinsamen Lauf; nil, wenn eine neuere Version ihn überholt hat.</summary>
+function ParseShared(const ADocument: ITextDocument; const AMode: TTreeMode; const AKey: string): IInterface;
+var
+  mRun: TParseRun;
+  mSignal: IPascalCancellation;
+  mPrevious: IPascalCancellation;
+  mShared: ISharedSyntaxTree;
+  mRunKey: string;
+begin
+  mRunKey := ADocument.Uri + #0 + AKey;
+  mRun := TParseRun.Create(ADocument.Version);
+  mSignal := mRun;
+  RunLock.Enter;
+  try
+    if not Running.TryGetValue(mRunKey, mPrevious) then
+    begin
+      Running.Add(mRunKey, mSignal);
+    end
+    else if (mPrevious as TParseRun).Version < ADocument.Version then
+    begin
+      (mPrevious as TParseRun).Cancel;
+      Running[mRunKey] := mSignal;
+    end;
+    // Ist schon eine neuere Version in Arbeit, läuft dieser Parse ohne Eintrag zu Ende.
+  finally
+    RunLock.Leave;
+  end;
+  mShared := ParseFor(ADocument.Text, AMode, mSignal);
+  TInterlocked.Increment(Parses);
+  RunLock.Enter;
+  try
+    if Running.TryGetValue(mRunKey, mPrevious) and (mPrevious = mSignal) then
+    begin
+      Running.Remove(mRunKey);
+    end;
+  finally
+    RunLock.Leave;
+  end;
+  if mRun.IsCancelled then
+  begin
+    Exit(nil);
+  end;
+  Result := mShared;
+end;
+
+/// <summary>Gemeinsamer Baum der Momentaufnahme nach AMode.</summary>
+function GetShared(const ADocument: ITextDocument; const AMode: TTreeMode;
+  const ACancellation: IPascalCancellation): ISharedSyntaxTree;
+var
+  mDocument: ITextDocument;
+  mMode: TTreeMode;
+  mKey: string;
+  mValue: IInterface;
+begin
+  mDocument := ADocument;
+  mMode := AMode;
+  TInterlocked.Increment(Lookups);
+  mKey := mMode.Key(mDocument.Text);
+  mValue := mDocument.Derived(mKey,
+    function: IInterface
+    begin
+      Result := ParseShared(mDocument, mMode, mKey);
+    end);
+  if Supports(mValue, ISharedSyntaxTree, Result) then
+  begin
+    Exit;
+  end;
+  // Von einer neueren Version überholt: für diese (veraltete) Anfrage ohne Cache parsen.
+  Result := ParseFor(mDocument.Text, mMode, ACancellation);
+end;
+
+{ TSyntaxTreeCache }
+
+class function TSyntaxTreeCache.Get(const ADocument: ITextDocument): ISharedSyntaxTree;
+begin
+  Result := Get(ADocument, nil);
+end;
+
+class function TSyntaxTreeCache.GetFor(const ADocument: ITextDocument;
+  const ADefines: TArray<string>): ISharedSyntaxTree;
+begin
+  Result := GetFor(ADocument, ADefines, nil);
+end;
+
+class function TSyntaxTreeCache.GetAll(const ADocument: ITextDocument): ISharedSyntaxTree;
+begin
+  Result := GetAll(ADocument, nil);
+end;
+
+class function TSyntaxTreeCache.Parse(const AText: string): TSyntaxTree;
+begin
+  Result := Parse(AText, nil);
+end;
+
+class function TSyntaxTreeCache.Get(const ADocument: ITextDocument;
+  const ACancellation: IPascalCancellation): ISharedSyntaxTree;
+begin
+  Result := GetFor(ADocument, DefinesOf(ADocument.Uri), ACancellation);
+end;
+
+class function TSyntaxTreeCache.GetFor(const ADocument: ITextDocument; const ADefines: TArray<string>;
+  const ACancellation: IPascalCancellation): ISharedSyntaxTree;
+var
+  mMode: TTreeMode;
+begin
+  mMode.All := False;
+  mMode.Defines := ADefines;
+  mMode.FileName := TDocumentUris.ToPath(ADocument.Uri);
+  mMode.Resolver := IncludeResolverOf(ADocument.Uri);
+  Result := GetShared(ADocument, mMode, ACancellation);
+end;
+
+class function TSyntaxTreeCache.GetAll(const ADocument: ITextDocument;
+  const ACancellation: IPascalCancellation): ISharedSyntaxTree;
+var
+  mMode: TTreeMode;
+begin
+  mMode.All := True;
+  mMode.Defines := nil;
+  mMode.FileName := '';
+  mMode.Resolver := nil;
+  Result := GetShared(ADocument, mMode, ACancellation);
+end;
+
+class function TSyntaxTreeCache.DefinesOf(const AUri: string): TArray<string>;
+var
+  mProvider: TTreeDefinesProvider;
+begin
+  RunLock.Enter;
+  try
+    mProvider := DefinesProvider;
+  finally
+    RunLock.Leave;
+  end;
+  Result := nil;
+  if Assigned(mProvider) and not mProvider(AUri, Result) then
+  begin
+    Result := nil;
+  end;
+end;
+
+class procedure TSyntaxTreeCache.SetDefinesProvider(const AProvider: TTreeDefinesProvider);
+begin
+  RunLock.Enter;
+  try
+    DefinesProvider := AProvider;
+  finally
+    RunLock.Leave;
+  end;
+end;
+
+class procedure TSyntaxTreeCache.SetIncludeProvider(const AProvider: TTreeIncludeProvider);
+begin
+  RunLock.Enter;
+  try
+    IncludeProvider := AProvider;
+  finally
+    RunLock.Leave;
+  end;
+end;
+
+/// <summary>Zwei Methodenreferenzen (Interfaces) zeigen auf dasselbe Objekt.</summary>
+function SameReference(const A, B): Boolean;
+begin
+  Result := PPointer(@A)^ = PPointer(@B)^;
+end;
+
+class procedure TSyntaxTreeCache.ReleaseDefinesProvider(const AProvider: TTreeDefinesProvider);
+begin
+  RunLock.Enter;
+  try
+    if SameReference(DefinesProvider, AProvider) then
+    begin
+      DefinesProvider := nil;
+    end;
+  finally
+    RunLock.Leave;
+  end;
+end;
+
+class procedure TSyntaxTreeCache.ReleaseIncludeProvider(const AProvider: TTreeIncludeProvider);
+begin
+  RunLock.Enter;
+  try
+    if SameReference(IncludeProvider, AProvider) then
+    begin
+      IncludeProvider := nil;
+    end;
+  finally
+    RunLock.Leave;
+  end;
+end;
+
+class function TSyntaxTreeCache.HasDefinesProvider: Boolean;
+begin
+  RunLock.Enter;
+  try
+    Result := Assigned(DefinesProvider);
+  finally
+    RunLock.Leave;
+  end;
+end;
+
+class function TSyntaxTreeCache.HasIncludeProvider: Boolean;
+begin
+  RunLock.Enter;
+  try
+    Result := Assigned(IncludeProvider);
+  finally
+    RunLock.Leave;
+  end;
+end;
+
+class function TSyntaxTreeCache.IncludeResolverOf(const AUri: string): TIncludeResolver;
+var
+  mProvider: TTreeIncludeProvider;
+begin
+  RunLock.Enter;
+  try
+    mProvider := IncludeProvider;
+  finally
+    RunLock.Leave;
+  end;
+  Result := nil;
+  if Assigned(mProvider) then
+  begin
+    Result := mProvider(AUri);
+  end;
+end;
+
+class procedure TSyntaxTreeCache.IncludesChanged;
+begin
+  TInterlocked.Increment(IncludeGeneration);
+end;
+
+class function TSyntaxTreeCache.Parse(const AText: string; const ACancellation: IPascalCancellation): TSyntaxTree;
+begin
+  Result := TPascalParser.Parse(AText, ACancellation);
+end;
+
+class function TSyntaxTreeCache.ParseActive(const AText: string; const AOptions: TPreprocessorOptions;
+  const ACancellation: IPascalCancellation; out AProcessed: TPreprocessorResult): TSyntaxTree;
+begin
+  Result := TPascalParser.ParseActive(AText, AOptions, ACancellation, AProcessed);
+end;
+
+class function TSyntaxTreeCache.ParseCount: Integer;
+begin
+  Result := TInterlocked.CompareExchange(Parses, 0, 0);
+end;
+
+class function TSyntaxTreeCache.Stats: TSyntaxTreeCacheStats;
+begin
+  Result.Lookups := TInterlocked.CompareExchange(Lookups, 0, 0);
+  Result.Parses := TInterlocked.CompareExchange(Parses, 0, 0);
+  Result.Trees := TInterlocked.CompareExchange(LiveTrees, 0, 0);
+  Result.Bytes := TInterlocked.CompareExchange(LiveBytes, 0, 0);
+end;
+
+function StringBytes(const AValue: string): Int64;
+begin
+  // Kopf (Referenzzähler, Länge, Codepage) plus UTF-16-Zeichen und Endnull, wie Index.Memory.
+  if AValue = '' then
+  begin
+    Result := 0;
+  end
+  else
+  begin
+    Result := 12 + (Length(AValue) + 1) * SizeOf(Char);
+  end;
+end;
+
+class function TSyntaxTreeCache.EstimatedBytes(ATree: TSyntaxTree): Int64;
+var
+  mBytes: Int64;
+  mToken: TPascalToken;
+begin
+  Result := 0;
+  if ATree = nil then
+  begin
+    Exit;
+  end;
+  mBytes := TSyntaxTree.InstanceSize + 16 + Int64(Length(ATree.Tokens)) * SizeOf(TPascalToken);
+  for mToken in ATree.Tokens do
+  begin
+    Inc(mBytes, StringBytes(mToken.Text));
+  end;
+  if ATree.Root <> nil then
+  begin
+    ATree.Root.Walk(
+      function(ANode: TSyntaxNode): Boolean
+      begin
+        Inc(mBytes, TSyntaxNode.InstanceSize + StringBytes(ANode.Name));
+        // Kinderliste: Objekt und Array der Zeiger.
+        if ANode.ChildCount > 0 then
+        begin
+          Inc(mBytes, 48 + Int64(ANode.ChildCount) * SizeOf(Pointer));
+        end;
+        Result := True;
+      end);
+  end;
+  Result := mBytes;
+end;
+
+{ TSyntaxTreeCacheStats }
+
+function TSyntaxTreeCacheStats.HitPercent: Integer;
+begin
+  if Lookups <= 0 then
+  begin
+    Exit(-1);
+  end;
+  Result := Round((Lookups - Parses) * 100 / Lookups);
+  if Result < 0 then
+  begin
+    Result := 0;
+  end;
+end;
+
+initialization
+  RunLock := TCriticalSection.Create;
+  // Gleich mit Platz anlegen: Wächst das Wörterbuch erst beim ersten Parse, bleibt der
+  // vergrößerte Speicher bis Programmende liegen und gilt im Test als Leck.
+  Running := TDictionary<string, IPascalCancellation>.Create(64);
+
+finalization
+  DefinesProvider := nil;
+  IncludeProvider := nil;
+  FreeAndNil(Running);
+  FreeAndNil(RunLock);
+
+end.

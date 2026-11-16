@@ -1,0 +1,149 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <PropertyGroup>
+        <ProjectGuid>{5770BE63-E12F-4CDD-8661-FA75F6E401CD}</ProjectGuid>
+        <MainSource>dpcc.Server.dpk</MainSource>
+        <ProjectVersion>20.3</ProjectVersion>
+        <FrameworkType>None</FrameworkType>
+        <AppType>Package</AppType>
+        <Base>True</Base>
+        <Config Condition="'$(Config)'==''">Debug</Config>
+        <Platform Condition="'$(Platform)'==''">Win32</Platform>
+        <TargetedPlatforms>3</TargetedPlatforms>
+        <ProjectName Condition="'$(ProjectName)'==''">dpcc.Server</ProjectName>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win64x' and '$(Base)'=='true') or '$(Base_Win64x)'!=''">
+        <Base_Win64x>true</Base_Win64x>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Config)'=='Debug' or '$(Cfg_1)'!=''">
+        <Cfg_1>true</Cfg_1>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Config)'=='Release' or '$(Cfg_2)'!=''">
+        <Cfg_2>true</Cfg_2>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Base)'!=''">
+        <DCC_MapFile>3</DCC_MapFile>
+        <SanitizedProjectName>dpcc_Server</SanitizedProjectName>
+        <GenPackage>true</GenPackage>
+        <GenDll>true</GenDll>
+        <RuntimeOnlyPackage>true</RuntimeOnlyPackage>
+        <DCC_Description>dpcc Server (Completion-Server ohne Programmstart)</DCC_Description>
+        <DCC_Namespace>System;Winapi;System.Win;$(DCC_Namespace)</DCC_Namespace>
+        <DCC_OutputNeverBuildDcps>true</DCC_OutputNeverBuildDcps>
+        <DCC_UnitSearchPath>..\..\Output\$(Platform)\$(Config)\Dcp;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_DcuOutput>..\..\Output\$(Platform)\$(Config)\Dcu\dpcc.Server</DCC_DcuOutput>
+        <DCC_DcpOutput>..\..\Output\$(Platform)\$(Config)\Dcp</DCC_DcpOutput>
+        <DCC_BplOutput>..\..\Output\$(Platform)\$(Config)\Bpl</DCC_BplOutput>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Base_Win64x)'!=''">
+        <DCC_Namespace>Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;$(DCC_Namespace)</DCC_Namespace>
+        <BT_BuildType>Debug</BT_BuildType>
+        <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
+        <VerInfo_MajorVer>0</VerInfo_MajorVer>
+        <VerInfo_MinorVer>1</VerInfo_MinorVer>
+        <VerInfo_Release>0</VerInfo_Release>
+        <VerInfo_Build>0</VerInfo_Build>
+        <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=0.1.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=$(MSBuildProjectName);ProductVersion=0.1.0.0;Comments=</VerInfo_Keys>
+        <VerInfo_Locale>1033</VerInfo_Locale>
+        <BCC_EnableBatchCompilation>true</BCC_EnableBatchCompilation>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_1)'!=''">
+        <DCC_Define>DEBUG;$(DCC_Define)</DCC_Define>
+        <DCC_RangeChecking>true</DCC_RangeChecking>
+        <DCC_IntegerOverflowCheck>true</DCC_IntegerOverflowCheck>
+        <DCC_DebugDCUs>false</DCC_DebugDCUs>
+        <DCC_Optimize>false</DCC_Optimize>
+        <DCC_GenerateStackFrames>true</DCC_GenerateStackFrames>
+        <DCC_DebugInfoInExe>true</DCC_DebugInfoInExe>
+        <DCC_RemoteDebug>false</DCC_RemoteDebug>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_2)'!=''">
+        <DCC_Define>RELEASE;$(DCC_Define)</DCC_Define>
+        <DCC_LocalDebugSymbols>false</DCC_LocalDebugSymbols>
+        <DCC_DebugInformation>1</DCC_DebugInformation>
+        <DCC_SymbolReferenceInfo>0</DCC_SymbolReferenceInfo>
+    </PropertyGroup>
+    <ItemGroup>
+        <DelphiCompile Include="$(MainSource)">
+            <MainSource>MainSource</MainSource>
+        </DelphiCompile>
+        <DCCReference Include="rtl.dcp"/>
+        <DCCReference Include="dpcc.Text.dcp"/>
+        <DCCReference Include="dpcc.WinBase.dcp"/>
+        <DCCReference Include="dpcc.Common.dcp"/>
+        <DCCReference Include="dpcc.Windows.dcp"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Bootstrap.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.Channel.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.ClientStart.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.Completion.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.CompletionCapabilities.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.CompletionServer.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.Configuration.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.Contract.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.CoreBase.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.Directives.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.DocumentEvents.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.FileChanges.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.Folders.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.Ide.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.IndexArea.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.InProcess.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.LanguageOptions.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.Protocol.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.Session.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.Settings.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.Workspaces.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Diagnostics.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Platform.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Texts.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Workspace.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Workspace.Build.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Workspace.Cache.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Workspace.Encodings.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Workspace.Indexing.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Workspace.Listings.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Workspace.Loader.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Workspace.Packages.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Workspace.Requests.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Workspace.Setup.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Workspace.State.pas"/>
+        <BuildConfiguration Include="Base">
+            <Key>Base</Key>
+        </BuildConfiguration>
+        <BuildConfiguration Include="Debug">
+            <Key>Cfg_1</Key>
+            <CfgParent>Base</CfgParent>
+        </BuildConfiguration>
+        <BuildConfiguration Include="Release">
+            <Key>Cfg_2</Key>
+            <CfgParent>Base</CfgParent>
+        </BuildConfiguration>
+    </ItemGroup>
+    <ProjectExtensions>
+        <Borland.Personality>Delphi.Personality.12</Borland.Personality>
+        <Borland.ProjectType>Package</Borland.ProjectType>
+        <BorlandProject>
+            <Delphi.Personality>
+                <Source>
+                    <Source Name="MainSource">dpcc.Server.dpk</Source>
+                </Source>
+            </Delphi.Personality>
+            <Platforms>
+                <Platform value="Win32">True</Platform>
+                <Platform value="Win64">True</Platform>
+                <Platform value="Win64x">False</Platform>
+            </Platforms>
+        </BorlandProject>
+        <ProjectFileVersion>12</ProjectFileVersion>
+    </ProjectExtensions>
+    <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Delphi.Targets')"/>
+    <Import Project="$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj" Condition="Exists('$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj')"/>
+</Project>

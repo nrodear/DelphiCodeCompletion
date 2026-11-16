@@ -1,0 +1,430 @@
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <PropertyGroup>
+        <ProjectGuid>{6E1B3C52-7F0A-4C1D-9B8E-2A5D4F7C9E31}</ProjectGuid>
+        <MainSource>dpcc.IDE.Base.dpk</MainSource>
+        <ProjectVersion>20.3</ProjectVersion>
+        <FrameworkType>VCL</FrameworkType>
+        <AppType>Package</AppType>
+        <Base>True</Base>
+        <Config Condition="'$(Config)'==''">Debug</Config>
+        <Platform Condition="'$(Platform)'==''">Win32</Platform>
+        <TargetedPlatforms>3</TargetedPlatforms>
+        <ProjectName Condition="'$(ProjectName)'==''">dpcc.IDE.Base</ProjectName>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win32' and '$(Base)'=='true') or '$(Base_Win32)'!=''">
+        <Base_Win32>true</Base_Win32>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win64' and '$(Base)'=='true') or '$(Base_Win64)'!=''">
+        <Base_Win64>true</Base_Win64>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win64x' and '$(Base)'=='true') or '$(Base_Win64x)'!=''">
+        <Base_Win64x>true</Base_Win64x>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Config)'=='Debug' or '$(Cfg_1)'!=''">
+        <Cfg_1>true</Cfg_1>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Config)'=='Release' or '$(Cfg_2)'!=''">
+        <Cfg_2>true</Cfg_2>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Base)'!=''">
+        <SanitizedProjectName>dpcc_IDE_Base</SanitizedProjectName>
+        <DCC_MapFile>3</DCC_MapFile>
+        <DCC_GenerateStackFrames>true</DCC_GenerateStackFrames>
+        <GenPackage>true</GenPackage>
+        <GenDll>true</GenDll>
+        <DesignOnlyPackage>true</DesignOnlyPackage>
+        <DllSuffix>$(Auto)</DllSuffix>
+        <DCC_Description>dpcc (Code Insight-Manager)</DCC_Description>
+        <DCC_Namespace>System;Winapi;System.Win;Vcl;$(DCC_Namespace)</DCC_Namespace>
+        <DCC_OutputNeverBuildDcps>true</DCC_OutputNeverBuildDcps>
+        <DCC_UnitSearchPath>..\..\Output\$(Platform)\$(Config)\Dcp;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_DcuOutput>..\..\Output\$(Platform)\$(Config)\Dcu\dpcc.IDE.Base</DCC_DcuOutput>
+        <DCC_DcpOutput>..\..\Output\$(Platform)\$(Config)\Dcp</DCC_DcpOutput>
+        <DCC_BplOutput>..\..\Output\$(Platform)\$(Config)\Bpl</DCC_BplOutput>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Base_Win32)'!=''">
+        <DCC_UsePackage>vcl;rtl;vclwinx;$(DCC_UsePackage)</DCC_UsePackage>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Base_Win64)'!=''">
+        <DCC_UsePackage>vcl;rtl;vclwinx;$(DCC_UsePackage)</DCC_UsePackage>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Base_Win64x)'!=''">
+        <DCC_Namespace>Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;$(DCC_Namespace)</DCC_Namespace>
+        <BT_BuildType>Debug</BT_BuildType>
+        <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
+        <VerInfo_MajorVer>0</VerInfo_MajorVer>
+        <VerInfo_MinorVer>1</VerInfo_MinorVer>
+        <VerInfo_Release>0</VerInfo_Release>
+        <VerInfo_Build>0</VerInfo_Build>
+        <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=0.1.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=$(MSBuildProjectName);ProductVersion=0.1.0.0;Comments=</VerInfo_Keys>
+        <VerInfo_Locale>1033</VerInfo_Locale>
+        <BCC_EnableBatchCompilation>true</BCC_EnableBatchCompilation>
+        <DCC_UsePackage>vcl;rtl;vclwinx;$(DCC_UsePackage)</DCC_UsePackage>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_1)'!=''">
+        <DCC_Define>DEBUG;$(DCC_Define)</DCC_Define>
+        <DCC_DebugDCUs>false</DCC_DebugDCUs>
+        <DCC_Optimize>false</DCC_Optimize>
+        <DCC_GenerateStackFrames>true</DCC_GenerateStackFrames>
+        <DCC_DebugInfoInExe>true</DCC_DebugInfoInExe>
+        <DCC_RemoteDebug>false</DCC_RemoteDebug>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_2)'!=''">
+        <DCC_Define>RELEASE;$(DCC_Define)</DCC_Define>
+        <DCC_LocalDebugSymbols>false</DCC_LocalDebugSymbols>
+        <DCC_DebugInformation>0</DCC_DebugInformation>
+        <DCC_SymbolReferenceInfo>0</DCC_SymbolReferenceInfo>
+    </PropertyGroup>
+    <ItemGroup>
+        <DelphiCompile Include="$(MainSource)">
+            <MainSource>MainSource</MainSource>
+        </DelphiCompile>
+        <DCCReference Include="rtl.dcp"/>
+        <DCCReference Include="vcl.dcp"/>
+        <DCCReference Include="vclwinx.dcp"/>
+        <DCCReference Include="designide.dcp"/>
+        <DCCReference Include="dpcc.Text.dcp"/>
+        <DCCReference Include="dpcc.WinBase.dcp"/>
+        <DCCReference Include="dpcc.Common.dcp"/>
+        <DCCReference Include="dpcc.Windows.dcp"/>
+        <DCCReference Include="dpcc.Server.dcp"/>
+        <DCCReference Include="Source\Core\Localization\dpcc.Core.Localization.Language.pas"/>
+        <DCCReference Include="Source\Core\Lsp\dpcc.Core.Lsp.Progress.pas"/>
+        <DCCReference Include="Source\Core\Lsp\dpcc.Core.Lsp.Crashes.pas"/>
+        <DCCReference Include="Source\Core\Lsp\dpcc.Core.Lsp.CrashCases.pas"/>
+        <DCCReference Include="Source\Core\Lsp\dpcc.Core.Lsp.Client.pas"/>
+        <DCCReference Include="Source\Core\Lsp\dpcc.Core.Lsp.Contract.pas"/>
+        <DCCReference Include="Source\Core\Lsp\dpcc.Core.Lsp.Session.Json.pas"/>
+        <DCCReference Include="Source\Core\Lsp\dpcc.Core.Lsp.Session.Base.pas"/>
+        <DCCReference Include="Source\Core\Lsp\dpcc.Core.Lsp.IdeTypes.pas"/>
+        <DCCReference Include="Source\Core\Lsp\dpcc.Core.Lsp.IdeMembers.pas"/>
+        <DCCReference Include="Source\Core\Lsp\dpcc.Core.Lsp.Session.Requests.pas"/>
+        <DCCReference Include="Source\Core\Lsp\dpcc.Core.Lsp.Session.pas"/>
+        <DCCReference Include="Source\Core\Lsp\dpcc.Core.Lsp.TextChanges.pas"/>
+        <DCCReference Include="Source\Core\Lsp\dpcc.Core.Lsp.Uris.pas"/>
+        <DCCReference Include="Source\Core\Lsp\dpcc.Core.Lsp.WorkspaceEdits.pas"/>
+        <DCCReference Include="Source\Core\Lsp\dpcc.Core.Lsp.Adapters.InProcess.pas"/>
+        <DCCReference Include="Source\Core\Completion\dpcc.Core.Completion.Contract.pas"/>
+        <DCCReference Include="Source\Core\Completion\Internals\dpcc.Core.Completion.Internals.Async.pas"/>
+        <DCCReference Include="Source\Core\Completion\dpcc.Core.Completion.Composite.pas"/>
+        <DCCReference Include="Source\Core\Completion\Providers\dpcc.Core.Completion.Providers.Fixed.pas"/>
+        <DCCReference Include="Source\Core\Completion\Providers\dpcc.Core.Completion.Providers.Server.pas"/>
+        <DCCReference Include="Source\Core\Completion\dpcc.Core.Completion.Matching.pas"/>
+        <DCCReference Include="Source\Core\Completion\dpcc.Core.Completion.Controller.pas"/>
+        <DCCReference Include="Source\Core\Signature\dpcc.Core.Signature.Contract.pas"/>
+        <DCCReference Include="Source\Core\Hover\dpcc.Core.Hover.Contract.pas"/>
+        <DCCReference Include="Source\Core\Hover\dpcc.Core.Hover.Plain.pas"/>
+        <DCCReference Include="Source\Core\Hover\dpcc.Core.Hover.DebugValue.pas"/>
+        <DCCReference Include="Source\Core\Hover\dpcc.Core.Hover.Texts.pas"/>
+        <DCCReference Include="Source\Core\Documentation\dpcc.Core.Documentation.Contract.pas"/>
+        <DCCReference Include="Source\Core\Documentation\dpcc.Core.Documentation.Layout.pas"/>
+        <DCCReference Include="Source\Core\Documentation\dpcc.Core.Documentation.Typeset.pas"/>
+        <DCCReference Include="Source\Core\Signature\dpcc.Core.Signature.CallScanner.pas"/>
+        <DCCReference Include="Source\Core\Signature\dpcc.Core.Signature.Controller.pas"/>
+        <DCCReference Include="Source\Core\Signature\dpcc.Core.Signature.Format.pas"/>
+        <DCCReference Include="Source\Core\Signature\dpcc.Core.Signature.Providers.Server.pas"/>
+        <DCCReference Include="Source\UI\Signature\dpcc.UI.Signature.Hint.pas"/>
+        <DCCReference Include="Source\UI\Popup\dpcc.UI.Popup.Window.pas"/>
+        <DCCReference Include="Source\UI\Foundation\dpcc.UI.Foundation.WndProcHook.pas"/>
+        <DCCReference Include="Source\UI\Popup\dpcc.UI.Popup.Draw.pas"/>
+        <DCCReference Include="Source\UI\Popup\dpcc.UI.Popup.Accessibility.pas"/>
+        <DCCReference Include="Source\UI\Completion\dpcc.UI.Completion.Popup.pas"/>
+        <DCCReference Include="Source\UI\Completion\dpcc.UI.Completion.PopupState.pas"/>
+        <DCCReference Include="Source\UI\Completion\dpcc.UI.Completion.PopupLayout.pas"/>
+        <DCCReference Include="Source\UI\Completion\dpcc.UI.Completion.PopupPainter.pas"/>
+        <DCCReference Include="Source\UI\Completion\dpcc.UI.Completion.PopupTexts.pas"/>
+        <DCCReference Include="Source\UI\Completion\dpcc.UI.Completion.Details.pas"/>
+        <DCCReference Include="Source\Core\Style\dpcc.Core.Style.Color.pas"/>
+        <DCCReference Include="Source\Core\Style\dpcc.Core.Style.Signal.pas"/>
+        <DCCReference Include="Source\Core\Style\dpcc.Core.Style.Palette.pas"/>
+        <DCCReference Include="Source\Core\Style\dpcc.Core.Style.Syntax.pas"/>
+        <DCCReference Include="Source\Core\Style\dpcc.Core.Style.Wrap.pas"/>
+        <DCCReference Include="Source\Core\Style\dpcc.Core.Style.Scaling.pas"/>
+        <DCCReference Include="Source\Core\Style\dpcc.Core.Style.Listeners.pas"/>
+        <DCCReference Include="Source\UI\Foundation\dpcc.UI.Foundation.Theme.pas"/>
+        <DCCReference Include="Source\UI\Foundation\dpcc.UI.Foundation.Dialog.pas"/>
+        <DCCReference Include="Source\Core\Completion\dpcc.Core.Completion.Presentation.pas"/>
+        <DCCReference Include="Source\Core\Completion\dpcc.Core.Completion.Word.pas"/>
+        <DCCReference Include="Source\UI\Popup\dpcc.UI.Popup.Styled.pas"/>
+        <DCCReference Include="Source\UI\Popup\dpcc.UI.Popup.Tip.pas"/>
+        <DCCReference Include="Source\IDE\Foundation\dpcc.IDE.Foundation.EditorStyle.pas"/>
+        <DCCReference Include="Source\IDE\Foundation\dpcc.IDE.Foundation.About.pas"/>
+        <DCCReference Include="Source\IDE\Foundation\dpcc.IDE.Foundation.EditorBuffer.pas"/>
+        <DCCReference Include="Source\IDE\Foundation\dpcc.IDE.Foundation.EditorSnapshot.pas"/>
+        <DCCReference Include="Source\IDE\Foundation\dpcc.IDE.Foundation.EditorRefresh.pas"/>
+        <DCCReference Include="Source\IDE\Foundation\dpcc.IDE.Foundation.Files.pas"/>
+        <DCCReference Include="Source\IDE\Foundation\dpcc.IDE.Foundation.Navigation.pas"/>
+        <DCCReference Include="Source\IDE\Projects\dpcc.IDE.Projects.Context.pas"/>
+        <DCCReference Include="Source\Core\Projects\dpcc.Core.Projects.PathCheck.pas"/>
+        <DCCReference Include="Source\Core\Projects\dpcc.Core.Projects.PathCheck.Scan.pas"/>
+        <DCCReference Include="Source\Core\Projects\dpcc.Core.Projects.Setup.pas"/>
+        <DCCReference Include="Source\Core\Generate\dpcc.Core.Generate.Contract.pas"/>
+        <DCCReference Include="Source\IDE\Foundation\dpcc.IDE.Foundation.KeyHook.pas"/>
+        <DCCReference Include="Source\IDE\Foundation\dpcc.IDE.Foundation.LineTracker.pas"/>
+        <DCCReference Include="Source\IDE\Signature\dpcc.IDE.Signature.Editor.pas"/>
+        <DCCReference Include="Source\IDE\Signature\dpcc.IDE.Signature.FormatMarks.pas"/>
+        <DCCReference Include="Source\IDE\Completion\dpcc.IDE.Completion.Editor.pas"/>
+        <DCCReference Include="Source\IDE\Completion\dpcc.IDE.Completion.EditorState.pas"/>
+        <DCCReference Include="Source\IDE\Completion\dpcc.IDE.Completion.EditorOpen.pas"/>
+        <DCCReference Include="Source\IDE\Completion\dpcc.IDE.Completion.EditorCommit.pas"/>
+        <DCCReference Include="Source\IDE\CodeInsight\dpcc.IDE.CodeInsight.Manager.Paths.pas"/>
+        <DCCReference Include="Source\IDE\CodeInsight\dpcc.IDE.CodeInsight.Manager.Editors.pas"/>
+        <DCCReference Include="Source\IDE\CodeInsight\dpcc.IDE.CodeInsight.Manager.State.pas"/>
+        <DCCReference Include="Source\IDE\CodeInsight\dpcc.IDE.CodeInsight.Manager.Handlers.pas"/>
+        <DCCReference Include="Source\IDE\CodeInsight\dpcc.IDE.CodeInsight.Manager.Session.pas"/>
+        <DCCReference Include="Source\IDE\CodeInsight\dpcc.IDE.CodeInsight.IdeTypes.pas"/>
+        <DCCReference Include="Source\IDE\CodeInsight\dpcc.IDE.CodeInsight.IdeMembers.pas"/>
+        <DCCReference Include="Source\IDE\CodeInsight\dpcc.IDE.CodeInsight.Manager.Commands.pas"/>
+        <DCCReference Include="Source\IDE\CodeInsight\dpcc.IDE.CodeInsight.Manager.Crashes.pas"/>
+        <DCCReference Include="Source\IDE\CodeInsight\dpcc.IDE.CodeInsight.Manager.Queries.pas"/>
+        <DCCReference Include="Source\IDE\CodeInsight\dpcc.IDE.CodeInsight.Manager.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.OverviewKinds.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.ContextMenuGroups.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Plugin.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Plugin.Store.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Plugin.Bookmarks.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Plugin.Build.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Plugin.CodeActions.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Plugin.Completion.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Plugin.Debug.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Plugin.Editor.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Plugin.General.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Plugin.Highlighting.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Plugin.Issues.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Plugin.Keys.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Plugin.Rules.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Plugin.VersionControl.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Plugin.Welcome.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.ProblemsUpdate.pas"/>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.Page.pas">
+            <Form>DpccSettingsPage</Form>
+            <FormType>dfm</FormType>
+            <DesignClass>TFrame</DesignClass>
+        </DCCReference>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.ChoiceBox.pas"/>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.Bindings.pas"/>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.Page.Sheets.pas"/>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.Page.Host.pas"/>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.Page.General.pas"/>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.Page.Completion.pas"/>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.Page.Transfer.pas"/>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.Page.TeamFile.pas"/>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.Page.EditorView.pas"/>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.Page.EditorCode.pas"/>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.Page.Colors.pas"/>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.Page.Build.pas"/>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.Page.Rules.pas"/>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.Page.Commands.pas"/>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.Page.Startup.pas"/>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.Page.Parts.pas"/>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.Page.Sections.pas"/>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.Page.Nodes.pas"/>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.Page.Tree.pas"/>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.Marks.pas"/>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.Group.pas"/>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.Transfer.pas"/>
+        <DCCReference Include="Source\IDE\Foundation\dpcc.IDE.Foundation.Settings.pas"/>
+        <DCCReference Include="Source\IDE\Foundation\dpcc.IDE.Foundation.Host.pas"/>
+        <DCCReference Include="Source\IDE\Settings\dpcc.IDE.Settings.Options.pas"/>
+        <DCCReference Include="Source\IDE\Settings\dpcc.IDE.Settings.OptionsDialog.pas"/>
+        <DCCReference Include="Source\IDE\Settings\dpcc.IDE.Settings.PageOptions.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.JsonText.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Schema.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Scopes.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.SchemaData.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.PluginSchemaData.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.ProfileData.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Catalog.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.CompletionView.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.MasterSwitch.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Transfer.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Experimental.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.ModuleSwitches.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Groups.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.PageNames.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Layers.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.SchemaCheck.pas"/>
+        <DCCReference Include="Source\Core\Commands\dpcc.Core.Commands.KeyConflicts.pas"/>
+        <DCCReference Include="Source\Core\Commands\dpcc.Core.Commands.KeyMap.pas"/>
+        <DCCReference Include="Source\Core\Commands\dpcc.Core.Commands.Usage.pas"/>
+        <DCCReference Include="Source\Core\Commands\dpcc.Core.Commands.ShortcutTips.pas"/>
+        <DCCReference Include="Source\Core\Completion\dpcc.Core.Completion.Ranking.pas"/>
+        <DCCReference Include="Source\Core\Completion\dpcc.Core.Completion.Sets.pas"/>
+        <DCCReference Include="Source\Core\Completion\dpcc.Core.Completion.Width.pas"/>
+        <DCCReference Include="Source\Core\Completion\dpcc.Core.Completion.Usage.pas"/>
+        <DCCReference Include="Source\IDE\Completion\dpcc.IDE.Completion.History.pas"/>
+        <DCCReference Include="Source\Core\Completion\dpcc.Core.Completion.Favorites.pas"/>
+        <DCCReference Include="Source\IDE\Completion\dpcc.IDE.Completion.Favorites.pas"/>
+        <DCCReference Include="Source\IDE\Completion\dpcc.IDE.Completion.Adapters.pas"/>
+        <DCCReference Include="Source\IDE\Completion\dpcc.IDE.Completion.SaveNotifier.pas"/>
+        <DCCReference Include="Source\IDE\Completion\dpcc.IDE.Completion.Leftovers.pas"/>
+        <DCCReference Include="Source\IDE\Completion\dpcc.IDE.Completion.Register.pas"/>
+        <DCCReference Include="Source\UI\dpcc.UI.Strings.pas"/>
+        <DCCReference Include="Source\UI\CodeInsight\dpcc.UI.CodeInsight.Strings.pas"/>
+        <DCCReference Include="Source\UI\Completion\dpcc.UI.Completion.Strings.pas"/>
+        <DCCReference Include="Source\UI\EditorToolbar\dpcc.UI.EditorToolbar.Strings.pas"/>
+        <DCCReference Include="Source\UI\Foundation\dpcc.UI.Foundation.Strings.pas"/>
+        <DCCReference Include="Source\UI\Hover\dpcc.UI.Hover.Strings.pas"/>
+        <DCCReference Include="Source\UI\Notifications\dpcc.UI.Notifications.Strings.pas"/>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.Strings.pas"/>
+        <DCCReference Include="Source\Core\Completion\Providers\dpcc.Core.Completion.Providers.XmlDoc.pas"/>
+        <DCCReference Include="Source\Core\Completion\dpcc.Core.Completion.ServerPlaceholders.pas"/>
+        <DCCReference Include="Source\Core\Completion\dpcc.Core.Completion.Placeholders.pas"/>
+        <DCCReference Include="Source\IDE\Completion\dpcc.IDE.Completion.Placeholders.pas"/>
+        <DCCReference Include="Source\Core\Completion\dpcc.Core.Completion.Parentheses.pas"/>
+        <DCCReference Include="Source\UI\Hover\dpcc.UI.Hover.Tip.pas"/>
+        <DCCReference Include="Source\UI\Documentation\dpcc.UI.Documentation.View.pas"/>
+        <DCCReference Include="Source\IDE\Hover\dpcc.IDE.Hover.DebugValue.pas"/>
+        <DCCReference Include="Source\IDE\Hover\dpcc.IDE.Hover.Editor.pas"/>
+        <DCCReference Include="Source\Core\Completion\dpcc.Core.Completion.Preview.pas"/>
+        <DCCReference Include="Source\IDE\Completion\dpcc.IDE.Completion.Preview.pas"/>
+        <DCCReference Include="Source\Core\Build\dpcc.Core.Build.Events.pas"/>
+        <DCCReference Include="Source\Core\Diagnostics\dpcc.Core.Diagnostics.LogRedaction.pas"/>
+        <DCCReference Include="Source\Core\Diagnostics\dpcc.Core.Diagnostics.Guard.pas"/>
+        <DCCReference Include="Source\Core\Diagnostics\dpcc.Core.Diagnostics.MainThread.pas"/>
+        <DCCReference Include="Source\Core\Diagnostics\dpcc.Core.Diagnostics.Shutdown.pas"/>
+        <DCCReference Include="Source\Core\Diagnostics\dpcc.Core.Diagnostics.TimeLimit.pas"/>
+        <DCCReference Include="Source\Core\Diagnostics\dpcc.Core.Diagnostics.Deadline.pas"/>
+        <DCCReference Include="Source\Core\Diagnostics\dpcc.Core.Diagnostics.UnloadSafety.pas"/>
+        <DCCReference Include="Source\Core\Diagnostics\dpcc.Core.Diagnostics.WorkerSlot.pas"/>
+        <DCCReference Include="Source\Core\Product\dpcc.Core.Product.Version.pas"/>
+        <DCCReference Include="Source\Core\Diagnostics\dpcc.Core.Diagnostics.StartTimes.pas"/>
+        <DCCReference Include="Source\Core\Diagnostics\dpcc.Core.Diagnostics.Hangs.pas"/>
+        <DCCReference Include="Source\Core\Commands\dpcc.Core.Commands.Palette.pas"/>
+        <DCCReference Include="Source\Core\Editor\dpcc.Core.Editor.Pairs.pas"/>
+        <DCCReference Include="Source\Core\Editor\dpcc.Core.Editor.LearnedSuggestions.pas"/>
+        <DCCReference Include="Source\Core\Editor\dpcc.Core.Editor.StatementCompletion.pas"/>
+        <DCCReference Include="Source\Core\Editor\dpcc.Core.Editor.Overview.pas"/>
+        <DCCReference Include="Source\Core\Editor\dpcc.Core.Editor.SnapshotPolicy.pas"/>
+        <DCCReference Include="Source\Core\Editor\dpcc.Core.Editor.CloseRules.pas"/>
+        <DCCReference Include="Source\Core\Editor\dpcc.Core.Editor.Guides.pas"/>
+        <DCCReference Include="Source\Core\Editor\dpcc.Core.Editor.RoutineNesting.pas"/>
+        <DCCReference Include="Source\Core\Editor\dpcc.Core.Editor.CodeInsightKeys.pas"/>
+        <DCCReference Include="Source\Core\Problems\dpcc.Core.Problems.Contract.pas"/>
+        <DCCReference Include="Source\Core\Problems\dpcc.Core.Problems.InlineHints.pas"/>
+        <DCCReference Include="Source\Core\Editor\dpcc.Core.Editor.SelectionMatches.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Reassigned.pas"/>
+        <DCCReference Include="Source\Core\Problems\dpcc.Core.Problems.Store.pas"/>
+        <DCCReference Include="Source\Core\Problems\dpcc.Core.Problems.Findings.pas"/>
+        <DCCReference Include="Source\Core\Problems\dpcc.Core.Problems.ScopeProjects.pas"/>
+        <DCCReference Include="Source\Core\Problems\dpcc.Core.Problems.IdeErrors.pas"/>
+        <DCCReference Include="Source\IDE\Foundation\dpcc.IDE.Foundation.StructureSwitch.pas"/>
+        <DCCReference Include="Source\Core\Status\dpcc.Core.Status.Contract.pas"/>
+        <DCCReference Include="Source\Core\Files\dpcc.Core.Files.Format.pas"/>
+        <DCCReference Include="Source\Core\Status\dpcc.Core.Status.Lines.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.QuickToggles.pas"/>
+        <DCCReference Include="Source\IDE\Settings\dpcc.IDE.Settings.Transfer.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.NodeScope.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Search.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.History.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Renames.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.QueryMigration.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.TeamFile.pas"/>
+        <DCCReference Include="Source\Core\CiBuild\dpcc.Core.CiBuild.Contract.pas"/>
+        <DCCReference Include="Source\IDE\Foundation\dpcc.IDE.Foundation.TeamFile.pas"/>
+        <DCCReference Include="Source\Core\Modules\dpcc.Core.Modules.Contract.pas"/>
+        <DCCReference Include="Source\Core\Modules\dpcc.Core.Modules.Registration.pas"/>
+        <DCCReference Include="Source\Core\Modules\dpcc.Core.Modules.Registry.pas"/>
+        <DCCReference Include="Source\Core\Modules\dpcc.Core.Modules.Contributions.pas"/>
+        <DCCReference Include="Source\Core\Modules\dpcc.Core.Modules.Answer.pas"/>
+        <DCCReference Include="Source\Contracts\dpcc.IDE.Contracts.Help.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.Contract.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.StoreValues.pas"/>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.Contract.pas"/>
+        <DCCReference Include="Source\Core\Diagnostics\dpcc.Core.Diagnostics.Teardown.pas"/>
+        <DCCReference Include="Source\Core\Diagnostics\dpcc.Core.Diagnostics.ExitWatch.pas"/>
+        <DCCReference Include="Source\Core\Diagnostics\dpcc.Core.Diagnostics.ThreadList.pas"/>
+        <DCCReference Include="Source\Core\Diagnostics\dpcc.Core.Diagnostics.SafeMode.pas"/>
+        <DCCReference Include="Source\UI\Diagnostics\dpcc.UI.Diagnostics.Strings.pas"/>
+        <DCCReference Include="Source\Core\Diagnostics\dpcc.Core.Diagnostics.Timing.pas"/>
+        <DCCReference Include="Source\Core\Diagnostics\dpcc.Core.Diagnostics.PluginTimings.pas"/>
+        <DCCReference Include="Source\Core\Undo\dpcc.Core.Undo.Contract.pas"/>
+        <DCCReference Include="Source\Core\Undo\dpcc.Core.Undo.Names.pas"/>
+        <DCCReference Include="Source\Core\Files\dpcc.Core.Files.WatchedChanges.pas"/>
+        <DCCReference Include="Source\Core\Files\dpcc.Core.Files.Contract.pas"/>
+        <DCCReference Include="Source\Core\Files\dpcc.Core.Files.TextFile.pas"/>
+        <DCCReference Include="Source\Core\Files\dpcc.Core.Files.DataFile.pas"/>
+        <DCCReference Include="Source\Core\Files\dpcc.Core.Files.EncodingDefault.pas"/>
+        <DCCReference Include="Source\Core\Projects\dpcc.Core.Projects.Contract.pas"/>
+        <DCCReference Include="Source\Core\Projects\dpcc.Core.Projects.Summary.pas"/>
+        <DCCReference Include="Source\Core\Projects\dpcc.Core.Projects.Summary.Json.pas"/>
+        <DCCReference Include="Source\Core\Projects\dpcc.Core.Projects.Summary.Sections.pas"/>
+        <DCCReference Include="Source\Core\InlayHints\dpcc.Core.InlayHints.Store.pas"/>
+        <DCCReference Include="Source\Core\Forms\dpcc.Core.Forms.Text.pas"/>
+        <DCCReference Include="Source\Core\Forms\dpcc.Core.Forms.Changes.pas"/>
+        <DCCReference Include="Source\IDE\Forms\dpcc.IDE.Forms.Designer.pas"/>
+        <DCCReference Include="Source\Core\Files\dpcc.Core.Files.Adapters.FolderWatcher.pas"/>
+        <DCCReference Include="Source\UI\Problems\dpcc.UI.Problems.ScopeBox.pas"/>
+        <DCCReference Include="Source\Core\Build\dpcc.Core.Build.Messages.pas"/>
+        <DCCReference Include="Source\Core\Build\dpcc.Core.Build.Verdict.pas"/>
+        <DCCReference Include="Source\Core\Build\dpcc.Core.Build.OpenBuildSettings.pas"/>
+        <DCCReference Include="Source\Core\Dock\dpcc.Core.Dock.Plan.pas"/>
+        <DCCReference Include="Source\IDE\Foundation\dpcc.IDE.Foundation.DockWindow.pas"/>
+        <DCCReference Include="Source\IDE\ElementHelp\dpcc.IDE.ElementHelp.Keys.pas"/>
+        <DCCReference Include="Source\Core\Build\dpcc.Core.Build.PipelineSettings.pas"/>
+        <DCCReference Include="Source\Core\Versions\dpcc.Core.Versions.Project.pas"/>
+        <DCCReference Include="Source\Core\Editor\dpcc.Core.Editor.LineTracking.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.HiddenPlaces.pas"/>
+        <DCCReference Include="Source\UI\Editor\dpcc.UI.Editor.RegionFolds.pas"/>
+        <DCCReference Include="Source\UI\Editor\dpcc.UI.Editor.LearnedSuggestions.pas"/>
+        <DCCReference Include="Source\Core\Notifications\dpcc.Core.Notifications.Contract.pas"/>
+        <DCCReference Include="Source\Core\Notifications\dpcc.Core.Notifications.Sources.pas"/>
+        <DCCReference Include="Source\Core\Notifications\dpcc.Core.Notifications.Center.pas"/>
+        <DCCReference Include="Source\UI\Notifications\dpcc.UI.Notifications.Window.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.ToolbarItems.pas"/>
+        <DCCReference Include="Source\Core\EditorToolbar\dpcc.Core.EditorToolbar.Icons.pas"/>
+        <DCCReference Include="Source\Core\EditorToolbar\dpcc.Core.EditorToolbar.Glyphs.pas"/>
+        <DCCReference Include="Source\UI\EditorToolbar\dpcc.UI.EditorToolbar.Glyphs.pas"/>
+        <DCCReference Include="Source\UI\EditorToolbar\dpcc.UI.EditorToolbar.Customize.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.StatusBarItems.pas"/>
+        <DCCReference Include="Source\Core\Completion\Providers\dpcc.Core.Completion.Providers.Expression.pas"/>
+        <DCCReference Include="Source\Core\Lsp\dpcc.Core.Lsp.DataFlow.pas"/>
+        <DCCReference Include="Source\Core\Lsp\dpcc.Core.Lsp.AccessChains.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.VisualizerKinds.pas"/>
+        <DCCReference Include="Source\Core\Settings\dpcc.Core.Settings.EventBreakNames.pas"/>
+        <DCCReference Include="Source\UI\Settings\dpcc.UI.Settings.Page.Search.pas"/>
+        <BuildConfiguration Include="Base">
+            <Key>Base</Key>
+        </BuildConfiguration>
+        <BuildConfiguration Include="Debug">
+            <Key>Cfg_1</Key>
+            <CfgParent>Base</CfgParent>
+        </BuildConfiguration>
+        <BuildConfiguration Include="Release">
+            <Key>Cfg_2</Key>
+            <CfgParent>Base</CfgParent>
+        </BuildConfiguration>
+    </ItemGroup>
+    <ProjectExtensions>
+        <Borland.Personality>Delphi.Personality.12</Borland.Personality>
+        <Borland.ProjectType>Package</Borland.ProjectType>
+        <BorlandProject>
+            <Delphi.Personality>
+                <Source>
+                    <Source Name="MainSource">dpcc.IDE.Base.dpk</Source>
+                </Source>
+            </Delphi.Personality>
+            <Platforms>
+                <Platform value="Win32">True</Platform>
+                <Platform value="Win64">True</Platform>
+                <Platform value="Win64x">False</Platform>
+            </Platforms>
+        </BorlandProject>
+        <ProjectFileVersion>12</ProjectFileVersion>
+    </ProjectExtensions>
+    <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Delphi.Targets')"/>
+    <Import Project="$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj" Condition="Exists('$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj')"/>
+</Project>

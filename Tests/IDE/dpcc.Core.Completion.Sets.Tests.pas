@@ -1,0 +1,606 @@
+﻿unit dpcc.Core.Completion.Sets.Tests;
+
+// Tests für Aufzählungen und Mengen in der Vervollständigung (#448): Rangfolge, Mengenmodus im Controller,
+// neuer Klammerinhalt und die Felder aus der Antwort des Servers. Dazu „Alle Werte einfügen“ für case (#449) und
+// „Interface implementieren“ (#466) mit Kontrollkästchen und Hinweis, „Alle Felder zuweisen“ (#491) mit Liste.
+
+interface
+
+uses
+  DUnitX.TestFramework;
+
+type
+  [TestFixture]
+  TDpccCompletionSetsTests = class
+  public
+    [Test]
+    procedure EnumValuesComeFirstInDeclarationOrder;
+    [Test]
+    procedure ComposesBracketInDeclarationOrder;
+    [Test]
+    procedure SpaceTogglesAndEnterReplacesBracket;
+    [Test]
+    procedure EnterWithoutToggleAddsSelectedValue;
+    [Test]
+    procedure BracketTriggerWithoutSetClosesQuietly;
+    [Test]
+    procedure ReadsSetFieldsFromServer;
+    [Test]
+    procedure PinnedCaseItemComesFirst;
+    [Test]
+    procedure BatchCommitsCheckedMethods;
+    [Test]
+    procedure HintStaysOnTopWithoutSelection;
+    /// <summary>Alle Felder zuweisen (#491) mit Liste.</summary>
+    [Test]
+    procedure AssignListCommitsCheckedLines;
+  end;
+
+implementation
+
+uses
+  System.SysUtils,
+  System.Classes,
+  System.JSON,
+  System.Generics.Collections,
+  dpcc.Core.Completion.Contract,
+  dpcc.Core.Completion.Controller,
+  dpcc.Core.Completion.Ranking,
+  dpcc.Core.Completion.Sets,
+  dpcc.Core.Completion.Presentation,
+  dpcc.Core.Completion.Providers.Fixed,
+  dpcc.Core.Completion.Providers.Server;
+
+type
+  TSetView = class(TInterfacedObject, IDpccCompletionView)
+  public
+    Shown: Boolean;
+    Empty: Boolean;
+    Checked: string;
+    procedure ShowList(const AItems: TDpccCompletionItems; const AOrder: TArray<Integer>; ASelected: Integer;
+      const APattern: string);
+    procedure HideList;
+    procedure ShowEmpty(const APrefix: string; ATotal: Integer);
+    function PageSize: Integer;
+    procedure ShowChips(const ACounts: TDpccChipCounts; AActive: TDpccChip; AVisible: Boolean);
+  end;
+
+procedure TSetView.ShowList(const AItems: TDpccCompletionItems; const AOrder: TArray<Integer>; ASelected: Integer;
+  const APattern: string);
+var
+  Index: Integer;
+begin
+  Shown := True;
+  Empty := False;
+  Checked := '';
+  for Index in AOrder do
+  begin
+    if not TDpccRanking.IsHeader(Index) and AItems[Index].Checked then
+    begin
+      Checked := Checked + AItems[Index].Name + ' ';
+    end;
+  end;
+  Checked := Checked.Trim;
+end;
+
+procedure TSetView.HideList;
+begin
+  Shown := False;
+end;
+
+procedure TSetView.ShowEmpty(const APrefix: string; ATotal: Integer);
+begin
+  Shown := False;
+  Empty := True;
+end;
+
+function TSetView.PageSize: Integer;
+begin
+  Result := 5;
+end;
+
+procedure TSetView.ShowChips(const ACounts: TDpccChipCounts; AActive: TDpccChip; AVisible: Boolean);
+begin
+end;
+
+function Value(const AName: string; AOrdinal: Integer; AChecked: Boolean = False): TDpccCompletionItem;
+begin
+  Result := Default(TDpccCompletionItem);
+  Result.Name := AName;
+  Result.Kind := TDpccItemKind.EnumMember;
+  Result.Ordinal := AOrdinal;
+  Result.ExpectedType := 'TAnchors';
+  Result.Fits := True;
+  Result.SetOf := 'TAnchorKind';
+  Result.Checked := AChecked;
+  Result.SetRange.StartLine := 4;
+  Result.SetRange.StartCharacter := 13;
+  Result.SetRange.EndLine := 4;
+  Result.SetRange.EndCharacter := 23;
+end;
+
+/// <summary>akLeft angehakt, die Liste absichtlich nicht in Deklarationsreihenfolge.</summary>
+function Anchors: TDpccCompletionItems;
+begin
+  Result := [Value('akRight', 3), Value('akLeft', 1, True), Value('akTop', 2), Value('akBottom', 4)];
+end;
+
+function WaitFor(const ACondition: TFunc<Boolean>): Boolean;
+var
+  Start: UInt64;
+begin
+  Start := TThread.GetTickCount64;
+  repeat
+    CheckSynchronize(5);
+    if ACondition() then
+    begin
+      Exit(True);
+    end;
+  until TThread.GetTickCount64 - Start > 3000;
+  Result := False;
+end;
+
+function Names(const AItems: TDpccCompletionItems; const AOrder: TArray<Integer>): string;
+var
+  Index: Integer;
+begin
+  Result := '';
+  for Index in AOrder do
+  begin
+    if TDpccRanking.IsHeader(Index) then
+    begin
+      Result := Result + '# ';
+    end
+    else
+    begin
+      Result := Result + AItems[Index].Name + ' ';
+    end;
+  end;
+  Result := Result.Trim;
+end;
+
+{ TDpccCompletionSetsTests }
+
+procedure TDpccCompletionSetsTests.EnumValuesComeFirstInDeclarationOrder;
+var
+  Items: TDpccCompletionItems;
+  Options: TDpccRankOptions;
+  Local: TDpccCompletionItem;
+begin
+  // Eine passende lokale Variable stünde sonst vor den Werten (Bereich 1).
+  Local := Default(TDpccCompletionItem);
+  Local.Name := 'Ausrichtung';
+  Local.ExpectedType := 'TAlign';
+  Local.Fits := True;
+  Local.Scope := 1;
+  Items := [Local, Value('alClient', 3), Value('alNone', 1), Value('alTop', 2)];
+  Options := TDpccRankOptions.Defaults;
+  Options.GroupInherited := True;
+  Assert.AreEqual('# alNone alTop alClient Ausrichtung', Names(Items, TDpccRanking.Order(Items, '', Options)));
+  // Mit Getipptem entscheidet die Güte, bei Gleichstand die Deklaration.
+  // alNone ist ein Tippfehler-Kandidat (ein Zeichen anders, #485) und steht in eigener Gruppe dahinter.
+  Assert.AreEqual('# alTop # alNone', Names(Items, TDpccRanking.Order(Items, 'alTo', Options)));
+end;
+
+procedure TDpccCompletionSetsTests.ComposesBracketInDeclarationOrder;
+var
+  Items: TDpccCompletionItems;
+  Commit: TDpccCompletionItem;
+begin
+  Items := Anchors;
+  Assert.IsTrue(TDpccCompletionSets.Active(Items));
+  Assert.IsFalse(TDpccCompletionSets.Active([Default(TDpccCompletionItem)]));
+  Items[0].Checked := True;
+  Assert.AreEqual(2, TDpccCompletionSets.CheckedCount(Items));
+  Assert.AreEqual('[akLeft, akRight]', TDpccCompletionSets.Text(Items));
+  // Scoped Enums: Typpräfix aus InsertText.
+  Items[0].InsertText := 'TAnchorKind.akRight';
+  Assert.AreEqual('[akLeft, TAnchorKind.akRight]', TDpccCompletionSets.Text(Items));
+  Items[0].Checked := False;
+  Items[1].Checked := False;
+  Assert.AreEqual('[]', TDpccCompletionSets.Text(Items));
+  Items[2].Checked := True;
+  Commit := TDpccCompletionSets.CommitItem(Items);
+  Assert.IsTrue(Commit.HasTextEdit);
+  Assert.AreEqual('[akTop]', Commit.TextEdit.NewText);
+  Assert.AreEqual(13, Commit.TextEdit.StartCharacter);
+  Assert.AreEqual(23, Commit.TextEdit.EndCharacter);
+end;
+
+procedure TDpccCompletionSetsTests.SpaceTogglesAndEnterReplacesBracket;
+var
+  View: TSetView;
+  ViewRef: IDpccCompletionView;
+  Controller: TDpccCompletionController;
+  Committed: string;
+  Context: TDpccContext;
+begin
+  View := TSetView.Create;
+  ViewRef := View;
+  Controller := TDpccCompletionController.Create(
+    TDpccFixedCompletionProvider.Create(Anchors) as IDpccCompletionProvider, ViewRef);
+  try
+    Committed := '';
+    Controller.OnCommit :=
+      procedure(const AItem: TDpccCompletionItem)
+      begin
+        Committed := AItem.TextEdit.NewText;
+      end;
+    Context := Default(TDpccContext);
+    Context.FileName := 'C:\P\A.pas';
+    Controller.Start(Context);
+    Assert.IsTrue(WaitFor(
+      function: Boolean
+      begin
+        Result := not Controller.Loading;
+      end));
+    Assert.IsTrue(Controller.SetMode);
+    Assert.AreEqual('akLeft', View.Checked);
+    // Werte in Deklarationsreihenfolge: akLeft, akTop, ...; akTop anhaken.
+    Assert.IsTrue(Controller.HandleKey(TDpccNavigationKey.Down));
+    Assert.IsTrue(Controller.HandleKey(TDpccNavigationKey.Toggle));
+    Assert.AreEqual('akLeft akTop', View.Checked);
+    Assert.IsTrue(Controller.HandleKey(TDpccNavigationKey.Accept));
+    Assert.AreEqual('[akLeft, akTop]', Committed);
+    Assert.IsFalse(Controller.Active);
+  finally
+    Controller.Free;
+  end;
+end;
+
+procedure TDpccCompletionSetsTests.EnterWithoutToggleAddsSelectedValue;
+var
+  View: TSetView;
+  ViewRef: IDpccCompletionView;
+  Controller: TDpccCompletionController;
+  Committed: string;
+  Context: TDpccContext;
+begin
+  View := TSetView.Create;
+  ViewRef := View;
+  Controller := TDpccCompletionController.Create(
+    TDpccFixedCompletionProvider.Create(Anchors) as IDpccCompletionProvider, ViewRef);
+  try
+    Controller.OnCommit :=
+      procedure(const AItem: TDpccCompletionItem)
+      begin
+        Committed := AItem.TextEdit.NewText;
+      end;
+    Context := Default(TDpccContext);
+    Context.FileName := 'C:\P\A.pas';
+    Context.Prefix := 'akB';
+    Controller.Start(Context);
+    Assert.IsTrue(WaitFor(
+      function: Boolean
+      begin
+        Result := not Controller.Loading;
+      end));
+    Assert.IsTrue(Controller.HandleKey(TDpccNavigationKey.Accept));
+    Assert.AreEqual('[akLeft, akBottom]', Committed);
+  finally
+    Controller.Free;
+  end;
+end;
+
+procedure TDpccCompletionSetsTests.BracketTriggerWithoutSetClosesQuietly;
+var
+  View: TSetView;
+  ViewRef: IDpccCompletionView;
+  Controller: TDpccCompletionController;
+  Context: TDpccContext;
+begin
+  View := TSetView.Create;
+  ViewRef := View;
+  Controller := TDpccCompletionController.Create(
+    TDpccFixedCompletionProvider.Create(nil) as IDpccCompletionProvider, ViewRef);
+  try
+    Context := Default(TDpccContext);
+    Context.FileName := 'C:\P\A.pas';
+    Context.Trigger := '[';
+    Controller.Start(Context);
+    Assert.IsTrue(WaitFor(
+      function: Boolean
+      begin
+        Result := not Controller.Active;
+      end), 'Nach "[" ohne Menge schließt die Liste');
+    Assert.IsFalse(View.Empty, 'kein leerer Zustand');
+    Assert.IsFalse(Controller.HandleKey(TDpccNavigationKey.Toggle), 'Leertaste gehört dem Editor');
+  finally
+    Controller.Free;
+  end;
+end;
+
+procedure TDpccCompletionSetsTests.ReadsSetFieldsFromServer;
+var
+  Json: TJSONObject;
+  Item: TDpccCompletionItem;
+begin
+  Json := TJSONObject.ParseJSONValue('{"label":"akTop","kind":20,"data":{"expected":"TAnchors","fits":true,' +
+    '"ordinal":2,"setOf":"TAnchorKind","checked":true,"setRange":{"start":{"line":4,"character":13},' +
+    '"end":{"line":4,"character":23}}}}') as TJSONObject;
+  try
+    Item := TDpccServerCompletionProvider.ItemFromLsp(Json, 0);
+  finally
+    Json.Free;
+  end;
+  Assert.AreEqual(2, Item.Ordinal);
+  Assert.AreEqual('TAnchorKind', Item.SetOf);
+  Assert.IsTrue(Item.Checked);
+  Assert.AreEqual(4, Item.SetRange.StartLine);
+  Assert.AreEqual(23, Item.SetRange.EndCharacter);
+  // Ohne Bereich kein Mengenmodus.
+  Json := TJSONObject.ParseJSONValue('{"label":"akTop","data":{"setOf":"TAnchorKind"}}') as TJSONObject;
+  try
+    Item := TDpccServerCompletionProvider.ItemFromLsp(Json, 0);
+  finally
+    Json.Free;
+  end;
+  Assert.AreEqual('', Item.SetOf);
+end;
+
+procedure TDpccCompletionSetsTests.PinnedCaseItemComesFirst;
+var
+  Json: TJSONObject;
+  Pinned: TDpccCompletionItem;
+  Items: TDpccCompletionItems;
+  Options: TDpccRankOptions;
+  Tags: TDpccTags;
+begin
+  Json := TJSONObject.ParseJSONValue('{"label":"Alle Werte einfügen","kind":15,"textEdit":{"range":{"start":' +
+    '{"line":10,"character":20},"end":{"line":11,"character":4}},"newText":"\n    alNone: $0;"},' +
+    '"data":{"expected":"TAlign","fits":true,"action":"case","pinned":true,"count":3}}') as TJSONObject;
+  try
+    Pinned := TDpccServerCompletionProvider.ItemFromLsp(Json, 0);
+  finally
+    Json.Free;
+  end;
+  Assert.IsTrue(Pinned.Pinned);
+  Assert.AreEqual(3, Integer(Pinned.Count));
+  Assert.IsTrue(Pinned.HasTextEdit);
+  Assert.IsFalse(Pinned.IsAction, 'kein „Neue Methode …“');
+  Tags := TDpccItemPresentation.Tags(Pinned);
+  Assert.AreEqual('3', Tags[0].Text);
+  // Ohne Getipptes ganz oben, vor den Werten; mit Getipptem hinter den Treffern, aber sichtbar.
+  Items := [Value('alClient', 3), Pinned, Value('alNone', 1), Value('alTop', 2)];
+  Options := TDpccRankOptions.Defaults;
+  Assert.AreEqual('# Alle Werte einfügen alNone alTop alClient', Names(Items, TDpccRanking.Order(Items, '', Options)));
+  Assert.AreEqual('# alTop Alle Werte einfügen # alNone', Names(Items, TDpccRanking.Order(Items, 'alTo', Options)));
+end;
+
+function Insert(ALine: Integer; const AText: string): TDpccTextEdit;
+begin
+  Result := Default(TDpccTextEdit);
+  Result.StartLine := ALine;
+  Result.EndLine := ALine;
+  Result.NewText := AText;
+end;
+
+/// <summary>Fehlende Methode wie vom Server (#466): Abschnitt, Kommentar und Deklaration vor Zeile 8, Rumpf in 12.</summary>
+function Method(const AName, AInterface: string; AOrdinal: Integer): TDpccCompletionItem;
+begin
+  Result := Default(TDpccCompletionItem);
+  Result.Name := AName;
+  Result.Kind := TDpccItemKind.Method;
+  Result.Ordinal := AOrdinal;
+  Result.ExpectedType := 'IExporter, IFlush';
+  Result.Fits := True;
+  Result.SetOf := 'IExporter, IFlush';
+  Result.Checked := True;
+  Result.Batch := True;
+  Result.SetRange.StartLine := 7;
+  Result.SetRange.StartCharacter := 4;
+  Result.SetRange.EndLine := 7;
+  Result.SetRange.EndCharacter := 4;
+  Result.AdditionalEdits := [Insert(8, '  public'#10), Insert(8, '    { ' + AInterface + ' }'#10),
+    Insert(8, '    procedure ' + AName + ';'#10), Insert(12, AName + #10)];
+end;
+
+procedure TDpccCompletionSetsTests.BatchCommitsCheckedMethods;
+var
+  View: TSetView;
+  ViewRef: IDpccCompletionView;
+  Controller: TDpccCompletionController;
+  Committed: TDpccCompletionItem;
+  Context: TDpccContext;
+  Json: TJSONObject;
+  Item: TDpccCompletionItem;
+begin
+  View := TSetView.Create;
+  ViewRef := View;
+  Controller := TDpccCompletionController.Create(TDpccFixedCompletionProvider.Create([Method('Flush', 'IFlush', 3),
+    Method('Export', 'IExporter', 1), Method('Close', 'IExporter', 2)]) as IDpccCompletionProvider, ViewRef);
+  try
+    Controller.OnCommit :=
+      procedure(const AItem: TDpccCompletionItem)
+      begin
+        Committed := AItem;
+      end;
+    Context := Default(TDpccContext);
+    Context.FileName := 'C:\P\A.pas';
+    Controller.Start(Context);
+    Assert.IsTrue(WaitFor(
+      function: Boolean
+      begin
+        Result := not Controller.Loading;
+      end));
+    Assert.IsTrue(Controller.SetMode);
+    Assert.AreEqual('Export Close Flush', View.Checked);
+    // Close abwählen, dann übernehmen.
+    Assert.IsTrue(Controller.HandleKey(TDpccNavigationKey.Down));
+    Assert.IsTrue(Controller.HandleKey(TDpccNavigationKey.Toggle));
+    Assert.IsTrue(Controller.HandleKey(TDpccNavigationKey.Accept));
+    Assert.IsTrue(Committed.HasTextEdit);
+    Assert.AreEqual('', Committed.TextEdit.NewText);
+    Assert.AreEqual(4, Committed.TextEdit.StartCharacter);
+    Assert.AreEqual(2, Integer(Length(Committed.AdditionalEdits)));
+    Assert.AreEqual('  public'#10'    { IExporter }'#10'    procedure Export;'#10'    { IFlush }'#10'    procedure Flush;'#10,
+      Committed.AdditionalEdits[0].NewText);
+    Assert.AreEqual('Export'#10'Flush'#10, Committed.AdditionalEdits[1].NewText);
+  finally
+    Controller.Free;
+  end;
+  Json := TJSONObject.ParseJSONValue('{"label":"Export","kind":2,"data":{"expected":"IExporter","fits":true,' +
+    '"ordinal":1,"setOf":"IExporter","checked":true,"batch":true,"action":"implement","setRange":{"start":' +
+    '{"line":7,"character":4},"end":{"line":7,"character":4}}}}') as TJSONObject;
+  try
+    Item := TDpccServerCompletionProvider.ItemFromLsp(Json, 0);
+  finally
+    Json.Free;
+  end;
+  Assert.IsTrue(Item.Batch);
+  Assert.IsFalse(Item.IsAction);
+  Assert.AreEqual('IExporter', Item.SetOf);
+end;
+
+/// <summary>Eintrag „Alle Felder zuweisen“ wie vom Server (#491) mit seinen drei Zeilen.</summary>
+function AssignItemFromServer: TDpccCompletionItem;
+var
+  mJson: TJSONObject;
+  mLines: TDpccCompletionItems;
+begin
+  // Wie vom Server (#491): textEdit über "Opts." mit unverändertem Text, die Zeilen unter data.assign.
+  mJson := TJSONObject.ParseJSONValue('{"label":"Alle Felder zuweisen (3)","kind":15,"detail":"TOpts",' +
+    '"textEdit":{"range":{"start":{"line":5,"character":2},"end":{"line":5,"character":7}},"newText":"Opts."},' +
+    '"data":{"action":"assign","pinned":true,"assign":[{"name":"A","detail":"Integer","text":"Opts.A := 0;\r\n  "},' +
+    '{"name":"B","detail":"string","text":"Opts.B := '''';\r\n  "},{"name":"C","detail":"Boolean",' +
+    '"text":"Opts.C := False;\r\n  "}]}}') as TJSONObject;
+  try
+    Result := TDpccServerCompletionProvider.ItemFromLsp(mJson, 0);
+  finally
+    mJson.Free;
+  end;
+  Assert.AreEqual(3, Integer(Length(Result.Assignments)));
+  Assert.AreEqual('B', Result.Assignments[1].Name);
+  Assert.AreEqual('Opts.C := False;'#13#10'  ', Result.Assignments[2].Text);
+  mLines := TDpccCompletionSets.AssignItems(Result);
+  Assert.AreEqual(3, Integer(Length(mLines)));
+  Assert.IsTrue(mLines[0].Batch and mLines[0].Assign and mLines[0].Checked);
+  Assert.AreEqual('TOpts', mLines[0].SetOf);
+  Assert.AreEqual(2, mLines[0].SetRange.StartCharacter);
+  Assert.AreEqual(7, mLines[0].SetRange.EndCharacter);
+  Assert.AreEqual(7, mLines[0].AdditionalEdits[0].StartCharacter, 'hinter dem Punkt');
+end;
+
+procedure TDpccCompletionSetsTests.AssignListCommitsCheckedLines;
+var
+  Item, Committed: TDpccCompletionItem;
+  View: TSetView;
+  ViewRef: IDpccCompletionView;
+  Controller: TDpccCompletionController;
+  Context: TDpccContext;
+begin
+  Item := AssignItemFromServer;
+  View := TSetView.Create;
+  ViewRef := View;
+  Controller := TDpccCompletionController.Create(TDpccFixedCompletionProvider.Create([Item]) as
+    IDpccCompletionProvider, ViewRef);
+  try
+    Controller.OnCommit :=
+      procedure(const AItem: TDpccCompletionItem)
+      begin
+        Committed := AItem;
+      end;
+    Context := Default(TDpccContext);
+    Context.FileName := 'C:\P\A.pas';
+    Controller.Start(Context);
+    Assert.IsTrue(WaitFor(
+      function: Boolean
+      begin
+        Result := not Controller.Loading;
+      end));
+    // Enter auf dem Eintrag öffnet erst die Liste, alle angehakt.
+    Assert.IsTrue(Controller.HandleKey(TDpccNavigationKey.Accept));
+    Assert.IsTrue(Controller.SetMode);
+    Assert.AreEqual('A B C', View.Checked);
+    Assert.AreEqual('', Committed.Name, 'noch nichts übernommen');
+    // B abwählen, dann übernehmen: der Ausdruck weg, die Zeilen von A und C an seiner Stelle.
+    Assert.IsTrue(Controller.HandleKey(TDpccNavigationKey.Down));
+    Assert.IsTrue(Controller.HandleKey(TDpccNavigationKey.Toggle));
+    Assert.IsTrue(Controller.HandleKey(TDpccNavigationKey.Accept));
+    Assert.IsTrue(Committed.HasTextEdit);
+    Assert.IsTrue(Committed.IsAction);
+    Assert.AreEqual('', Committed.TextEdit.NewText);
+    Assert.AreEqual(2, Committed.TextEdit.StartCharacter);
+    Assert.AreEqual(1, Integer(Length(Committed.AdditionalEdits)));
+    Assert.AreEqual('Opts.A := 0;'#13#10'  Opts.C := False;'#13#10'  ', Committed.AdditionalEdits[0].NewText);
+  finally
+    Controller.Free;
+  end;
+end;
+
+/// <summary>Hinweis „2 Methoden von IExporter fehlen“ wie vom Server; er entfernt das getippte Wort.</summary>
+function ImplementHintFromServer: TDpccCompletionItem;
+var
+  mJson: TJSONObject;
+begin
+  // Der Hinweis entfernt das getippte Wort: textEdit ohne Text bleibt hier erhalten.
+  mJson := TJSONObject.ParseJSONValue('{"label":"2 Methoden von IExporter fehlen","kind":15,"textEdit":{"range":' +
+    '{"start":{"line":7,"character":4},"end":{"line":7,"character":6}},"newText":""},"data":{"action":"implement",' +
+    '"hint":true,"container":"IExporter"}}') as TJSONObject;
+  try
+    Result := TDpccServerCompletionProvider.ItemFromLsp(mJson, 0);
+  finally
+    mJson.Free;
+  end;
+  Assert.IsTrue(Result.Hint);
+  Assert.IsTrue(Result.HasTextEdit);
+  Assert.AreEqual('', Result.TextEdit.NewText);
+end;
+
+procedure TDpccCompletionSetsTests.HintStaysOnTopWithoutSelection;
+var
+  Hint, Item: TDpccCompletionItem;
+  Items: TDpccCompletionItems;
+  View: TSetView;
+  ViewRef: IDpccCompletionView;
+  Controller: TDpccCompletionController;
+  Context: TDpccContext;
+begin
+  Hint := ImplementHintFromServer;
+  Item := Default(TDpccCompletionItem);
+  Item.Name := 'Exception';
+  Item.Kind := TDpccItemKind.Class_;
+  Items := [Item, Hint];
+  Assert.AreEqual('2 Methoden von IExporter fehlen Exception',
+    Names(Items, TDpccRanking.Order(Items, 'Ex', TDpccRankOptions.Defaults)));
+  // Vorgewählt ist der erste Eintrag nach dem Hinweis; steht nur der Hinweis da, nichts.
+  View := TSetView.Create;
+  ViewRef := View;
+  Controller := TDpccCompletionController.Create(
+    TDpccFixedCompletionProvider.Create(Items) as IDpccCompletionProvider, ViewRef);
+  try
+    Context := Default(TDpccContext);
+    Context.FileName := 'C:\P\A.pas';
+    Context.Prefix := 'Ex';
+    Controller.Start(Context);
+    Assert.IsTrue(WaitFor(
+      function: Boolean
+      begin
+        Result := not Controller.Loading;
+      end));
+    Assert.IsTrue(Controller.SelectedItem(Item));
+    Assert.AreEqual('Exception', Item.Name);
+  finally
+    Controller.Free;
+  end;
+  Controller := TDpccCompletionController.Create(
+    TDpccFixedCompletionProvider.Create([Hint]) as IDpccCompletionProvider, ViewRef);
+  try
+    Context.Prefix := 'Ex';
+    Controller.Start(Context);
+    Assert.IsTrue(WaitFor(
+      function: Boolean
+      begin
+        Result := not Controller.Loading;
+      end));
+    Assert.IsFalse(Controller.SelectedItem(Item), 'Hinweis nicht vorgewählt');
+    Assert.IsTrue(Controller.Passive);
+  finally
+    Controller.Free;
+  end;
+end;
+
+initialization
+  TDUnitX.RegisterTestFixture(TDpccCompletionSetsTests);
+
+end.

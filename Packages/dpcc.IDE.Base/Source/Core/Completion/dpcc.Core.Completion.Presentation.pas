@@ -1,0 +1,804 @@
+﻿unit dpcc.Core.Completion.Presentation;
+
+// Darstellung eines Eintrags in der Liste (#420, #421), ohne Fenster:
+//   - Badge: Kürzel und Farbart nach der Art; Funktion oder Prozedur nach
+//     der Signatur, solange der Server beides als Methode meldet. Attribute
+//     nach "[" (#465) tragen "at" in der Farbe der Typen.
+//   - Detail: gedämpfter Text rechts (Typ, Klasse, Unit-Datei).
+//   - Tags: "+ Unit" für Einträge aus nicht eingebundenen Units (#180),
+//     "deprecated", "constructor"/"destructor", "+2" bei drei Überladungen
+//     (#425), "Helper" (#456), "zuletzt"/"häufig" (#418), Anzahl fehlender
+//     Werte bei „Alle Werte einfügen“ (#449), "Vorlage" bei Einträgen mit Platzhaltern (#51),
+//     "Zweig 0" bei Feldern varianter Records (#846, Id VariantBranch, abschaltbar im Popup).
+//   - Geerbte Member (#419): Detail beginnt mit der deklarierenden Klasse.
+//   - uses-Abschnitt (#469): kein Dateiname; „bereits im interface-Teil“ bzw. „… implementation-Teil“ für Units
+//     aus dem anderen Abschnitt, Marke „Zirkelbezug“ (Fehlerfarbe) für Units, die diese Unit im interface-Teil
+//     einbinden. UsesHidden liefert die schon eingebundenen Units für die Fußzeile.
+//   - Treffer: Positionen der getippten Zeichen im Namen zum Hervorheben,
+//     nach denselben Regeln wie TDpccCompletionMatcher.
+
+interface
+
+uses
+  System.SysUtils,
+  dpcc.Core.Completion.Contract,
+  dpcc.Core.Style.Palette;
+
+type
+  TDpccBadge = record
+    Kind: TDpccBadgeKind;
+    /// <summary>Zwei Buchstaben, z. B. "fn".</summary>
+    Code: string;
+  end;
+
+  TDpccTagKind = (Neutral, Accent, Add, Warn, Error);
+
+  /// <summary>Übersetzbare Marken (#446); Plain = Text unverändert zeigen; Cycle = Zirkelbezug im uses-Abschnitt
+  /// (#469).</summary>
+  TDpccTagId = (Plain, Recent, Frequent, Cycle, SameParams, Overload, Active, VariantBranch);
+
+  TDpccTag = record
+    Text: string;
+    Kind: TDpccTagKind;
+    Id: TDpccTagId;
+    /// <summary>Einzusetzender Wert übersetzbarer Marken, bei VariantBranch die Zweigmarken ("0").</summary>
+    Arg: string;
+    /// <summary>Mit Fläche in der weichen Farbe der Art (Warnfläche bei „verdeckt …“, #481).</summary>
+    Filled: Boolean;
+  end;
+
+  TDpccTags = TArray<TDpccTag>;
+
+  TDpccItemPresentation = class
+  public
+    class function Badge(const AItem: TDpccCompletionItem): TDpccBadge; static;
+    class function Detail(const AItem: TDpccCompletionItem): string; static;
+    /// <summary>Ansage für Screenreader (#447): "Name, Art, Position von Anzahl. Kurzbeschreibung";
+    /// AOf ist das Format von "Position von Anzahl" (z. B. "%d von %d").</summary>
+    class function Announcement(const AItem: TDpccCompletionItem; const AKind, AOf: string;
+      APosition, ACount: Integer): string; static;
+    class function Tags(const AItem: TDpccCompletionItem): TDpccTags; static;
+    /// <summary>Texte der Tags durch Komma getrennt („deprecated, Helper“): Zustand für UI Automation (#447).
+    /// </summary>
+    class function TagText(const AItem: TDpccCompletionItem): string; static;
+    /// <summary>Unit, die beim Übernehmen in uses ergänzt wird; '' wenn eingebunden.</summary>
+    class function MissingUnit(const AItem: TDpccCompletionItem): string; static;
+    /// <summary>1-basierte Positionen in AName, die APattern trifft; leer ohne Treffer.</summary>
+    class function Highlights(const APattern, AName: string): TArray<Integer>; static;
+    /// <summary>SQL-Anweisung, aus der die Feld- oder Parameternamen der Liste stammen (#461), für die
+    /// Fußzeile; '' bei anderen Listen.</summary>
+    class function DataSource(const AItems: TDpccCompletionItems): string; static;
+    /// <summary>Ausgeblendete Arten der Typargumente (#450), "records,enums"; '' ohne.</summary>
+    class function HiddenKinds(const AItems: TDpccCompletionItems): string; static;
+    /// <summary>Detailpanel einer Unit im uses-Abschnitt (#469): "unit Name", Pfad, exportierte Typen,
+    /// Zirkelbezug und anderer Abschnitt, ohne Anfrage beim Server.</summary>
+    class function UsesDetails(const AItem: TDpccCompletionItem): TDpccItemDetails; static;
+    /// <summary>Schon eingebundene Units für die Fußzeile im uses-Abschnitt (#469); leer sonst.</summary>
+    class function UsesHidden(const AItems: TDpccCompletionItems): TArray<string>; static;
+    /// <summary>Ausgelassene abstrakte Vorfahrmethoden für die Fußzeile nach "inherited " (#482); leer sonst.
+    /// </summary>
+    class function InheritedAbstract(const AItems: TDpccCompletionItems): TArray<string>; static;
+    /// <summary>Ausgeblendete FMX-Varianten aller Einträge für die Fußzeile (#475), ohne Doppelte; leer sonst.
+    /// </summary>
+    class function SameNameHidden(const AItems: TDpccCompletionItems): TArray<string>; static;
+    /// <summary>AItem mit den Angaben zu gleichnamigen Bezeichnern für das Detailpanel (#475).</summary>
+    class procedure AddSameName(const AItem: TDpccCompletionItem; var ADetails: TDpccItemDetails); static;
+    /// <summary>Nur das Angebot „Mit try…finally absichern“ (#489) in der Liste?</summary>
+    class function Guarding(const AItems: TDpccCompletionItems): Boolean; static;
+  end;
+
+implementation
+
+uses
+  System.Character,
+  System.Math,
+  System.StrUtils,
+  dpcc.Core.Completion.Matching,
+  dpcc.Core.Localization.Language;
+
+{$SCOPEDENUMS ON}
+
+type
+  /// <summary>Benutzertexte dieser Unit (#1458).</summary>
+  TPresentationText = (NeverReached, Before, CircularReference, Active, SameParameters, Overload, PropertyText,
+    Field, From, Hides, Local, Parameter, Only, Branch, AsText, Recent, Frequent);
+{$SCOPEDENUMS OFF}
+
+const
+  cTexts: array[TDpccLanguage, TPresentationText] of string = (
+    ('nie erreicht: ',
+     ' davor',
+     'Zirkelbezug',
+     'aktiv',
+     'gleiche Parameter',
+     'Überladung',
+     'Eigenschaft',
+     'Feld',
+     'aus ',
+     'verdeckt ',
+     'lokal',
+     'Parameter',
+     'nur ',
+     'Zweig ',
+     'als ',
+     'zuletzt',
+     'häufig'),
+    ('never reached: ',
+     ' before',
+     'circular reference',
+     'active',
+     'same parameters',
+     'overload',
+     'property',
+     'field',
+     'from ',
+     'hides ',
+     'local',
+     'parameter',
+     'only ',
+     'branch ',
+     'as ',
+     'recent',
+     'frequent'));
+
+/// <summary>Text AId in der Sprache der Oberfläche.</summary>
+function UiText(AId: TPresentationText): string;
+begin
+  Result := cTexts[TDpccTextLanguage.Current, AId];
+end;
+
+const
+  /// <summary>Endung des Details, mit der der Server die Unit nennt, je Sprache der Servertexte (#1458).</summary>
+  cUsesSuffixes: array[0..1] of string = (' (uses ergänzen)', ' (add to uses)'); // german-ok: Text des Servers
+
+function MakeBadge(AKind: TDpccBadgeKind; const ACode: string): TDpccBadge;
+begin
+  Result.Kind := AKind;
+  Result.Code := ACode;
+end;
+
+function MakeTag(const AText: string; AKind: TDpccTagKind): TDpccTag;
+begin
+  // Alle Felder auf den Ausgangswert, auch die später hinzugekommenen (Filled, #481).
+  Result := Default(TDpccTag);
+  Result.Text := AText;
+  Result.Kind := AKind;
+  Result.Id := TDpccTagId.Plain;
+  Result.Arg := '';
+end;
+
+function IsWordStart(const AName: string; AIndex: Integer): Boolean;
+begin
+  Result := TDpccCompletionMatcher.IsWordStart(AName, AIndex);
+end;
+
+function SameChar(A, B: Char): Boolean;
+begin
+  Result := UpCase(A) = UpCase(B);
+end;
+
+function Range(AStart, ACount: Integer): TArray<Integer>;
+var
+  mIndex: Integer;
+begin
+  SetLength(Result, ACount);
+  for mIndex := 0 to ACount - 1 do
+  begin
+    Result[mIndex] := AStart + mIndex;
+  end;
+end;
+
+function WordStartPositions(const APattern, AName: string): TArray<Integer>;
+var
+  mPatternIndex, mNameIndex: Integer;
+begin
+  Result := nil;
+  mPatternIndex := 1;
+  for mNameIndex := 1 to Length(AName) do
+  begin
+    if (mPatternIndex <= Length(APattern)) and IsWordStart(AName, mNameIndex) and
+      SameChar(AName[mNameIndex], APattern[mPatternIndex]) then
+    begin
+      Result := Result + [mNameIndex];
+      Inc(mPatternIndex);
+    end;
+  end;
+  if mPatternIndex <= Length(APattern) then
+  begin
+    Result := nil;
+  end;
+end;
+
+/// <summary>Reached[p][n]: Die ersten p Zeichen von APattern passen und enden bei AName[n] (wie
+/// MatchesSubsequence, aber mit allen Zwischenständen, um den Weg zurückzuverfolgen).</summary>
+function ReachedTable(const APattern, AName: string): TArray<TArray<Boolean>>;
+var
+  mPatternIndex, mNameIndex: Integer;
+  mBefore: Boolean;
+begin
+  SetLength(Result, Length(APattern) + 1, Length(AName) + 1);
+  for mNameIndex := 1 to Length(AName) do
+  begin
+    Result[1][mNameIndex] := IsWordStart(AName, mNameIndex) and SameChar(AName[mNameIndex], APattern[1]);
+  end;
+  for mPatternIndex := 2 to Length(APattern) do
+  begin
+    mBefore := False;
+    for mNameIndex := 1 to Length(AName) do
+    begin
+      Result[mPatternIndex][mNameIndex] := SameChar(AName[mNameIndex], APattern[mPatternIndex]) and
+        (Result[mPatternIndex - 1][mNameIndex - 1] or (mBefore and IsWordStart(AName, mNameIndex)));
+      mBefore := mBefore or Result[mPatternIndex - 1][mNameIndex - 1];
+    end;
+  end;
+end;
+
+/// <summary>Frühestes Ende des ganzen Musters (Länge APatternLength); 0 ohne.</summary>
+function FirstEnd(const AReached: TArray<TArray<Boolean>>; APatternLength: Integer): Integer;
+var
+  mNameIndex: Integer;
+begin
+  for mNameIndex := 1 to High(AReached[APatternLength]) do
+  begin
+    if AReached[APatternLength][mNameIndex] then
+    begin
+      Exit(mNameIndex);
+    end;
+  end;
+  Result := 0;
+end;
+
+/// <summary>Stelle des Zeichens APatternIndex - 1 vor dem Zeichen APatternIndex bei ANameIndex: bevorzugt direkt
+/// davor.</summary>
+function PreviousEnd(const AReached: TArray<TArray<Boolean>>; APatternIndex, ANameIndex: Integer): Integer;
+begin
+  if AReached[APatternIndex - 1][ANameIndex - 1] then
+  begin
+    Exit(ANameIndex - 1);
+  end;
+  Result := ANameIndex - 2;
+  while (Result >= 1) and not AReached[APatternIndex - 1][Result] do
+  begin
+    Dec(Result);
+  end;
+end;
+
+function SubsequencePositions(const APattern, AName: string): TArray<Integer>;
+var
+  mReached: TArray<TArray<Boolean>>;
+  mPatternIndex, mNameIndex: Integer;
+begin
+  Result := nil;
+  mReached := ReachedTable(APattern, AName);
+  // Frühestes Ende des ganzen Musters, dann rückwärts.
+  mNameIndex := FirstEnd(mReached, Length(APattern));
+  if mNameIndex = 0 then
+  begin
+    Exit;
+  end;
+  SetLength(Result, Length(APattern));
+  for mPatternIndex := Length(APattern) downto 1 do
+  begin
+    Result[mPatternIndex - 1] := mNameIndex;
+    if mPatternIndex > 1 then
+    begin
+      mNameIndex := PreviousEnd(mReached, mPatternIndex, mNameIndex);
+    end;
+  end;
+end;
+
+{ TDpccItemPresentation }
+
+class function TDpccItemPresentation.Badge(const AItem: TDpccCompletionItem): TDpccBadge;
+const
+  cKinds: array[TDpccItemKind] of TDpccBadgeKind = (TDpccBadgeKind.Variable, TDpccBadgeKind.Function_,
+    TDpccBadgeKind.Function_, TDpccBadgeKind.Procedure_, TDpccBadgeKind.Function_, TDpccBadgeKind.Procedure_,
+    TDpccBadgeKind.Property_, TDpccBadgeKind.Field, TDpccBadgeKind.Event, TDpccBadgeKind.Variable,
+    TDpccBadgeKind.Variable, TDpccBadgeKind.Constant, TDpccBadgeKind.Type_, TDpccBadgeKind.Type_,
+    TDpccBadgeKind.Type_, TDpccBadgeKind.Type_, TDpccBadgeKind.Type_, TDpccBadgeKind.Constant,
+    TDpccBadgeKind.Unit_, TDpccBadgeKind.Keyword, TDpccBadgeKind.Snippet, TDpccBadgeKind.XmlDoc);
+  cCodes: array[TDpccItemKind] of string = ('··', 'fn', 'fn', 'pr', 'fn', 'pr', 'pp', 'fd', 'ev', 'va', 'va', 'co',
+    'ty', 'ty', 'ty', 'ty', 'ty', 'co', 'un', 'kw', 'sn', 'xd');
+var
+  mSignature: string;
+begin
+  if AItem.Attribute then
+  begin
+    Exit(MakeBadge(TDpccBadgeKind.Type_, 'at'));
+  end;
+  // Methode: Funktion oder Prozedur nach der Signatur.
+  mSignature := LowerCase(TrimLeft(AItem.Signature));
+  if (AItem.Kind = TDpccItemKind.Method) and (mSignature.StartsWith('procedure') or
+    mSignature.StartsWith('destructor')) then
+  begin
+    Result := MakeBadge(TDpccBadgeKind.Procedure_, 'pr');
+  end
+  else
+  begin
+    Result := MakeBadge(cKinds[AItem.Kind], cCodes[AItem.Kind]);
+  end;
+end;
+
+class function TDpccItemPresentation.MissingUnit(const AItem: TDpccCompletionItem): string;
+var
+  mEdit: TDpccTextEdit;
+  mSuffix: string;
+  mText: string;
+begin
+  Result := '';
+  if AItem.UnitUsed then
+  begin
+    Exit;
+  end;
+  // Der Server nennt die Unit im Detail ("System.Classes (uses ergänzen)" bzw. "System.Classes (add to uses)").
+  for mSuffix in cUsesSuffixes do
+  begin
+    if EndsText(mSuffix, AItem.Signature) then
+    begin
+      Exit(Copy(AItem.Signature, 1, Length(AItem.Signature) - Length(mSuffix)));
+    end;
+  end;
+  // Sonst aus der Ergänzung selbst (", System.Classes" bzw. "uses System.Classes;").
+  for mEdit in AItem.AdditionalEdits do
+  begin
+    mText := Trim(mEdit.NewText.Replace(',', ' ').Replace(';', ' '));
+    if StartsText('uses', mText) and ((Length(mText) = 4) or not mText[5].IsLetter) then
+    begin
+      mText := Trim(Copy(mText, 5, MaxInt));
+    end;
+    if mText <> '' then
+    begin
+      Exit(mText);
+    end;
+  end;
+end;
+
+class function TDpccItemPresentation.Announcement(const AItem: TDpccCompletionItem; const AKind, AOf: string;
+  APosition, ACount: Integer): string;
+var
+  mShort: string;
+begin
+  Result := AItem.Name;
+  if AKind <> '' then
+  begin
+    Result := Result + ', ' + AKind;
+  end;
+  Result := Result + ', ' + Format(AOf, [APosition, ACount]) + '.';
+  mShort := Detail(AItem);
+  if (mShort <> '') and not SameText(mShort, AItem.Name) then
+  begin
+    Result := Result + ' ' + mShort;
+  end;
+end;
+
+class function TDpccItemPresentation.Detail(const AItem: TDpccCompletionItem): string;
+begin
+  if MissingUnit(AItem) <> '' then
+  begin
+    Exit('');
+  end;
+  // uses-Abschnitt (#469): der Pfad steht im Detailpanel, rechts nur der Hinweis auf den anderen Abschnitt.
+  if AItem.UsesGroup <> '' then
+  begin
+    if AItem.UsesElsewhere <> '' then
+    begin
+      Exit('bereits im ' + AItem.UsesElsewhere + '-Teil');
+    end;
+    Exit('');
+  end;
+  Result := AItem.Signature;
+  // Units: nur der Dateiname statt des ganzen Pfads.
+  if AItem.Kind = TDpccItemKind.Unit_ then
+  begin
+    Result := ExtractFileName(Result);
+  end;
+  // Geerbt (#419): Herkunft vorn, damit sie beim Kürzen bleibt.
+  if (AItem.Depth > 0) and (AItem.DeclaringClass <> '') then
+  begin
+    if (Result <> '') and not SameText(Result, AItem.DeclaringClass) then
+    begin
+      Result := AItem.DeclaringClass + ' · ' + Result;
+    end
+    else
+    begin
+      Result := AItem.DeclaringClass;
+    end;
+  end;
+end;
+
+class function TDpccItemPresentation.TagText(const AItem: TDpccCompletionItem): string;
+var
+  mTag: TDpccTag;
+begin
+  Result := '';
+  for mTag in Tags(AItem) do
+  begin
+    if Result = '' then
+    begin
+      Result := mTag.Text;
+    end
+    else
+    begin
+      Result := Result + ', ' + mTag.Text;
+    end;
+  end;
+end;
+
+/// <summary>Hängt einen Tag an ATags an und liefert seine Stelle.</summary>
+function AddTag(var ATags: TDpccTags; const AText: string; AKind: TDpccTagKind): Integer;
+begin
+  ATags := ATags + [MakeTag(AText, AKind)];
+  Result := High(ATags);
+end;
+
+/// <summary>Hängt einen Tag mit der Kennung AId an.</summary>
+procedure AddIdTag(var ATags: TDpccTags; const AText: string; AKind: TDpccTagKind; AId: TDpccTagId);
+var
+  mIndex: Integer;
+begin
+  mIndex := AddTag(ATags, AText, AKind);
+  ATags[mIndex].Id := AId;
+end;
+
+/// <summary>Hängt einen Tag mit Fläche an.</summary>
+procedure AddFilledTag(var ATags: TDpccTags; const AText: string; AKind: TDpccTagKind);
+var
+  mIndex: Integer;
+begin
+  mIndex := AddTag(ATags, AText, AKind);
+  ATags[mIndex].Filled := True;
+end;
+
+/// <summary>Anonyme Methode, unerreichbarer Zweig, Anzahl, Zirkelbezug, aktive Variante.</summary>
+procedure AddLeadTags(const AItem: TDpccCompletionItem; var ATags: TDpccTags);
+begin
+  // Gerüst einer anonymen Methode (#468): der erwartete Typ.
+  if AItem.MethodRef <> '' then
+  begin
+    AddTag(ATags, AItem.MethodRef, TDpccTagKind.Accent);
+  end;
+  // Exception-Klassen (#483): Ein früherer Zweig fängt die Klasse schon, dieser würde nie erreicht.
+  if AItem.Unreachable <> '' then
+  begin
+    AddFilledTag(ATags, UiText(TPresentationText.NeverReached) + AItem.Unreachable + UiText(TPresentationText.Before),
+      TDpccTagKind.Warn);
+  end;
+  if AItem.Count > 0 then
+  begin
+    AddTag(ATags, IntToStr(AItem.Count), TDpccTagKind.Accent);
+  end;
+  // Zirkelbezug im uses-Abschnitt (#469).
+  if AItem.UsesCycle <> '' then
+  begin
+    AddIdTag(ATags, UiText(TPresentationText.CircularReference), TDpccTagKind.Error, TDpccTagId.Cycle);
+  end;
+  // Gleichnamige Bezeichner (#475): die Variante, die der Compiler wählt.
+  if AItem.SameNameActive then
+  begin
+    AddIdTag(ATags, UiText(TPresentationText.Active), TDpccTagKind.Accent, TDpccTagId.Active);
+  end;
+end;
+
+/// <summary>Vollständiger inherited-Aufruf (#482): gleiche Parameter, andere Überladung, sonst die Klasse.</summary>
+procedure AddInheritedTag(const AItem: TDpccCompletionItem; var ATags: TDpccTags);
+begin
+  if AItem.InheritedMatch = 'same' then
+  begin
+    AddIdTag(ATags, UiText(TPresentationText.SameParameters), TDpccTagKind.Accent, TDpccTagId.SameParams);
+  end
+  else if AItem.InheritedMatch = 'overload' then
+  begin
+    AddIdTag(ATags, UiText(TPresentationText.Overload), TDpccTagKind.Neutral, TDpccTagId.Overload);
+  end
+  else if (AItem.InheritedMatch = 'other') and (AItem.DeclaringClass <> '') then
+  begin
+    AddTag(ATags, AItem.DeclaringClass, TDpccTagKind.Neutral);
+  end;
+end;
+
+/// <summary>Fehlende Unit, Konstruktor bzw. Destruktor, deprecated.</summary>
+procedure AddKindTags(const AItem: TDpccCompletionItem; var ATags: TDpccTags);
+var
+  mMissing, mDirective: string;
+begin
+  mMissing := TDpccItemPresentation.MissingUnit(AItem);
+  if mMissing <> '' then
+  begin
+    AddTag(ATags, '+ ' + mMissing, TDpccTagKind.Add);
+  end;
+  case AItem.Kind of
+    TDpccItemKind.Constructor_: AddTag(ATags, 'constructor', TDpccTagKind.Neutral);
+    TDpccItemKind.Destructor_: AddTag(ATags, 'destructor', TDpccTagKind.Neutral);
+  else
+    // Übrige Werte bewusst ohne Wirkung.
+  end;
+  for mDirective in AItem.Directives do
+  begin
+    if SameText(mDirective, 'deprecated') then
+    begin
+      AddTag(ATags, 'deprecated', TDpccTagKind.Warn);
+    end;
+  end;
+end;
+
+/// <summary>Mitglied von Self (#488): Eigenschaft, Feld oder die Klasse, die die Methode deklariert.</summary>
+procedure AddMemberTag(const AItem: TDpccCompletionItem; var ATags: TDpccTags);
+begin
+  if AItem.Kind = TDpccItemKind.Property_ then
+  begin
+    AddTag(ATags, UiText(TPresentationText.PropertyText), TDpccTagKind.Neutral);
+  end
+  else if AItem.Kind = TDpccItemKind.Field then
+  begin
+    AddTag(ATags, UiText(TPresentationText.Field), TDpccTagKind.Neutral);
+  end
+  else if AItem.DeclaringClass <> '' then
+  begin
+    AddTag(ATags, AItem.DeclaringClass, TDpccTagKind.Neutral);
+  end;
+end;
+
+/// <summary>with-Objekt (#481): Herkunft und, was das Mitglied verdeckt, als Warnung mit Fläche.</summary>
+procedure AddWithTags(const AItem: TDpccCompletionItem; var ATags: TDpccTags);
+var
+  mShadow: string;
+begin
+  if AItem.WithOrigin = '' then
+  begin
+    Exit;
+  end;
+  AddTag(ATags, UiText(TPresentationText.From) + AItem.WithOrigin, TDpccTagKind.Accent);
+  for mShadow in AItem.WithShadows do
+  begin
+    AddFilledTag(ATags, UiText(TPresentationText.Hides) + mShadow, TDpccTagKind.Warn);
+  end;
+end;
+
+/// <summary>Herkunft (#488): woher ein Name ohne Punkt davor stammt.</summary>
+procedure AddScopeTags(const AItem: TDpccCompletionItem; var ATags: TDpccTags);
+begin
+  case AItem.Scope of
+    1: AddTag(ATags, UiText(TPresentationText.Local), TDpccTagKind.Accent);
+    2: AddTag(ATags, UiText(TPresentationText.Parameter), TDpccTagKind.Accent);
+    3: AddMemberTag(AItem, ATags);
+    4: AddTag(ATags, 'Unit', TDpccTagKind.Neutral);
+    5:
+      if AItem.DeclaringUnit <> '' then
+      begin
+        AddTag(ATags, AItem.DeclaringUnit, TDpccTagKind.Neutral);
+      end;
+    6: AddWithTags(AItem, ATags);
+  end;
+end;
+
+/// <summary>Bedingte Deklarationen (#476): "nur WIN64"; in der aktiven Konfiguration nicht vorhanden als
+/// Warnung.</summary>
+procedure AddConditionTag(const AItem: TDpccCompletionItem; var ATags: TDpccTags);
+begin
+  if SameText(AItem.Condition, 'platform') then
+  begin
+    AddTag(ATags, 'platform', TDpccTagKind.Warn);
+  end
+  else if AItem.Condition <> '' then
+  begin
+    if AItem.Unavailable then
+    begin
+      AddTag(ATags, UiText(TPresentationText.Only) + AItem.Condition, TDpccTagKind.Warn);
+    end
+    else
+    begin
+      AddTag(ATags, UiText(TPresentationText.Only) + AItem.Condition, TDpccTagKind.Neutral);
+    end;
+  end;
+end;
+
+/// <summary>Zweig, Überladungen, Helper, Vorlagen, Sender, Typkonvertierung.</summary>
+procedure AddDetailTags(const AItem: TDpccCompletionItem; var ATags: TDpccTags);
+var
+  mIndex: Integer;
+begin
+  // Felder varianter Records (#846): „Zweig 0“.
+  if AItem.VariantBranch <> '' then
+  begin
+    mIndex := AddTag(ATags, UiText(TPresentationText.Branch) + AItem.VariantBranch, TDpccTagKind.Neutral);
+    ATags[mIndex].Id := TDpccTagId.VariantBranch;
+    ATags[mIndex].Arg := AItem.VariantBranch;
+  end;
+  if AItem.OverloadCount > 1 then
+  begin
+    AddTag(ATags, '+' + IntToStr(AItem.OverloadCount - 1), TDpccTagKind.Neutral);
+  end;
+  if AItem.IsHelper then
+  begin
+    AddTag(ATags, 'Helper', TDpccTagKind.Accent);
+  end;
+  // Postfix-Vorlagen (#188) und übrige Einträge mit Platzhaltern (#51, LSP-Art Snippet).
+  if AItem.Postfix then
+  begin
+    AddTag(ATags, 'Postfix', TDpccTagKind.Neutral);
+  end
+  else if AItem.PlaceholderText <> '' then
+  begin
+    AddTag(ATags, 'Vorlage', TDpccTagKind.Neutral);
+  end;
+  // Sender mit Typumwandlung (#480).
+  if AItem.Sender <> '' then
+  begin
+    AddTag(ATags, UiText(TPresentationText.AsText) + AItem.Sender, TDpccTagKind.Accent);
+  end;
+  // Typkonvertierung (#490).
+  if AItem.Conversion <> '' then
+  begin
+    AddTag(ATags, '→ ' + AItem.Conversion, TDpccTagKind.Accent);
+  end;
+end;
+
+/// <summary>Lernende Gewichtung (#418): zuletzt bzw. häufig gewählt.</summary>
+procedure AddUsageTag(const AItem: TDpccCompletionItem; var ATags: TDpccTags);
+begin
+  case AItem.Usage of
+    TDpccUsageMark.Recent: AddIdTag(ATags, UiText(TPresentationText.Recent), TDpccTagKind.Accent, TDpccTagId.Recent);
+    TDpccUsageMark.Frequent: AddIdTag(ATags, UiText(TPresentationText.Frequent), TDpccTagKind.Neutral,
+      TDpccTagId.Frequent);
+  else
+    // Übrige Werte bewusst ohne Wirkung.
+  end;
+end;
+
+class function TDpccItemPresentation.Tags(const AItem: TDpccCompletionItem): TDpccTags;
+begin
+  Result := nil;
+  AddLeadTags(AItem, Result);
+  AddInheritedTag(AItem, Result);
+  AddKindTags(AItem, Result);
+  AddScopeTags(AItem, Result);
+  AddConditionTag(AItem, Result);
+  AddDetailTags(AItem, Result);
+  AddUsageTag(AItem, Result);
+end;
+
+class function TDpccItemPresentation.Highlights(const APattern, AName: string): TArray<Integer>;
+var
+  mScore, mFound: Integer;
+begin
+  Result := nil;
+  mScore := TDpccCompletionMatcher.Score(APattern, AName);
+  if (APattern = '') or (mScore = TDpccCompletionMatcher.cNoMatch) then
+  begin
+    Exit;
+  end;
+  if mScore >= TDpccCompletionMatcher.cScorePrefix then
+  begin
+    Exit(Range(1, Length(APattern)));
+  end;
+  if mScore = TDpccCompletionMatcher.cScoreWordStarts then
+  begin
+    Exit(WordStartPositions(APattern, AName));
+  end;
+  if mScore = TDpccCompletionMatcher.cScoreSubstring then
+  begin
+    mFound := Pos(APattern.ToUpper, AName.ToUpper);
+    Exit(Range(mFound, Length(APattern)));
+  end;
+  Result := SubsequencePositions(APattern, AName);
+end;
+
+class function TDpccItemPresentation.HiddenKinds(const AItems: TDpccCompletionItems): string;
+var
+  mItem: TDpccCompletionItem;
+begin
+  for mItem in AItems do
+  begin
+    if mItem.HiddenKinds <> '' then
+    begin
+      Exit(mItem.HiddenKinds);
+    end;
+  end;
+  Result := '';
+end;
+
+class function TDpccItemPresentation.DataSource(const AItems: TDpccCompletionItems): string;
+var
+  mItem: TDpccCompletionItem;
+begin
+  for mItem in AItems do
+  begin
+    if mItem.DataSource <> '' then
+    begin
+      Exit(mItem.DataSource);
+    end;
+  end;
+  Result := '';
+end;
+
+class function TDpccItemPresentation.UsesDetails(const AItem: TDpccCompletionItem): TDpccItemDetails;
+begin
+  Result := Default(TDpccItemDetails);
+  Result.Declaration := 'unit ' + AItem.Name;
+  Result.UnitPath := AItem.Signature;
+  Result.UnitTypes := AItem.UsesTypes;
+  Result.UnitTypeCount := Max(AItem.UsesTypeCount, Length(AItem.UsesTypes));
+  Result.UsesCycle := AItem.UsesCycle;
+  Result.UsesElsewhere := AItem.UsesElsewhere;
+end;
+
+class function TDpccItemPresentation.UsesHidden(const AItems: TDpccCompletionItems): TArray<string>;
+var
+  mItem: TDpccCompletionItem;
+begin
+  for mItem in AItems do
+  begin
+    if Length(mItem.UsesHidden) > 0 then
+    begin
+      Exit(mItem.UsesHidden);
+    end;
+  end;
+  Result := nil;
+end;
+
+class function TDpccItemPresentation.InheritedAbstract(const AItems: TDpccCompletionItems): TArray<string>;
+var
+  mItem: TDpccCompletionItem;
+begin
+  for mItem in AItems do
+  begin
+    if Length(mItem.InheritedAbstract) > 0 then
+    begin
+      Exit(mItem.InheritedAbstract);
+    end;
+  end;
+  Result := nil;
+end;
+
+class function TDpccItemPresentation.SameNameHidden(const AItems: TDpccCompletionItems): TArray<string>;
+var
+  mItem: TDpccCompletionItem;
+  mName: string;
+begin
+  Result := nil;
+  for mItem in AItems do
+  begin
+    for mName in mItem.SameNameHidden do
+    begin
+      if not MatchText(mName, Result) then
+      begin
+        Result := Result + [mName];
+      end;
+    end;
+  end;
+end;
+
+class procedure TDpccItemPresentation.AddSameName(const AItem: TDpccCompletionItem;
+  var ADetails: TDpccItemDetails);
+begin
+  ADetails.SameNameUnits := AItem.SameNameUnits;
+  ADetails.SameNameHidden := AItem.SameNameHidden;
+  if Length(AItem.SameNameUnits) = 0 then
+  begin
+    ADetails.SameNameThis := '';
+  end
+  else
+  begin
+    ADetails.SameNameThis := AItem.DeclaringUnit;
+  end;
+  ADetails.SameNameInsert := AItem.SameNameInsert;
+end;
+
+class function TDpccItemPresentation.Guarding(const AItems: TDpccCompletionItems): Boolean;
+var
+  mItem: TDpccCompletionItem;
+begin
+  Result := Length(AItems) > 0;
+  for mItem in AItems do
+  begin
+    if not mItem.Guard then
+    begin
+      Exit(False);
+    end;
+  end;
+end;
+
+initialization
+  TDpccTextLanguage.AddTable('dpcc.Core.Completion.Presentation', cTexts[TDpccLanguage.German], cTexts[TDpccLanguage.English]);
+
+end.

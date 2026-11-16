@@ -1,0 +1,483 @@
+﻿unit dpcc.Common.Lsp.CompletionRequest;
+
+// Anfrage der Vervollständigung: alles, was die Fälle von
+// textDocument/completion je Anfrage brauchen, in einem Objekt statt in neun Parametern. Einmal
+// berechnete Werte (Zeilen, Zeilenende, Index der eigenen Unit) bleiben im Objekt. Dazu die Typen der
+// Vervollständigung (Kontext, Eintrag, Liste), die dpcc.Common.Lsp.Completion unter ihrem Namen
+// weiter anbietet.
+//
+// Die Zeilenhelfer behalten bewusst die Semantik der früheren freien Funktionen (LineBefore, LineOf,
+// TextLines, OffsetOf): Zeilen werden an #10 getrennt, ein #13 davor fällt weg; LineBefore endet auch an
+// einem einzelnen #13. Sie lesen deshalb immer den Text, auch wenn ein Dokument vorliegt.
+
+interface
+
+{$SCOPEDENUMS ON}
+
+uses
+  System.SysUtils,
+  System.Generics.Collections,
+  dpcc.Common.Documents.Contract,
+  dpcc.Common.Pascal.SyntaxTree,
+  dpcc.Common.Index.Contract,
+  dpcc.Common.Configuration.Contract,
+  dpcc.Common.Rules.Contract,
+  dpcc.Common.Semantics.NameResolver,
+  dpcc.Common.Lsp.Documentation,
+  dpcc.Common.Lsp.IdeTypes;
+
+type
+  TCompletionContextKind = (None, Scope, Member, UsesClause);
+  /// <summary>Einschränkung der Kandidaten im Gültigkeitsbereich (#31).</summary>
+  TCompletionFilter = (Any, Types, InheritedCall);
+  /// <summary>Stelle im Quelltext für passende Schlüsselwörter (#31).</summary>
+  TCompletionPlace = (Unknown, Declaration, ClassBody, Statement);
+
+  TCompletionContext = record
+    Kind: TCompletionContextKind;
+    /// <summary>Schon getippter Anfang des Namens.</summary>
+    Prefix: string;
+    /// <summary>Kette vor dem Punkt bei Member, z. B. ['Self', 'Liste'].</summary>
+    Names: TArray<string>;
+    /// <summary>Offset, an dem die Namen gelten.</summary>
+    Offset: Integer;
+    /// <summary>Bei Member: Anfang der Kette und Position des Punkts.</summary>
+    ChainStart: TTextPosition;
+    DotPos: TTextPosition;
+    /// <summary>Bei Member: Das letzte Glied steht mit Klammern da, Foo(1). oder TFoo(X). (#188).</summary>
+    Called: Boolean;
+    /// <summary>Bei Scope: nur Typen bzw. nur Methoden der Vorfahren (#31).</summary>
+    Filter: TCompletionFilter;
+    /// <summary>Bei Filter Types: auch Typ-Schlüsselwörter wie string und array (nach ":").</summary>
+    TypeKeywords: Boolean;
+    /// <summary>Bei Scope: Anweisung, Deklaration oder Klassenrumpf (#31).</summary>
+    Place: TCompletionPlace;
+    /// <summary>Typargument nach "TFoo&lt;" (#450): Position des Typnamens und aktiver Typparameter (0-basiert).
+    /// Collect löscht Generic wieder, wenn der Name kein generischer Typ ist.</summary>
+    Generic: Boolean;
+    GenericOwnerPos: TTextPosition;
+    GenericParam: Integer;
+    /// <summary>Name in einer Attributklammer vor einer Deklaration (#465): nur Attributklassen.</summary>
+    Attribute: Boolean;
+    /// <summary>Name nach "raise " bzw. "on E: " (#483): nur Exception-Klassen; ExceptionToken ist das Token davor
+    /// (raise bzw. ":").</summary>
+    Exceptions: Boolean;
+    ExceptionToken: Integer;
+  end;
+
+  /// <summary>Zeile von „Alle Felder zuweisen“ (#491) für die Liste mit Kontrollkästchen.</summary>
+  TCompletionAssignment = record
+    /// <summary>Name des Felds bzw. der Property, Detail ihr Typ.</summary>
+    Name: string;
+    Detail: string;
+    /// <summary>Die Zuweisung samt Zeilenumbruch und Einrückung für die nächste Zeile.</summary>
+    Text: string;
+  end;
+
+  TCompletionItem = record
+    Name: string;
+    Detail: string;
+    /// <summary>CompletionItemKind des LSP.</summary>
+    Kind: Integer;
+    /// <summary>Text für den Filter des Editors; '' = Name.</summary>
+    FilterText: string;
+    /// <summary>Weitere Änderungen beim Annehmen, z. B. der uses-Eintrag.</summary>
+    AdditionalEdits: TArray<TRuleEdit>;
+    /// <summary>Datei und Namensposition der Deklaration für completionItem/resolve; '' ohne.</summary>
+    SourceFile: string;
+    SourcePosition: TTextPosition;
+    /// <summary>Deklarierender Typ bei Mitgliedern (#419); ''.</summary>
+    Container: string;
+    /// <summary>Vererbungstiefe bei Mitgliedern: 0 = eigener Typ (#419).</summary>
+    Depth: Integer;
+    /// <summary>Mitglied aus einem Helper (#456).</summary>
+    IsHelper: Boolean;
+    /// <summary>Namenspositionen weiterer Überladungen in SourceFile (#425).</summary>
+    Overloads: TArray<TTextPosition>;
+    /// <summary>Routine mit Parametern (in irgendeiner Überladung), für Klammern beim Übernehmen (#430).</summary>
+    HasParameters: Boolean;
+    /// <summary>Text beim Übernehmen statt des Namens; ''.</summary>
+    InsertText: string;
+    /// <summary>Erwarteter Typ an der Stelle (#417, #444); '' ohne. dpcc gruppiert dann nach Fits.</summary>
+    Expected: string;
+    /// <summary>Eintrag passt zu Expected.</summary>
+    Fits: Boolean;
+    /// <summary>Bedingung der Deklaration ("WIN64", "platform"); '' = immer (#476).</summary>
+    Condition: string;
+    /// <summary>Feld im varianten Teil eines Records: Marken seines Zweigs ("0", "1 › 0", #846); '' = keiner.
+    /// </summary>
+    VariantBranch: string;
+    /// <summary>Unter der aktiven Konfiguration nicht deklariert; dpcc zeigt es abgeschwächt am Ende (#476).</summary>
+    Unavailable: Boolean;
+    /// <summary>Gültigkeitsbereich ohne Punkt davor (#488): 1 lokal, 2 Parameter, 3 Mitglied von Self,
+    /// 4 eigene Unit, 5 andere Unit, 6 Mitglied eines with-Objekts (#481); 0 = keine Angabe (nach einem Punkt,
+    /// Schlüsselwörter …).</summary>
+    Scope: Integer;
+    /// <summary>Bei Scope 6 (#481): Ausdruck des with-Objekts ("qryOrders") und die verdeckten lokalen Namen bzw.
+    /// Mitglieder von Self ("Self.Name"); dpcc zeigt „aus …“ und warnt „verdeckt …“.</summary>
+    WithOrigin: string;
+    WithShadows: TArray<string>;
+    /// <summary>Unit der Deklaration bei Scope 5 (#488): dpcc zeigt sie als Tag.</summary>
+    UnitName: string;
+    /// <summary>Verdeckte gleichnamige Deklarationen weiter außen (#488), z. B. "Feld TKunde.Total".</summary>
+    Hides: TArray<string>;
+    /// <summary>Eintrag erzeugt Code statt nur einen Namen: 'override' (#443), 'create' (neue Methode, #444);
+    /// dpcc wertet AdditionalEdits dann nicht als uses-Ergänzung.</summary>
+    Action: string;
+    /// <summary>Ersetzt TextEdit.Range statt nur den getippten Namen (Postfix-Vorlagen, #188).</summary>
+    HasTextEdit: Boolean;
+    TextEdit: TRuleEdit;
+    /// <summary>Wert einer Aufzählung (#448): Stelle in der Deklaration ab 1; 0 bei anderen Einträgen.</summary>
+    Ordinal: Integer;
+    /// <summary>Mengenmodus (#448): Aufzählungstyp der Menge; '' sonst. Dann gelten SetChecked und SetRange.</summary>
+    SetOf: string;
+    /// <summary>Wert steht schon in der Klammer.</summary>
+    SetChecked: Boolean;
+    /// <summary>Was Enter mit dem neuen Klammerinhalt ersetzt: von "[" bis hinter "]".</summary>
+    SetRange: TTextRange;
+    /// <summary>Steht immer oben und passt zu jedem getippten Wort („Alle Werte einfügen“, #449).</summary>
+    Pinned: Boolean;
+    /// <summary>Zahl als Tag (fehlende Werte, #449); 0 ohne.</summary>
+    Count: Integer;
+    /// <summary>Eintrag deklariert diesen unbekannten Namen (#471); dpcc zeigt die Gruppe „Name ist
+    /// unbekannt“.</summary>
+    Unknown: string;
+    /// <summary>Interface implementieren (#466): Eintrag der Liste mit Kontrollkästchen (SetOf = Interfaces,
+    /// SetChecked, SetRange = getipptes Wort). dpcc übernimmt die AdditionalEdits aller angehakten Einträge in
+    /// Ordinal-Reihenfolge und fasst Einfügungen an derselben Stelle zusammen.</summary>
+    Batch: Boolean;
+    /// <summary>Hinweis „3 Methoden von IExporter fehlen“ (#466): ganz oben, nie vorgewählt.</summary>
+    Hint: Boolean;
+    /// <summary>Komponente aus dem Formular (#455): Name des Formulars; dpcc zeigt die Gruppe „Formular …“
+    /// oben.</summary>
+    Form: string;
+    /// <summary>Komponente passt nur über ihren Typ ("button" → btnSave: TButton), nicht über den Namen.</summary>
+    ByType: Boolean;
+    /// <summary>Sender mit Typumwandlung (#480): Typ, als der Sender gilt; '' sonst. Dann ersetzt TextEdit
+    /// "Sender.Na" durch "(Sender as TButton).Name".</summary>
+    Sender: string;
+    /// <summary>Komponenten, denen die Methode im Designer zugewiesen ist: "btnSave, btnLoad".</summary>
+    SenderOf: string;
+    /// <summary>Feld- oder Parametername (#461): Datenmenge, aus der der Name stammt; '' sonst.</summary>
+    DataSet: string;
+    /// <summary>Kurzform der SQL-Anweisung als Quellenangabe für die Fußzeile; '' ohne Anweisung.</summary>
+    DataSource: string;
+    /// <summary>Freigabe absichern (#489): 'newLine' oder 'routineEnd'; '' sonst. Weitertippen verwirft.</summary>
+    Guard: string;
+    /// <summary>InsertText bzw. TextEdit.NewText ist ein LSP-Snippet mit Platzhaltern (#51); dann
+    /// insertTextFormat = 2. Nur an Clients mit snippetSupport.</summary>
+    Snippet: Boolean;
+    /// <summary>Auch die AdditionalEdits sind LSP-Snippets; gleiche Nummern sind mit denen des Haupttexts verknüpft
+    /// (resourcestring auslagern, #473: der Name im Abschnitt und an der Stelle).</summary>
+    LinkedEdits: Boolean;
+    /// <summary>Befehl, den der Client nach dem Übernehmen über workspace/executeCommand ausführt; '' ohne.</summary>
+    Command: string;
+    CommandTitle: string;
+    CommandArguments: TArray<string>;
+    /// <summary>Typargument (#450): Typparameter ("T"), sein Constraint ("class, constructor"), der Code der
+    /// Erklärung (classes, values, constructible, implements:IFoo, descends:TBasis) und die ausgeblendeten Arten
+    /// (classes, records, interfaces, enums, basic, durch Kommas getrennt); '' sonst.</summary>
+    TypeParam: string;
+    Constraint: string;
+    ConstraintHint: string;
+    HiddenKinds: string;
+    /// <summary>Gebundene Typparameter des umgebenden Typs ("T=TKunde", #450); Detail ist schon eingesetzt,
+    /// completionItem/resolve setzt sie in Deklaration und Dokumentation ein.</summary>
+    Bindings: TArray<string>;
+    /// <summary>Typkonvertierung (#490): Umwandlungseintrag in diesen erwarteten Typ ("string"), Name ist der
+    /// gezeigte Ausdruck (Count.ToString), TextEdit setzt die ganze Kette ein; ConvertFrom ist der Name des
+    /// Originals, vor dem dpcc ihn zeigt. '' bei anderen Einträgen.</summary>
+    Conversion: string;
+    ConvertFrom: string;
+    /// <summary>Gleitkommawert für eine Ganzzahl (#490): sein Typ ("Double"); dpcc weist im Detailpanel auf
+    /// Round und Trunc hin. '' sonst.</summary>
+    Lossy: string;
+    /// <summary>„Alle Felder zuweisen“ mit mehr als 15 Feldern (#491): dpcc zeigt beim Übernehmen erst diese
+    /// Zeilen mit Kontrollkästchen; TextEdit reicht vom Anfang des Ausdrucks bis zum Cursor.</summary>
+    Assignments: TArray<TCompletionAssignment>;
+    /// <summary>uses-Abschnitt (#469): Gruppe der Unit (project, rtl, library); '' bei anderen Einträgen.
+    /// </summary>
+    UsesGroup: string;
+    /// <summary>Teil des Unit-Namens, gegen den das Plugin das Wort hinter dem letzten Punkt filtert
+    /// ("Generics.Collections" für "Gener").</summary>
+    UsesFilter: string;
+    /// <summary>Schon im anderen Abschnitt eingebunden: 'interface' bzw. 'implementation'; '' sonst.</summary>
+    UsesElsewhere: string;
+    /// <summary>Zirkelbezug im interface-Teil: Kette "uA → uB → Eigene"; '' ohne.</summary>
+    UsesCycle: string;
+    /// <summary>Erste exportierte Typen und ihre Gesamtzahl für das Detailpanel.</summary>
+    UsesTypes: TArray<string>;
+    UsesTypeCount: Integer;
+    /// <summary>In der Liste am Cursor schon eingebundene Units für die Fußzeile.</summary>
+    UsesHidden: TArray<string>;
+    /// <summary>Vollständiger inherited-Aufruf (#482): 'same' (gleiche Parameter), 'overload' (andere
+    /// Überladung), 'other' (weiterer Konstruktor bzw. Destruktor); '' bei anderen Einträgen.</summary>
+    InheritedMatch: string;
+    /// <summary>Ausgelassene abstrakte Vorfahrmethoden ("TBasis.Zeichnen") für die Fußzeile.</summary>
+    InheritedAbstract: TArray<string>;
+    /// <summary>Gleichnamige Bezeichner (#475): Variante, die der Compiler wählt; bei den übrigen Varianten
+    /// SameNameOf = Unit der aktiven und SameNameInsert, was Enter tut ('prefix', 'prefixAdd' = Präfix und
+    /// uses ergänzen, 'move' = in den uses nach hinten, 'add' = uses ergänzen). SameNameUnits: alle Units, die
+    /// den Namen deklarieren, die aktive zuerst; SameNameHidden: ausgeblendete FMX-Varianten als "Unit.Name".
+    /// </summary>
+    SameNameActive: Boolean;
+    SameNameOf: string;
+    SameNameInsert: string;
+    SameNameUnits: TArray<string>;
+    SameNameHidden: TArray<string>;
+    /// <summary>Attribut nach "[" (#465): Name ohne Endung Attribute; dpcc zeigt das Badge "at".</summary>
+    Attribute: Boolean;
+    /// <summary>Gerüst einer anonymen Methode (#468): der erwartete Methodenreferenztyp; dpcc zeigt ihn als Tag.
+    /// '' sonst.</summary>
+    MethodRef: string;
+    /// <summary>Exception-Klassen (#483): 'raise' (Übernahme mit Create), 'try' (Gruppe „Aus dem try-Block“),
+    /// 'general' („Allgemein“); '' sonst. Unreachable: Klasse eines früheren Zweigs, die diese schon fängt.
+    /// </summary>
+    ExceptionGroup: string;
+    Unreachable: string;
+  end;
+
+  TCompletionItems = record
+    Items: TArray<TCompletionItem>;
+    /// <summary>Liste wurde gekürzt; der Editor fragt beim Weitertippen neu.</summary>
+    Incomplete: Boolean;
+  end;
+
+  /// <summary>Teilergebnis einer gestaffelten Vervollständigung (#616), in Anzeigereihenfolge.</summary>
+  TCompletionPartialProc = reference to procedure(const AItems: TArray<TCompletionItem>);
+
+  TCompletionReadText = TDocReadText;
+
+  /// <summary>Alles, was die Fälle der Vervollständigung je Anfrage brauchen (4.2 Schritt 4).
+  /// Der Aufrufer besitzt das Objekt (try … finally Free); Baum, Resolver und Index gehören ihm nicht.
+  /// Einmal berechnete Werte (Zeilen, Index der eigenen Unit) bleiben im Objekt.</summary>
+  TCompletionRequest = class
+  private
+    FText: string;
+    FFileName: string;
+    FUri: string;
+    FPosition: TTextPosition;
+    FTree: TSyntaxTree;
+    FResolver: TNameResolver;
+    FIndex: ISymbolIndex;
+    FReadText: TCompletionReadText;
+    FMatching: TCompletionMatching;
+    FSettings: TCompletionSettings;
+    FTrigger: string;
+    FLines: TArray<string>;
+    FLinesReady: Boolean;
+    FUnitIndex: TUnitIndex;
+    FUnitIndexReady: Boolean;
+    FIdeTypes: TArray<TIdeTypeEntry>;
+    procedure SetTree(AValue: TSyntaxTree);
+    procedure SetResolver(AValue: TNameResolver);
+  public
+    /// <summary>Aus einem offenen Dokument (Handle); liest dessen Text einmal.</summary>
+    constructor Create(const ADocument: ITextDocument; const AFileName: string;
+      const APosition: TTextPosition); overload;
+    /// <summary>Aus Text (Tests und Kompatibilitäts-Überladungen). Matching unscharf, Settings Standard.</summary>
+    constructor Create(const AText, AFileName: string; const APosition: TTextPosition); overload;
+    /// <summary>Zeile ALine ohne Zeilenende; '' außerhalb.</summary>
+    function LineText(ALine: Integer): string;
+    /// <summary>Zeile der Position bis zum Cursor; endet am Zeilenende (#10 oder #13).</summary>
+    function LineBefore: string;
+    /// <summary>Alle Zeilen ohne Zeilenende, einmal geteilt.</summary>
+    function Lines: TArray<string>;
+    /// <summary>Offset (0-basiert) von APosition im Text; Zeilen zählen an #10, das Zeichen wird nicht
+    /// begrenzt.</summary>
+    function OffsetAt(const APosition: TTextPosition): Integer;
+    /// <summary>#13#10, wenn der Text irgendwo CRLF enthält, sonst #10.</summary>
+    function LineBreak: string;
+    /// <summary>Index der eigenen Unit aus dem Baum (Resolver.ExtractedUnit), einmal je Baum und Resolver.
+    /// </summary>
+    function UnitIndex: TUnitIndex;
+    /// <summary>Text des Dokuments.</summary>
+    property Text: string read FText;
+    property FileName: string read FFileName;
+    property Position: TTextPosition read FPosition;
+    /// <summary>URI des Dokuments für Einstellungen je Dokument; '' ohne.</summary>
+    property Uri: string read FUri write FUri;
+    property Tree: TSyntaxTree read FTree write SetTree;
+    property Resolver: TNameResolver read FResolver write SetResolver;
+    property Index: ISymbolIndex read FIndex write FIndex;
+    property ReadText: TCompletionReadText read FReadText write FReadText;
+    property Matching: TCompletionMatching read FMatching write FMatching;
+    property Settings: TCompletionSettings read FSettings write FSettings;
+    /// <summary>context.triggerCharacter der Anfrage; '' ohne.</summary>
+    property Trigger: string read FTrigger write FTrigger;
+    /// <summary>Typen aus den Packages der IDE (dpcc/ideTypes), auch ohne Quelltext; nil ohne Plugin.</summary>
+    property IdeTypes: TArray<TIdeTypeEntry> read FIdeTypes write FIdeTypes;
+  end;
+
+/// <summary>Zeilen von AText ohne Zeilenende (getrennt an LF, ein CR davor fällt weg).</summary>
+function TextLines(const AText: string): TArray<string>;
+/// <summary>Zeilen von AFileName, je Datei einmal gelesen; AText für die eigene Datei
+/// AOwnFile. False, wenn die Datei nicht lesbar ist (auch das merkt sich ACache).</summary>
+function CachedLines(ACache: TDictionary<string, TArray<string>>; const AFileName, AOwnFile, AText: string;
+  const AReadText: TCompletionReadText; out ALines: TArray<string>): Boolean;
+
+implementation
+
+uses
+  System.Math,
+  System.StrUtils;
+
+{ TCompletionRequest }
+
+constructor TCompletionRequest.Create(const ADocument: ITextDocument; const AFileName: string;
+  const APosition: TTextPosition);
+begin
+  Create(ADocument.Text, AFileName, APosition);
+  FUri := ADocument.Uri;
+end;
+
+constructor TCompletionRequest.Create(const AText, AFileName: string; const APosition: TTextPosition);
+begin
+  inherited Create;
+  FText := AText;
+  FFileName := AFileName;
+  FPosition := APosition;
+  FMatching := TCompletionMatching.Fuzzy;
+  FSettings := TCompletionSettings.Default;
+end;
+
+procedure TCompletionRequest.SetTree(AValue: TSyntaxTree);
+begin
+  FTree := AValue;
+  FUnitIndexReady := False;
+end;
+
+procedure TCompletionRequest.SetResolver(AValue: TNameResolver);
+begin
+  FResolver := AValue;
+  FUnitIndexReady := False;
+end;
+
+function TCompletionRequest.Lines: TArray<string>;
+var
+  mIndex: Integer;
+begin
+  if not FLinesReady then
+  begin
+    FLines := nil;
+    FLines := FText.Split([#10]);
+    for mIndex := 0 to High(FLines) do
+    begin
+      if FLines[mIndex].EndsWith(#13) then
+      begin
+        FLines[mIndex] := Copy(FLines[mIndex], 1, Length(FLines[mIndex]) - 1);
+      end;
+    end;
+    FLinesReady := True;
+  end;
+  Result := FLines;
+end;
+
+function TCompletionRequest.LineText(ALine: Integer): string;
+begin
+  Lines;
+  if (ALine < 0) or (ALine > High(FLines)) then
+  begin
+    Exit('');
+  end;
+  Result := FLines[ALine];
+end;
+
+function TCompletionRequest.LineBefore: string;
+var
+  mLine, mStart, mStop: Integer;
+begin
+  mStart := 1;
+  for mLine := 1 to FPosition.Line do
+  begin
+    mStart := PosEx(#10, FText, mStart) + 1;
+    if mStart = 1 then
+    begin
+      Exit('');
+    end;
+  end;
+  mStop := mStart;
+  while (mStop <= Length(FText)) and (FText[mStop] <> #10) and (FText[mStop] <> #13) do
+  begin
+    Inc(mStop);
+  end;
+  Result := Copy(FText, mStart, Min(FPosition.Character, mStop - mStart));
+end;
+
+function TCompletionRequest.OffsetAt(const APosition: TTextPosition): Integer;
+var
+  mIndex, mLine: Integer;
+begin
+  mLine := 0;
+  mIndex := 1;
+  while (mLine < APosition.Line) and (mIndex <= Length(FText)) do
+  begin
+    if FText[mIndex] = #10 then
+    begin
+      Inc(mLine);
+    end;
+    Inc(mIndex);
+  end;
+  Result := mIndex - 1 + APosition.Character;
+end;
+
+function TCompletionRequest.LineBreak: string;
+begin
+  if Pos(#13#10, FText) > 0 then
+  begin
+    Result := #13#10;
+  end
+  else
+  begin
+    Result := #10;
+  end;
+end;
+
+function TCompletionRequest.UnitIndex: TUnitIndex;
+begin
+  if not FUnitIndexReady then
+  begin
+    FUnitIndex := FResolver.ExtractedUnit(FTree, FFileName);
+    FUnitIndexReady := True;
+  end;
+  Result := FUnitIndex;
+end;
+
+function TextLines(const AText: string): TArray<string>;
+var
+  mIndex: Integer;
+begin
+  Result := AText.Split([#10]);
+  for mIndex := 0 to High(Result) do
+  begin
+    if Result[mIndex].EndsWith(#13) then
+    begin
+      Result[mIndex] := Copy(Result[mIndex], 1, Length(Result[mIndex]) - 1);
+    end;
+  end;
+end;
+
+function CachedLines(ACache: TDictionary<string, TArray<string>>; const AFileName, AOwnFile, AText: string;
+  const AReadText: TCompletionReadText; out ALines: TArray<string>): Boolean;
+var
+  mKey, mSource: string;
+begin
+  mKey := AnsiUpperCase(AFileName);
+  if not ACache.TryGetValue(mKey, ALines) then
+  begin
+    ALines := nil;
+    if SameText(AFileName, AOwnFile) then
+    begin
+      ALines := TextLines(AText);
+    end
+    else if Assigned(AReadText) and AReadText(AFileName, mSource) then
+    begin
+      ALines := TextLines(mSource);
+    end;
+    // nil steht für "nicht lesbar"; TextLines liefert sonst mindestens eine Zeile.
+    ACache.Add(mKey, ALines);
+  end;
+  Result := ALines <> nil;
+end;
+
+end.

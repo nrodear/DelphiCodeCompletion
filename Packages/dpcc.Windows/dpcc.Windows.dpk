@@ -1,0 +1,53 @@
+﻿package dpcc.Windows;
+
+{$IFDEF IMPLICITBUILDING This IFDEF should not be used by users}
+{$ALIGN 8}
+{$ASSERTIONS ON}
+{$BOOLEVAL OFF}
+{$DEBUGINFO OFF}
+{$EXTENDEDSYNTAX ON}
+{$IMPORTEDDATA ON}
+{$IOCHECKS ON}
+{$LOCALSYMBOLS ON}
+{$LONGSTRINGS ON}
+{$OPENSTRINGS ON}
+{$OPTIMIZATION OFF}
+{$OVERFLOWCHECKS OFF}
+{$RANGECHECKS OFF}
+{$REFERENCEINFO ON}
+{$SAFEDIVIDE OFF}
+{$STACKFRAMES ON}
+{$TYPEDADDRESS OFF}
+{$VARSTRINGCHECKS ON}
+{$WRITEABLECONST OFF}
+{$MINENUMSIZE 1}
+{$IMAGEBASE $400000}
+{$DEFINE DEBUG}
+{$ENDIF IMPLICITBUILDING}
+{$DESCRIPTION 'dpcc Windows (frei von VCL)'}
+{$RUNONLY}
+{$IMPLICITBUILD ON}
+
+// Platform-Package für Windows-spezifische Funktionen, ohne Abhängigkeit zur VCL.
+// Erlaubt sind RTL, Winapi.* und System.Win.* sowie dpcc.Common und dpcc.WinBase.
+// Geprüft durch Tools\Check-PackageDependencies.ps1.
+
+requires
+  rtl,
+  dpcc.WinBase,
+  dpcc.Common;
+
+contains
+  dpcc.Windows.Diagnostics.DebugOutput in 'Source\Diagnostics\dpcc.Windows.Diagnostics.DebugOutput.pas',
+  dpcc.Windows.Diagnostics.Adapters.DebugOutputSink in 'Source\Diagnostics\dpcc.Windows.Diagnostics.Adapters.DebugOutputSink.pas',
+  dpcc.Windows.Diagnostics.StackGuard in 'Source\Diagnostics\dpcc.Windows.Diagnostics.StackGuard.pas',
+  dpcc.Windows.Diagnostics.ProcessInfo in 'Source\Diagnostics\dpcc.Windows.Diagnostics.ProcessInfo.pas',
+  dpcc.Windows.Process.Instances in 'Source\Process\dpcc.Windows.Process.Instances.pas',
+  dpcc.Windows.Projects.DelphiInstallation in 'Source\Projects\dpcc.Windows.Projects.DelphiInstallation.pas',
+  dpcc.Windows.Compiler.Adapters.ProcessRunner in 'Source\Compiler\dpcc.Windows.Compiler.Adapters.ProcessRunner.pas',
+  dpcc.Windows.Documents.PathCanonicalizer in 'Source\Documents\dpcc.Windows.Documents.PathCanonicalizer.pas',
+  dpcc.Windows.Documents.FileWatcher in 'Source\Documents\dpcc.Windows.Documents.FileWatcher.pas',
+  dpcc.Windows.Documents.SharedRead in 'Source\Documents\dpcc.Windows.Documents.SharedRead.pas',
+  dpcc.Windows.Editing.SystemColors in 'Source\Editing\dpcc.Windows.Editing.SystemColors.pas';
+
+end.

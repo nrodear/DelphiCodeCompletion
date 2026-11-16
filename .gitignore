@@ -1,0 +1,18 @@
+# Build-Ausgabe
+Output/
+*.dcu
+*.dcp
+*.bpl
+*.exe
+*.map
+*.drc
+
+# IDE- und Benutzerdateien
+__history/
+__recovery/
+*.local
+*.identcache
+
+# Lokale Ordner
+graphify-out/
+_deleteMe/

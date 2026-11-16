@@ -1,0 +1,441 @@
+﻿unit dpcc.IDE.Foundation.StructureSwitch;
+
+// Schaltet Anzeigen der IDE ab, die dpcc selbst übernimmt, und stellt sie
+// wieder her, wenn die dpcc-Anzeige aus ist:
+//   - Strukturhervorhebung, solange dpcc eigene Blocklinien zeichnet (#514):
+//     <Basisschlüssel>\Editor\Highlight\Structural Highlighting, Enabled;
+//     Merker IdeStructureDisabled.
+//   - Help Insight, solange der dpcc-Tooltip an ist (#442): Wert Help Insight
+//     unter <Basisschlüssel>\Code Insight\<Ort>; Ort je Version und alle Orte,
+//     die den Wert schon tragen (TDpccCodeInsightKeys, #1246: unter Delphi 12
+//     traf dpcc vorher nur den Ort von Delphi 13, und die IDE zeigte beide
+//     Hinweise). Merker IdeHelpInsightDisabled je Version und Ort.
+//   - Error Insight auf Knopfdruck aus der Einrichtung (#625), nie von selbst:
+//     Wert Error Insight an denselben Orten; gelesen am Ort der Version.
+//     Merker IdeErrorInsightDisabled. ErrorInsightChanged hält fest, dass die
+//     IDE den neuen Wert erst nach dem nächsten Start liest.
+// Es gibt dafür keine Open Tools API: Die Schalter stehen in der Registry und
+// werden von der IDE beim Start gelesen. Die Merker unter
+// HKCU\Software\dpcc\IdePlugin halten fest, was dpcc abgeschaltet hat; nur
+// das wird zurückgedreht. Sie gelten je Version (#1246), sonst drehte eine
+// zweite installierte IDE zurück, was dpcc in der anderen abgeschaltet hat.
+
+interface
+
+type
+  TDpccIdeStructureSwitch = class
+  private
+    /// <summary>Ein Schalter an einem Ort; AMarker ist der volle Name des Merkers, ALegacyMarker ein älterer, der
+    /// gilt, solange der neue fehlt ('' ohne).</summary>
+    class function ApplySwitch(const ASubKey, AValueName, AMarker, ALegacyMarker: string;
+      AOwn: Boolean): Boolean; static;
+    /// <summary>AValueName an allen Orten unter Code Insight schalten (#1246).</summary>
+    class function ApplyCodeInsight(const AValueName, AMarker: string; AOwn: Boolean): Boolean; static;
+  public
+    /// <summary>Strukturhervorhebung angleichen; True, wenn geändert (wirkt nach dem nächsten Start der IDE).</summary>
+    class function Apply(AOwnGuides: Boolean): Boolean; static;
+    /// <summary>Help Insight angleichen; True, wenn geändert (wirkt nach dem nächsten Start der IDE).</summary>
+    class function ApplyHelpInsight(AOwnTooltip: Boolean): Boolean; static;
+    /// <summary>Wert-Tooltip der IDE beim Debuggen angleichen (aus, solange der dpcc-Hover die Werte zeigt);
+    /// True, wenn geändert (wirkt nach dem nächsten Start der IDE).</summary>
+    class function ApplyTooltipWatches(AOwnValues: Boolean): Boolean; static;
+    /// <summary>Beides nach den aktuellen Einstellungen; meldet Änderungen im Meldungsfenster.</summary>
+    class procedure Sync; static;
+    /// <summary>Nur Help Insight nach den aktuellen Einstellungen (Rückbau R5: die übrigen Eingriffe entfallen);
+    /// meldet eine Änderung im Meldungsfenster.</summary>
+    class procedure SyncHelpInsight; static;
+    /// <summary>Error Insight der IDE an (#625)? Ohne Wert gilt die Vorgabe der IDE: an.</summary>
+    class function ErrorInsight: Boolean; static;
+    /// <summary>Error Insight schalten (#625); True, wenn geschrieben. Wirkt nach dem nächsten Start der IDE.</summary>
+    class function SetErrorInsight(AEnabled: Boolean): Boolean; static;
+    /// <summary>In dieser Sitzung umgeschaltet: Die IDE zeigt noch den alten Stand.</summary>
+    class function ErrorInsightChanged: Boolean; static;
+  end;
+
+implementation
+
+uses
+  dpcc.Core.Diagnostics.MainThread,
+  dpcc.Core.Diagnostics.Guard,
+  Winapi.Windows,
+  System.SysUtils,
+  System.Classes,
+  System.Win.Registry,
+  ToolsAPI,
+  dpcc.Core.Settings.Plugin,
+  dpcc.Core.Editor.Guides,
+  dpcc.Core.Editor.CodeInsightKeys,
+  dpcc.UI.Strings,
+  dpcc.IDE.Foundation.Settings;
+
+const
+  cStructureKey = '\Editor\Highlight\Structural Highlighting';
+  cStructureMarker = 'IdeStructureDisabled';
+  cHelpInsightValue = 'Help Insight';
+  cHelpInsightMarker = 'IdeHelpInsightDisabled';
+  // Delphi: „Ausdrucksauswertung im Kurzhinweis“ – eigener Wert-Tooltip über dem dpcc-Hover.
+  cTooltipWatchesValue = 'ToolTip Watches';
+  cTooltipWatchesMarker = 'IdeTooltipWatchesDisabled';
+  cErrorInsightValue = 'Error Insight';
+  cErrorInsightMarker = 'IdeErrorInsightDisabled';
+
+var
+  // Wert von Error Insight beim ersten Lesen in dieser Sitzung; so liest ihn die IDE bis zum Neustart.
+  ErrorInsightAtStart: Integer = -1;
+
+/// <summary>Schalter der IDE unter AKey als Text, wie die IDE ihn schreibt.</summary>
+function SwitchText(AEnabled: Boolean): string;
+begin
+  Result := 'False';
+  if AEnabled then
+  begin
+    Result := 'True';
+  end;
+end;
+
+/// <summary>AValueName unter AKey schreiben; True, wenn der Schlüssel offen war.</summary>
+function WriteSwitch(ARegistry: TRegistry; const AKey, AValueName: string; AEnabled: Boolean): Boolean;
+begin
+  Result := ARegistry.OpenKey(AKey, True);
+  if Result then
+  begin
+    ARegistry.WriteString(AValueName, SwitchText(AEnabled));
+  end;
+  ARegistry.CloseKey;
+end;
+
+/// <summary>Merker im offenen Schlüssel gesetzt: neuer Name, solange er fehlt der alte.</summary>
+function MarkerSet(ARegistry: TRegistry; const AMarker, ALegacyMarker: string): Boolean;
+begin
+  Result := False;
+  if ARegistry.ValueExists(AMarker) then
+  begin
+    Result := ARegistry.ReadInteger(AMarker) <> 0;
+  end
+  else if (ALegacyMarker <> '') and ARegistry.ValueExists(ALegacyMarker) then
+  begin
+    Result := ARegistry.ReadInteger(ALegacyMarker) <> 0;
+  end;
+end;
+
+/// <summary>Stand des Schalters unter AKey und des Merkers (neuer Name, sonst ALegacyMarker).</summary>
+function ReadSwitch(ARegistry: TRegistry; const AKey, AValueName, AMarker, ALegacyMarker: string):
+  TDpccIdeStructure;
+begin
+  // Ohne Wert gilt die Vorgabe der IDE: eingeschaltet.
+  Result.Enabled := True;
+  if ARegistry.OpenKey(AKey, True) and ARegistry.ValueExists(AValueName) then
+  begin
+    Result.Enabled := SameText(ARegistry.ReadString(AValueName), 'True');
+  end;
+  ARegistry.CloseKey;
+  Result.DisabledByDpcc := ARegistry.OpenKey(cDpccRegistryKey, True) and MarkerSet(ARegistry, AMarker, ALegacyMarker);
+  ARegistry.CloseKey;
+end;
+
+/// <summary>Den Merker immer unter seinem neuen Namen festhalten; der alte entfällt dann.</summary>
+procedure WriteMarker(ARegistry: TRegistry; const AMarker, ALegacyMarker: string; AChanged, ADisabled: Boolean);
+begin
+  if not ARegistry.OpenKey(cDpccRegistryKey, True) then
+  begin
+    Exit;
+  end;
+  if AChanged or not ARegistry.ValueExists(AMarker) then
+  begin
+    ARegistry.WriteInteger(AMarker, Ord(ADisabled));
+  end;
+  if (ALegacyMarker <> '') and ARegistry.ValueExists(ALegacyMarker) then
+  begin
+    ARegistry.DeleteValue(ALegacyMarker);
+  end;
+  ARegistry.CloseKey;
+end;
+
+class function TDpccIdeStructureSwitch.ApplySwitch(const ASubKey, AValueName, AMarker, ALegacyMarker: string;
+  AOwn: Boolean): Boolean;
+var
+  mServices: IOTAServices;
+  mRegistry: TRegistry;
+  mKey: string;
+  mState, mNext: TDpccIdeStructure;
+begin
+  Result := False;
+  if not Supports(BorlandIDEServices, IOTAServices, mServices) then
+  begin
+    Exit;
+  end;
+  mKey := mServices.GetBaseRegistryKey + ASubKey;
+  mRegistry := TRegistry.Create(KEY_READ or KEY_WRITE);
+  try
+    mRegistry.RootKey := HKEY_CURRENT_USER;
+    try
+      mState := ReadSwitch(mRegistry, mKey, AValueName, AMarker, ALegacyMarker);
+      mNext := TDpccGuides.Switch(mState, AOwn);
+      if mNext.Enabled <> mState.Enabled then
+      begin
+        Result := WriteSwitch(mRegistry, mKey, AValueName, mNext.Enabled);
+      end;
+      WriteMarker(mRegistry, AMarker, ALegacyMarker, mNext.DisabledByDpcc <> mState.DisabledByDpcc,
+        mNext.DisabledByDpcc);
+    except
+      // Ohne Schreibrecht bleibt die IDE, wie sie ist.
+      on ERegistryException do
+        Result := False;
+    end;
+  finally
+    mRegistry.Free;
+  end;
+end;
+
+function BaseKey: string;
+var
+  mServices: IOTAServices;
+begin
+  Result := '';
+  if Supports(BorlandIDEServices, IOTAServices, mServices) then
+  begin
+    Result := mServices.GetBaseRegistryKey;
+  end;
+end;
+
+/// <summary>Unterschlüssel von Code Insight, die AValueName schon tragen (#1246).</summary>
+function KeysWithValue(const AValueName: string): TArray<string>;
+var
+  mRegistry: TRegistry;
+  mNames: TStringList;
+  mName: string;
+begin
+  Result := nil;
+  if BaseKey = '' then
+  begin
+    Exit;
+  end;
+  mRegistry := TRegistry.Create(KEY_READ);
+  mNames := TStringList.Create;
+  try
+    mRegistry.RootKey := HKEY_CURRENT_USER;
+    try
+      if not mRegistry.OpenKeyReadOnly(BaseKey + TDpccCodeInsightKeys.cRoot) then
+      begin
+        Exit;
+      end;
+      mRegistry.GetKeyNames(mNames);
+      mRegistry.CloseKey;
+      for mName in mNames do
+      begin
+        if mRegistry.OpenKeyReadOnly(BaseKey + TDpccCodeInsightKeys.cRoot + '\' + mName) and
+          mRegistry.ValueExists(AValueName) then
+        begin
+          Result := Result + [mName];
+        end;
+        mRegistry.CloseKey;
+      end;
+    except
+      // Ohne Leserecht bleibt es beim Ort der Version.
+      on ERegistryException do
+        Result := nil;
+    end;
+  finally
+    mNames.Free;
+    mRegistry.Free;
+  end;
+end;
+
+/// <summary>Merker vor #1246: ein Name für alle Versionen, nur am Ort von Delphi 13.</summary>
+function LegacyMarker(const AMarker, ASubKey: string): string;
+begin
+  Result := '';
+  if TDpccCodeInsightKeys.UsesLegacyMarker(BaseKey, ASubKey) then
+  begin
+    Result := AMarker;
+  end;
+end;
+
+class function TDpccIdeStructureSwitch.ApplyCodeInsight(const AValueName, AMarker: string; AOwn: Boolean): Boolean;
+var
+  mSubKey: string;
+begin
+  Result := False;
+  for mSubKey in TDpccCodeInsightKeys.Targets(BaseKey, KeysWithValue(AValueName)) do
+  begin
+    if ApplySwitch(TDpccCodeInsightKeys.cRoot + '\' + mSubKey, AValueName,
+      TDpccCodeInsightKeys.Marker(AMarker, BaseKey, mSubKey), LegacyMarker(AMarker, mSubKey), AOwn) then
+    begin
+      Result := True;
+    end;
+  end;
+end;
+
+class function TDpccIdeStructureSwitch.Apply(AOwnGuides: Boolean): Boolean;
+begin
+  // Der alte Merker galt für alle Versionen; ab #1246 je Version.
+  Result := ApplySwitch(cStructureKey, 'Enabled', TDpccCodeInsightKeys.Marker(cStructureMarker, BaseKey, 'Editor'),
+    cStructureMarker, AOwnGuides);
+end;
+
+class function TDpccIdeStructureSwitch.ApplyHelpInsight(AOwnTooltip: Boolean): Boolean;
+begin
+  Result := ApplyCodeInsight(cHelpInsightValue, cHelpInsightMarker, AOwnTooltip);
+end;
+
+class function TDpccIdeStructureSwitch.ApplyTooltipWatches(AOwnValues: Boolean): Boolean;
+begin
+  Result := ApplyCodeInsight(cTooltipWatchesValue, cTooltipWatchesMarker, AOwnValues);
+end;
+
+function ReadErrorInsight: Boolean;
+var
+  mRegistry: TRegistry;
+begin
+  // Ohne Wert gilt die Vorgabe der IDE: eingeschaltet.
+  Result := True;
+  if BaseKey = '' then
+  begin
+    Exit;
+  end;
+  mRegistry := TRegistry.Create(KEY_READ);
+  try
+    mRegistry.RootKey := HKEY_CURRENT_USER;
+    // Die IDE liest nur den Ort ihrer Version (#1246); bei unbekannter Version der erste bekannte.
+    if mRegistry.OpenKeyReadOnly(BaseKey + TDpccCodeInsightKeys.cRoot + '\' +
+      TDpccCodeInsightKeys.Targets(BaseKey, nil)[0]) and mRegistry.ValueExists(cErrorInsightValue) then
+    begin
+      Result := not SameText(mRegistry.ReadString(cErrorInsightValue), 'False');
+    end;
+  finally
+    mRegistry.Free;
+  end;
+end;
+
+class function TDpccIdeStructureSwitch.ErrorInsight: Boolean;
+begin
+  Result := ReadErrorInsight;
+  if ErrorInsightAtStart < 0 then
+  begin
+    ErrorInsightAtStart := Ord(Result);
+  end;
+end;
+
+class function TDpccIdeStructureSwitch.ErrorInsightChanged: Boolean;
+begin
+  Result := (ErrorInsightAtStart >= 0) and (Ord(ReadErrorInsight) <> ErrorInsightAtStart);
+end;
+
+class function TDpccIdeStructureSwitch.SetErrorInsight(AEnabled: Boolean): Boolean;
+var
+  mRegistry: TRegistry;
+  mSubKey: string;
+begin
+  Result := False;
+  if BaseKey = '' then
+  begin
+    Exit;
+  end;
+  // Stand vor der Änderung merken, falls noch nicht gelesen.
+  ErrorInsight;
+  mRegistry := TRegistry.Create(KEY_READ or KEY_WRITE);
+  try
+    mRegistry.RootKey := HKEY_CURRENT_USER;
+    try
+      // An allen Orten wie Help Insight (#1246): dem der Version und jedem, der den Wert schon trägt.
+      for mSubKey in TDpccCodeInsightKeys.Targets(BaseKey, KeysWithValue(cErrorInsightValue)) do
+      begin
+        if WriteSwitch(mRegistry, BaseKey + TDpccCodeInsightKeys.cRoot + '\' + mSubKey, cErrorInsightValue,
+          AEnabled) then
+        begin
+          Result := True;
+        end;
+      end;
+      if Result and mRegistry.OpenKey(cDpccRegistryKey, True) then
+      begin
+        mRegistry.WriteInteger(cErrorInsightMarker, Ord(not AEnabled));
+      end;
+      mRegistry.CloseKey;
+    except
+      // Ohne Schreibrecht bleibt die IDE, wie sie ist.
+      on ERegistryException do
+        Result := False;
+    end;
+  finally
+    mRegistry.Free;
+  end;
+end;
+
+/// <summary>Meldung zu einem geänderten Schalter: AOffId, wenn dpcc übernimmt, sonst AOnId.</summary>
+procedure AddSwitchText(var ATexts: TArray<string>; AChanged, AOwn: Boolean; AOffId, AOnId: TDpccTextId);
+begin
+  if not AChanged then
+  begin
+    Exit;
+  end;
+  if AOwn then
+  begin
+    ATexts := ATexts + [TDpccStrings.Text(AOffId)];
+  end
+  else
+  begin
+    ATexts := ATexts + [TDpccStrings.Text(AOnId)];
+  end;
+end;
+
+/// <summary>Meldungen ins Meldungsfenster; beim Laden des Plugins ist es noch nicht bereit.</summary>
+procedure ShowSwitchTexts(const ATexts: TArray<string>);
+begin
+  TDpccMainThread.ForceQueue(TDpccFeature.EditorCommands,
+    procedure
+    var
+      mMessages: IOTAMessageServices;
+      mText: string;
+    begin
+      if Supports(BorlandIDEServices, IOTAMessageServices, mMessages) then
+      begin
+        for mText in ATexts do
+        begin
+          mMessages.AddTitleMessage(mText);
+        end;
+      end;
+    end);
+end;
+
+class procedure TDpccIdeStructureSwitch.SyncHelpInsight;
+var
+  mSettings: TDpccPluginSettings;
+  mOwnTooltip: Boolean;
+  mTexts: TArray<string>;
+begin
+  mSettings := TDpccIdeSettings.Current;
+  mOwnTooltip := mSettings.Enabled and mSettings.HoverTooltip;
+  mTexts := nil;
+  AddSwitchText(mTexts, ApplyHelpInsight(mOwnTooltip), mOwnTooltip, TDpccTextId.HelpInsightIdeOff,
+    TDpccTextId.HelpInsightIdeOn);
+  if Length(mTexts) > 0 then
+  begin
+    ShowSwitchTexts(mTexts);
+  end;
+end;
+
+class procedure TDpccIdeStructureSwitch.Sync;
+var
+  mSettings: TDpccPluginSettings;
+  mOwn, mOwnTooltip, mOwnValues: Boolean;
+  mTexts: TArray<string>;
+begin
+  mSettings := TDpccIdeSettings.Current;
+  mOwn := mSettings.PairColors and mSettings.PairGuides;
+  mOwnTooltip := mSettings.Enabled and mSettings.HoverTooltip;
+  // Debug-Werte zeigt der dpcc-Hover seit S3b wieder (debug.hoverValues): dann den Wert-Tooltip der IDE abschalten,
+  // sonst ihn zurückgeben, falls dpcc ihn abgeschaltet hatte.
+  mOwnValues := mOwnTooltip and mSettings.DebugHoverValues;
+  mTexts := nil;
+  AddSwitchText(mTexts, Apply(mOwn), mOwn, TDpccTextId.PairGuidesIdeOff, TDpccTextId.PairGuidesIdeOn);
+  AddSwitchText(mTexts, ApplyHelpInsight(mOwnTooltip), mOwnTooltip, TDpccTextId.HelpInsightIdeOff,
+    TDpccTextId.HelpInsightIdeOn);
+  AddSwitchText(mTexts, ApplyTooltipWatches(mOwnValues), mOwnValues, TDpccTextId.TooltipWatchesIdeOff,
+    TDpccTextId.TooltipWatchesIdeOn);
+  if Length(mTexts) > 0 then
+  begin
+    ShowSwitchTexts(mTexts);
+  end;
+end;
+
+end.

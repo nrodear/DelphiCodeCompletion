@@ -1,0 +1,160 @@
+﻿unit dpcc.Common.JsonRpc.Contract;
+
+// Contract des Platform-Features JsonRpc: Transport-Schnittstelle, Handler-Typen,
+// Fehlercodes und Exceptions von JSON-RPC 2.0.
+
+interface
+
+uses
+  System.SysUtils,
+  System.JSON;
+
+type
+  /// <summary>Fehlercodes nach JSON-RPC 2.0.</summary>
+  TJsonRpcErrorCode = record
+  public const
+    cParseError = -32700;
+    cInvalidRequest = -32600;
+    cMethodNotFound = -32601;
+    cInvalidParams = -32602;
+    cInternalError = -32603;
+    /// <summary>Anfrage wurde per $/cancelRequest abgebrochen (LSP-Basisprotokoll).</summary>
+    cRequestCancelled = -32800;
+    /// <summary>Das Dokument hat sich geändert, das Ergebnis wäre veraltet (LSP, #283).</summary>
+    cContentModified = -32801;
+    /// <summary>Die Anfrage war gültig, ließ sich aber nicht ausführen; die Meldung nennt den Grund (LSP 3.17,
+    /// z. B. „Projekt kompilieren“ ohne nutzbaren Compiler, #261).</summary>
+    cRequestFailed = -32803;
+  end;
+
+const
+  /// <summary>Benachrichtigung, mit der die Gegenseite eine offene Anfrage abbricht.</summary>
+  cJsonRpcCancelRequestMethod = '$/cancelRequest';
+  /// <summary>Gegenstück im Model Context Protocol: params.requestId statt params.id (#1117).</summary>
+  cMcpCancelledMethod = 'notifications/cancelled';
+
+type
+
+  /// <summary>
+  /// Fehler, der als JSON-RPC-Fehlerantwort an die Gegenseite geht. Handler
+  /// lösen ihn aus, um eine Anfrage mit einem bestimmten Code abzulehnen.
+  /// </summary>
+  EJsonRpcError = class(Exception)
+  private
+    FCode: Integer;
+  public
+    constructor Create(ACode: Integer; const AMessage: string);
+    property Code: Integer read FCode;
+  end;
+
+  /// <summary>Die Anfrage wurde abgebrochen; wird zur Fehlerantwort RequestCancelled.</summary>
+  EJsonRpcRequestCancelled = class(EJsonRpcError)
+  public
+    constructor Create;
+  end;
+
+  /// <summary>Abgebrochen, weil sich das Dokument der Anfrage geändert hat (#283).</summary>
+  EJsonRpcContentModified = class(EJsonRpcError)
+  public
+    constructor Create;
+  end;
+
+  /// <summary>Basisklasse für Fehler beim Lesen oder Schreiben des Nachrichtenstroms.</summary>
+  EJsonRpcTransportError = class(Exception);
+
+  /// <summary>Die Eingabe wurde zwischen zwei Nachrichten regulär geschlossen.</summary>
+  EJsonRpcTransportClosed = class(EJsonRpcTransportError);
+
+  /// <summary>Liest und schreibt einzelne JSON-RPC-Nachrichten.</summary>
+  IJsonRpcTransport = interface
+    ['{5B0E8E57-2C59-4C38-9F2A-3E6B1F0C7D41}']
+    /// <summary>
+    /// Liest die nächste Nachricht. Der Aufrufer gibt das Ergebnis frei.
+    /// Löst EJsonRpcTransportClosed aus, wenn die Eingabe geschlossen wurde,
+    /// EJsonRpcTransportError bei zerstörtem Nachrichtenstrom und EJsonRpcError,
+    /// wenn eine einzelne Nachricht kein gültiges JSON-Objekt ist.
+    /// </summary>
+    function ReadMessage: TJSONObject;
+    /// <summary>Schreibt eine Nachricht. Threadsicher; das Objekt bleibt beim Aufrufer.</summary>
+    procedure WriteMessage(const AMessage: TJSONObject);
+  end;
+
+  /// <summary>
+  /// Bearbeitet eine Anfrage. AParams kann nil sein und gehört dem Aufrufer.
+  /// Das Ergebnis geht in den Besitz des Aufrufers über; nil wird als null gesendet.
+  /// </summary>
+  TJsonRpcRequestHandler = reference to function(const AParams: TJSONValue): TJSONValue;
+
+  /// <summary>Bearbeitet eine Benachrichtigung. AParams kann nil sein und gehört dem Aufrufer.</summary>
+  TJsonRpcNotificationHandler = reference to procedure(const AParams: TJSONValue);
+
+  /// <summary>
+  /// Abbruchsignal einer Anfrage. Threadsicher; lang laufende Handler fragen
+  /// es regelmäßig ab.
+  /// </summary>
+  IJsonRpcCancellationToken = interface
+    ['{3F8A1C62-7D4B-4E95-B0C3-9A2E5D6F1B87}']
+    function IsCancellationRequested: Boolean;
+    /// <summary>Löst EJsonRpcRequestCancelled aus, wenn die Anfrage abgebrochen wurde,
+    /// EJsonRpcContentModified, wenn das Dokument sich inzwischen geändert hat.</summary>
+    procedure ThrowIfCancellationRequested;
+  end;
+
+  /// <summary>
+  /// Bearbeitet eine Anfrage in einem Worker-Thread, nebenläufig zu weiteren
+  /// Nachrichten. Der Handler darf nur threadsicheren Zustand lesen (z. B. eine
+  /// Momentaufnahme) und soll ACancellation regelmäßig prüfen. Besitzverhältnisse
+  /// wie bei TJsonRpcRequestHandler.
+  /// </summary>
+  TJsonRpcConcurrentRequestHandler = reference to function(const AParams: TJSONValue;
+    const ACancellation: IJsonRpcCancellationToken): TJSONValue;
+
+  /// <summary>Führt eine Arbeit in einem anderen Thread aus, z. B. über einen Thread-Pool.</summary>
+  TJsonRpcScheduler = reference to procedure(const AWork: TProc);
+
+  /// <summary>
+  /// Sendet eine Antwort, die außerhalb der Nachrichtenschleife entstanden ist.
+  /// Übernimmt das Objekt, wird aus Worker-Threads aufgerufen und löst keine Exceptions aus.
+  /// </summary>
+  TJsonRpcResponder = reference to procedure(const AResponse: TJSONObject);
+
+  /// <summary>
+  /// Wird vor jeder Verteilung aufgerufen. Löst die Prüfung EJsonRpcError aus,
+  /// wird eine Anfrage mit diesem Fehler beantwortet und eine Benachrichtigung verworfen.
+  /// </summary>
+  TJsonRpcGuard = reference to procedure(const AMethod: string; AIsRequest: Boolean);
+
+  /// <summary>Wird vor jeder Anfrage (nicht Benachrichtigung) mit ihren Parametern aufgerufen, nach dem Guard.
+  /// Löst die Prüfung EJsonRpcError aus, wird die Anfrage mit diesem Fehler beantwortet, ohne Handler (#1355:
+  /// übersprungen nach Absturz).</summary>
+  TJsonRpcRequestGuard = reference to procedure(const AMethod: string; const AParams: TJSONValue);
+
+  /// <summary>Unerwarteter Fehler eines Anfrage-Handlers, mit Methode und Parametern der Anfrage.</summary>
+  TJsonRpcRequestFailedEvent = reference to procedure(const AMethod: string; const AParams: TJSONValue;
+    const AError: Exception);
+
+implementation
+
+{ EJsonRpcError }
+
+constructor EJsonRpcError.Create(ACode: Integer; const AMessage: string);
+begin
+  inherited Create(AMessage);
+  FCode := ACode;
+end;
+
+{ EJsonRpcRequestCancelled }
+
+constructor EJsonRpcRequestCancelled.Create;
+begin
+  inherited Create(TJsonRpcErrorCode.cRequestCancelled, 'Anfrage abgebrochen');
+end;
+
+{ EJsonRpcContentModified }
+
+constructor EJsonRpcContentModified.Create;
+begin
+  inherited Create(TJsonRpcErrorCode.cContentModified, 'Dokument wurde geändert');
+end;
+
+end.

@@ -1,0 +1,82 @@
+﻿package dpcc.Server;
+
+{$IFDEF IMPLICITBUILDING This IFDEF should not be used by users}
+{$ALIGN 8}
+{$ASSERTIONS ON}
+{$BOOLEVAL OFF}
+{$DEBUGINFO OFF}
+{$EXTENDEDSYNTAX ON}
+{$IMPORTEDDATA ON}
+{$IOCHECKS ON}
+{$LOCALSYMBOLS ON}
+{$LONGSTRINGS ON}
+{$OPENSTRINGS ON}
+{$OPTIMIZATION OFF}
+{$OVERFLOWCHECKS OFF}
+{$RANGECHECKS OFF}
+{$REFERENCEINFO ON}
+{$SAFEDIVIDE OFF}
+{$STACKFRAMES ON}
+{$TYPEDADDRESS OFF}
+{$VARSTRINGCHECKS ON}
+{$WRITEABLECONST OFF}
+{$MINENUMSIZE 1}
+{$IMAGEBASE $400000}
+{$DEFINE DEBUG}
+{$ENDIF IMPLICITBUILDING}
+{$DESCRIPTION 'dpcc Server (Completion-Server ohne Programmstart)'}
+{$RUNONLY}
+{$IMPLICITBUILD ON}
+
+// Schritt 2b (docs\Konzept-Completion-Schnitt.md, Abschnitt 4.5): die Hülle des Completion-Servers ab der Wurzel
+// Shell.Composition.CompletionServer und der In-Process-Betrieb (Shell.Composition.InProcess), ohne Programmstart.
+// Die Quellen liegen weiter in Application\Source\Shell. Seit S1 gibt es keinen eigenen Server-Prozess mehr
+// (Programmstart, Kommandozeile und stdin/stdout liegen in _deleteMe\_rueckbau\S1); der Server läuft nur noch im
+// IDE-Prozess.
+// Das Plugin (dpcc.IDE.Base) lädt dieses BPL; die Tests linken die DCUs (Output\$(Platform)\$(Config)\Dcu\dpcc.Server).
+
+requires
+  rtl,
+  dpcc.Text,
+  dpcc.WinBase,
+  dpcc.Common,
+  dpcc.Windows;
+
+contains
+  Shell.Bootstrap in '..\..\Application\Source\Shell\Shell.Bootstrap.pas',
+  Shell.Composition.Channel in '..\..\Application\Source\Shell\Shell.Composition.Channel.pas',
+  Shell.Composition.ClientStart in '..\..\Application\Source\Shell\Shell.Composition.ClientStart.pas',
+  Shell.Composition.Completion in '..\..\Application\Source\Shell\Shell.Composition.Completion.pas',
+  Shell.Composition.CompletionCapabilities in '..\..\Application\Source\Shell\Shell.Composition.CompletionCapabilities.pas',
+  Shell.Composition.CompletionServer in '..\..\Application\Source\Shell\Shell.Composition.CompletionServer.pas',
+  Shell.Composition.Configuration in '..\..\Application\Source\Shell\Shell.Composition.Configuration.pas',
+  Shell.Composition.Contract in '..\..\Application\Source\Shell\Shell.Composition.Contract.pas',
+  Shell.Composition.CoreBase in '..\..\Application\Source\Shell\Shell.Composition.CoreBase.pas',
+  Shell.Composition.Directives in '..\..\Application\Source\Shell\Shell.Composition.Directives.pas',
+  Shell.Composition.DocumentEvents in '..\..\Application\Source\Shell\Shell.Composition.DocumentEvents.pas',
+  Shell.Composition.FileChanges in '..\..\Application\Source\Shell\Shell.Composition.FileChanges.pas',
+  Shell.Composition.Folders in '..\..\Application\Source\Shell\Shell.Composition.Folders.pas',
+  Shell.Composition.Ide in '..\..\Application\Source\Shell\Shell.Composition.Ide.pas',
+  Shell.Composition.IndexArea in '..\..\Application\Source\Shell\Shell.Composition.IndexArea.pas',
+  Shell.Composition.InProcess in '..\..\Application\Source\Shell\Shell.Composition.InProcess.pas',
+  Shell.Composition.LanguageOptions in '..\..\Application\Source\Shell\Shell.Composition.LanguageOptions.pas',
+  Shell.Composition.Protocol in '..\..\Application\Source\Shell\Shell.Composition.Protocol.pas',
+  Shell.Composition.Session in '..\..\Application\Source\Shell\Shell.Composition.Session.pas',
+  Shell.Composition.Settings in '..\..\Application\Source\Shell\Shell.Composition.Settings.pas',
+  Shell.Composition.Workspaces in '..\..\Application\Source\Shell\Shell.Composition.Workspaces.pas',
+  Shell.Diagnostics in '..\..\Application\Source\Shell\Shell.Diagnostics.pas',
+  Shell.Platform in '..\..\Application\Source\Shell\Shell.Platform.pas',
+  Shell.Texts in '..\..\Application\Source\Shell\Shell.Texts.pas',
+  Shell.Workspace in '..\..\Application\Source\Shell\Shell.Workspace.pas',
+  Shell.Workspace.Build in '..\..\Application\Source\Shell\Shell.Workspace.Build.pas',
+  Shell.Workspace.Cache in '..\..\Application\Source\Shell\Shell.Workspace.Cache.pas',
+  Shell.Workspace.Encodings in '..\..\Application\Source\Shell\Shell.Workspace.Encodings.pas',
+  Shell.Workspace.Indexing in '..\..\Application\Source\Shell\Shell.Workspace.Indexing.pas',
+  Shell.Workspace.Listings in '..\..\Application\Source\Shell\Shell.Workspace.Listings.pas',
+  Shell.Workspace.Loader in '..\..\Application\Source\Shell\Shell.Workspace.Loader.pas',
+  Shell.Workspace.Packages in '..\..\Application\Source\Shell\Shell.Workspace.Packages.pas',
+  Shell.Workspace.Requests in '..\..\Application\Source\Shell\Shell.Workspace.Requests.pas',
+  Shell.Workspace.Setup in '..\..\Application\Source\Shell\Shell.Workspace.Setup.pas',
+  Shell.Workspace.State in '..\..\Application\Source\Shell\Shell.Workspace.State.pas';
+
+end.

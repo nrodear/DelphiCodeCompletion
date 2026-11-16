@@ -1,0 +1,61 @@
+﻿package dpcc.Text;
+
+{$IFDEF IMPLICITBUILDING This IFDEF should not be used by users}
+{$ALIGN 8}
+{$ASSERTIONS ON}
+{$BOOLEVAL OFF}
+{$DEBUGINFO OFF}
+{$EXTENDEDSYNTAX ON}
+{$IMPORTEDDATA ON}
+{$IOCHECKS ON}
+{$LOCALSYMBOLS ON}
+{$LONGSTRINGS ON}
+{$OPENSTRINGS ON}
+{$OPTIMIZATION OFF}
+{$OVERFLOWCHECKS OFF}
+{$RANGECHECKS OFF}
+{$REFERENCEINFO ON}
+{$SAFEDIVIDE OFF}
+{$STACKFRAMES ON}
+{$TYPEDADDRESS OFF}
+{$VARSTRINGCHECKS ON}
+{$WRITEABLECONST OFF}
+{$MINENUMSIZE 1}
+{$IMAGEBASE $400000}
+{$DEFINE DEBUG}
+{$ENDIF IMPLICITBUILDING}
+{$DESCRIPTION 'dpcc Text (nur RTL, gemeinsam für Server und Plugin)'}
+{$RUNONLY}
+{$IMPLICITBUILD ON}
+
+// Platform-Package mit Textcode, den Server und IDE-Plugin gleich brauchen
+//: Zeilen, Zeichenklassen, Kodierungserkennung, URIs,
+// Anonymisierung, Zeilenvergleich, unscharfe Namensregeln, JSONC, JSON-Strings, XML-Entities
+// die Versionsangabe, DUnitX-Tests im Quelltext und ihre Berichte (#69) sowie Map-Dateien des Linkers für Stacktraces.
+// Nur RTL (System.*), keine Zustände, kein inline.
+// Server und Tests linken dieses Package statisch über seine DCUs; das Plugin
+// übersetzt dieselben Quelldateien per "contains … in" mit, damit die IDE
+// weiterhin nur ein BPL lädt. Geprüft durch Tools\Check-PackageDependencies.ps1.
+
+requires
+  rtl;
+
+contains
+  dpcc.Text.Product.Version in 'Source\Product\dpcc.Text.Product.Version.pas',
+  dpcc.Text.Lines in 'Source\Lines\dpcc.Text.Lines.pas',
+  dpcc.Text.Chars in 'Source\Chars\dpcc.Text.Chars.pas',
+  dpcc.Text.Encoding in 'Source\Encoding\dpcc.Text.Encoding.pas',
+  dpcc.Text.LogMarks in 'Source\LogMarks\dpcc.Text.LogMarks.pas',
+  dpcc.Text.Anonymize in 'Source\Anonymize\dpcc.Text.Anonymize.pas',
+  dpcc.Text.Uris in 'Source\Uris\dpcc.Text.Uris.pas',
+  dpcc.Text.Diff in 'Source\Diff\dpcc.Text.Diff.pas',
+  dpcc.Text.Fuzzy in 'Source\Fuzzy\dpcc.Text.Fuzzy.pas',
+  dpcc.Text.Json in 'Source\Json\dpcc.Text.Json.pas',
+  dpcc.Text.Jsonc in 'Source\Jsonc\dpcc.Text.Jsonc.pas',
+  dpcc.Text.Entities in 'Source\Entities\dpcc.Text.Entities.pas',
+  dpcc.Text.Defines in 'Source\Defines\dpcc.Text.Defines.pas',
+  dpcc.Text.Checkin in 'Source\Checkin\dpcc.Text.Checkin.pas',
+  dpcc.Text.DebugDisplay in 'Source\DebugDisplay\dpcc.Text.DebugDisplay.pas',
+  dpcc.Text.StepFilter in 'Source\StepFilter\dpcc.Text.StepFilter.pas';
+
+end.
