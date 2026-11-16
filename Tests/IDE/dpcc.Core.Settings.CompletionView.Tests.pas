@@ -38,6 +38,10 @@ type
     /// Server nimmt feste Werte, auch wenn settings.json andere enthält.</summary>
     [Test]
     procedure IndexPageAndServerSwitchesAreGone;
+    /// <summary>S6: Die Liste ist schlicht wie die Code-Insight-Liste der IDE; Filter-Chips, eingeklapptes
+    /// Detailpanel und Auswahlmarke stehen nicht mehr auf der Seite, die übrigen Schalter der Liste schon.</summary>
+    [Test]
+    procedure PlainListSwitchesAreHidden;
     [Test]
     procedure KeysPageShowsCompletionAndSignature;
     [Test]
@@ -88,7 +92,28 @@ begin
   end;
 end;
 
+procedure TDpccCompletionViewTests.PlainListSwitchesAreHidden;
+var
+  mCatalog: TDpccSettingsCatalog;
+  mName: string;
+begin
+  mCatalog := TDpccSettingsCatalog.CreateDefault;
+  try
+    for mName in ['FilterChips', 'PanelCollapsed', 'SelectionMarker'] do
+    begin
+      Assert.AreEqual(Ord(spHidden), Ord(PlaceOfName(mCatalog, mName)), mName);
+    end;
+    for mName in ['Learning', 'Favorites', 'GroupInherited'] do
+    begin
+      Assert.AreEqual(Ord(spMain), Ord(PlaceOfName(mCatalog, mName)), mName);
+    end;
+  finally
+    mCatalog.Free;
+  end;
+end;
+
 procedure TDpccCompletionViewTests.KeysHaveOwnPage;
+
 var
   mCatalog: TDpccSettingsCatalog;
 begin

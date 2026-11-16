@@ -93,6 +93,21 @@ type
     procedure Orders5000EntriesWithRestWithin16ms;
   end;
 
+  /// <summary>Schlichte Zeile der Liste (S6) wie die Code-Insight-Liste der IDE: Art als Wort, Rest der Signatur
+  /// hinter dem Namen bzw. Detail, rechts nur „+ Unit“ und Warnungen.</summary>
+  [TestFixture]
+  TDpccPlainRowTests = class
+  public
+    [Test]
+    procedure KindWordsLikeIdeList;
+    [Test]
+    procedure ParamsFollowName;
+    [Test]
+    procedure DetailWhenSignatureHasNoName;
+    [Test]
+    procedure TrailerKeepsUnitAndWarnings;
+  end;
+
   [TestFixture]
   TDpccWordTests = class
   public
@@ -913,6 +928,97 @@ begin
   Assert.AreEqual('ShowMessage, 1 von 1.', TDpccItemPresentation.Announcement(Item, '', '%d von %d', 1, 1));
 end;
 
+{ TDpccPlainRowTests }
+
+function PlainItem(const AName: string; AKind: TDpccItemKind; const ASignature: string): TDpccCompletionItem;
+begin
+  Result := Default(TDpccCompletionItem);
+  Result.Name := AName;
+  Result.Kind := AKind;
+  Result.Signature := ASignature;
+  Result.UnitUsed := True;
+end;
+
+procedure TDpccPlainRowTests.KindWordsLikeIdeList;
+begin
+  // Methoden nach dem Anfang der Signatur, ohne Signatur wie das Badge „fn“.
+  Assert.AreEqual('procedure', TDpccItemPresentation.KindWord(PlainItem('Add', TDpccItemKind.Method,
+    'procedure Add(const S: string)')));
+  Assert.AreEqual('procedure', TDpccItemPresentation.KindWord(PlainItem('Run', TDpccItemKind.Method,
+    'class procedure Run')));
+  Assert.AreEqual('function', TDpccItemPresentation.KindWord(PlainItem('Count', TDpccItemKind.Method,
+    'function Count: Integer')));
+  Assert.AreEqual('destructor', TDpccItemPresentation.KindWord(PlainItem('Destroy', TDpccItemKind.Method,
+    'destructor Destroy')));
+  Assert.AreEqual('function', TDpccItemPresentation.KindWord(PlainItem('Foo', TDpccItemKind.Method, 'TList')));
+  Assert.AreEqual('procedure', TDpccItemPresentation.KindWord(PlainItem('Foo', TDpccItemKind.Procedure_, '')));
+  Assert.AreEqual('constructor', TDpccItemPresentation.KindWord(PlainItem('Create', TDpccItemKind.Constructor_,
+    '')));
+  Assert.AreEqual('type', TDpccItemPresentation.KindWord(PlainItem('TFoo', TDpccItemKind.Class_, '')));
+  Assert.AreEqual('type', TDpccItemPresentation.KindWord(PlainItem('TRec', TDpccItemKind.Record_, '')));
+  Assert.AreEqual('var', TDpccItemPresentation.KindWord(PlainItem('I', TDpccItemKind.Variable, 'Integer')));
+  Assert.AreEqual('const', TDpccItemPresentation.KindWord(PlainItem('cMax', TDpccItemKind.Constant, '')));
+  Assert.AreEqual('field', TDpccItemPresentation.KindWord(PlainItem('FCount', TDpccItemKind.Field, '')));
+  Assert.AreEqual('property', TDpccItemPresentation.KindWord(PlainItem('Count', TDpccItemKind.Property_, '')));
+  Assert.AreEqual('keyword', TDpccItemPresentation.KindWord(PlainItem('nil', TDpccItemKind.Keyword, '')));
+  Assert.AreEqual('unit', TDpccItemPresentation.KindWord(PlainItem('System.Classes', TDpccItemKind.Unit_, '')));
+  Assert.AreEqual('', TDpccItemPresentation.KindWord(PlainItem('x', TDpccItemKind.Unknown, '')));
+end;
+
+procedure TDpccPlainRowTests.ParamsFollowName;
+var
+  mRow: TDpccPlainRow;
+begin
+  mRow := TDpccItemPresentation.PlainRow(PlainItem('lvOrdersDblClick', TDpccItemKind.Method,
+    'procedure lvOrdersDblClick(Sender: TObject);'), 'Detail', '');
+  Assert.AreEqual('procedure', mRow.Kind);
+  Assert.AreEqual('(Sender: TObject);', mRow.Params);
+  Assert.AreEqual('', mRow.Detail, 'Signatur mit Namen: kein Detail');
+  mRow := TDpccItemPresentation.PlainRow(PlainItem('Count', TDpccItemKind.Method, 'function Count: Integer'), '',
+    '');
+  Assert.AreEqual(': Integer', mRow.Params);
+  // Ohne Parameter: nichts hinter dem Namen.
+  mRow := TDpccItemPresentation.PlainRow(PlainItem('Open', TDpccItemKind.Method, 'procedure Open'), 'x', '');
+  Assert.AreEqual('', mRow.Params);
+  Assert.AreEqual('', mRow.Detail);
+end;
+
+procedure TDpccPlainRowTests.DetailWhenSignatureHasNoName;
+var
+  mRow: TDpccPlainRow;
+  mTail: string;
+begin
+  // Typ, Klasse oder Unit statt Signatur: abgesetzt als Detail.
+  mRow := TDpccItemPresentation.PlainRow(PlainItem('FCount', TDpccItemKind.Field, 'Integer'), 'Integer', '');
+  Assert.AreEqual('field', mRow.Kind);
+  Assert.AreEqual('', mRow.Params);
+  Assert.AreEqual('Integer', mRow.Detail);
+  // Nur der ganze Name: "Add" ist nicht der Anfang von "AddPair".
+  Assert.IsFalse(TDpccItemPresentation.SignatureTail('Add', 'procedure AddPair(const S: string)', mTail));
+  // Detail gleich Name bzw. Art fällt weg.
+  mRow := TDpccItemPresentation.PlainRow(PlainItem('nil', TDpccItemKind.Keyword, 'keyword'), 'keyword', '');
+  Assert.AreEqual('', mRow.Detail);
+end;
+
+procedure TDpccPlainRowTests.TrailerKeepsUnitAndWarnings;
+var
+  mItem: TDpccCompletionItem;
+  mTags: TDpccTags;
+begin
+  mItem := PlainItem('tdUnicodeClass', TDpccItemKind.Constant, 'Winapi.CorHdr (add to uses)');
+  mItem.UnitUsed := False;
+  mItem.Directives := ['deprecated'];
+  mItem.Usage := TDpccUsageMark.Recent;
+  mItem.IsHelper := True;
+  mTags := TDpccItemPresentation.PlainTags(TDpccItemPresentation.Tags(mItem));
+  // „+ Unit“ und deprecated bleiben, zuletzt und Helper (Akzent) nicht.
+  Assert.AreEqual(2, Integer(Length(mTags)));
+  Assert.AreEqual('+ Winapi.CorHdr', mTags[0].Text);
+  Assert.AreEqual('deprecated', mTags[1].Text);
+  // Fehlt die Unit, ist das Detail leer; die Unit steht rechts.
+  Assert.AreEqual('', TDpccItemPresentation.PlainRow(mItem, TDpccItemPresentation.Detail(mItem), '').Detail);
+end;
+
 procedure TDpccMatchingBudgetTests.TagTextNamesStatesInWords;
 var
   Item: TDpccCompletionItem;
@@ -947,5 +1053,7 @@ initialization
   TDUnitX.RegisterTestFixture(TDpccXmlDocTests);
   TDUnitX.RegisterTestFixture(TDpccMatchingBudgetTests);
   TDUnitX.RegisterTestFixture(TDpccWordTests);
+  TDUnitX.RegisterTestFixture(TDpccPlainRowTests);
+
 
 end.

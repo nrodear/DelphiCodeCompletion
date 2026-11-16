@@ -6,6 +6,8 @@
 //   Fenster, Panel-Schnittstelle) → TDpccCompletionPopupPainter (Zeichnen, Tooltip) → TDpccCompletionPopup
 //   (dpcc.UI.Completion.Popup: Maus, Anzeige der Liste, Barrierefreiheit).
 // Aufrufer verwenden nur TDpccCompletionPopup; Beschreibung des Aussehens dort.
+// Schlicht (S6, Vorgabe): Zeilen in der UI-Schrift, so hoch wie die Zeilen des Hover-Tooltips (Schrifthöhe +
+// cPlainRowPad); flacher Rahmen (FlatFrame) wie Hover und Menüs der IDE.
 
 interface
 
@@ -111,6 +113,9 @@ type
     Target: string;
     FavoritesEnabled: Boolean;
     SelectionMarker: Boolean;
+    /// <summary>Schlichte Liste (S6) wie die Code-Insight-Liste der IDE und der Hover-Tooltip: Art als Wort, Name
+    /// fett, Signatur; keine Chips, kein Detailpanel, keine Badges und Tags als Flächen.</summary>
+    Plain: Boolean;
   end;
 
   TDpccCompletionPopupState = class(TDpccPopupWindow)
@@ -125,6 +130,14 @@ type
     cCheckWidth = 19;
     /// <summary>Sternspalte der Favoriten (#458): Rand 4, Stern 12; das Badge rückt um so viel nach rechts.</summary>
     cStarWidth = 14;
+    /// <summary>Schlichte Liste (S6), Maße wie im Hover-Tooltip (logische Pixel): Zeile = Schrifthöhe +
+    /// cPlainRowPad, Text cPlainInset vom Rand der Zeile, Art-Spalte so breit wie cPlainKindSample plus
+    /// cPlainKindGap, Abstand vor dem Detail bzw. der Unit cPlainGap.</summary>
+    cPlainRowPad = 9;
+    cPlainInset = 4;
+    cPlainKindSample = 'constructor';
+    cPlainKindGap = 24;
+    cPlainGap = 12;
   protected
     FItems: TDpccCompletionItems;
     FOrder: TArray<Integer>;
@@ -203,6 +216,9 @@ begin
   FPanel.Width := cDefaultPanelWidth;
   FOptions.SelectionMarker := True;
   FOptions.ShowVariantBranch := True;
+  // Schlicht (S6): flach wie der Hover-Tooltip und die Menüs der IDE.
+  FOptions.Plain := True;
+  FlatFrame := True;
 end;
 
 destructor TDpccCompletionPopupState.Destroy;
@@ -235,7 +251,15 @@ begin
   Canvas.Font := UIFont;
   mUIHeight := Canvas.TextHeight('Wg');
   Canvas.Font := Font;
-  FMetrics.RowHeight := Max(Canvas.TextHeight('Wg') + Scale(9), Scale(24));
+  if FOptions.Plain then
+  begin
+    // Wie eine Zeile des Hover-Tooltips bzw. der Code-Insight-Liste: UI-Schrift + cPlainRowPad.
+    FMetrics.RowHeight := mUIHeight + Scale(cPlainRowPad);
+  end
+  else
+  begin
+    FMetrics.RowHeight := Max(Canvas.TextHeight('Wg') + Scale(9), Scale(24));
+  end;
   FMetrics.ChipsHeight := mUIHeight + Scale(12);
   FMetrics.FooterHeight := mUIHeight + Scale(10);
   FMetrics.PPI := PPI;

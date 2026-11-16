@@ -16,6 +16,8 @@
 //     einbinden. UsesHidden liefert die schon eingebundenen Units für die Fußzeile.
 //   - Treffer: Positionen der getippten Zeichen im Namen zum Hervorheben,
 //     nach denselben Regeln wie TDpccCompletionMatcher.
+//   - Schlichte Zeile (S6, TDpccPlainRow): Art als Wort wie in der Code-Insight-Liste der IDE, Rest der Signatur
+//     hinter dem Namen, sonst das Detail; rechts nur „+ Unit“ und Warnungen als Text (PlainTags).
 
 interface
 
@@ -49,8 +51,33 @@ type
 
   TDpccTags = TArray<TDpccTag>;
 
+  /// <summary>Schlichte Zeile der Liste (S6), wie die Code-Insight-Liste der IDE und der Hover-Tooltip: Art als
+  /// Wort, Name, direkt dahinter der Rest der Signatur (Parameter, Ergebnistyp) bzw. abgesetzt das Detail, rechts
+  /// gedämpft „+ Unit“ und Warnungen als Text.</summary>
+  TDpccPlainRow = record
+    /// <summary>Art als Wort: procedure, function, type, var, keyword, …; '' ohne.</summary>
+    Kind: string;
+    /// <summary>Rest der Signatur direkt hinter dem Namen ("(Sender: TObject)", ": Integer"); '' ohne.</summary>
+    Params: string;
+    /// <summary>Detail abgesetzt hinter dem Namen (Typ, Klasse, Unit), wenn die Signatur nichts liefert.</summary>
+    Detail: string;
+    /// <summary>Rechts gedämpft: „+ Unit“, deprecated, …; '' ohne.</summary>
+    Trailer: string;
+  end;
+
   TDpccItemPresentation = class
   public
+    /// <summary>Art des Eintrags als Wort wie in der Code-Insight-Liste der IDE (procedure, function, type, …);
+    /// bei Methoden nach dem Anfang der Signatur.</summary>
+    class function KindWord(const AItem: TDpccCompletionItem): string; static;
+    /// <summary>Rest der Signatur ASignature hinter dem Namen AName, ohne führendes procedure/function/…;
+    /// False, wenn die Signatur nicht mit dem Namen beginnt (dann ist sie Typ, Klasse oder Unit).</summary>
+    class function SignatureTail(const AName, ASignature: string; out ATail: string): Boolean; static;
+    /// <summary>Tags, die die schlichte Zeile als Text zeigt: „+ Unit“ und Warnungen bzw. Fehler.</summary>
+    class function PlainTags(const ATags: TDpccTags): TDpccTags; static;
+    /// <summary>Schlichte Zeile (S6) zu AItem; ADetail ist das Detail der Liste, ATrailer der Text rechts.</summary>
+    class function PlainRow(const AItem: TDpccCompletionItem; const ADetail, ATrailer: string): TDpccPlainRow;
+      static;
     class function Badge(const AItem: TDpccCompletionItem): TDpccBadge; static;
     class function Detail(const AItem: TDpccCompletionItem): string; static;
     /// <summary>Ansage für Screenreader (#447): "Name, Art, Position von Anzahl. Kurzbeschreibung";
@@ -288,6 +315,106 @@ begin
 end;
 
 { TDpccItemPresentation }
+
+/// <summary>Routinenwort am Anfang von ASignature (auch nach „class “); ARest ist der Text dahinter.</summary>
+function LeadingRoutineWord(const ASignature: string; out AWord, ARest: string): Boolean;
+const
+  cWords: array[0..5] of string = ('procedure', 'function', 'constructor', 'destructor', 'operator', 'property');
+var
+  mText, mWord: string;
+begin
+  AWord := '';
+  mText := Trim(ASignature);
+  if StartsText('class ', mText) then
+  begin
+    mText := TrimLeft(Copy(mText, Length('class ') + 1, MaxInt));
+  end;
+  ARest := mText;
+  for mWord in cWords do
+  begin
+    if StartsText(mWord + ' ', mText) or SameText(mWord, mText) then
+    begin
+      AWord := mWord;
+      ARest := TrimLeft(Copy(mText, Length(mWord) + 1, MaxInt));
+      Exit(True);
+    end;
+  end;
+  Result := False;
+end;
+
+class function TDpccItemPresentation.KindWord(const AItem: TDpccCompletionItem): string;
+const
+  // Wie die Kürzel der Badges: Methode und Funktion ohne Signatur gelten als function.
+  cWords: array[TDpccItemKind] of string = ('', 'function', 'function', 'procedure', 'constructor', 'destructor',
+    'property', 'field', 'event', 'var', 'var', 'const', 'type', 'type', 'type', 'type', 'type', 'const', 'unit',
+    'keyword', 'snippet', 'xmldoc');
+var
+  mWord, mRest: string;
+begin
+  if AItem.Attribute then
+  begin
+    Exit('type');
+  end;
+  if (AItem.Kind in [TDpccItemKind.Method, TDpccItemKind.Function_, TDpccItemKind.Procedure_]) and
+    LeadingRoutineWord(AItem.Signature, mWord, mRest) and (mWord <> 'property') and (mWord <> 'operator') then
+  begin
+    Exit(mWord);
+  end;
+  Result := cWords[AItem.Kind];
+end;
+
+class function TDpccItemPresentation.SignatureTail(const AName, ASignature: string; out ATail: string): Boolean;
+var
+  mWord, mText: string;
+  mLength: Integer;
+begin
+  ATail := '';
+  LeadingRoutineWord(ASignature, mWord, mText);
+  mLength := Length(AName);
+  if (mLength = 0) or not StartsText(AName, mText) then
+  begin
+    Exit(False);
+  end;
+  // Nur der ganze Name: "Add" passt nicht zu "AddPair(…)".
+  if (Length(mText) > mLength) and (mText[mLength + 1].IsLetterOrDigit or (mText[mLength + 1] = '_')) then
+  begin
+    Exit(False);
+  end;
+  ATail := TrimRight(Copy(mText, mLength + 1, MaxInt));
+  Result := True;
+end;
+
+class function TDpccItemPresentation.PlainTags(const ATags: TDpccTags): TDpccTags;
+var
+  mTag: TDpccTag;
+begin
+  Result := nil;
+  for mTag in ATags do
+  begin
+    if mTag.Kind in [TDpccTagKind.Add, TDpccTagKind.Warn, TDpccTagKind.Error] then
+    begin
+      Result := Result + [mTag];
+    end;
+  end;
+end;
+
+class function TDpccItemPresentation.PlainRow(const AItem: TDpccCompletionItem; const ADetail,
+  ATrailer: string): TDpccPlainRow;
+begin
+  Result := Default(TDpccPlainRow);
+  Result.Kind := KindWord(AItem);
+  Result.Trailer := ATrailer;
+  // Signatur mit Namen: Parameter bzw. Typ direkt hinter dem Namen wie in der Liste der IDE; sonst das Detail.
+  if not SignatureTail(AItem.Name, AItem.Signature, Result.Params) then
+  begin
+    Result.Detail := Trim(ADetail);
+  end;
+  // Doppeltes weglassen: Detail gleich Name oder Art.
+  if SameText(Result.Detail, AItem.Name) or SameText(Result.Detail, Result.Kind) then
+  begin
+    Result.Detail := '';
+  end;
+end;
 
 class function TDpccItemPresentation.Badge(const AItem: TDpccCompletionItem): TDpccBadge;
 const

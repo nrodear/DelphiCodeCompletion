@@ -121,9 +121,12 @@ begin
   FAutoWidth := AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsAutoWidth));
   FAutoWidth.OnClick := AutoWidthClick;
   BindText('OpenDelayMs', AddNumber(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsOpenDelay)));
-  BindCheck('PanelCollapsed', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsPanelCollapsed)));
-  BindCheck('SelectionMarker', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsSelectionMarker)));
-  BindCheck('FilterChips', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsChips)));
+  // Schlichte Liste (S6): Detailpanel, Auswahlmarke und Filter-Chips gibt es nicht mehr; die Haken sind
+  // ausgeblendet (TDpccCompletionView.cPlainListKeys), die gespeicherten Werte bleiben unangetastet.
+  // BindCheck('PanelCollapsed', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsPanelCollapsed)));
+  // BindCheck('SelectionMarker', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsSelectionMarker)));
+  // BindCheck('FilterChips', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsChips)));
+
   BindCheck('Learning', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsLearning)));
   FFavorites := BindCheck('Favorites', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsFavorites)));
   BindCheck('GroupInherited', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsGroupInherited)));

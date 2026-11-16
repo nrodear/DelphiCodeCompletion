@@ -95,6 +95,12 @@ begin
   // Farben aus dem Thema der IDE (hell/dunkel), Schrift aus den Editoroptionen, Monitor-DPI und Zoom
   // am Caret (#411, #412, #445).
   Log(TDpccIdeStyle.Apply(FPopup, ACaret));
+  // Schlicht (S6): Farben wie der Hover-Tooltip und die Code-Insight-Liste der IDE (Farbschema des Editors),
+  // Auswahl in der Auswahlfarbe des IDE-Themas.
+  if FPopup.Plain then
+  begin
+    FPopup.Colors := TDpccIdeStyle.CompletionListColors;
+  end;
 end;
 
 function TDpccEditorCompletionOpen.CaretRect(out AWindow: HWND; out ARect: TRect): Boolean;
@@ -176,7 +182,9 @@ begin
   // Während der Server indiziert, liefert er den vorhandenen Stand; die Fußzeile sagt es (#492).
   FPopup.Limited := IndexingNow;
   FPopup.Target := ActiveTarget;
-  FController.ChipsEnabled := TDpccIdeSettings.Current.FilterChips;
+  // Schlicht (S6): keine Filter-Chips (auch nicht über Alt+1 … Alt+6).
+  FController.ChipsEnabled := TDpccIdeSettings.Current.FilterChips and not FPopup.Plain;
+
   if TDpccIdeSettings.Current.Learning then
   begin
     FController.Usage := TDpccIdeHistory.Instance;

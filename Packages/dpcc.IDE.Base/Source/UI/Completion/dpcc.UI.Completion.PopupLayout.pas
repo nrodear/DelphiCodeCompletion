@@ -3,6 +3,8 @@
 // Vervollständigungs-Popup (#410), Stufe Lage: wo Liste, Zeilen, Chips, Warnleiste und Detailpanel liegen, wie
 // breit die Liste wird (#416) und wohin das Fenster kommt (darunter, sonst darüber; nie über den Monitorrand).
 // Dazu die Schnittstelle des Detailpanels (#424, #425, #428, #654). Kette und Aussehen: dpcc.UI.Completion.Popup.
+// Schlicht (S6, Plain): kein Detailpanel (ShowDetails merkt sich die Details nur, TogglePanel tut nichts), keine
+// Chips und keine Sternspalte; die Breite misst Art-Spalte, fetten Namen, Signatur bzw. Detail und den Text rechts.
 
 interface
 
@@ -42,6 +44,15 @@ type
     /// <summary>Position (Anzeigereihenfolge) des Sterns unter (AX, AY); -1 ohne.</summary>
     function StarAt(AX, AY: Integer): Integer;
     function MeasureWidth: Integer;
+    /// <summary>Breite der schlichten Liste (S6).</summary>
+    function MeasurePlainWidth: Integer;
+    /// <summary>Breite der Art-Spalte der schlichten Liste: „constructor“ plus Abstand (wie im Hover-Tooltip).
+    /// </summary>
+    function PlainKindWidth: Integer;
+    /// <summary>Text rechts in der schlichten Zeile: „+ Unit“ und Warnungen (PlainTags) in Worten.</summary>
+    function PlainTrailer(const AItem: TDpccCompletionItem): string;
+    /// <summary>Schlichte Zeile (S6) zu AItem.</summary>
+    function PlainRowOf(const AItem: TDpccCompletionItem): TDpccPlainRow;
     function TagWidth(const ATag: TDpccTag): Integer;
     /// <summary>Tags der Zeile; ohne ShowVariantBranch fehlt „Zweig 0“ (#846).</summary>
     function ItemTags(const AItem: TDpccCompletionItem): TDpccTags;
@@ -74,6 +85,8 @@ type
     property Limited: Boolean read FOptions.Limited write FOptions.Limited;
     /// <summary>Aktives Ziel („Win32 · Debug“) für die Fußzeile (#476); '' = keins bekannt.</summary>
     property Target: string read FOptions.Target write FOptions.Target;
+    /// <summary>Schlichte Liste (S6) wie die Code-Insight-Liste der IDE; Vorgabe an.</summary>
+    property Plain: Boolean read FOptions.Plain;
   end;
 
 implementation
@@ -81,7 +94,9 @@ implementation
 uses
   Winapi.Windows,
   System.Math,
+  Vcl.Graphics,
   dpcc.Core.Completion.Width,
+
   dpcc.Core.Completion.Ranking,
   dpcc.Core.Completion.Sets,
   dpcc.Core.Completion.Favorites,
@@ -216,6 +231,11 @@ end;
 procedure TDpccCompletionPopupLayout.ShowDetails(const ADetails: TDpccItemDetails);
 begin
   FDetailView.Details := ADetails;
+  // Schlicht (S6): kein Detailpanel; die Details bleiben nur gemerkt.
+  if FOptions.Plain then
+  begin
+    Exit;
+  end;
   if not FPanel.Shown and ADetails.IsEmpty then
   begin
     Exit;
@@ -230,7 +250,7 @@ end;
 
 function TDpccCompletionPopupLayout.ChipsHeight: Integer;
 begin
-  if not FChips.Visible or FEmpty.Showing then
+  if not FChips.Visible or FEmpty.Showing or FOptions.Plain then
   begin
     Exit(0);
   end;
@@ -270,6 +290,11 @@ end;
 
 procedure TDpccCompletionPopupLayout.TogglePanel;
 begin
+  // Schlicht (S6): kein Panel, also nichts ein- oder auszuklappen.
+  if FOptions.Plain then
+  begin
+    Exit;
+  end;
   FPanel.Collapsed := not FPanel.Collapsed;
   if Assigned(FEvents.OnPanelToggled) then
   begin
@@ -356,6 +381,82 @@ begin
   end;
 end;
 
+function TDpccCompletionPopupLayout.PlainKindWidth: Integer;
+begin
+  Canvas.Font := UIFont;
+  Result := Canvas.TextWidth(cPlainKindSample) + Scale(cPlainKindGap);
+  Canvas.Font := Font;
+end;
+
+function TDpccCompletionPopupLayout.PlainTrailer(const AItem: TDpccCompletionItem): string;
+var
+  mTag: TDpccTag;
+begin
+  Result := '';
+  for mTag in TDpccItemPresentation.PlainTags(ItemTags(AItem)) do
+  begin
+    if Result <> '' then
+    begin
+      Result := Result + '   ';
+    end;
+    Result := Result + TDpccCompletionTexts.TagText(mTag);
+  end;
+end;
+
+function TDpccCompletionPopupLayout.PlainRowOf(const AItem: TDpccCompletionItem): TDpccPlainRow;
+begin
+  Result := TDpccItemPresentation.PlainRow(AItem, TDpccCompletionTexts.DetailText(AItem), PlainTrailer(AItem));
+end;
+
+function TDpccCompletionPopupLayout.MeasurePlainWidth: Integer;
+var
+  mPosition, mCount, mWidest, mWidth: Integer;
+  mItem: TDpccCompletionItem;
+  mRow: TDpccPlainRow;
+begin
+  // Wie MeasureWidth, aber in der UI-Schrift: Art-Spalte, fetter Name, Signatur bzw. Detail, Text rechts.
+  mWidest := 0;
+  mCount := Min(Length(FOrder), 200);
+  for mPosition := 0 to mCount - 1 do
+  begin
+    if TDpccRanking.IsHeader(FOrder[mPosition]) then
+    begin
+      Continue;
+    end;
+    mItem := FItems[FOrder[mPosition]];
+    mRow := PlainRowOf(mItem);
+    Canvas.Font := UIFont;
+    Canvas.Font.Style := [fsBold];
+    mWidth := Canvas.TextWidth(mItem.Name);
+    Canvas.Font.Style := [];
+    if mRow.Params <> '' then
+    begin
+      Inc(mWidth, Canvas.TextWidth(mRow.Params));
+    end;
+    if mRow.Detail <> '' then
+    begin
+      Inc(mWidth, Scale(cPlainGap) + Canvas.TextWidth(mRow.Detail));
+    end;
+    if mRow.Trailer <> '' then
+    begin
+      Inc(mWidth, Scale(cPlainGap) + Canvas.TextWidth(mRow.Trailer));
+    end;
+    if mItem.SetOf <> '' then
+    begin
+      Inc(mWidth, Scale(cCheckWidth));
+    end;
+    mWidest := Max(mWidest, mWidth);
+  end;
+  Canvas.Font := Font;
+  // Art-Spalte, Ränder der Zeile, Ränder des Fensters und Scrollleiste.
+  Inc(mWidest, PlainKindWidth + Scale(2 * cPlainInset) + 2 * Pad + ScrollReserve);
+  Canvas.Font := UIFont;
+  mWidest := Max(mWidest, Canvas.TextWidth(TDpccCompletionStrings.Text(TDpccCompletionTextId.FooterKeys)) +
+    Scale(cFooterPadding));
+  Canvas.Font := Font;
+  Result := TDpccPopupWidth.Fit(mWidest, Scale(cMinWidth), Scale(cMaxWidth));
+end;
+
 function TDpccCompletionPopupLayout.MeasureWidth: Integer;
 var
   mPosition, mCount, mWidest, mWidth: Integer;
@@ -363,6 +464,10 @@ var
   mTag: TDpccTag;
   mDetail: string;
 begin
+  if FOptions.Plain then
+  begin
+    Exit(MeasurePlainWidth);
+  end;
   // Nur die ersten Einträge messen; eine gezogene Breite (#416) hat Vorrang (ListWidth).
   Canvas.Font := Font;
   mWidest := 0;
@@ -464,7 +569,8 @@ var
   mRow: TRect;
 begin
   Result := -1;
-  if not FOptions.FavoritesEnabled or FEmpty.Showing then
+  // Schlicht (S6): keine Sternspalte; anheften weiter mit Strg+D.
+  if not FOptions.FavoritesEnabled or FEmpty.Showing or FOptions.Plain then
   begin
     Exit;
   end;

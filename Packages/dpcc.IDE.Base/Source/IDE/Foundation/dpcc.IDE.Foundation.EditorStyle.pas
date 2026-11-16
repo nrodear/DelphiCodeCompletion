@@ -39,6 +39,9 @@ type
     /// gemischt wie bei WindowColors. Ohne lesbares Farbschema WindowColors. Der Hover-Tooltip nimmt sie, damit er
     /// aussieht wie die Liste.</summary>
     class function ListColors: TDpccColors; static;
+    /// <summary>Farben der Vervollständigungsliste (S6): ListColors, die gewählte Zeile in der Auswahlfarbe des
+    /// IDE-Themas (clHighlight, ohne Thema die von Windows) wie in der Code-Insight-Liste der IDE.</summary>
+    class function CompletionListColors: TDpccColors; static;
     /// <summary>WindowColors mit AIdeColors (Schalter des Moduls, z. B. issues.ideColors), sonst Colors.</summary>
     class function WindowColorsIf(AIdeColors: Boolean): TDpccColors; static;
     /// <summary>Farben, Editorschrift und Skalierung auf AWindow übertragen. ACaret: Caret-Rechteck in
@@ -254,7 +257,23 @@ begin
   end;
 end;
 
+class function TDpccIdeStyle.CompletionListColors: TDpccColors;
+var
+  mTheming: IOTAIDEThemingServices;
+begin
+  Result := ListColors;
+  if Supports(BorlandIDEServices, IOTAIDEThemingServices, mTheming) and mTheming.IDEThemingEnabled then
+  begin
+    Result.Selection := TDpccColor(ColorToRGB(mTheming.StyleServices.GetSystemColor(clHighlight)));
+  end
+  else
+  begin
+    Result.Selection := TDpccColor(ColorToRGB(clHighlight));
+  end;
+end;
+
 class function TDpccIdeStyle.WindowColorsIf(AIdeColors: Boolean): TDpccColors;
+
 begin
   if AIdeColors then
   begin
