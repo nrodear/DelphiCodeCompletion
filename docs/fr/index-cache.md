@@ -27,6 +27,40 @@ S'y ajoutent :
 
 L'index contient des déclarations, pas des utilisations. Sa limite de mémoire est fixe (768 Mo).
 
+### Contenu par déclaration
+
+Depuis le format de cache 35, l'index retient davantage pour chaque déclaration :
+
+- Les valeurs des énumérations sans `{$SCOPEDENUMS ON}` figurent dans le catalogue. « + Unit » propose donc aussi
+  `fsBold`, `ssShift` ou `rfReplaceAll`. Les valeurs des énumérations anonymes (`set of (a, b)`, `F: (x, y)`) et les
+  champs des records anonymes (`F: record … end`) figurent dans l'index avec le nom du type ou du champ comme
+  conteneur.
+- Le catalogue connaît le nombre de paramètres de type. « + Unit » affiche les types génériques avec des
+  marques de réservation (`TList<T>`) et n'insère que le nom. Si un `<` suit le mot, le type générique vient en premier,
+  sinon le type du même nom sans paramètres de type (par exemple `TList` de `System.Classes`).
+- Une valeur explicite dans une énumération (`A = B + 1`) appartient à sa valeur ; auparavant, `B` comptait comme une
+  valeur de plus.
+- Dans les unités de la bibliothèque, l'index ne stocke plus les corps de la partie implementation qui répètent une
+  déclaration de l'interface. Les indications d'une routine de DLL (`external`, `name`, `index`, `delayed`) et la ligne
+  du corps sont stockées avec la déclaration. Les routines qui n'existent que dans la partie implementation restent.
+  Les unités du projet ne sont pas concernées.
+- Les pointeurs, tableaux, ensembles, `class of`, types procéduraux et intervalles gardent leur type cible
+  (`PInteger` → `^Integer`, bornes des tableaux comprises), aussi pour les champs et variables d'un type anonyme. Les
+  attributs (`[Weak]`), les sortes `resourcestring`, `threadvar`, `class operator` et `destructor`, le message après
+  `message` et les contraintes des paramètres de type figurent également dans l'index.
+- Les signatures des routines, méthodes et constructeurs sont stockées jusqu'à 1000 caractères, toutes les autres
+  jusqu'à 300 caractères. dpcc lit la longueur complète dans le fichier source au besoin, de même que la déclaration
+  d'une branche qui ne s'applique pas (affichage des détails de la liste).
+- Compilation conditionnelle : dpcc évalue dans `{$IF}` les constantes de la même unité comme
+  `GenericSafeArrays = False`, `Declared()` connaît les types intégrés (`AnsiChar`, `Integer` …) et la bibliothèque
+  lit `{$IFOPT}` avec les valeurs par défaut du compilateur. Auparavant, les deux branches s'appliquaient dans ces cas.
+  Une déclaration du même nom dans une branche qui ne s'applique pas (`{$IFDEF WIN64} function F(…)` … `{$ELSE}` …)
+  apparaît comme non disponible, même si la branche qui s'applique porte le même nom ; `A, B: T` dans une section
+  `var` donne les deux noms.
+- `.dpk` : `contains` compte comme `uses`, `requires` reste à part.
+- L'index ne stocke plus le résumé XMLDoc. Le survol et la liste lisent la documentation dans le fichier source,
+  comme auparavant.
+
 ### Bibliothèque à la demande
 
 De la bibliothèque, l'index ne garde en mémoire qu'une partie avec tous ses symboles. Sont toujours chargées
@@ -120,10 +154,14 @@ mutuellement.
 Depuis le format 34, chaque unité se trouve dans un bloc qui lui est propre, avec sa propre somme de contrôle. Un
 répertoire à la fin du fichier énumère toutes les unités avec leur catalogue. Au démarrage, dpcc ne lit que le
 répertoire et les blocs des unités qu'il charge, par un handle ouvert ; une autre instance peut malgré tout remplacer
-le fichier. Un bloc endommagé ne concerne que son unité ; dpcc la relit alors depuis le fichier source. dpcc ne lit plus
-les caches des formats plus anciens (par exemple `index-33.dpccidx`) : le premier démarrage après la mise à jour
-reconstruit l'index une fois. L'ancien fichier reste jusqu'à ce que le nettoyage par taille le supprime ;
-« Reconstruire l'index » (voir [plus bas](#reconstruire-lindex)) le supprime aussitôt.
+le fichier. Un bloc endommagé ne concerne que son unité ; dpcc la relit alors depuis le fichier source. Le format
+actuel 35 apporte le contenu décrit sous [Contenu par déclaration](#contenu-par-déclaration).
+
+dpcc ne lit plus les caches des formats plus anciens (par exemple `index-34.dpccidx`) : le premier démarrage après la
+mise à jour reconstruit l'index une fois. Dès que dpcc a écrit un cache dans le nouveau format, il supprime dans le même
+dossier les fichiers `index-<numéro>.dpccidx` des formats plus anciens avec leur fichier `.lock`, sauf si une autre
+instance les verrouille (par exemple une version plus ancienne de dpcc dans un second IDE). Les autres fichiers
+restent. « Reconstruire l'index » (voir [plus bas](#reconstruire-lindex)) supprime aussitôt tous les caches.
 
 Lors de la première construction sans cache, dpcc écrit le cache de la bibliothèque en cours de route, afin que les
 unités nouvellement lues puissent quitter la mémoire. Il ajoute seulement les nouveaux blocs et un nouveau répertoire à

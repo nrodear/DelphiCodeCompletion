@@ -152,6 +152,10 @@ Unit, etwa „+ System.SysUtils“ bei `FreeAndNil`. „+ Unit“ ist also kein 
 den Namen. Beim Übernehmen trägt dpcc die Unit in `uses` ein (Einstellung „Unit beim Übernehmen automatisch in uses
 eintragen“). Name und `uses`-Eintrag sind ein einziger Undo-Schritt.
 
+„+ Unit“ bietet auch Werte von Aufzählungen an (etwa `fsBold` aus `Vcl.Graphics`). Generische Typen zeigen ihre
+Typparameter (`TList<T>`), eingefügt wird nur der Name. Steht hinter dem Wort schon ein `<`, kommen sie vor
+gleichnamigen Typen ohne Typparameter, sonst danach. Siehe [Index und Cache](index-cache.md#inhalt-je-deklaration).
+
 ### FieldByName und Formulare
 
 dpcc liest dafür die Formulardatei (DFM) der Unit. Bei offenen Formularen nimmt es den aktuellen Stand aus dem

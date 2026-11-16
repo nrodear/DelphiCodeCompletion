@@ -152,6 +152,10 @@ for example “+ System.SysUtils” for `FreeAndNil`. So “+ Unit” is not a f
 stands for the name. When accepting, dpcc adds the unit to `uses` (setting “Add the unit to uses automatically when
 accepting”). The name and the `uses` entry are a single undo step.
 
+“+ Unit” also offers values of enumerations (for example `fsBold` from `Vcl.Graphics`). Generic types show their type
+parameters (`TList<T>`); only the name is inserted. If a `<` already follows the word, they come before types of the
+same name without type parameters, otherwise after them. See [Index and cache](index-cache.md#content-per-declaration).
+
 ### FieldByName and forms
 
 For this, dpcc reads the form file (DFM) of the unit. For open forms it takes the current state from the designer,

@@ -200,7 +200,8 @@ var
 begin
   Result := SizeOf(TUnitIndex) + StringBytes(AUnit.UnitName) + StringBytes(AUnit.FileName) +
     StringBytes(AUnit.Hash) + ArrayBytes(AUnit.InterfaceUses) + ArrayBytes(AUnit.ImplementationUses) +
-    ArrayBytes(AUnit.Directives) + StringBytes(AUnit.DeprecatedText) + ArrayBytes(AUnit.Rationale);
+    ArrayBytes(AUnit.Directives) + StringBytes(AUnit.DeprecatedText) + ArrayBytes(AUnit.Rationale) +
+    ArrayBytes(AUnit.Requires);
   if Length(AUnit.Symbols) > 0 then
   begin
     Inc(Result, 16);
@@ -211,7 +212,7 @@ begin
     Inc(Result, SizeOf(TIndexSymbol) + StringBytes(AUnit.Symbols[mIndex].Name) +
       StringBytes(AUnit.Symbols[mIndex].Container) + StringBytes(AUnit.Symbols[mIndex].TypeName) +
       ArrayBytes(AUnit.Symbols[mIndex].Ancestors) + Utf8Bytes(AUnit.Symbols[mIndex].SignatureUtf8) +
-      StringBytes(AUnit.Symbols[mIndex].Summary) + ArrayBytes(AUnit.Symbols[mIndex].Directives) +
+      ArrayBytes(AUnit.Symbols[mIndex].Directives) +
       StringBytes(AUnit.Symbols[mIndex].DeprecatedText) + ArrayBytes(AUnit.Symbols[mIndex].InlineRefs) +
       ArrayBytes(AUnit.Symbols[mIndex].Resolutions) + ArrayBytes(AUnit.Symbols[mIndex].Rationale));
   end;

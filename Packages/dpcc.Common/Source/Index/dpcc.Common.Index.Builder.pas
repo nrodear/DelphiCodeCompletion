@@ -853,6 +853,11 @@ begin
   mWatch := TStopwatch.StartNew;
   mUnit := TIndexExtractor.ExtractText(AText, AFileName, FDefines.DefinesOf(AFileName), IncludeResolver(),
     WantsUsages(ALibrary), not ALibrary);
+  // Bibliothek (L1): Rümpfe, die eine interface-Deklaration wiederholen, nicht speichern.
+  if ALibrary then
+  begin
+    TIndexExtractor.DropImplementationDuplicates(mUnit);
+  end;
   Inc(AResult.ParseMs, mWatch.ElapsedMilliseconds);
   mUnit.Stamp := AStamp;
   mUnit.Hash := AHash;
@@ -1115,6 +1120,10 @@ begin
   end;
   mUnitIndex := TIndexExtractor.ExtractText(AText, AFileName, FDefines.DefinesOf(AFileName), IncludeResolver(),
     WantsUsages(mExisting.Library_), not mExisting.Library_);
+  if mExisting.Library_ then
+  begin
+    TIndexExtractor.DropImplementationDuplicates(mUnitIndex);
+  end;
   // Zeitstempel bleibt der der Datei: Beim Speichern liest IndexFile sie dann neu von der Platte.
   mUnitIndex.Stamp := mExisting.Stamp;
   mUnitIndex.Hash := mHash;

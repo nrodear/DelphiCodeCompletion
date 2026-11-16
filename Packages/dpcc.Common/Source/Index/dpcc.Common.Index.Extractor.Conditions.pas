@@ -3,6 +3,11 @@
 // Bedingte Kompilierung für den Symbolindex: inaktive Zweige durch Leerzeichen ersetzen (Zeilen und Spalten
 // bleiben) und Deklarationen aus nicht geltenden Zweigen als Unavailable erfassen (#476). Ausgelagert aus
 // dpcc.Common.Index.Extractor.
+//
+// Index-Inhalte L1: Auch eine Variante, deren Name ein geltender Zweig schon deklariert ({$IFDEF WIN64} function
+// F(A: Int64) {$ELSE} function F(A: Integer)), und weitere gleichnamige Varianten anderer Zweige kommen in
+// Unavailable; nur dieselbe Stelle zählt nicht doppelt. "A, B: T" in var-Abschnitten liefert beide Namen.
+// Signatur und Typ stehen nicht im Index: TIndexFiles.SourceSignature liest sie bei der Anzeige über die Zeile.
 
 interface
 
@@ -51,6 +56,9 @@ type
     FSections: TArray<string>;
     FImplementationLine: Integer;
     FKnown: TDictionary<string, Boolean>;
+    /// <summary>Namen der geltenden Deklarationen (mit Typ): Rümpfe im implementation-Teil mit einem solchen Namen
+    /// sind nur die andere Implementierung und zählen nicht.</summary>
+    FActive: TDictionary<string, Boolean>;
     FUnavailable: TList<TIndexSymbol>;
     procedure ReadSections;
     procedure AddUnavailable(const AName: string; AKind: TIndexSymbolKind; ALine, AColumn: Integer;
@@ -67,6 +75,8 @@ type
       const ACondition: string);
     procedure AddTypeDeclaration(const ACode: string; ALine: Integer; const ACondition: string);
     procedure AddDeclaration(const ACode, ASection: string; ALine: Integer; const ACondition: string);
+    /// <summary>Variablen "A, B: T" einer Zeile in einem var-Abschnitt (L1).</summary>
+    procedure AddVariables(const ACode: string; ALine: Integer; const ACondition: string);
     procedure ScanRoutines(const AConditional: TConditionalRange);
     procedure ScanMembers(const AConditional: TConditionalRange; const AOwner: string);
     procedure ScanDeclarationLine(ALine: Integer; const ACondition: string; var ASection: string);
@@ -386,15 +396,19 @@ begin
   FKnown := TDictionary<string, Boolean>.Create;
   FUnavailable := TList<TIndexSymbol>.Create;
   ReadSections;
-  // Was in geltenden Zweigen schon deklariert ist, nicht noch einmal (IFDEF WIN32 ... ELSE ... gleicher Name).
+  // L1: Gleichnamige Varianten geltender Zweige bleiben (IFDEF WIN32 ... ELSE ... gleicher Name); FKnown hält nur
+  // dieselbe Stelle nicht doppelt fest. Im implementation-Teil ist eine gleichnamige Routine nur die andere
+  // Implementierung (POSIX statt Windows) und bleibt draußen wie bisher.
+  FActive := TDictionary<string, Boolean>.Create;
   for mSymbol in FSymbols do
   begin
-    FKnown.AddOrSetValue(QualifiedKey(mSymbol.Name, mSymbol.Container), True);
+    FActive.AddOrSetValue(QualifiedKey(mSymbol.Name, mSymbol.Container), True);
   end;
 end;
 
 destructor TConditionAnnotator.Destroy;
 begin
+  FActive.Free;
   FUnavailable.Free;
   FKnown.Free;
   inherited;
@@ -440,7 +454,12 @@ var
   mItem: TIndexSymbol;
   mKey: string;
 begin
-  mKey := QualifiedKey(AName, AContainer);
+  if (FImplementationLine >= 0) and (ALine > FImplementationLine) and
+    FActive.ContainsKey(QualifiedKey(AName, AContainer)) then
+  begin
+    Exit;
+  end;
+  mKey := QualifiedKey(AName, AContainer) + '@' + IntToStr(ALine) + ':' + IntToStr(AColumn);
   if FKnown.ContainsKey(mKey) then
   begin
     Exit;
@@ -614,7 +633,31 @@ begin
   end
   else if (ASection = 'var') or (ASection = 'threadvar') then
   begin
-    AddNamed(ACode, '^\s*([A-Za-z_]\w*)\s*:', TIndexSymbolKind.Variable, ALine, ACondition);
+    AddVariables(ACode, ALine, ACondition);
+  end;
+end;
+
+procedure TConditionAnnotator.AddVariables(const ACode: string; ALine: Integer; const ACondition: string);
+var
+  mMatch: TMatch;
+  mName, mWord: string;
+  mColumn: Integer;
+begin
+  // "A, B: Integer;" liefert beide Namen (L1); vorher nur A.
+  mMatch := TRegEx.Match(ACode, '^\s*([A-Za-z_]\w*(\s*,\s*[A-Za-z_]\w*)*)\s*:[^=]', [roIgnoreCase]);
+  if not mMatch.Success then
+  begin
+    Exit;
+  end;
+  mColumn := mMatch.Groups[1].Index - 1;
+  for mName in mMatch.Groups[1].Value.Split([',']) do
+  begin
+    mWord := Trim(mName);
+    if mWord <> '' then
+    begin
+      AddUnavailable(mWord, TIndexSymbolKind.Variable, ALine, mColumn + Pos(mWord, mMatch.Groups[1].Value) - 1,
+        ACondition, '');
+    end;
   end;
 end;
 

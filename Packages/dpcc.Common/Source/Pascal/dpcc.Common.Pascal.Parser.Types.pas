@@ -291,11 +291,17 @@ begin
   Advance;
   ParseMembers(Result);
   ExpectKw('end');
-  // Ausrichtung: end align 16 (#1142).
+  // Ausrichtung: end align 16 (#1142), auch mit Ausdruck: end align (_SS_ALIGNSIZE) (L1, Winapi.Winsock2; vorher
+  // las der Parser "align" als weiteren Typ und den Ausdruck als dessen Aufzählungswert).
   if IsIdentText('align') and (PeekToken(1).Kind = TPascalTokenKind.Number) then
   begin
     Advance;
     Advance;
+  end
+  else if IsIdentText('align') and PeekIsSym(1, '(') then
+  begin
+    Advance;
+    ParseExpression(Result);
   end;
 end;
 
@@ -362,15 +368,22 @@ begin
 end;
 
 function TTypeParser.ParseEnumType: TSyntaxNode;
+var
+  mMember: TSyntaxNode;
+  mMemberStart: Integer;
 begin
-  // Aufzählung: (rot, gruen = 2, blau)
+  // Aufzählung: (rot, gruen = 2, blau). Ein ausdrücklicher Wert hängt am Bezeichner seines Werts, nicht am
+  // EnumType (L1): Sonst zählte "A = B" B als weiteren Wert.
   Result := StartNode(TSyntaxKind.EnumType);
   Advance;
   while not AtEnd and not IsSym(')') do
   begin
+    mMember := nil;
+    mMemberStart := NodeStart;
     if IsIdent then
     begin
-      Result.Add(Leaf(TSyntaxKind.Identifier, Current.Text));
+      mMember := Leaf(TSyntaxKind.Identifier, Current.Text);
+      Result.Add(mMember);
     end
     else
     begin
@@ -378,7 +391,16 @@ begin
     end;
     if AcceptSym('=') then
     begin
-      ParseExpression(Result);
+      if mMember <> nil then
+      begin
+        ParseExpression(mMember);
+        // Der Bereich des Werts umfasst "A = B", der Name bleibt vorn.
+        FinishNode(mMember, mMemberStart);
+      end
+      else
+      begin
+        ParseExpression(Result);
+      end;
     end;
     if not AcceptSym(',') then
     begin

@@ -10,6 +10,9 @@
 //   sie sonst abwechselnd dieselbe Datei, und jeder verwarf beim nächsten Start
 //   den Cache des anderen („Formatversion 27 statt 29“) und baute alles neu auf.
 //   Caches ohne Format im Namen (index.dpccidx) zählen beim Aufräumen mit.
+// - Ältere Formate (Index-Inhalte L1): Ist ein Cache im aktuellen Format geschrieben, löscht
+//   RemoveOlderFormats im selben Ordner die Dateien index-NN.dpccidx mit kleinerer Nummer samt
+//   Sperrdatei, sofern keine andere Instanz sie sperrt. Andere Dateien bleiben.
 // - Sperre je Cache-Datei über "<cache>.lock", offen gehalten ohne Mitbenutzung.
 //   Öffnen mehrere Serverinstanzen dasselbe Projekt, schreibt nur die erste den
 //   Cache; die anderen lesen ihn nur.
@@ -65,6 +68,11 @@ type
     /// <summary>Name der Cache-Datei mit der Formatversion (index-29.dpccidx), damit Server verschiedener
     /// Versionen sich die Caches nicht gegenseitig überschreiben.</summary>
     class function CacheFileName: string; static;
+    /// <summary>Nach dem Schreiben von ACacheFile im aktuellen Format (L1): löscht im selben Ordner die Caches
+    /// index-NN.dpccidx älterer Formate (NN kleiner als TIndexCache.cFormatVersion) samt ihrer Sperrdatei, wenn keine
+    /// andere Instanz sie sperrt. Nur dieses Muster, nur dieser Ordner; nichts, wenn ACacheFile nicht
+    /// CacheFileName heißt. Liefert die Zahl der gelöschten Caches.</summary>
+    class function RemoveOlderFormats(const ACacheFile: string): Integer; static;
     /// <summary>Ordner der Caches und Logs des Servers: DPCC_CACHE_ROOT, sonst %LOCALAPPDATA%\dpcc (die Variable
     /// aus der Umgebung des Prozesses, ohne sie der Shell-Ordner).</summary>
     class function DefaultRoot: string; static;
@@ -142,6 +150,53 @@ uses
 class function TIndexCacheDirectory.CacheFileName: string;
 begin
   Result := Format('index-%d.dpccidx', [TIndexCache.cFormatVersion]);
+end;
+
+/// <summary>Formatnummer aus "index-NN.dpccidx"; False bei anderen Namen.</summary>
+function FormatOfName(const AFileName: string; out AFormat: Integer): Boolean;
+const
+  cPrefix = 'index-';
+  cSuffix = '.dpccidx';
+var
+  mName: string;
+begin
+  mName := ExtractFileName(AFileName);
+  Result := StartsText(cPrefix, mName) and EndsText(cSuffix, mName) and
+    TryStrToInt(Copy(mName, Length(cPrefix) + 1, Length(mName) - Length(cPrefix) - Length(cSuffix)), AFormat) and
+    (AFormat >= 0);
+end;
+
+class function TIndexCacheDirectory.RemoveOlderFormats(const ACacheFile: string): Integer;
+var
+  mFolder, mFileName: string;
+  mFormat: Integer;
+begin
+  Result := 0;
+  if not SameText(ExtractFileName(ACacheFile), CacheFileName) then
+  begin
+    Exit;
+  end;
+  mFolder := ExtractFileDir(ACacheFile);
+  try
+    if (mFolder = '') or not TDirectory.Exists(mFolder) then
+    begin
+      Exit;
+    end;
+    for mFileName in TDirectory.GetFiles(mFolder, 'index-*' + ExtractFileExt(CacheFileName)) do
+    begin
+      if FormatOfName(mFileName, mFormat) and (mFormat < TIndexCache.cFormatVersion) and not IsLocked(mFileName) and
+        System.SysUtils.DeleteFile(mFileName) then
+      begin
+        System.SysUtils.DeleteFile(mFileName + cLockExtension);
+        Inc(Result);
+      end;
+    end;
+  except
+    // Aufräumen nach Kräften: Bleibt eine alte Datei liegen, entfernt sie das Aufräumen nach Alter oder Größe.
+    // lsp-ignore: catch-all-without-raise -- Cache nach Kräften; Fehler heißt kein Eintrag
+    on Exception do
+      ;
+  end;
 end;
 
 class function TIndexCacheDirectory.DefaultRoot: string;

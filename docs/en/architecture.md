@@ -56,7 +56,7 @@ the dependencies.
 |---|---|
 | `Pascal` | lexer, parser, syntax tree, preprocessor, include files, XMLDoc, format routines |
 | `Semantics` | name resolution: types, overloads, generics, class helpers, `with`, visibility |
-| `Index` | symbol index with a catalog of all units, loading on demand and eviction of the library, usage statistics; unit lookup; cache on disk (format 34: one block per unit, directory at the end) |
+| `Index` | symbol index with a catalog of all units, loading on demand and eviction of the library, usage statistics; unit lookup; cache on disk (format 35: one block per unit, directory at the end); extractor with target types, attributes, DLL details and constraints in the directives; full signature from the source (`TIndexFiles.SourceSignature`) |
 | `Projects` | reading `.dproj`, project groups and packages; unit lookup |
 | `Dfm` | form files |
 | `Lsp` | completion, hover, parameter hint, document synchronization, lifecycle |

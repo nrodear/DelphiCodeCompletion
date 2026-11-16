@@ -48,6 +48,8 @@ const
   cPenaltyProjectImport = 100;
   cPenaltyLibraryImport = 200;
   cPenaltyUnavailable = 500;
+  /// <summary>"+ Unit" für TList bzw. TList&lt;T&gt;, wenn das "&lt;" dahinter nicht dazu passt (L1).</summary>
+  cPenaltyArityMismatch = 30;
   /// <summary>Typen im Index (#31: Filter nach "class(", ":", "is", "as").</summary>
   cIndexTypeKinds = [TIndexSymbolKind.ClassType, TIndexSymbolKind.ObjectType, TIndexSymbolKind.RecordType,
     TIndexSymbolKind.InterfaceType, TIndexSymbolKind.HelperType, TIndexSymbolKind.EnumType,
@@ -197,6 +199,7 @@ implementation
 
 uses
   dpcc.Common.Documents.Contract,
+  dpcc.Common.Pascal.Contract,
   dpcc.Common.Lsp.IdeTypes,
   System.Math,
   System.StrUtils,
@@ -898,20 +901,32 @@ end;
 procedure CollectOwnConditions(const AOwn: TUnitIndex; AConditions, AMissing: TDictionary<string, string>);
 var
   mSymbol: TIndexSymbol;
+  mActive: TDictionary<string, Boolean>;
 begin
-  for mSymbol in AOwn.Symbols do
-  begin
-    if (mSymbol.Container = '') and (mSymbol.Condition <> '') then
+  mActive := TDictionary<string, Boolean>.Create;
+  try
+    for mSymbol in AOwn.Symbols do
     begin
-      AConditions.AddOrSetValue(UpperCase(mSymbol.Name), mSymbol.Condition);
+      if mSymbol.Container = '' then
+      begin
+        mActive.AddOrSetValue(UpperCase(mSymbol.Name), True);
+      end;
+      if (mSymbol.Container = '') and (mSymbol.Condition <> '') then
+      begin
+        AConditions.AddOrSetValue(UpperCase(mSymbol.Name), mSymbol.Condition);
+      end;
     end;
-  end;
-  for mSymbol in AOwn.Unavailable do
-  begin
-    if mSymbol.Container = '' then
+    // Seit L1 stehen auch Varianten eines geltenden Namens unter Unavailable ({$IFDEF WIN64} F {$ELSE} F): Der
+    // geltende Eintrag bleibt verfügbar.
+    for mSymbol in AOwn.Unavailable do
     begin
-      AMissing.AddOrSetValue(UpperCase(mSymbol.Name), mSymbol.Condition);
+      if (mSymbol.Container = '') and not mActive.ContainsKey(UpperCase(mSymbol.Name)) then
+      begin
+        AMissing.AddOrSetValue(UpperCase(mSymbol.Name), mSymbol.Condition);
+      end;
     end;
+  finally
+    mActive.Free;
   end;
 end;
 
@@ -1083,6 +1098,8 @@ type
     Known: TDictionary<string, Boolean>;
     // nil = alle Namen, sonst nur diese (Großbuchstaben).
     Wanted: TDictionary<string, Boolean>;
+    // Hinter dem Wort folgt "<" (L1): generische Typen trotz gleichnamigem Eintrag (TList aus System.Classes).
+    GenericFollows: Boolean;
     /// <summary>Kann AEntry passen (Zeichenmaske) und gehört er zu einer Unit, die nicht eingebunden ist?
     /// </summary>
     function Candidate(const AEntry: TImportNameEntry): Boolean;
@@ -1126,7 +1143,8 @@ var
   mName: string;
 begin
   mName := UpperCase(ASymbol.Name);
-  Result := ((Wanted = nil) or Wanted.ContainsKey(mName)) and not Known.ContainsKey(mName) and
+  Result := ((Wanted = nil) or Wanted.ContainsKey(mName)) and
+    (not Known.ContainsKey(mName) or (GenericFollows and (ASymbol.Arity > 0))) and
     KindAllowed(Collector, ASymbol.Kind) and SymbolAdmitted(Collector, AUnitInfo, ASymbol);
 end;
 
@@ -1141,11 +1159,66 @@ begin
   end;
 end;
 
+/// <summary>Folgt im Quelltext hinter dem Wort an der Stelle der Anfrage ein "&lt;" (TList&lt;…)? Dann ist der
+/// generische Typ gemeint (L1).</summary>
+function GenericFollows(ACollector: TCompletionCollector): Boolean;
+var
+  mTokens: TArray<TPascalToken>;
+  mIndex: Integer;
+begin
+  Result := False;
+  if ACollector.FRequest.Tree = nil then
+  begin
+    Exit;
+  end;
+  mTokens := ACollector.FRequest.Tree.Tokens;
+  for mIndex := 0 to High(mTokens) do
+  begin
+    if mTokens[mIndex].Offset + Length(mTokens[mIndex].Text) <= ACollector.FContext.Offset then
+    begin
+      Continue;
+    end;
+    // Das Wort an der Stelle selbst überspringen, dann das nächste Zeichen außer Kommentaren.
+    if (mTokens[mIndex].Kind = TPascalTokenKind.Identifier) and (mTokens[mIndex].Offset <= ACollector.FContext.Offset)
+      then
+    begin
+      Continue;
+    end;
+    if mTokens[mIndex].Kind in [TPascalTokenKind.Comment, TPascalTokenKind.Directive] then
+    begin
+      Continue;
+    end;
+    Exit(mTokens[mIndex].IsSymbol('<'));
+  end;
+end;
+
+/// <summary>Typparameter als Platzhalter für die Anzeige: 1 → "&lt;T&gt;", 2 → "&lt;T1, T2&gt;".</summary>
+function ArityText(AArity: Integer): string;
+var
+  mIndex: Integer;
+begin
+  if AArity = 1 then
+  begin
+    Exit('<T>');
+  end;
+  Result := '';
+  for mIndex := 1 to AArity do
+  begin
+    if Result <> '' then
+    begin
+      Result := Result + ', ';
+    end;
+    Result := Result + 'T' + IntToStr(mIndex);
+  end;
+  Result := '<' + Result + '>';
+end;
+
 /// <summary>Eintrag für ASymbol aus AUnitInfo mit dem uses-Eintrag AEdit; False, wenn er nicht passt.</summary>
 function AddImport(ACollector: TCompletionCollector; const AUnitInfo: TCatalogUnit; const ASymbol: TCatalogSymbol;
-  const AEdit: TRuleEdit): Boolean;
+  const AEdit: TRuleEdit; AGenericFollows: Boolean): Boolean;
 var
   mMember: TResolvedSymbol;
+  mScored: TScoredItem;
 begin
   // Merkmale und Quelle aus dem Indexsymbol (sonst fehlten z. B. die Klammern bei ShowMessage aus
   // Vcl.Dialogs).
@@ -1159,6 +1232,27 @@ begin
   Result := ACollector.Add(ASymbol.Name, AUnitInfo.UnitName + cTexts[TCompletionCollectorText.AddToUses].Text,
     CompletionKindOf(ASymbol.Kind),
     ImportPenalty(AUnitInfo.Library_), mMember, [AEdit]);
+  if not Result or (ACollector.FList.Count = 0) then
+  begin
+    Exit;
+  end;
+  // Generik-Arität (L1): TList<T> zeigt die Typparameter und fügt nur den Namen ein; steht hinter dem Wort ein "<",
+  // kommen die generischen Typen zuerst, sonst die übrigen (TList aus System.Classes vor TList<T>).
+  mScored := ACollector.FList[ACollector.FList.Count - 1];
+  if ASymbol.Arity > 0 then
+  begin
+    mScored.Item.Name := ASymbol.Name + ArityText(ASymbol.Arity);
+    mScored.Item.InsertText := TPascalLexer.SourceName(ASymbol.Name);
+    if mScored.Item.FilterText = '' then
+    begin
+      mScored.Item.FilterText := ASymbol.Name;
+    end;
+  end;
+  if (ASymbol.Arity > 0) <> AGenericFollows then
+  begin
+    Dec(mScored.Score, cPenaltyArityMismatch);
+  end;
+  ACollector.FList[ACollector.FList.Count - 1] := mScored;
 end;
 
 /// <summary>Wie AddFromOtherUnits; AWanted = nil heißt alle Namen, sonst nur diese (Großbuchstaben).</summary>
@@ -1170,6 +1264,7 @@ var
   mSymbol: TCatalogSymbol;
   mEdit: TRuleEdit;
   mAdded: Integer;
+  mGenericFollows: Boolean;
 begin
   mScan := Default(TImportScan);
   mScan.Collector := ACollector;
@@ -1186,6 +1281,8 @@ begin
     mScan.QueryMask := TImportNameIndex.MaskOf(ACollector.FContext.Prefix);
     SetLength(mScan.UnitState, Length(mScan.Names.Units));
     mAdded := 0;
+    mGenericFollows := GenericFollows(ACollector);
+    mScan.GenericFollows := mGenericFollows;
     for mEntry in mScan.Names.Entries do
     begin
       if not mScan.Candidate(mEntry) then
@@ -1204,7 +1301,7 @@ begin
       begin
         Exit;
       end;
-      if AddImport(ACollector, mUnitInfo, mSymbol, mEdit) then
+      if AddImport(ACollector, mUnitInfo, mSymbol, mEdit, mGenericFollows) then
       begin
         Inc(mAdded);
         if mAdded >= cCompletionMaxImportItems then

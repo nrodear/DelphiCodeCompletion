@@ -165,8 +165,10 @@ begin
   begin
     mVersion := 0;
   end;
+  // Dazu die Vorgaben des Compilers für $IFOPT (L1, "$R-*" …): Die Bibliothek liest kein Projekt, und ohne
+  // Schalterstand galten bei {$IFOPT R+} … {$ELSE} beide Zweige.
   Result := TPascalPreprocessor.PredefinedSymbols(AProject.Platform,
-    TPascalPreprocessor.CompilerVersionOfBds(mVersion));
+    TPascalPreprocessor.CompilerVersionOfBds(mVersion)) + TPascalPreprocessor.ProjectSwitches(nil);
 end;
 
 class function TIndexProjectFiles.LibrarySignature(const AProject: TProjectInfo;

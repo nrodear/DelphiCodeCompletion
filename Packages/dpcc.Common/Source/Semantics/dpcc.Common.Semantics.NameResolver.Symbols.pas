@@ -93,6 +93,11 @@ type
     property Signature: string read GetSignature write SetSignature;
     /// <summary>Vorfahr AIndex samt seinen Typargumenten wie in der Deklaration (IComparer&lt;TKunde&gt;).</summary>
     function AncestorText(AIndex: Integer): string;
+    /// <summary>Form des Zieltyps aus dem Index wie TIndexSymbol.TargetForm ("^", "array of", "class of" …); ''
+    /// ohne (L1).</summary>
+    function TargetForm: string;
+    /// <summary>Zieltyp aus dem Index wie TIndexSymbol.TargetType (PInteger → Integer); '' ohne (L1).</summary>
+    function TargetType: string;
     /// <summary>Kurzer Text zu einer verdeckten Deklaration (#488): "lokale Variable X", "Parameter X",
     /// "Feld TKunde.X", "Eigenschaft TKunde.X", "Methode TKunde.X", "Kunde.X".</summary>
     function ShadowText: string;
@@ -309,6 +314,20 @@ begin
   begin
     Result := Container + '.' + Name;
   end;
+end;
+
+function TResolvedSymbol.TargetForm: string;
+var
+  mType: string;
+begin
+  TIndexSymbol.TargetOf(Directives, Result, mType);
+end;
+
+function TResolvedSymbol.TargetType: string;
+var
+  mForm: string;
+begin
+  TIndexSymbol.TargetOf(Directives, mForm, Result);
 end;
 
 function TResolvedSymbol.AncestorText(AIndex: Integer): string;

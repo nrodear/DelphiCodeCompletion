@@ -32,7 +32,10 @@ type
     /// anderen Typen.</summary>
     class function ProcedureTypeOf(ANode: TSyntaxNode): TSyntaxNode; static;
     /// <summary>Units der uses-Klausel des Abschnitts ASection (nil ohne).</summary>
-    class function UsesOf(ASection: TSyntaxNode): TArray<string>; static;
+    class function UsesOf(ASection: TSyntaxNode): TArray<string>; overload; static;
+    /// <summary>Units aller Klauseln unter ASection, deren Schlüsselwort (UsesClause.Name: uses, contains, requires)
+    /// in AClauses steht; '' in AClauses nimmt auch Klauseln ohne Namen (L1, .dpk).</summary>
+    class function UsesOf(ASection: TSyntaxNode; const AClauses: array of string): TArray<string>; overload; static;
     /// <summary>Beginnt AName mit APrefix vor einem Großbuchstaben (FName, AValue, LIndex)?</summary>
     class function HasNamePrefix(const AName, APrefix: string): Boolean; static;
     /// <summary>Felder (auch in Records und var-Abschnitten von Klassen), Parameter und lokale Variablen
@@ -294,6 +297,31 @@ begin
     Result := mNames.ToArray;
   finally
     mNames.Free;
+  end;
+end;
+
+class function TIndexTypeText.UsesOf(ASection: TSyntaxNode; const AClauses: array of string): TArray<string>;
+var
+  mClause, mIndex: Integer;
+begin
+  Result := nil;
+  if ASection = nil then
+  begin
+    Exit;
+  end;
+  for mClause := 0 to ASection.ChildCount - 1 do
+  begin
+    if (ASection[mClause].Kind <> TSyntaxKind.UsesClause) or (IndexText(ASection[mClause].Name, AClauses) < 0) then
+    begin
+      Continue;
+    end;
+    for mIndex := 0 to ASection[mClause].ChildCount - 1 do
+    begin
+      if (ASection[mClause][mIndex].Kind = TSyntaxKind.UsedUnit) and (ASection[mClause][mIndex].Name <> '') then
+      begin
+        Result := Result + [ASection[mClause][mIndex].Name];
+      end;
+    end;
   end;
 end;
 

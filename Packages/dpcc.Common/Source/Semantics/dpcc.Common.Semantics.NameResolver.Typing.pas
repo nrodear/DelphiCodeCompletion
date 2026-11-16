@@ -304,7 +304,15 @@ begin
   begin
     Exit;
   end;
-  mName := TResolverText.ClassRefTarget(AType.Signature);
+  // Zieltyp aus dem Index (L1, "target:class of=TFoo"); ältere Stände ohne Eintrag aus der Signatur.
+  if SameText(AType.TargetForm, 'class of') then
+  begin
+    mName := AType.TargetType;
+  end
+  else
+  begin
+    mName := TResolverText.ClassRefTarget(AType.Signature);
+  end;
   if (mName = '') or not FUnits.UnitOf(AType, mUnit) then
   begin
     Exit;

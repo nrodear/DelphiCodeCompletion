@@ -62,6 +62,8 @@ Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --exclude:Benchmark --exitbehav
 | Folder | Contents |
 |---|---|
 | `Tests\Common\Lsp` | server side: completion, hover, parameter hint |
+| `Tests\Common\Index` | index: extractor, token and type texts, conditional compilation, content per declaration (format 35) |
+| `Tests\Common\Pascal` | parser and preprocessor |
 | `Tests\IDE` | plugin side without ToolsAPI: flow of the list, ranking, favorites, set mode, placeholders, settings, texts |
 | `Tests\Application\Shell` | shell of the server |
 | `Tests\Common` | memory: self-measurement, names of the `.dcp`, shared cache, Office type libraries and WinRT, release after the server ends, documents, name and reference tables, signatures in the cache, cache format 34, catalog, loading on demand and eviction, usage statistics, search across units not loaded, protected units, reuse of the reference tables, concurrent loading, appending to the cache, compacting the cache, releasing the shared states after a stop, writing the usage statistics |

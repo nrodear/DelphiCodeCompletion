@@ -155,6 +155,11 @@ fixe ; dans cette documentation, « Unit » représente le nom. Lors de l'acc
 (réglage « Add the unit to uses automatically when accepting », ajouter automatiquement l'unité à uses lors de
 l'acceptation). Le nom et l'entrée `uses` forment une seule étape d'annulation.
 
+« + Unit » propose aussi les valeurs des énumérations (par exemple `fsBold` de `Vcl.Graphics`). Les types génériques
+affichent leurs paramètres de type (`TList<T>`) ; seul le nom est inséré. Si un `<` suit déjà le mot, ils viennent
+avant les types du même nom sans paramètres de type, sinon après. Voir
+[Index et cache](index-cache.md#contenu-par-déclaration).
+
 ### FieldByName et fiches
 
 Pour cela, dpcc lit le fichier de fiche (DFM) de l'unité. Pour les fiches ouvertes, il prend l'état courant dans le

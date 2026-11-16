@@ -27,6 +27,14 @@
 //   dem alten Cache (IIndexUnitSource.ReadBlock). Der Cache liegt beim
 //   Schreiben nie am Stück im Speicher.
 //
+// Format 35 (Index-Inhalte L1): ohne Kurztext je Symbol (TIndexSymbol.Summary las niemand); im Kopf der Unit
+// zuletzt die requires-Klausel eines Packages. Neue Merkmale stehen ohne eigenes Feld in den Direktiven
+// (TIndexSymbol.Directives: Zieltyp, Attribute, DLL-Angaben, Arten, Einschränkungen); der Katalog führt auch die
+// Werte von Aufzählungen ohne {$SCOPEDENUMS} (Typ als Typname) und die Zahl der Typparameter in den Merkern (ab Bit
+// 2). Bibliotheks-Units enthalten keine Rümpfe mehr, die eine interface-Deklaration wiederholen. Caches älterer
+// Formate liest der Server nicht; beim Schreiben eines Caches im Format 35 löscht er die Dateien index-NN.dpccidx
+// älterer Formate im selben Ordner (TIndexCacheDirectory.RemoveOlderFormats).
+//
 // Aufbau (Zahlen als Varint, vorzeichenbehaftete per ZigZag; fest = Little Endian):
 //   Kopf (25 Byte): 'DPCCINDX' Version (1 Byte) Verzeichnis-Offset (8 Byte fest)
 //            Verzeichnis-Länge (4 Byte fest) Verzeichnis-Prüfsumme (4 Byte fest, FNV-1a)
@@ -38,15 +46,15 @@
 //            Katalog: Typzahl Typen(Liste) Symbolzahl, je Symbol Name Typ Art Zeile Spalte MinArgs MaxArgs
 //            Merker Vorfahren(Liste); dann Block-Offset Block-Länge Block-Prüfsumme
 //   Kopf der Unit: Name Datei Zeitstempel Hash Merker uses(interface) uses(implementation)
-//            Include-Dateien Include-Zeitstempel Namenszählung Hinweise Grund Begründungen Folgemuster
+//            Include-Dateien Include-Zeitstempel Namenszählung Hinweise Grund Begründungen Folgemuster requires
 //            Merker: 1 = Bibliothek, 2 = kompakt, 4 = initialization/finalization, 8 = Verwendungen erfasst
 //   Symbol:  Name Container Art L1 C1 L2 C2 SL1 SC1 SL2 SC2 Merker Vorfahren Typ
 //            Typargumente Vorfahr-Typargumente Typparameter Sichtbarkeit MinArgs MaxArgs
-//            Parametertypen Include-Datei Bedingung Signatur Direktiven Kurztext Grund
+//            Parametertypen Include-Datei Bedingung Signatur Direktiven Grund
 //            Variante Inline-Verweise Zuordnungen Begründungen
 //            Merker: 1 = InInterface, 2 = Default, 4 = Virtuell, 8 = NichtVerfügbar, 16 = ScopedEnum
 //   Verwendung: Name Anzahl, je Stelle Zeilenabstand zur vorigen und Spalte
-// Listen: Anzahl, dann die Einträge. Die Datei heißt index-34.dpccidx (Ablage in
+// Listen: Anzahl, dann die Einträge. Die Datei heißt index-35.dpccidx (Ablage in
 // Index.Adapters.CacheDirectory).
 //
 // Speicher-Optimierung Phase 4 (ohne Formatänderung):
@@ -153,7 +161,7 @@ type
     // 33: Folgemuster der Projekt-Units im Kopf (#1890, gelernte Vorschläge).
     // 34: Blöcke je Unit mit eigener String-Tabelle und Prüfsumme, Verzeichnis mit Katalog am Ende
     // (Speicher-Optimierung Phase 3).
-    const cFormatVersion = 34;
+    const cFormatVersion = 35;
     /// <summary>Ganzer Cache im Speicher (Tests); im Betrieb schreibt Write in einen Strom.</summary>
     class function Serialize(const AUnits: TArray<TUnitIndex>): TBytes; static;
     /// <summary>Schreibt AItems als Cache an die aktuelle Stelle von AStream. Liefert die Zahl geschriebener Units;
@@ -793,7 +801,6 @@ begin
   AWriter.WriteVar(ATable.IndexOf(ASymbol.Condition));
   AWriter.WriteVar(ATable.IndexOf(ASymbol.Signature));
   WriteList(AWriter, ATable, ASymbol.Directives);
-  AWriter.WriteVar(ATable.IndexOf(ASymbol.Summary));
   AWriter.WriteVar(ATable.IndexOf(ASymbol.DeprecatedText));
   AWriter.WriteVar(ATable.IndexOf(ASymbol.VariantBranch));
   WriteList(AWriter, ATable, ASymbol.InlineRefs);
@@ -895,6 +902,7 @@ begin
   AWriter.WriteVar(ATable.IndexOf(AUnit.DeprecatedText));
   WriteList(AWriter, ATable, AUnit.Rationale);
   WritePatterns(AWriter, ATable, AUnit.Patterns);
+  WriteList(AWriter, ATable, AUnit.Requires);
 end;
 
 /// <summary>Inhalt eines Blocks ohne seine String-Tabelle: Kopf, Symbole, nicht geltende Deklarationen,
@@ -1234,7 +1242,6 @@ begin
   Result.Condition := AReader.ReadString;
   Result.SignatureUtf8 := AReader.ReadSignature;
   Result.Directives := AReader.ReadList;
-  Result.Summary := AReader.ReadString;
   Result.DeprecatedText := AReader.ReadString;
   Result.VariantBranch := AReader.ReadString;
   Result.InlineRefs := AReader.ReadList;
@@ -1318,6 +1325,7 @@ begin
   Result.DeprecatedText := AReader.ReadString;
   Result.Rationale := AReader.ReadList;
   Result.Patterns := ReadPatterns(AReader);
+  Result.Requires := AReader.ReadList;
 end;
 
 /// <summary>Überliest eine Liste (Anzahl, Nummern der Texte), ohne die Texte zu dekodieren (Phase 4); prüft die
@@ -1359,13 +1367,12 @@ begin
   end;
   ReadArgCount(AReader);
   ReadArgCount(AReader);
-  // Parametertypen, Include-Datei, Bedingung, Signatur, Direktiven, Kurztext, Grund, Variante
+  // Parametertypen, Include-Datei, Bedingung, Signatur, Direktiven, Grund, Variante
   SkipList(AReader);
   AReader.SkipString;
   AReader.SkipString;
   AReader.SkipString;
   SkipList(AReader);
-  AReader.SkipString;
   AReader.SkipString;
   AReader.SkipString;
   // Inline-Verweise, Zuordnungen, Begründungen
@@ -1414,6 +1421,8 @@ begin
       AReader.ReadNumber;
     end;
   end;
+  // requires (Format 35)
+  SkipList(AReader);
 end;
 
 /// <summary>Überliest eine Verwendung (Gegenstück zu ReadUsage).</summary>

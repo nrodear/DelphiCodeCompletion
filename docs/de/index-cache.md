@@ -26,6 +26,36 @@ Dazu kommen:
 
 Der Index enthält Deklarationen, keine Verwendungen. Seine Speichergrenze ist fest (768 MB).
 
+### Inhalt je Deklaration
+
+Seit Cache-Format 35 hält der Index je Deklaration mehr fest:
+
+- Werte von Aufzählungen ohne `{$SCOPEDENUMS ON}` stehen im Katalog. „+ Unit“ schlägt damit auch `fsBold`, `ssShift`
+  oder `rfReplaceAll` vor. Werte anonymer Aufzählungen (`set of (a, b)`, `F: (x, y)`) und Felder anonymer Records
+  (`F: record … end`) stehen mit dem Typ- bzw. Feldnamen als Container im Index.
+- Der Katalog kennt die Zahl der Typparameter. „+ Unit“ zeigt generische Typen mit Platzhaltern (`TList<T>`) und fügt
+  nur den Namen ein. Steht hinter dem Wort ein `<`, kommt der generische Typ zuerst, sonst der gleichnamige ohne
+  Typparameter (etwa `TList` aus `System.Classes`).
+- Ein ausdrücklicher Wert in einer Aufzählung (`A = B + 1`) gehört zu seinem Wert; vorher zählte `B` als weiterer Wert.
+- In Units der Bibliothek speichert der Index die Rümpfe im implementation-Teil nicht mehr, die eine Deklaration aus
+  dem interface wiederholen. Die Angaben einer DLL-Routine (`external`, `name`, `index`, `delayed`) und die Zeile des
+  Rumpfs stehen an der Deklaration. Routinen, die nur im implementation-Teil stehen, bleiben. Projekt-Units sind davon
+  nicht betroffen.
+- Zeiger, Arrays, Mengen, `class of`, Prozedurtypen und Teilbereiche behalten ihren Zieltyp (`PInteger` → `^Integer`,
+  samt Array-Grenzen), auch bei Feldern und Variablen mit anonymem Typ. Ebenso stehen Attribute (`[Weak]`), die Arten
+  `resourcestring`, `threadvar`, `class operator` und `destructor`, die Nachricht hinter `message` und die
+  Einschränkungen der Typparameter im Index.
+- Signaturen von Routinen, Methoden und Konstruktoren stehen bis 1000 Zeichen im Index, alle anderen bis 300 Zeichen.
+  Die volle Länge liest dpcc bei Bedarf aus der Quelldatei, ebenso die Deklaration aus einem nicht geltenden Zweig
+  (Detailanzeige der Liste).
+- Bedingte Kompilierung: Konstanten der eigenen Unit wie `GenericSafeArrays = False` wertet dpcc in `{$IF}` aus,
+  `Declared()` kennt die eingebauten Typen (`AnsiChar`, `Integer` …), und die Bibliothek liest `{$IFOPT}` mit den
+  Vorgaben des Compilers. Vorher galten in diesen Fällen beide Zweige. Eine gleichnamige Deklaration eines nicht
+  geltenden Zweigs (`{$IFDEF WIN64} function F(…)` … `{$ELSE}` …) erscheint als nicht verfügbar, auch wenn der
+  geltende Zweig denselben Namen hat; `A, B: T` in einem `var`-Abschnitt liefert beide Namen.
+- `.dpk`: `contains` gilt wie `uses`, `requires` steht getrennt.
+- Den XMLDoc-Kurztext speichert der Index nicht mehr. Hover und Liste lesen die Doku wie bisher aus der Quelldatei.
+
 ### Bibliothek bei Bedarf
 
 Von der Bibliothek hält der Index nur einen Teil mit allen Symbolen im Speicher. Immer geladen (gepinnt) sind:
@@ -111,9 +141,14 @@ Die Formatversion steht im Dateinamen. So stören sich verschiedene Versionen vo
 Seit Format 34 steht jede Unit in einem eigenen Block mit eigener Prüfsumme. Ein Verzeichnis am Ende der Datei nennt
 alle Units samt ihrem Katalog. dpcc liest beim Start nur das Verzeichnis und die Blöcke der Units, die es lädt, über ein
 offenes Handle; eine andere Instanz kann die Datei trotzdem ersetzen. Ein beschädigter Block betrifft nur seine Unit,
-dpcc liest sie dann aus der Quelldatei neu. Caches älterer Formate (etwa `index-33.dpccidx`) liest dpcc nicht mehr:
-Der erste Start nach dem Update baut den Index einmal neu auf. Die alte Datei bleibt liegen, bis das Aufräumen nach
-Größe sie entfernt; „Index neu aufbauen“ (siehe [unten](#index-neu-aufbauen)) löscht sie sofort.
+dpcc liest sie dann aus der Quelldatei neu. Das aktuelle Format 35 bringt die Inhalte aus
+[Inhalt je Deklaration](#inhalt-je-deklaration).
+
+Caches älterer Formate (etwa `index-34.dpccidx`) liest dpcc nicht mehr: Der erste Start nach dem Update baut den Index
+einmal neu auf. Sobald dpcc einen Cache im neuen Format geschrieben hat, löscht es im selben Ordner die Dateien
+`index-<Nummer>.dpccidx` älterer Formate samt ihrer `.lock`-Datei, sofern keine andere Instanz sie sperrt (etwa eine
+ältere Version von dpcc in einer zweiten IDE). Andere Dateien bleiben. „Index neu aufbauen“ (siehe
+[unten](#index-neu-aufbauen)) löscht alle Caches sofort.
 
 Beim ersten Aufbau ohne Cache schreibt dpcc den Bibliotheks-Cache zwischendurch, damit die neu gelesenen Units den
 Speicher wieder verlassen dürfen. Dabei hängt es nur die neuen Blöcke und ein neues Verzeichnis an die Datei an, und

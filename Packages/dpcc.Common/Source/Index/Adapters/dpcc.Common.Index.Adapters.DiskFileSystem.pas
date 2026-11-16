@@ -58,6 +58,7 @@ implementation
 uses
   System.Classes,
   System.IOUtils,
+  dpcc.Common.Index.Adapters.CacheDirectory,
   dpcc.Common.Documents.FileEncoding,
   dpcc.Common.Localization.Texts;
 
@@ -266,6 +267,11 @@ begin
   if FileExists(mBackup) then
   begin
     System.SysUtils.DeleteFile(mBackup);
+  end;
+  // Index-Inhalte L1: Neben einem Cache im aktuellen Format braucht niemand mehr die älteren (index-34.dpccidx …).
+  if Result then
+  begin
+    TIndexCacheDirectory.RemoveOlderFormats(AFileName);
   end;
 end;
 

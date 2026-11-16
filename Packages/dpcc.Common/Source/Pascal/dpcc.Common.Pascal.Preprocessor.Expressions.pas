@@ -45,6 +45,9 @@ type
     ProductName: string;
     /// <summary>Zielplattform ("Win64") als Herkunft von SizeOf(Pointer) usw.; '' ohne.</summary>
     Platform: string;
+    /// <summary>Konstanten der eigenen Unit, die vor der Bedingung in einem geltenden Zweig stehen (L1): Name groß
+    /// geschrieben → Ausdruck. Ausgewertet wird erst, wenn eine Bedingung den Namen nennt; nil = keine.</summary>
+    Locals: TDictionary<string, string>;
   end;
 
   /// <summary>Größen und Wertebereiche der Grundtypen auf der Zielplattform.</summary>
@@ -79,6 +82,8 @@ type
     FDefines: TDictionary<string, Boolean>;
     FParts: TList<TConditionPart>;
     FTypes: TTargetTypes;
+    /// <summary>Tiefe beim Auswerten von Konstanten, die andere Konstanten nennen (L1).</summary>
+    FLocalDepth: Integer;
     function Peek: TPascalToken;
     function AtEnd: Boolean;
     function Next: TPascalToken;
@@ -109,11 +114,20 @@ type
     function SettingsConstant(const AName: string; out AValue: TEvalValue): Boolean;
     function Declared(const AName: string; out AOrigin: string): TEvalValue;
     function VersionConstant(const AName: string; out AValue: TEvalValue): Boolean;
+    /// <summary>Konstante der eigenen Unit (L1); False ohne.</summary>
+    function LocalConstant(const AName: string; out AValue: TEvalValue; out AIsBoolean: Boolean): Boolean;
+    /// <summary>Wert von AExpression als Zahl; löst EPreprocessorExpression bei Syntaxfehlern aus.</summary>
+    function EvaluateValue(const AExpression: string): TEvalValue;
   public
     constructor Create(const ASettings: TExpressionSettings; ADefines: TDictionary<string, Boolean>);
     destructor Destroy; override;
     /// <summary>Wert von AExpression; löst EPreprocessorExpression bei Syntaxfehlern aus.</summary>
     function Evaluate(const AExpression: string): TConditionValue;
+    /// <summary>Wert des Ausdrucks einer Konstanten (L1); False, wenn er unbekannt ist. Löst
+    /// EPreprocessorExpression bei Ausdrücken aus, die der Auswerter nicht kennt.</summary>
+    function ValueOf(const AExpression: string; out AValue: Double): Boolean;
+    /// <summary>Ist der Ausdruck einer Konstanten ein Wahrheitswert (True, not X, Vergleich, and/or …)?</summary>
+    function IsBooleanExpression(const AExpression: string): Boolean;
     /// <summary>Teilwerte der letzten Auswertung.</summary>
     function Parts: TArray<TConditionPart>;
   end;
@@ -131,7 +145,7 @@ uses
 type
   /// <summary>Texte der Unit in beiden Sprachen (#1458).</summary>
   TExpressionsText = (ExpressionMissing, ConstantFromTheCode, ExpressionEndsUnexpectedly, NameExpected, Unknown, True,
-    False, TargetPlatform, Expected, Unexpected, DivisionByZero, UnknownFunction);
+    False, TargetPlatform, Expected, Unexpected, DivisionByZero, UnknownFunction, ConstantOfTheUnit);
 
 const
   cTexts: array[TExpressionsText] of TDpccText = (
@@ -146,12 +160,21 @@ const
     (De: '"%s" erwartet'; En: '"%s" expected'),
     (De: 'Unerwartet: "%s"'; En: 'Unexpected: "%s"'),
     (De: 'Division durch null'; En: 'Division by zero'),
-    (De: 'Unbekannte Funktion "%s"'; En: 'Unknown function "%s"'));
+    (De: 'Unbekannte Funktion "%s"'; En: 'Unknown function "%s"'),
+    (De: 'Konstante der Unit'; En: 'constant of the unit'));
 
 {$SCOPEDENUMS OFF}
 
 const
   cBooleanValue: array[Boolean] of Double = (0, 1);
+  /// <summary>Typen des Compilers ohne Deklaration in einer Quelle; Declared(X) ist für sie immer wahr (L1).</summary>
+  // UTF8Char und PUTF8Char deklariert System auf allen Plattformen der unterstützten Versionen; ohne Index (Aufbau der
+  // Bibliothek) galten sonst bei {$IF Declared(UTF8Char)} beide Zweige (System.Skia.API).
+  cBuiltinTypes: array[0..39] of string = ('UTF8Char', 'PUTF8Char', 'AnsiChar', 'WideChar', 'Char', 'Byte', 'ShortInt', 'SmallInt', 'Word',
+    'Integer', 'Cardinal', 'LongInt', 'LongWord', 'Int64', 'UInt64', 'NativeInt', 'NativeUInt', 'Boolean', 'ByteBool',
+    'WordBool', 'LongBool', 'Single', 'Double', 'Extended', 'Real', 'Real48', 'Comp', 'Currency', 'Pointer', 'PChar',
+    'PAnsiChar', 'PWideChar', 'string', 'AnsiString', 'WideString', 'UnicodeString', 'ShortString', 'Variant',
+    'OleVariant', 'Text');
 
 function BoolText(const AValue: TEvalValue): string;
 begin
@@ -543,9 +566,95 @@ end;
 
 function TExpressionEvaluator.Evaluate(const AExpression: string): TConditionValue;
 var
-  mSignificant: TList<TPascalToken>;
+  mValue: TEvalValue;
+begin
+  mValue := EvaluateValue(AExpression);
+  if not mValue.Known then
+  begin
+    Result := TConditionValue.Unknown;
+  end
+  else if mValue.Number <> 0 then
+  begin
+    Result := TConditionValue.Yes;
+  end
+  else
+  begin
+    Result := TConditionValue.No;
+  end;
+end;
+
+function TExpressionEvaluator.ValueOf(const AExpression: string; out AValue: Double): Boolean;
+var
+  mValue: TEvalValue;
+begin
+  mValue := EvaluateValue(AExpression);
+  Result := mValue.Known;
+  AValue := mValue.Number;
+end;
+
+function TExpressionEvaluator.IsBooleanExpression(const AExpression: string): Boolean;
+var
   mToken: TPascalToken;
   mValue: TEvalValue;
+  mIsBoolean: Boolean;
+begin
+  // Wahrheitswert, wenn ein Teil einer ist: True/False, not/and/or/xor, ein Vergleich, Defined/Declared oder eine
+  // boolesche Konstante der Unit.
+  Result := False;
+  for mToken in TPascalLexer.Tokenize(AExpression) do
+  begin
+    if ((mToken.Kind in [TPascalTokenKind.Identifier, TPascalTokenKind.Keyword]) and
+      (MatchText(mToken.Text, ['True', 'False', 'not', 'and', 'or', 'xor', 'Defined', 'Declared']) or
+      (LocalConstant(mToken.Text, mValue, mIsBoolean) and mIsBoolean))) or
+      ((mToken.Kind = TPascalTokenKind.Symbol) and MatchStr(mToken.Text, ['=', '<>', '<', '>', '<=', '>='])) then
+    begin
+      Exit(True);
+    end;
+  end;
+end;
+
+function TExpressionEvaluator.LocalConstant(const AName: string; out AValue: TEvalValue;
+  out AIsBoolean: Boolean): Boolean;
+const
+  cMaxLocalDepth = 8;
+var
+  mText: string;
+  mInner: TExpressionEvaluator;
+  mNumber: Double;
+begin
+  AValue := TEvalValue.Unknown;
+  AIsBoolean := False;
+  Result := False;
+  if (FSettings.Locals = nil) or (FLocalDepth >= cMaxLocalDepth) or
+    not FSettings.Locals.TryGetValue(UpperCase(AName), mText) then
+  begin
+    Exit;
+  end;
+  // Eigener Auswerter: Die Teilwerte der Konstante gehören nicht zur Bedingung; die Tiefe hält Zyklen (A = B; B = A)
+  // auf.
+  mInner := TExpressionEvaluator.Create(FSettings, FDefines);
+  try
+    mInner.FLocalDepth := FLocalDepth + 1;
+    try
+      Result := mInner.ValueOf(mText, mNumber);
+      if Result then
+      begin
+        AValue := TEvalValue.Make(mNumber);
+        AIsBoolean := mInner.IsBooleanExpression(mText);
+      end;
+    except
+      on EPreprocessorExpression do
+        Result := False;
+    end;
+  finally
+    mInner.Free;
+  end;
+end;
+
+function TExpressionEvaluator.EvaluateValue(const AExpression: string): TEvalValue;
+var
+  mSignificant: TList<TPascalToken>;
+  mToken: TPascalToken;
 begin
   mSignificant := TList<TPascalToken>.Create;
   try
@@ -566,22 +675,10 @@ begin
   begin
     raise EPreprocessorExpression.Create(cTexts[TExpressionsText.ExpressionMissing].Text);
   end;
-  mValue := ParseOr;
+  Result := ParseOr;
   if not AtEnd then
   begin
     raise EPreprocessorExpression.CreateFmt(cTexts[TExpressionsText.Unexpected].Text, [Peek.Text]);
-  end;
-  if not mValue.Known then
-  begin
-    Result := TConditionValue.Unknown;
-  end
-  else if mValue.Number <> 0 then
-  begin
-    Result := TConditionValue.Yes;
-  end
-  else
-  begin
-    Result := TConditionValue.No;
   end;
 end;
 
@@ -797,6 +894,17 @@ begin
   begin
     Result := TEvalValue.Make(1);
   end
+  else if (FSettings.Locals <> nil) and FSettings.Locals.ContainsKey(UpperCase(AName)) then
+  begin
+    AOrigin := cTexts[TExpressionsText.ConstantOfTheUnit].Text;
+    Result := TEvalValue.Make(1);
+  end
+  // Eingebaute Typen (L1): AnsiChar, Integer, Pointer … stehen in keiner Quelle, der Compiler kennt sie immer.
+  else if MatchText(AName, cBuiltinTypes) then
+  begin
+    AOrigin := 'System';
+    Result := TEvalValue.Make(1);
+  end
   // Sonst der Index; ohne Treffer bleibt es unbekannt (die Unit kann noch fehlen).
   else if Assigned(FSettings.Declared) and FSettings.Declared(AName) then
   begin
@@ -916,6 +1024,8 @@ begin
 end;
 
 function TExpressionEvaluator.KnownConstant(const AName: string; out AValue: TEvalValue): Boolean;
+var
+  mIsBoolean: Boolean;
 begin
   Result := True;
   if SameText(AName, 'CompilerVersion') and (FSettings.CompilerVersion > 0) then
@@ -936,6 +1046,18 @@ begin
   else if VersionConstant(AName, AValue) then
   begin
     AddPart(AName, BoolText(AValue), FSettings.ProductName);
+  end
+  else if LocalConstant(AName, AValue, mIsBoolean) then
+  begin
+    // Konstante der eigenen Unit (L1), z. B. GenericSafeArrays = GenericVarUtils in System.VarUtils.
+    if mIsBoolean then
+    begin
+      AddPart(AName, BoolText(AValue), cTexts[TExpressionsText.ConstantOfTheUnit].Text);
+    end
+    else
+    begin
+      AddPart(AName, NumberText(AValue), cTexts[TExpressionsText.ConstantOfTheUnit].Text);
+    end;
   end
   else
   begin

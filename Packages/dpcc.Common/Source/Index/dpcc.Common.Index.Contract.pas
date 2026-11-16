@@ -84,7 +84,18 @@ type
     /// </summary>
     SignatureUtf8: UTF8String;
     /// <summary>Direktiven in Kleinschreibung und Reihenfolge der Deklaration: virtual, override,
-    /// overload, static, inline, deprecated, platform … (#492).</summary>
+    /// overload, static, inline, deprecated, platform … (#492). Dazu Merkmale ohne eigenes Feld (Index-Inhalte L1,
+    /// Format 35), gelesen über die Funktionen unten:
+    /// - "target:Form=Typ": Form und Zieltyp eines Typs ohne TypeName (Zeiger "^", "set of", "array of",
+    ///   "array[0..9] of", "class of", "file of", "function", "procedure", "range" mit den Grenzen als Typ, "enum",
+    ///   "record"), auch bei Feldern und Variablen mit anonymem Typ (TargetForm, TargetType);
+    /// - "@Name": Attribut vor der Deklaration ([Weak] → "@Weak", Attributes);
+    /// - "external", "external:Bibliothek", "name:Name", "index:Nummer", "delayed": DLL-Angaben, in Bibliotheks-Units
+    ///   auch am interface-Symbol, dessen Rumpf im implementation-Teil nicht gespeichert ist; "impl:Zeile" ist die
+    ///   Zeile (0-basiert) dieses Rumpfs (ImplementationLine);
+    /// - "resourcestring", "threadvar", "operator", "destructor", "message:ID": Arten ohne eigene Symbolart;
+    /// - "&lt;T:Einschränkungen&gt;": Einschränkungen eines Typparameters ("&lt;T:class,constructor&gt;",
+    ///   ConstraintsOf).</summary>
     Directives: TArray<string>;
     /// <summary>Grund hinter deprecated 'Grund' (#38); '' ohne Grund oder ohne deprecated.</summary>
     DeprecatedText: string;
@@ -100,9 +111,6 @@ type
     /// Deklaration. Sie sind keine eigenen Mitglieder (#849), zählen aber als Implementierung der
     /// Interface-Methode (interface-not-implemented, hresult-integer-mix).</summary>
     Resolutions: TArray<string>;
-    /// <summary>XMLDoc-Kurztext: Klartext von &lt;summary&gt; aus den ///-Zeilen darüber, eine Zeile,
-    /// höchstens TIndexSymbol.cMaxSummary Zeichen; '' ohne Doku (#492).</summary>
-    Summary: string;
     /// <summary>Begründungen (#1123) über der Deklaration und bei Routinen im Rumpf, je Eintrag
     /// TRationale.Encode (Marke, Zeile, Text); alle möglichen Marken, gefiltert wird bei der Anzeige.</summary>
     Rationale: TArray<string>;
@@ -112,14 +120,45 @@ type
     function GetSignature: string;
     procedure SetSignature(const AValue: string);
     /// <summary>Kopf der Deklaration als eine Zeile, z. B. "function Foo(A: Integer): string; overload;"
-    /// oder "TFoo = class(TBase)" (#492); höchstens TIndexSymbol.cMaxSignature Zeichen. Gespeichert als UTF-8
-    /// (SignatureUtf8).</summary>
+    /// oder "TFoo = class(TBase)" (#492); höchstens MaxSignatureOf(Kind) Zeichen (Routinen, Methoden und
+    /// Konstruktoren 1000, sonst 300). Die volle Länge liest TIndexFiles.SourceSignature aus der Quelle. Gespeichert
+    /// als UTF-8 (SignatureUtf8).</summary>
     property Signature: string read GetSignature write SetSignature;
+    /// <summary>Höchstlänge der Signatur einer Art (Index-Inhalte L1): Routinen, Methoden und Konstruktoren
+    /// cMaxRoutineSignature, alle anderen cMaxSignature.</summary>
+    class function MaxSignatureOf(AKind: TIndexSymbolKind): Integer; static;
+    /// <summary>Form und Zieltyp aus einem Eintrag "target:Form=Typ" in ADirectives; False ohne.</summary>
+    class function TargetOf(const ADirectives: TArray<string>; out AForm, AType: string): Boolean; static;
+    /// <summary>Wert des ersten Eintrags "APrefix:Wert" in ADirectives (ohne Groß-/Kleinschreibung); '' ohne.
+    /// </summary>
+    class function DirectiveValueOf(const ADirectives: TArray<string>; const APrefix: string): string; static;
+    /// <summary>Form des Zieltyps: "^", "set of", "array of", "array[0..9] of", "class of", "file of", "function",
+    /// "procedure", "range", "enum", "record"; '' ohne Eintrag (Index-Inhalte L1).</summary>
+    function TargetForm: string;
+    /// <summary>Zieltyp als Text wie im Quelltext (PInteger → "Integer", array of TList&lt;T&gt; →
+    /// "TList&lt;T&gt;", function: Boolean → "Boolean", 0..9 → "0..9"); '' ohne. Bewusst nicht in TypeName: Die
+    /// Namensauflösung folgte sonst dem Alias, und aus PInteger würde Integer.</summary>
+    function TargetType: string;
+    /// <summary>Wert eines Eintrags "APrefix:Wert", z. B. DirectiveValue('external') = 'user32'.</summary>
+    function DirectiveValue(const APrefix: string): string;
+    /// <summary>Attribute vor der Deklaration ohne "@" in Reihenfolge ([Weak, Unsafe] → ['Weak', 'Unsafe']).</summary>
+    function Attributes: TArray<string>;
+    /// <summary>Zeile (0-basiert) des Rumpfs im implementation-Teil, den der Index bei Bibliotheks-Units nicht als
+    /// eigenes Symbol führt; -1 ohne.</summary>
+    function ImplementationLine: Integer;
+    /// <summary>Einschränkungen des Typparameters AParam ("class,constructor"); '' ohne.</summary>
+    function ConstraintsOf(const AParam: string): string;
   public const
     cMaxSignature = 300;
-    cMaxSummary = 200;
+    /// <summary>Höchstlänge bei Routinen, Methoden und Konstruktoren (Index-Inhalte L1; die längste der Bibliothek hat
+    /// 686 Zeichen).</summary>
+    cMaxRoutineSignature = 1000;
     /// <summary>Einziger Eintrag in InlineRefs einer einbettbaren inline-Routine ohne Verweise (#1381).</summary>
     cInlineWithoutRefs = '';
+    /// <summary>Vorsätze der Einträge in Directives (Index-Inhalte L1).</summary>
+    cTargetPrefix = 'target:';
+    cAttributePrefix = '@';
+    cImplementationPrefix = 'impl';
   end;
 
   /// <summary>Verwendungen eines Bezeichners in einer Unit (#492, für #470): alle Stellen außer der
@@ -185,7 +224,11 @@ type
     /// <summary>Hash des Inhalts.</summary>
     Hash: string;
     InterfaceUses: TArray<string>;
+    /// <summary>uses der implementation; bei program, library und package alle uses-Klauseln, beim package die
+    /// contains-Klausel (Index-Inhalte L1).</summary>
     ImplementationUses: TArray<string>;
+    /// <summary>Nur bei package: die requires-Klausel (Packages, keine Units; Index-Inhalte L1).</summary>
+    Requires: TArray<string>;
     /// <summary>Hinweise im Unit-Kopf (unit X deprecated 'Grund' platform;) in Kleinschreibung: deprecated,
     /// experimental, platform, library (#1018).</summary>
     Directives: TArray<string>;
@@ -248,10 +291,12 @@ type
 
   /// <summary>Katalogeintrag eines importierbaren Symbols (interface, oberste Ebene; Speicher-Optimierung Phase 3):
   /// nur, was "+ Unit", gleichnamige Symbole und die Helfer-Suche brauchen. Der Katalog kennt alle Units, auch die,
-  /// deren volle Symbole nicht im Speicher sind; die Texte teilt er sich mit den Symbolen geladener Units.</summary>
+  /// deren volle Symbole nicht im Speicher sind; die Texte teilt er sich mit den Symbolen geladener Units. Seit
+  /// Index-Inhalte L1 auch die Werte von Aufzählungen ohne {$SCOPEDENUMS} (fsBold, ssShift), deren TypeName ihr Typ
+  /// ist.</summary>
   TCatalogSymbol = record
     Name: string;
-    /// <summary>Wie TIndexSymbol.TypeName.</summary>
+    /// <summary>Wie TIndexSymbol.TypeName; bei Aufzählungswerten der Typ (TIndexSymbol.Container).</summary>
     TypeName: string;
     /// <summary>Vorfahren bei Klassen, Interfaces, Objekten und Helfern (beim Helfer der Zieltyp zuletzt); sonst
     /// nil.</summary>
@@ -261,16 +306,23 @@ type
     MinArgs: SmallInt;
     MaxArgs: SmallInt;
     Kind: TIndexSymbolKind;
-    /// <summary>cCatalogUnavailable, cCatalogScopedEnum.</summary>
+    /// <summary>cCatalogUnavailable, cCatalogScopedEnum; in den Bits ab cArityShift die Zahl der Typparameter
+    /// (Index-Inhalte L1).</summary>
     Flags: Byte;
     /// <summary>Class- oder Record-Helper mit Zieltyp (#456)?</summary>
     function IsHelper: Boolean;
-    /// <summary>TIndexSymbol mit den Feldern des Katalogs (InInterface, ohne Container); der Rest bleibt leer.
-    /// </summary>
+    /// <summary>Zahl der Typparameter: 1 bei TList&lt;T&gt;, 0 bei TList (Index-Inhalte L1).</summary>
+    function Arity: Integer;
+    /// <summary>TIndexSymbol mit den Feldern des Katalogs (InInterface; Container nur bei Aufzählungswerten, dort der
+    /// Typ); der Rest bleibt leer.</summary>
     function ToSymbol: TIndexSymbol;
+    /// <summary>Zahl der Typparameter in TypeParams ("K,V" → 2), höchstens cMaxArity.</summary>
+    class function ArityOf(const ATypeParams: string): Integer; static;
   public const
     cCatalogUnavailable = 1;
     cCatalogScopedEnum = 2;
+    cArityShift = 2;
+    cMaxArity = 63;
   end;
 
   /// <summary>Katalog einer Unit (Speicher-Optimierung Phase 3): Kopf für die uses-Vervollständigung und die
@@ -734,6 +786,114 @@ begin
   Result := False;
 end;
 
+class function TIndexSymbol.MaxSignatureOf(AKind: TIndexSymbolKind): Integer;
+begin
+  if AKind in [TIndexSymbolKind.Routine, TIndexSymbolKind.Method, TIndexSymbolKind.Constructor_] then
+  begin
+    Result := cMaxRoutineSignature;
+  end
+  else
+  begin
+    Result := cMaxSignature;
+  end;
+end;
+
+class function TIndexSymbol.TargetOf(const ADirectives: TArray<string>; out AForm, AType: string): Boolean;
+var
+  mDirective: string;
+  mEqual: Integer;
+begin
+  AForm := '';
+  AType := '';
+  for mDirective in ADirectives do
+  begin
+    if StartsText(cTargetPrefix, mDirective) then
+    begin
+      mEqual := Pos('=', mDirective);
+      if mEqual = 0 then
+      begin
+        AForm := Copy(mDirective, Length(cTargetPrefix) + 1, MaxInt);
+      end
+      else
+      begin
+        AForm := Copy(mDirective, Length(cTargetPrefix) + 1, mEqual - Length(cTargetPrefix) - 1);
+        AType := Copy(mDirective, mEqual + 1, MaxInt);
+      end;
+      Exit(True);
+    end;
+  end;
+  Result := False;
+end;
+
+class function TIndexSymbol.DirectiveValueOf(const ADirectives: TArray<string>; const APrefix: string): string;
+var
+  mDirective: string;
+begin
+  for mDirective in ADirectives do
+  begin
+    if (Length(mDirective) > Length(APrefix) + 1) and (mDirective[Length(APrefix) + 1] = ':') and
+      StartsText(APrefix, mDirective) then
+    begin
+      Exit(Copy(mDirective, Length(APrefix) + 2, MaxInt));
+    end;
+  end;
+  Result := '';
+end;
+
+function TIndexSymbol.TargetForm: string;
+var
+  mType: string;
+begin
+  TargetOf(Directives, Result, mType);
+end;
+
+function TIndexSymbol.TargetType: string;
+var
+  mForm: string;
+begin
+  TargetOf(Directives, mForm, Result);
+end;
+
+function TIndexSymbol.DirectiveValue(const APrefix: string): string;
+begin
+  Result := DirectiveValueOf(Directives, APrefix);
+end;
+
+function TIndexSymbol.Attributes: TArray<string>;
+var
+  mDirective: string;
+begin
+  Result := nil;
+  for mDirective in Directives do
+  begin
+    if (Length(mDirective) > 1) and (mDirective[1] = cAttributePrefix) then
+    begin
+      Result := Result + [Copy(mDirective, 2, MaxInt)];
+    end;
+  end;
+end;
+
+function TIndexSymbol.ImplementationLine: Integer;
+begin
+  Result := StrToIntDef(DirectiveValue(cImplementationPrefix), -1);
+end;
+
+function TIndexSymbol.ConstraintsOf(const AParam: string): string;
+var
+  mDirective: string;
+begin
+  for mDirective in Directives do
+  begin
+    if (Length(mDirective) > Length(AParam) + 3) and (mDirective[1] = '<') and
+      (mDirective[Length(mDirective)] = '>') and (mDirective[Length(AParam) + 2] = ':') and
+      SameText(Copy(mDirective, 2, Length(AParam)), AParam) then
+    begin
+      Exit(Copy(mDirective, Length(AParam) + 3, Length(mDirective) - Length(AParam) - 3));
+    end;
+  end;
+  Result := '';
+end;
+
 { TUnitIndex }
 
 function TUnitIndex.SymbolFile(const ASymbol: TIndexSymbol): string;
@@ -794,13 +954,48 @@ begin
   Result := (Kind = TIndexSymbolKind.HelperType) and (Length(Ancestors) > 0);
 end;
 
+function TCatalogSymbol.Arity: Integer;
+begin
+  Result := Flags shr cArityShift;
+end;
+
+class function TCatalogSymbol.ArityOf(const ATypeParams: string): Integer;
+var
+  mIndex: Integer;
+begin
+  if Trim(ATypeParams) = '' then
+  begin
+    Exit(0);
+  end;
+  Result := 1;
+  for mIndex := 1 to Length(ATypeParams) do
+  begin
+    if ATypeParams[mIndex] = ',' then
+    begin
+      Inc(Result);
+    end;
+  end;
+  if Result > cMaxArity then
+  begin
+    Result := cMaxArity;
+  end;
+end;
+
 function TCatalogSymbol.ToSymbol: TIndexSymbol;
 begin
   Result := Default(TIndexSymbol);
   Result.Name := Name;
   Result.Kind := Kind;
   Result.InInterface := True;
-  Result.TypeName := TypeName;
+  if Kind = TIndexSymbolKind.EnumMember then
+  begin
+    // Aufzählungswert (L1): Der Katalog führt seinen Typ als TypeName, der Index als Container.
+    Result.Container := TypeName;
+  end
+  else
+  begin
+    Result.TypeName := TypeName;
+  end;
   Result.Ancestors := Ancestors;
   Result.SelectionRange.StartPos := Start;
   Result.SelectionRange.EndPos := TTextPosition.Create(Start.Line, Start.Character + Length(Name));
@@ -824,7 +1019,10 @@ const
 
 class function TCatalogUnit.IsEntry(const ASymbol: TIndexSymbol): Boolean;
 begin
-  Result := ASymbol.InInterface and (ASymbol.Container = '');
+  // Aufzählungswerte ohne {$SCOPEDENUMS} eines Typs auf oberster Ebene gelten wie Symbole der Unit (fsBold, L1);
+  // Werte eines verschachtelten Typs (TFoo.TArt) brauchen den Typ davor.
+  Result := ASymbol.InInterface and ((ASymbol.Container = '') or ((ASymbol.Kind = TIndexSymbolKind.EnumMember) and
+    not ASymbol.ScopedEnum and not ASymbol.Unavailable and (Pos('.', ASymbol.Container) = 0)));
 end;
 
 class function TCatalogUnit.FromUnit(const AUnit: TUnitIndex): TCatalogUnit;
@@ -852,7 +1050,14 @@ begin
       Continue;
     end;
     Result.Symbols[mCount].Name := AUnit.Symbols[mPosition].Name;
-    Result.Symbols[mCount].TypeName := AUnit.Symbols[mPosition].TypeName;
+    if AUnit.Symbols[mPosition].Kind = TIndexSymbolKind.EnumMember then
+    begin
+      Result.Symbols[mCount].TypeName := AUnit.Symbols[mPosition].Container;
+    end
+    else
+    begin
+      Result.Symbols[mCount].TypeName := AUnit.Symbols[mPosition].TypeName;
+    end;
     if AUnit.Symbols[mPosition].Kind in cCatalogAncestorKinds then
     begin
       Result.Symbols[mCount].Ancestors := AUnit.Symbols[mPosition].Ancestors;
@@ -870,6 +1075,9 @@ begin
     begin
       Result.Symbols[mCount].Flags := Result.Symbols[mCount].Flags or TCatalogSymbol.cCatalogScopedEnum;
     end;
+    // Generik-Arität (L1): "+ Unit" unterscheidet TList und TList<T>.
+    Result.Symbols[mCount].Flags := Result.Symbols[mCount].Flags or
+      Byte(TCatalogSymbol.ArityOf(AUnit.Symbols[mPosition].TypeParams) shl TCatalogSymbol.cArityShift);
     Inc(mCount);
     if AUnit.Symbols[mPosition].Kind in cCatalogTypeKinds then
     begin

@@ -305,6 +305,8 @@ var
 begin
   mStart := NodeStart;
   mNode := StartNode(TSyntaxKind.UsesClause);
+  // Schlüsselwort als Name (L1): .dpk trennt contains (Units) und requires (Packages).
+  mNode.Name := LowerCase(Current.Text);
   AParent.Add(mNode);
   Advance; // uses, contains oder requires
   repeat

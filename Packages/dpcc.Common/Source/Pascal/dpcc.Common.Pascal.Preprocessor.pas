@@ -15,6 +15,12 @@
 // - Unbekannte Werte (#847): Konstanten aus dem Code, Declared ohne Treffer,
 //   unbekannte Typen ergeben „unbekannt“. Ein solcher Zweig gilt als aktiv,
 //   ein {$ELSE} dazu ebenfalls; einen Befund gibt es dafür nicht.
+// - Konstanten der eigenen Unit (Index-Inhalte L1): Steht in einem geltenden
+//   Zweig vor der Bedingung "const Name = Ausdruck;" und kennt der Auswerter
+//   den Ausdruck (True, 3, not X, eine frühere solche Konstante), gilt der
+//   Wert in $IF und Declared. System.VarUtils: GenericSafeArrays =
+//   GenericVarUtils, das unter {$IF Defined(MSWINDOWS) …} False ist.
+//   Declared kennt die eingebauten Typen (AnsiChar, Integer …).
 // - $IFOPT (#847): Schalterstände aus Einträgen "$R+" usw. in Defines (aus der
 //   .dproj, ProjectSwitches), dann lokale {$R-}, {$R-,Q+}, {$RANGECHECKS ON}
 //   ab ihrer Position; {$PUSHOPT}/{$POPOPT} sichern und stellen sie wieder her.
@@ -281,6 +287,16 @@ type
     FIncludeStack: TList<string>;
     // $I-Direktive der Hauptdatei, die gerade verarbeitet wird.
     FRootRange: TTextRange;
+    // Konstanten der Unit (L1): Werte und der Zustand beim Lesen der aktiven Tokens.
+    FLocals: TDictionary<string, string>;
+    FConstState: Integer;
+    FConstDepth: Integer;
+    FConstName: string;
+    FConstText: string;
+    FConstPrevious: TPascalToken;
+    /// <summary>Liest aktive Tokens mit: merkt "const Name = Ausdruck;" mit bekanntem Wert (L1).</summary>
+    procedure NoteConstant(const AToken: TPascalToken);
+    procedure StoreConstant;
     procedure AddDefineSite(AFileIndex: Integer; const AToken: TPascalToken; const AName: string;
       AUndefine: Boolean);
     procedure AddIssue(AFileIndex: Integer; const AToken: TPascalToken; const AMessage: string;
@@ -430,6 +446,7 @@ end;
 function ExpressionSettings(const AOptions: TPreprocessorOptions;
   ADefines: TDictionary<string, Boolean>): TExpressionSettings;
 begin
+  Result.Locals := nil;
   Result.CompilerVersion := AOptions.CompilerVersion;
   Result.RTLVersion := AOptions.RTLVersion;
   Result.Constants := AOptions.Constants;
@@ -611,10 +628,12 @@ begin
   FDefineSites := TList<TDefineSite>.Create;
   FDirectiveSites := TList<TDirectiveSite>.Create;
   FIncludeStack := TList<string>.Create;
+  FLocals := TDictionary<string, string>.Create;
 end;
 
 destructor TPreprocessorRun.Destroy;
 begin
+  FLocals.Free;
   FIncludeStack.Free;
   FChecks.Free;
   FSwitchStack.Free;
@@ -629,6 +648,102 @@ begin
   FTokens.Free;
   FDefines.Free;
   inherited;
+end;
+
+const
+  // Zustände von NoteConstant.
+  cConstNone = 0;
+  cConstSection = 1;
+  cConstName = 2;
+  cConstValue = 3;
+  cConstSkip = 4;
+  /// <summary>Schlüsselwörter, die einen const-Abschnitt beenden.</summary>
+  cConstEnd: array[0..14] of string = ('type', 'var', 'threadvar', 'resourcestring', 'begin', 'procedure', 'function',
+    'constructor', 'destructor', 'implementation', 'initialization', 'finalization', 'end', 'class', 'property');
+
+procedure TPreprocessorRun.StoreConstant;
+const
+  // Längere Ausdrücke sind keine Schalter für $IF (Texte, Tabellen); nicht merken.
+  cMaxConstantText = 120;
+begin
+  // Nur merken: Ausgewertet wird erst, wenn eine Bedingung den Namen nennt (Winapi.Windows hat zehntausende
+  // Konstanten). Texte, Mengen und Zeichen kennt der Auswerter nicht.
+  if (FConstName = '') or (Trim(FConstText) = '') or (Length(FConstText) > cMaxConstantText) or
+    (Pos('''', FConstText) > 0) or (Pos('[', FConstText) > 0) or (Pos('#', FConstText) > 0) then
+  begin
+    FLocals.Remove(UpperCase(FConstName));
+    Exit;
+  end;
+  FLocals.AddOrSetValue(UpperCase(FConstName), FConstText);
+end;
+
+procedure TPreprocessorRun.NoteConstant(const AToken: TPascalToken);
+var
+  mPrevious: TPascalToken;
+begin
+  if AToken.Kind in [TPascalTokenKind.Comment, TPascalTokenKind.Directive] then
+  begin
+    Exit;
+  end;
+  mPrevious := FConstPrevious;
+  FConstPrevious := AToken;
+  // const in Parameterlisten (procedure P(const A)) und "array of const" beginnt keinen Abschnitt.
+  if AToken.IsSymbol('(') or AToken.IsSymbol('[') then
+  begin
+    Inc(FConstDepth);
+  end
+  else if (AToken.IsSymbol(')') or AToken.IsSymbol(']')) and (FConstDepth > 0) then
+  begin
+    Dec(FConstDepth);
+  end;
+  if AToken.IsKeyword('const') then
+  begin
+    if (FConstDepth = 0) and not mPrevious.IsKeyword('of') then
+    begin
+      FConstState := cConstSection;
+    end;
+    Exit;
+  end;
+  case FConstState of
+    cConstSection:
+      if AToken.Kind = TPascalTokenKind.Identifier then
+      begin
+        FConstName := AToken.Text;
+        FConstState := cConstName;
+      end
+      else if (AToken.Kind = TPascalTokenKind.Keyword) and (IndexText(AToken.Text, cConstEnd) >= 0) then
+      begin
+        FConstState := cConstNone;
+      end;
+    cConstName:
+      if AToken.IsSymbol('=') then
+      begin
+        FConstText := '';
+        FConstState := cConstValue;
+      end
+      else
+      begin
+        // Typisierte Konstante (Name: Typ = Wert) gilt nicht in $IF.
+        FConstState := cConstSkip;
+      end;
+    cConstValue:
+      if AToken.IsSymbol(';') and (FConstDepth = 0) then
+      begin
+        StoreConstant;
+        FConstState := cConstSection;
+      end
+      else
+      begin
+        FConstText := FConstText + ' ' + AToken.Text;
+      end;
+    cConstSkip:
+      if AToken.IsSymbol(';') and (FConstDepth = 0) then
+      begin
+        FConstState := cConstSection;
+      end;
+  else
+    // cConstNone: außerhalb eines const-Abschnitts.
+  end;
 end;
 
 procedure TPreprocessorRun.AddDefineSite(AFileIndex: Integer; const AToken: TPascalToken; const AName: string;
@@ -716,8 +831,11 @@ function TPreprocessorRun.EvaluateCondition(const AExpression, ADirective: strin
   const AToken: TPascalToken): TConditionValue;
 var
   mEvaluator: TExpressionEvaluator;
+  mSettings: TExpressionSettings;
 begin
-  mEvaluator := TExpressionEvaluator.Create(ExpressionSettings(FOptions, FDefines), FDefines);
+  mSettings := ExpressionSettings(FOptions, FDefines);
+  mSettings.Locals := FLocals;
+  mEvaluator := TExpressionEvaluator.Create(mSettings, FDefines);
   try
     try
       Result := mEvaluator.Evaluate(AExpression);
@@ -909,6 +1027,7 @@ procedure TPreprocessorFileScan.AddToken(const AToken: TPascalToken);
 begin
   FRun.FTokens.Add(AToken);
   FRun.FFileIndexes.Add(FFileIndex);
+  FRun.NoteConstant(AToken);
 end;
 
 procedure TPreprocessorFileScan.AddInactive(const AEnd: TTextPosition);

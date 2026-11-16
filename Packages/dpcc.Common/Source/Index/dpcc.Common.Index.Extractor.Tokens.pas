@@ -52,13 +52,22 @@ type
     function ScopedAt(AOffset: Integer): Boolean;
     function NameRange(ANode: TSyntaxNode; const AName: string): TTextRange;
     function IsConstructor(ANode: TSyntaxNode): Boolean;
+    /// <summary>Schlüsselwort einer Routine hinter "class" klein: procedure, function, constructor, destructor,
+    /// operator; '' ohne (L1).</summary>
+    function RoutineWord(ANode: TSyntaxNode): string;
     /// <summary>Beginnt die Deklaration mit "class" oder steht "class" direkt davor ("class property",
     /// "class var" vor dem var-Abschnitt)?</summary>
     function IsClassMember(ANode: TSyntaxNode): Boolean;
     function IsDefaultProperty(ANode: TSyntaxNode): Boolean;
     /// <summary>Tokens AFrom..ATo (ohne Kommentare und Compiler-Direktiven) als eine Zeile; mit
-    /// AFirstLine endet der Text am Ende der ersten Zeile außerhalb von Klammern.</summary>
-    function TokenText(AFrom, ATo: Integer; AFirstLine: Boolean): string;
+    /// AFirstLine endet der Text am Ende der ersten Zeile außerhalb von Klammern. Höchstens
+    /// TIndexSymbol.cMaxSignature Zeichen.</summary>
+    function TokenText(AFrom, ATo: Integer; AFirstLine: Boolean): string; overload;
+    /// <summary>Wie oben mit höchstens AMax Zeichen; AMax &lt;= 0 = ungekürzt (volle Signatur aus der Quelle, L1).
+    /// </summary>
+    function TokenText(AFrom, ATo: Integer; AFirstLine: Boolean; AMax: Integer): string; overload;
+    /// <summary>Kopf der Deklaration ANode als eine Zeile, höchstens TIndexSymbol.MaxSignatureOf(AKind) Zeichen;
+    /// Aufzählungswerte mit ausdrücklichem Wert als "A = 5" (L1).</summary>
     function SignatureOf(ANode: TSyntaxNode; AKind: TIndexSymbolKind; const AName, ATypeText: string): string;
     /// <summary>Art des Prozedurtyps AType (#1326): 'of object' bei Methodenzeigern, 'reference to' bei
     /// Methodenreferenzen, sonst ''. Gelesen aus den Tokens, also unabhängig von Zeilenumbrüchen.</summary>
@@ -66,7 +75,15 @@ type
     /// <summary>Direktiven der Deklaration; ADeprecatedText: Grund hinter deprecated 'Grund' (#38), sonst ''.
     /// </summary>
     function DirectivesOf(ANode: TSyntaxNode; AKind: TIndexSymbolKind; out ADeprecatedText: string): TArray<string>;
-    function SummaryOf(ANode: TSyntaxNode): string;
+    /// <summary>DLL-Angaben der Direktive external im Kopf AHeader als Einträge für TIndexSymbol.Directives (L1):
+    /// "external:Bibliothek", "name:Name", "index:Nummer"; nil ohne external mit Angaben.</summary>
+    function ExternalEntries(AHeader: TSyntaxNode): TArray<string>;
+    /// <summary>Nachricht einer message-Direktive als "message:WM_PAINT" (L1); '' ohne.</summary>
+    function MessageEntry(AHeader: TSyntaxNode): string;
+    /// <summary>Einschränkungen der Typparameter von ANode als Einträge "&lt;T:class,constructor&gt;" (L1).</summary>
+    function ConstraintEntries(ANode: TSyntaxNode): TArray<string>;
+    /// <summary>Text der Tokens im Bereich des Knotens ANode als eine Zeile, ungekürzt.</summary>
+    function NodeText(ANode: TSyntaxNode): string;
     /// <summary>Hinweise zwischen unit Name und ";" (#1018).</summary>
     procedure UnitHints(var AUnit: TUnitIndex);
     property Tokens: TArray<TPascalToken> read FTokens;
@@ -78,15 +95,16 @@ uses
   System.SysUtils,
   System.StrUtils,
   System.Math,
-  System.RegularExpressions,
-  dpcc.Common.Pascal.XmlDoc,
   dpcc.Common.Pascal.Preprocessor,
   dpcc.Common.Index.Extractor.TypeText;
 
 const
   cHintDirectives: array[0..3] of string = ('deprecated', 'platform', 'library', 'experimental');
   cNoSpaceBefore: array[0..9] of string = (';', ',', ')', ']', ':', '.', '(', '[', '^', '>');
-  cNoSpaceAfter: array[0..4] of string = ('(', '[', '.', '<', '@');
+  cNoSpaceAfter: array[0..3] of string = ('(', '[', '.', '@');
+  /// <summary>Hinter diesen Zeichen beginnt ein Ausdruck oder Typ (L1).</summary>
+  cOperandAfter: array[0..12] of string = ('=', ':', ',', ':=', '+', '-', '*', '/', '<>', '<=', '>=', '(', '[');
+  cOperandAfterWords: array[0..9] of string = ('of', 'to', 'in', 'and', 'or', 'not', 'xor', 'div', 'mod', 'set');
 
 /// <summary>Gehört AToken in den Text einer Signatur? Kommentare und Direktiven nicht, {$I datei.inc} als Wert
 /// (#849) schon: AddIncluded setzt den Inhalt ein.</summary>
@@ -98,12 +116,69 @@ begin
     TPascalPreprocessor.IncludeFileOf(AToken.Text, mIncludeName));
 end;
 
-/// <summary>Hängt AToken an; Leerzeichen nur, wo kein Satzzeichen es verbietet ("A: Integer", "F(A)").</summary>
-procedure AppendTokenText(ABuilder: TStringBuilder; const AToken: TPascalToken; const APrevious: string);
+/// <summary>Steht vor AToken ein Operator, ein Komma oder ein Schlüsselwort wie "of"? Dann beginnt AToken einen
+/// Ausdruck oder Typ: "= ^Integer", "= (rot, gruen)", "of (a, b)", "= []" (L1).</summary>
+function StartsOperand(const APrevious: TPascalToken): Boolean;
 begin
-  if (ABuilder.Length > 0) and (AToken.Text <> '') and
-    not ((AToken.Kind = TPascalTokenKind.Symbol) and (IndexStr(AToken.Text, cNoSpaceBefore) >= 0)) and
-    (IndexStr(APrevious, cNoSpaceAfter) < 0) then
+  Result := ((APrevious.Kind = TPascalTokenKind.Symbol) and (IndexStr(APrevious.Text, cOperandAfter) >= 0)) or
+    ((APrevious.Kind = TPascalTokenKind.Keyword) and (IndexText(APrevious.Text, cOperandAfterWords) >= 0));
+end;
+
+/// <summary>Steht AToken im Quelltext direkt hinter APrevious, ohne Leerraum dazwischen?</summary>
+function Glued(const APrevious, AToken: TPascalToken): Boolean;
+begin
+  Result := (APrevious.Text <> '') and (APrevious.Offset + Length(APrevious.Text) = AToken.Offset);
+end;
+
+/// <summary>Kein Leerzeichen vor AToken? Satzzeichen wie ";" und ")" nie; "(" und "[" nicht hinter Namen ("F(A)"),
+/// wohl aber hinter "=" oder "of"; "^" als Zeiger ("= ^Integer") mit, als Dereferenzierung ("P^") ohne; "&lt;" und
+/// "&gt;" wie im Quelltext (TList&lt;T&gt; ohne, A &lt; B mit, L1).</summary>
+function NoSpaceBefore(const AToken, APrevious: TPascalToken): Boolean;
+begin
+  Result := False;
+  if AToken.Kind <> TPascalTokenKind.Symbol then
+  begin
+    Exit;
+  end;
+  if (AToken.Text = '(') or (AToken.Text = '[') or (AToken.Text = '^') then
+  begin
+    Result := not StartsOperand(APrevious);
+  end
+  else if (AToken.Text = '<') or (AToken.Text = '>') then
+  begin
+    Result := Glued(APrevious, AToken);
+  end
+  else
+  begin
+    // Teilbereich ohne Leerzeichen wie im Quelltext üblich: 0..9 (L1).
+    Result := (IndexStr(AToken.Text, cNoSpaceBefore) >= 0) or (AToken.Text = '..');
+  end;
+end;
+
+/// <summary>Kein Leerzeichen hinter APrevious? Hinter "(", "[", "." und "@" nie, hinter einem Zeiger-"^" auch nicht,
+/// hinter "&lt;" nur, wenn der Quelltext keins hat (L1).</summary>
+function NoSpaceAfter(const APrevious, AToken, ABeforePrevious: TPascalToken): Boolean;
+begin
+  if (APrevious.Kind = TPascalTokenKind.Symbol) and (APrevious.Text = '^') then
+  begin
+    Result := StartsOperand(ABeforePrevious);
+  end
+  else if (APrevious.Kind = TPascalTokenKind.Symbol) and (APrevious.Text = '<') then
+  begin
+    Result := Glued(APrevious, AToken);
+  end
+  else
+  begin
+    Result := (IndexStr(APrevious.Text, cNoSpaceAfter) >= 0) or
+      ((APrevious.Kind = TPascalTokenKind.Symbol) and (APrevious.Text = '..'));
+  end;
+end;
+
+/// <summary>Hängt AToken an; Leerzeichen nur, wo kein Satzzeichen es verbietet ("A: Integer", "F(A)").</summary>
+procedure AppendTokenText(ABuilder: TStringBuilder; const AToken, APrevious, ABeforePrevious: TPascalToken);
+begin
+  if (ABuilder.Length > 0) and (AToken.Text <> '') and not NoSpaceBefore(AToken, APrevious) and
+    not NoSpaceAfter(APrevious, AToken, ABeforePrevious) then
   begin
     ABuilder.Append(' ');
   end;
@@ -283,6 +358,24 @@ begin
     (FTokens[mIndex].IsKeyword('constructor') or FTokens[mIndex].IsKeyword('destructor'));
 end;
 
+function TIndexTokenReader.RoutineWord(ANode: TSyntaxNode): string;
+var
+  mIndex: Integer;
+begin
+  mIndex := NextCode(TokenIndexAt(ANode.StartOffset));
+  if (mIndex < Length(FTokens)) and FTokens[mIndex].IsKeyword('class') then
+  begin
+    mIndex := NextCode(mIndex + 1);
+  end;
+  Result := '';
+  if (mIndex < Length(FTokens)) and (FTokens[mIndex].Kind in [TPascalTokenKind.Keyword,
+    TPascalTokenKind.Identifier]) and MatchText(FTokens[mIndex].Text, ['procedure', 'function', 'constructor',
+    'destructor', 'operator']) then
+  begin
+    Result := LowerCase(FTokens[mIndex].Text);
+  end;
+end;
+
 function TIndexTokenReader.IsClassMember(ANode: TSyntaxNode): Boolean;
 var
   mIndex: Integer;
@@ -321,17 +414,22 @@ begin
 end;
 
 function TIndexTokenReader.TokenText(AFrom, ATo: Integer; AFirstLine: Boolean): string;
+begin
+  Result := TokenText(AFrom, ATo, AFirstLine, TIndexSymbol.cMaxSignature);
+end;
+
+function TIndexTokenReader.TokenText(AFrom, ATo: Integer; AFirstLine: Boolean; AMax: Integer): string;
 var
   mBuilder: TStringBuilder;
   mIndex, mDepth, mFirstLine: Integer;
-  mToken: TPascalToken;
-  mPrevious: string;
+  mToken, mPrevious, mBeforePrevious: TPascalToken;
 begin
   mBuilder := TStringBuilder.Create;
   try
     mDepth := 0;
     mFirstLine := -1;
-    mPrevious := '';
+    mPrevious := Default(TPascalToken);
+    mBeforePrevious := Default(TPascalToken);
     for mIndex := Max(AFrom, 0) to Min(ATo, High(FTokens)) do
     begin
       mToken := FTokens[mIndex];
@@ -347,10 +445,11 @@ begin
       begin
         Break;
       end;
-      AppendTokenText(mBuilder, mToken, mPrevious);
+      AppendTokenText(mBuilder, mToken, mPrevious, mBeforePrevious);
       mDepth := DepthAfter(mToken, mDepth);
-      mPrevious := mToken.Text;
-      if mBuilder.Length > TIndexSymbol.cMaxSignature then
+      mBeforePrevious := mPrevious;
+      mPrevious := mToken;
+      if (AMax > 0) and (mBuilder.Length > AMax) then
       begin
         Break;
       end;
@@ -359,7 +458,19 @@ begin
   finally
     mBuilder.Free;
   end;
-  Result := Shortened(Result, TIndexSymbol.cMaxSignature);
+  if AMax > 0 then
+  begin
+    Result := Shortened(Result, AMax);
+  end;
+end;
+
+function TIndexTokenReader.NodeText(ANode: TSyntaxNode): string;
+begin
+  Result := '';
+  if ANode <> nil then
+  begin
+    Result := TokenText(TokenIndexAt(ANode.StartOffset), TokenIndexAt(ANode.EndOffset) - 1, False, 0);
+  end;
 end;
 
 function TIndexTokenReader.StringLengthSuffix(ANode: TSyntaxNode): string;
@@ -385,6 +496,11 @@ var
 begin
   if AKind = TIndexSymbolKind.EnumMember then
   begin
+    // Ausdrücklicher Wert (L1): Der Parser hängt ihn an den Bezeichner, A = B + 1.
+    if ANode.ChildCount > 0 then
+    begin
+      Exit(Shortened(AName + ' = ' + NodeText(ANode[0]), TIndexSymbol.cMaxSignature));
+    end;
     Exit(AName);
   end;
   // A, B: Integer: je Name eine eigene Signatur.
@@ -394,7 +510,7 @@ begin
   end;
   mNode := TIndexTypeText.HeaderOf(ANode);
   Result := TokenText(TokenIndexAt(mNode.StartOffset), TokenIndexAt(mNode.EndOffset) - 1,
-    IsFirstLineKind(mNode, AKind));
+    IsFirstLineKind(mNode, AKind), TIndexSymbol.MaxSignatureOf(AKind));
   // Ein abschließendes Semikolon gehört nicht zur Anzeige.
   while Result.EndsWith(';') do
   begin
@@ -553,44 +669,137 @@ begin
   end;
 end;
 
-function TIndexTokenReader.SummaryOf(ANode: TSyntaxNode): string;
+function TIndexTokenReader.ExternalEntries(AHeader: TSyntaxNode): TArray<string>;
 var
-  mIndex, mDepth: Integer;
-  mLines: TArray<string>;
-  mDoc: TXmlDoc;
+  mIndex, mToken, mLast: Integer;
+  mKey: string;
 begin
-  Result := '';
-  mIndex := TokenIndexAt(ANode.StartOffset) - 1;
-  // Attribute zwischen Doku und Deklaration überspringen: [Weak] /// steht darüber.
-  while (mIndex >= 0) and FTokens[mIndex].IsSymbol(']') do
-  begin
-    mDepth := 0;
-    repeat
-      if FTokens[mIndex].IsSymbol(']') then
-      begin
-        Inc(mDepth);
-      end
-      else if FTokens[mIndex].IsSymbol('[') then
-      begin
-        Dec(mDepth);
-      end;
-      Dec(mIndex);
-    until (mIndex < 0) or (mDepth = 0);
-  end;
-  mLines := nil;
-  while (mIndex >= 0) and (FTokens[mIndex].Kind = TPascalTokenKind.Comment) and
-    FTokens[mIndex].Text.StartsWith('///') do
-  begin
-    mLines := [Copy(FTokens[mIndex].Text, 4, MaxInt)] + mLines;
-    Dec(mIndex);
-  end;
-  if Length(mLines) = 0 then
+  Result := nil;
+  if (AHeader = nil) or (AHeader.Kind <> TSyntaxKind.RoutineHeader) then
   begin
     Exit;
   end;
-  mDoc := TXmlDoc.Parse(String.Join(#10, mLines));
-  // Eine Zeile, Leerraum zusammengefasst.
-  Result := Shortened(TRegEx.Replace(mDoc.Summary, '\s+', ' ').Trim, TIndexSymbol.cMaxSummary);
+  for mIndex := 0 to AHeader.ChildCount - 1 do
+  begin
+    if (AHeader[mIndex].Kind <> TSyntaxKind.Directive) or not SameText(AHeader[mIndex].Name, 'external') then
+    begin
+      Continue;
+    end;
+    // external user32 name 'MessageBoxW' index 12: Die Angaben stehen im Bereich der Direktive.
+    mToken := NextCode(TokenIndexAt(AHeader[mIndex].StartOffset) + 1);
+    mLast := TokenIndexAt(AHeader[mIndex].EndOffset) - 1;
+    mKey := 'external';
+    while mToken <= mLast do
+    begin
+      if SameText(FTokens[mToken].Text, 'delayed') then
+      begin
+        if IndexText('delayed', Result) < 0 then
+        begin
+          Result := Result + ['delayed'];
+        end;
+      end
+      else if (mKey = '') and (FTokens[mToken].Kind in [TPascalTokenKind.Identifier, TPascalTokenKind.Keyword]) and
+        MatchText(FTokens[mToken].Text, ['name', 'index']) then
+      begin
+        mKey := LowerCase(FTokens[mToken].Text);
+      end
+      else if (mKey <> '') and not FTokens[mToken].IsSymbol(';') then
+      begin
+        Result := Result + [mKey + ':' + Unquoted(FTokens[mToken].Text)];
+        mKey := '';
+      end;
+      mToken := NextCode(mToken + 1);
+    end;
+  end;
+end;
+
+function TIndexTokenReader.MessageEntry(AHeader: TSyntaxNode): string;
+var
+  mIndex, mToken, mLast: Integer;
+begin
+  Result := '';
+  if (AHeader = nil) or (AHeader.Kind <> TSyntaxKind.RoutineHeader) then
+  begin
+    Exit;
+  end;
+  for mIndex := 0 to AHeader.ChildCount - 1 do
+  begin
+    if (AHeader[mIndex].Kind = TSyntaxKind.Directive) and SameText(AHeader[mIndex].Name, 'message') then
+    begin
+      mToken := NextCode(TokenIndexAt(AHeader[mIndex].StartOffset) + 1);
+      mLast := TokenIndexAt(AHeader[mIndex].EndOffset) - 1;
+      if mToken <= mLast then
+      begin
+        Exit('message:' + TokenText(mToken, mLast, False, 0));
+      end;
+    end;
+  end;
+end;
+
+function TIndexTokenReader.ConstraintEntries(ANode: TSyntaxNode): TArray<string>;
+var
+  mParams: TSyntaxNode;
+  mIndex, mLast, mDepth: Integer;
+  mNames: TArray<string>;
+  mConstraints, mName: string;
+  mInConstraints: Boolean;
+begin
+  // <K, V: class; T: IFoo, constructor>: Nach ":" gelten die Einschränkungen bis ";" für alle Namen davor.
+  Result := nil;
+  mParams := TIndexTypeText.HeaderOf(ANode).FindChild(TSyntaxKind.GenericParams);
+  if mParams = nil then
+  begin
+    Exit;
+  end;
+  mNames := nil;
+  mConstraints := '';
+  mInConstraints := False;
+  mDepth := 0;
+  mIndex := NextCode(TokenIndexAt(mParams.StartOffset) + 1);
+  mLast := TokenIndexAt(mParams.EndOffset) - 1;
+  while mIndex <= mLast + 1 do
+  begin
+    if (mIndex > mLast) or ((mDepth = 0) and (FTokens[mIndex].IsSymbol(';') or FTokens[mIndex].IsSymbol('>') or
+      FTokens[mIndex].IsSymbol('>='))) then
+    begin
+      // Ende einer Gruppe: Ihre Einschränkungen gelten für jeden Namen der Gruppe.
+      if mConstraints <> '' then
+      begin
+        for mName in mNames do
+        begin
+          Result := Result + ['<' + mName + ':' + mConstraints + '>'];
+        end;
+      end;
+      mNames := nil;
+      mConstraints := '';
+      mInConstraints := False;
+      if (mIndex > mLast) or not FTokens[mIndex].IsSymbol(';') then
+      begin
+        Break;
+      end;
+    end
+    else if (mDepth = 0) and FTokens[mIndex].IsSymbol(':') then
+    begin
+      mInConstraints := True;
+    end
+    else if mInConstraints then
+    begin
+      if FTokens[mIndex].IsSymbol('<') then
+      begin
+        Inc(mDepth);
+      end
+      else if (FTokens[mIndex].IsSymbol('>') or FTokens[mIndex].IsSymbol('>=')) and (mDepth > 0) then
+      begin
+        Dec(mDepth);
+      end;
+      mConstraints := mConstraints + FTokens[mIndex].Text;
+    end
+    else if FTokens[mIndex].Kind = TPascalTokenKind.Identifier then
+    begin
+      mNames := mNames + [FTokens[mIndex].Text];
+    end;
+    mIndex := NextCode(mIndex + 1);
+  end;
 end;
 
 function TIndexTokenReader.AfterUnitName(AIndex: Integer): Integer;

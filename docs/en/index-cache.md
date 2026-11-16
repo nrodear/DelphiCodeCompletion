@@ -26,6 +26,36 @@ In addition:
 
 The index contains declarations, not usages. Its memory limit is fixed (768 MB).
 
+### Content per declaration
+
+Since cache format 35, the index keeps more per declaration:
+
+- Values of enumerations without `{$SCOPEDENUMS ON}` are in the catalog. “+ Unit” therefore also suggests `fsBold`,
+  `ssShift` or `rfReplaceAll`. Values of anonymous enumerations (`set of (a, b)`, `F: (x, y)`) and fields of anonymous
+  records (`F: record … end`) are in the index with the type or field name as their container.
+- The catalog knows the number of type parameters. “+ Unit” shows generic types with placeholders (`TList<T>`) and
+  inserts only the name. If a `<` follows the word, the generic type comes first, otherwise the one of the same name
+  without type parameters (for example `TList` from `System.Classes`).
+- An explicit value in an enumeration (`A = B + 1`) belongs to its value; before, `B` counted as another value.
+- In library units, the index no longer stores the bodies in the implementation section that repeat a declaration of
+  the interface. The details of a DLL routine (`external`, `name`, `index`, `delayed`) and the line of the body are
+  stored with the declaration. Routines that only exist in the implementation section remain. Project units are not
+  affected.
+- Pointers, arrays, sets, `class of`, procedural types and subranges keep their target type (`PInteger` → `^Integer`,
+  including array bounds), also for fields and variables of an anonymous type. Attributes (`[Weak]`), the kinds
+  `resourcestring`, `threadvar`, `class operator` and `destructor`, the message after `message` and the constraints of
+  type parameters are in the index as well.
+- Signatures of routines, methods and constructors are stored with up to 1000 characters, all others with up to 300
+  characters. dpcc reads the full length from the source file when needed, as well as the declaration from a branch
+  that does not apply (detail view of the list).
+- Conditional compilation: dpcc evaluates constants of the same unit such as `GenericSafeArrays = False` in `{$IF}`,
+  `Declared()` knows the built-in types (`AnsiChar`, `Integer` …), and the library reads `{$IFOPT}` with the
+  compiler defaults. Before, both branches applied in these cases. A declaration of the same name in a branch that
+  does not apply (`{$IFDEF WIN64} function F(…)` … `{$ELSE}` …) is shown as unavailable, even if the branch that
+  applies has the same name; `A, B: T` in a `var` section yields both names.
+- `.dpk`: `contains` counts like `uses`, `requires` is kept separately.
+- The index no longer stores the XMLDoc summary. Hover and list read the documentation from the source file as before.
+
 ### Library on demand
 
 Of the library, the index keeps only a part in memory with all symbols. Always loaded (pinned) are:
@@ -111,9 +141,14 @@ The format version is part of the file name. This way, different versions of dpc
 Since format 34, every unit is stored in a block of its own with its own checksum. A directory at the end of the file
 lists all units with their catalog. At startup, dpcc reads only the directory and the blocks of the units it loads,
 through an open handle; another instance can still replace the file. A damaged block affects only its unit; dpcc then
-reads it again from the source file. dpcc no longer reads caches of older formats (for example `index-33.dpccidx`): the
-first start after the update builds the index once more. The old file stays until the size-based cleanup removes it;
-“Rebuild index” (see [below](#rebuilding-the-index)) deletes it at once.
+reads it again from the source file. The current format 35 adds the content from
+[Content per declaration](#content-per-declaration).
+
+dpcc no longer reads caches of older formats (for example `index-34.dpccidx`): the first start after the update builds
+the index once more. As soon as dpcc has written a cache in the new format, it deletes the files
+`index-<number>.dpccidx` of older formats in the same folder together with their `.lock` file, unless another instance
+holds them (for example an older version of dpcc in a second IDE). Other files remain. “Rebuild index” (see
+[below](#rebuilding-the-index)) deletes all caches at once.
 
 During the first build without a cache, dpcc writes the library cache in between so that the newly read units may leave
 memory again. It only appends the new blocks and a new directory to the file, and only to the file it last wrote itself

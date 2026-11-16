@@ -181,6 +181,19 @@ begin
       Exit;
     end;
   end;
+  // Deklaration aus einem nicht geltenden Zweig (L1): Der Index kennt nur Name und Zeile, die Deklaration liest
+  // Details aus dem Text (TIndexFiles.SourceSignature).
+  for mCandidate in ASite.UnitInfo.Unavailable do
+  begin
+    if (ComparePositions(mCandidate.SelectionRange.StartPos, APosition) = 0) and
+      SameText(ASite.UnitInfo.SymbolFile(mCandidate), ASite.FileName) then
+    begin
+      ASite.Symbol := mCandidate;
+      ASite.Found := True;
+      ASite.Range := mCandidate.Range;
+      Exit;
+    end;
+  end;
 end;
 
 /// <summary>container, visibility und helper (#456: Das Panel zeigt dann „Helper · Unit“).</summary>
@@ -339,7 +352,14 @@ begin
   begin
     Result.AddPair('unit', mSite.UnitInfo.UnitName);
   end;
-  mDeclaration := TInterfaceStubs.DeclarationOf(mSite.Lines, mSite.Range);
+  if mSite.Found and mSite.Symbol.Unavailable then
+  begin
+    mDeclaration := TIndexFiles.SourceSignature(AText, mSite.Symbol);
+  end
+  else
+  begin
+    mDeclaration := TInterfaceStubs.DeclarationOf(mSite.Lines, mSite.Range);
+  end;
   AddText(Result, 'declaration', mDeclaration);
   AddContainer(Result, mSite);
   AddDirectives(Result, mDeclaration);

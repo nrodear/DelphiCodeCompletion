@@ -82,6 +82,13 @@
         <DCCReference Include="Common\Lsp\dpcc.Common.Lsp.Hover.UnitContents.Tests.pas"/>
         <DCCReference Include="Common\Lsp\dpcc.Common.Lsp.HoverTypes.Tests.pas"/>
         <DCCReference Include="Common\Lsp\dpcc.Common.Lsp.HoverValues.Tests.pas"/>
+        <DCCReference Include="Common\Index\dpcc.Common.Index.Extractor.Tests.pas"/>
+        <DCCReference Include="Common\Index\dpcc.Common.Index.Extractor.Tokens.Tests.pas"/>
+        <DCCReference Include="Common\Index\dpcc.Common.Index.Extractor.TypeText.Tests.pas"/>
+        <DCCReference Include="Common\Index\dpcc.Common.Index.Extractor.Conditions.Tests.pas"/>
+        <DCCReference Include="Common\Index\dpcc.Common.Index.Content.Tests.pas"/>
+        <DCCReference Include="Common\Pascal\dpcc.Common.Pascal.Parser.Tests.pas"/>
+        <DCCReference Include="Common\Pascal\dpcc.Common.Pascal.Preprocessor.Tests.pas"/>
         <DCCReference Include="Support\dpcc.Tests.LeakMonitor.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Localization\dpcc.Core.Localization.Language.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Lsp\dpcc.Core.Lsp.Client.pas"/>
