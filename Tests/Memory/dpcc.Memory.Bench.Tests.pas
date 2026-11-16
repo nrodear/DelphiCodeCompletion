@@ -26,6 +26,12 @@
 //   über Vervollständigungen; danach so viele Vervollständigungen auf zufällige Units der Bibliothek in einer anderen
 //   Unit. Die Zeile "[pinned]" nennt Nachladen und Verdrängen während dieser Vervollständigungen (Phase 4: Units aus
 //   den uses zählen nicht gegen die Grenze der verdrängbaren Units).
+// - DPCC_MEMBENCH_FREQUENT (Vorgabe 0): so viele Runden mit einem häufigen Namen oberster Ebene
+//   (DPCC_MEMBENCH_FREQNAMES, kommagetrennt, Vorgabe "Register"): eine Vervollständigung nach ":=" auf eine Variable
+//   dieses Typs (der Server sucht ihn über FindSymbols und lädt alle kalten Units mit diesem Namen), dann fünf
+//   Vervollständigungen auf zufällige Units der Bibliothek in einer anderen Unit, die wieder verdrängen. Die Zeile
+//   "[frequent]" nennt Nachladen, Verdrängen, die Antwortzeiten der Suche und die größten verdrängbaren Units nach ihr
+//   (Speicher-Optimierung Phase 5).
 // Je Messpunkt eine Zeile "[lazy]" mit geladenen, gepinnten, verdrängbaren und verdrängten Units, Katalog und
 // Dauer des Nachladens (Median, Höchstwert, größte Unit).
 // Der Cache gehört nicht dem Benutzer: Der Aufrufer setzt LOCALAPPDATA bzw. DPCC_CACHE_ROOT auf einen eigenen Ordner
@@ -173,6 +179,8 @@ type
     procedure Typing(ARounds: Integer);
     /// <summary>Units aus den uses einer Projekt-Unit über der Grenze, dann Nachladen (Phase 4).</summary>
     procedure PinnedLoad(ACount: Integer);
+    /// <summary>Suche nach einem häufigen Namen oberster Ebene im Wechsel mit Nachladen (Phase 5).</summary>
+    procedure FrequentName(ARounds: Integer);
     /// <summary>Zustand des Nachladens nach einer Anfrage auf AFile.</summary>
     function LazyNow(const AFile: string): TIndexLazyStats;
     /// <summary>Die ausgewählten Dateien unter Packages (Units der Projekte).</summary>
@@ -1055,6 +1063,101 @@ begin
   FSession.Sync(mFile, FTexts[mFile]);
 end;
 
+procedure TBench.FrequentName(ARounds: Integer);
+var
+  mFile, mOther, mOwn, mOtherOwn, mName, mUnit: string;
+  mNames, mFiles, mAll: TArray<string>;
+  mRound, mCold, mFailed: Integer;
+  mWatch: TStopwatch;
+  mResponse: TJSONValue;
+  mTimes: TList<Double>;
+  mSorted: TArray<Double>;
+  mBefore, mAfter, mNow: TIndexLazyStats;
+  mMaxEvictable: Int64;
+  mMaxLoaded: Integer;
+begin
+  mNames := Trim(GetEnvironmentVariable('DPCC_MEMBENCH_FREQNAMES')).Split([','], TStringSplitOptions.ExcludeEmpty);
+  if Length(mNames) = 0 then
+  begin
+    mNames := ['Register'];
+  end;
+  mFiles := PackageFiles;
+  mAll := LibraryFiles;
+  if (ARounds <= 0) or (Length(mFiles) < 2) or (Length(mAll) = 0) then
+  begin
+    Exit;
+  end;
+  mFile := mFiles[0];
+  mOther := mFiles[1];
+  mOwn := ChangeFileExt(ExtractFileName(mFile), '');
+  mOtherOwn := ChangeFileExt(ExtractFileName(mOther), '');
+  EnsureOpen(mOther);
+  EnsureOpen(mFile);
+  RandSeed := 2025;
+  mTimes := TList<Double>.Create;
+  try
+    mFailed := 0;
+    mMaxEvictable := 0;
+    mMaxLoaded := 0;
+    mBefore := LazyNow(mFile);
+    for mRound := 1 to ARounds do
+    begin
+      mName := mNames[(mRound - 1) mod Length(mNames)];
+      // Variable eines Typs, den der Bereich nicht kennt: Die Vervollständigung nach ":=" sucht ihn im ganzen Index
+      // (FindSymbols) und lädt dafür alle kalten Units, deren Katalog den Namen hat.
+      try
+        FSession.Sync(mFile, Format('unit %s;'#13#10'interface'#13#10'implementation'#13#10'procedure BenchFrequent;' +
+          #13#10'var'#13#10'  V: %s;'#13#10'begin'#13#10'  V := '#13#10'end;'#13#10'end.'#13#10, [mOwn, mName]));
+        mWatch := TStopwatch.StartNew;
+        mResponse := FSession.Completion(mFile, 7, 7, cRequestTimeoutMs);
+        mResponse.Free;
+        mTimes.Add(mWatch.Elapsed.TotalMilliseconds);
+        Inc(FRequests);
+      except
+        on Exception do
+        begin
+          Inc(FFailures);
+          Inc(mFailed);
+        end;
+      end;
+      mNow := LazyNow(mFile);
+      mMaxEvictable := Max(mMaxEvictable, mNow.EvictableBytes);
+      mMaxLoaded := Max(mMaxLoaded, mNow.Loaded);
+      // Dann Nachladen anderer Units: verdrängt wieder.
+      for mCold := 1 to 5 do
+      begin
+        mUnit := ChangeFileExt(ExtractFileName(mAll[Random(Length(mAll))]), '');
+        try
+          FSession.Sync(mOther, Format('unit %s;'#13#10'interface'#13#10'uses %s;'#13#10'implementation'#13#10 +
+            'procedure BenchProbe;'#13#10'begin'#13#10'  %s.'#13#10'end;'#13#10'end.'#13#10,
+            [mOtherOwn, mUnit, mUnit]));
+          mResponse := FSession.Completion(mOther, 6, Length(mUnit) + 3, cRequestTimeoutMs);
+          mResponse.Free;
+          Inc(FRequests);
+        except
+          on Exception do
+          begin
+            Inc(FFailures);
+            Inc(mFailed);
+          end;
+        end;
+      end;
+    end;
+    mAfter := LazyNow(mFile);
+    mSorted := mTimes.ToArray;
+    TArray.Sort<Double>(mSorted);
+    System.Writeln(Format('[frequent] Namen %s Runden %d gescheitert %d: nachgeladen %d verdrängt %d; ' +
+      'Suche median %s ms max %s ms; nach der Suche höchstens %s MB verdrängbar, %d geladen',
+      [string.Join(',', mNames), ARounds, mFailed, mAfter.Loads - mBefore.Loads, mAfter.Evictions - mBefore.Evictions, FormatFloat('0.0', Percentile(mSorted, 50),
+      TFormatSettings.Invariant), FormatFloat('0.0', Percentile(mSorted, 100), TFormatSettings.Invariant),
+      Mb(mMaxEvictable), mMaxLoaded]));
+  finally
+    mTimes.Free;
+  end;
+  FSession.Sync(mFile, FTexts[mFile]);
+  FSession.Sync(mOther, FTexts[mOther]);
+end;
+
 procedure TBench.Rebuild;
 begin
   // Wie „.dproj gespeichert“: Der Server lädt das Projekt neu und baut den Index auf (Reload). Die Sitzung schickt
@@ -1093,6 +1196,12 @@ begin
     FSampler.SetPhase('pinned');
     PinnedLoad(EnvInt('DPCC_MEMBENCH_PINNED', 0));
     Point(Format('pinned %d', [EnvInt('DPCC_MEMBENCH_PINNED', 0)]));
+  end;
+  if EnvInt('DPCC_MEMBENCH_FREQUENT', 0) > 0 then
+  begin
+    FSampler.SetPhase('frequent');
+    FrequentName(EnvInt('DPCC_MEMBENCH_FREQUENT', 0));
+    Point(Format('frequent %d', [EnvInt('DPCC_MEMBENCH_FREQUENT', 0)]));
   end;
   for mIndex := 1 to ARebuilds do
   begin

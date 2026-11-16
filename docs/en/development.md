@@ -64,7 +64,7 @@ Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --exclude:Benchmark --exitbehav
 | `Tests\Common\Lsp` | server side: completion, hover, parameter hint |
 | `Tests\IDE` | plugin side without ToolsAPI: flow of the list, ranking, favorites, set mode, placeholders, settings, texts |
 | `Tests\Application\Shell` | shell of the server |
-| `Tests\Common` | memory: self-measurement, names of the `.dcp`, shared cache, Office type libraries and WinRT, release after the server ends, documents, name and reference tables, signatures in the cache, cache format 34, catalog, loading on demand and eviction, usage statistics, search across units not loaded, protected units, reuse of the reference tables, concurrent loading, appending to the cache |
+| `Tests\Common` | memory: self-measurement, names of the `.dcp`, shared cache, Office type libraries and WinRT, release after the server ends, documents, name and reference tables, signatures in the cache, cache format 34, catalog, loading on demand and eviction, usage statistics, search across units not loaded, protected units, reuse of the reference tables, concurrent loading, appending to the cache, compacting the cache, releasing the shared states after a stop, writing the usage statistics |
 | `Tests\Memory` | memory benchmark (category `Benchmark`) |
 | `Tests\Support` | helpers: fixed data source, leak monitoring |
 
@@ -90,6 +90,7 @@ count loading and eviction (`DPCC_MEMBENCH_PINNED`).
 | `DPCC_MEMBENCH_COLD`, `DPCC_MEMBENCH_LIBDIR` | number of completions “Unit.” on random units of the library (0) and the folder of their sources (`source` of Delphi 13) |
 | `DPCC_MEMBENCH_TYPING` | typing rounds (0): four keystrokes each, then the typing pause; meanwhile a second thread sends requests. Line “[typing]” with median, 95th and 99th percentile and maximum of the response times, each one in `<file>-latency.csv` |
 | `DPCC_MEMBENCH_PINNED`, `DPCC_MEMBENCH_PINNEDUNITS`, `DPCC_MEMBENCH_PINNEDCOUNT` | completions on random units (0) after a project unit names and loads large units in its `uses`: comma-separated names or the largest files of the library (80). Line “[pinned]” with loading and eviction |
+| `DPCC_MEMBENCH_FREQUENT`, `DPCC_MEMBENCH_FREQNAMES` | rounds (0) with a frequent top-level name (comma-separated, default `Register`): a completion after “:=” on a variable of this type (searches it in all units), then five completions on random units. Line “[frequent]” with loading, eviction and response times of the search |
 | `DPCC_CACHE_ROOT` or `LOCALAPPDATA`, `APPDATA` | own folders so that the user's cache stays untouched; for a warm start, put a copy of the library cache there |
 
 ```

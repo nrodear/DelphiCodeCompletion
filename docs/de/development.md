@@ -64,7 +64,7 @@ Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --exclude:Benchmark --exitbehav
 | `Tests\Common\Lsp` | Server-Seite: Vervollständigung, Hover, Parameterhilfe |
 | `Tests\IDE` | Plugin-Seite ohne ToolsAPI: Ablauf der Liste, Rangfolge, Favoriten, Mengenmodus, Platzhalter, Einstellungen, Texte |
 | `Tests\Application\Shell` | Hülle des Servers |
-| `Tests\Common` | Speicher: Selbstmessung, Namen der `.dcp`, gemeinsamer Cache, Office-Typbibliotheken und WinRT, Freigabe nach dem Ende des Servers, Dokumente, Namens- und Verweistabellen, Signaturen im Cache, Cache-Format 34, Katalog, Nachladen und Verdrängen, Nutzungsstatistik, Suche über nicht geladene Units, geschützte Units, Wiederverwendung der Verweistabellen, gleichzeitiges Nachladen, Anhängen an den Cache |
+| `Tests\Common` | Speicher: Selbstmessung, Namen der `.dcp`, gemeinsamer Cache, Office-Typbibliotheken und WinRT, Freigabe nach dem Ende des Servers, Dokumente, Namens- und Verweistabellen, Signaturen im Cache, Cache-Format 34, Katalog, Nachladen und Verdrängen, Nutzungsstatistik, Suche über nicht geladene Units, geschützte Units, Wiederverwendung der Verweistabellen, gleichzeitiges Nachladen, Anhängen an den Cache, Verdichten des Caches, Freigabe der gemeinsamen Stände nach dem Stopp, Schreiben der Nutzungsstatistik |
 | `Tests\Memory` | Messprogramm für den Speicher (Kategorie `Benchmark`) |
 | `Tests\Support` | Hilfen: feste Datenquelle, Leck-Überwachung |
 
@@ -90,6 +90,7 @@ Vervollständigungen auf zufällige Units, die Nachladen und Verdrängen zählen
 | `DPCC_MEMBENCH_COLD`, `DPCC_MEMBENCH_LIBDIR` | Zahl der Vervollständigungen „Unit.“ auf zufällige Units der Bibliothek (0) und der Ordner ihrer Quellen (`source` von Delphi 13) |
 | `DPCC_MEMBENCH_TYPING` | Tipp-Runden (0): je vier Tastendrücke, dann die Tipp-Pause; ein zweiter Thread fragt währenddessen an. Zeile „[typing]“ mit Median, 95. und 99. Perzentil und Höchstwert der Antwortzeiten, jede einzelne in `<Datei>-latency.csv` |
 | `DPCC_MEMBENCH_PINNED`, `DPCC_MEMBENCH_PINNEDUNITS`, `DPCC_MEMBENCH_PINNEDCOUNT` | Vervollständigungen auf zufällige Units (0), nachdem eine Projekt-Unit große Units in ihren `uses` nennt und lädt: kommagetrennte Namen bzw. die größten Dateien der Bibliothek (80). Zeile „[pinned]“ mit Nachladen und Verdrängen |
+| `DPCC_MEMBENCH_FREQUENT`, `DPCC_MEMBENCH_FREQNAMES` | Runden (0) mit einem häufigen Namen oberster Ebene (kommagetrennt, Vorgabe `Register`): eine Vervollständigung nach „:=“ auf eine Variable dieses Typs (sucht ihn in allen Units), dann fünf Vervollständigungen auf zufällige Units. Zeile „[frequent]“ mit Nachladen, Verdrängen und Antwortzeiten der Suche |
 | `DPCC_CACHE_ROOT` bzw. `LOCALAPPDATA`, `APPDATA` | eigene Ordner, damit der Cache des Benutzers unberührt bleibt; für einen warmen Start eine Kopie des Bibliotheks-Caches hineinlegen |
 
 ```

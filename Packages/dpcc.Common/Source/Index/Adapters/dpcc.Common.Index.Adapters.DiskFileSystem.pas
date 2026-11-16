@@ -20,8 +20,12 @@
 //
 // Ergänzen an Ort und Stelle (IIndexFileAppend, Speicher-Optimierung Phase 4): Beim ersten Aufbau schreibt der Dienst
 // den Bibliotheks-Cache zwischendurch; statt die ganze Datei jedes Mal neu zu schreiben, hängt er nur die neuen Blöcke
-// und ein neues Verzeichnis an. Das geht nur, solange die Datei den erwarteten Zeitstempel hat; Leser mit offenem
-// Handle lesen ihre Blöcke unverändert weiter.
+// und ein neues Verzeichnis an. Das geht nur, solange die Datei den erwarteten Zeitstempel hat und der Aufrufer Größe
+// und Kopf bestätigt (Phase 5: der auf ms gerundete Zeitstempel allein erkannte eine ersetzte Datei nicht sicher).
+// Leser lesen ihre Blöcke unverändert weiter: mit offenem Handle (TWindowsSharedRead) ohnehin, der Leser ohne Opener
+// der Plattform (TReopeningBlockReader, z. B. in Tests) seit Phase 5 auch, solange die Datei nur am Ende gewachsen ist.
+// Vorher lehnte er nach jedem Ergänzen alle Lesevorgänge ab: Nachladen nahm Units aus dem Index, und ein Schreiben ganz
+// nach abgebrochenem Ergänzen verlor die Units, deren Blöcke es aus der alten Fassung kopieren sollte.
 
 interface
 
@@ -280,7 +284,8 @@ begin
       AError := cTexts[TDiskFileSystemText.FileChanged].Text;
       Exit;
     end;
-    // Leser behalten ihre Handles (sie teilen Schreiben); ein zweiter Schreiber bekommt die Datei nicht.
+    // Leser behalten ihre Handles (sie teilen Schreiben); ein zweiter Schreiber bekommt die Datei nicht. Größe und Kopf
+    // prüft AWrite (TIndexCache.Append mit dem bekannten Leser).
     mStream := TFileStream.Create(AFileName, fmOpenReadWrite or fmShareDenyWrite);
     try
       Result := AWrite(mStream);

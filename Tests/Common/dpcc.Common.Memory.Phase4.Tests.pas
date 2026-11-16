@@ -26,7 +26,8 @@ type
     [TearDownFixture]
     procedure CleanUp;
     /// <summary>K1: Drei kalte Units mit demselben Namen oberster Ebene über cEvictableBudget: FindSymbols findet alle
-    /// drei; erst danach verdrängt der Index wieder bis ins Budget.</summary>
+    /// drei, auch wenn das Laden der dritten eine der ersten verdrängt (seit Phase 5 während der Suche); danach ist der
+    /// Index im Budget.</summary>
     [Test]
     procedure BatchLoadFindsAllUnitsOfAName;
     /// <summary>K2: Eine verdrängbare Unit bekommt ihren Block erst nach dem ersten FindSymbols (BindSources); ist
@@ -242,7 +243,7 @@ begin
   mEntries := nil;
   Assert.AreEqual(3, Integer(Length(mIndex.FindSymbols('gemeinsam'))), 'alle drei Units gefunden');
   Assert.AreEqual(3, mIndex.LazyStats.Loads, 'jede einmal geladen');
-  Assert.AreEqual(1, mIndex.LazyStats.Evictions, 'erst danach eine verdrängt');
+  Assert.AreEqual(1, mIndex.LazyStats.Evictions, 'eine verdrängt');
   Assert.IsTrue(mIndex.LazyStats.EvictableBytes <= TSymbolIndex.cEvictableBudget, 'wieder im Budget');
   Assert.IsTrue(mIndex.HasSymbol('Gemeinsam',
     function(const ASymbol: TIndexSymbol): Boolean

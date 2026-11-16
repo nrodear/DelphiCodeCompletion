@@ -196,6 +196,7 @@ uses
   dpcc.Common.Memory.Phase2.Tests in 'Common\dpcc.Common.Memory.Phase2.Tests.pas',
   dpcc.Common.Memory.Phase3.Tests in 'Common\dpcc.Common.Memory.Phase3.Tests.pas',
   dpcc.Common.Memory.Phase4.Tests in 'Common\dpcc.Common.Memory.Phase4.Tests.pas',
+  dpcc.Common.Memory.Phase5.Tests in 'Common\dpcc.Common.Memory.Phase5.Tests.pas',
   dpcc.Memory.Bench.Tests in 'Memory\dpcc.Memory.Bench.Tests.pas';
 
 // Speicherrest beim Beenden in den Testbericht (Konsole) statt in einen Dialog (#177).

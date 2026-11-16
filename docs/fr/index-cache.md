@@ -51,19 +51,21 @@ qui n'a pas servi depuis le plus longtemps. Il libère toujours l'unité entièr
 limite est fixe et n'est pas un réglage. Les unités nommées dans les `uses` d'une unité du projet et les unités souvent
 utilisées ne comptent pas ; elles sont épinglées (voir plus haut).
 
-Limite : les actions qui cherchent un nom dans toutes les unités (par exemple lors de la création de méthodes d'accès
-ou pour les noms de champs des modules de données) trouvent les symboles de premier niveau de toutes les unités et
-chargent ces unités pour cela. Tant qu'une telle recherche charge des unités, dpcc n'en libère aucune, afin qu'elle
-voie tous les résultats ; ensuite, la limite s'applique de nouveau. Elles ne trouvent les membres des classes et des
-records que dans les unités chargées.
+Limite : les actions qui cherchent un nom dans toutes les unités (par exemple lors de la création de méthodes d'accès ou
+pour les noms de champs des modules de données) trouvent les symboles de premier niveau de toutes les unités et chargent
+ces unités pour cela. Une telle recherche reprend aussitôt les résultats de chaque unité rechargée ; la limite de 32 Mo
+continue de s'appliquer pendant ce temps, y compris pour les autres requêtes. Elle voit ainsi tous les résultats sans
+garder en mémoire en même temps toutes les unités d'un nom fréquent (par exemple `Register`). Elles ne trouvent les
+membres des classes et des records que dans les unités chargées.
 
 #### Statistiques d'utilisation
 
 Pour chaque unité de la bibliothèque, dpcc compte combien de fois des requêtes en ont besoin et combien de fois une
 unité du projet l'ajoute à ses `uses`, par exemple par « + Unit ». Les points sont divisés par deux chaque semaine. La
 construction suivante charge aussitôt les unités souvent utilisées, et dpcc ne les libère pas. Les statistiques se
-trouvent dans `usage.dat` à côté du cache de la bibliothèque (voir [Cache](#cache)). Le serveur les écrit à son arrêt
-et au plus toutes les 10 minutes. Si elles sont perdues, elles repartent de zéro ; l'index ne s'en aperçoit pas.
+trouvent dans `usage.dat` à côté du cache de la bibliothèque (voir [Cache](#cache)). Le serveur les écrit à son arrêt et
+au plus toutes les 10 minutes, et seulement si elles ont changé ; deux écritures n'ont jamais lieu en même temps. Si
+elles sont perdues, elles repartent de zéro ; l'index ne s'en aperçoit pas.
 
 ### Bibliothèques de types Office et WinRT
 
@@ -125,9 +127,14 @@ reconstruit l'index une fois. L'ancien fichier reste jusqu'à ce que le nettoyag
 
 Lors de la première construction sans cache, dpcc écrit le cache de la bibliothèque en cours de route, afin que les
 unités nouvellement lues puissent quitter la mémoire. Il ajoute seulement les nouveaux blocs et un nouveau répertoire à
-la fin du fichier ; il n'écrit le cache du projet et le fichier entier qu'à la fin de la construction. Si l'ajout est
-interrompu, l'état précédent reste valable. Pour ces états intermédiaires, les lignes « cacheWrite library » du
-journal de diagnostic n'indiquent que les Ko ajoutés.
+la fin du fichier, et uniquement au fichier qu'il a lui-même écrit en dernier (même horodatage, même taille, même
+en-tête) ; sinon, il écrit le fichier entier. Il n'écrit le cache du projet en cours de route que si des unités de la
+bibliothèque situées hors de l'installation se sont ajoutées (par exemple des sources de tiers ; elles se trouvent dans
+le cache du projet), sinon seulement à la fin de la construction. Chaque ajout laisse le répertoire précédent comme
+espace inutilisé dans le fichier ; si cet espace dépasse 4 Mo ou 10 % du fichier à la fin d'une construction, dpcc
+réécrit le fichier entier. Si l'ajout est interrompu, l'état précédent reste valable, et celui qui lit le fichier
+continue de lire ses blocs inchangés. Pour ces états intermédiaires, les lignes « cacheWrite library » du journal de
+diagnostic n'indiquent que les Ko ajoutés.
 
 La variable d'environnement `DPCC_CACHE_ROOT` déplace tout le dossier `%LOCALAPPDATA%\dpcc` du serveur (caches et
 journal de diagnostic), par exemple pour des tests avec une copie du cache. Sans elle, c'est `LOCALAPPDATA` de

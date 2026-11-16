@@ -231,6 +231,7 @@
         <DCCReference Include="Common\dpcc.Common.Memory.Phase2.Tests.pas"/>
         <DCCReference Include="Common\dpcc.Common.Memory.Phase3.Tests.pas"/>
         <DCCReference Include="Common\dpcc.Common.Memory.Phase4.Tests.pas"/>
+        <DCCReference Include="Common\dpcc.Common.Memory.Phase5.Tests.pas"/>
         <DCCReference Include="Memory\dpcc.Memory.Bench.Tests.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>

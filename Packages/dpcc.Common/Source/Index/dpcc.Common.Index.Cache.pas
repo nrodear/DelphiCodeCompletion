@@ -59,6 +59,16 @@
 //   ab, bevor der Kopf geschrieben ist, gilt der alte Stand weiter.
 // - Ein Block lässt sich ohne Verwendungen (LoadFrom mit AUsages = False) oder nur mit ihnen (ExpandUsages)
 //   dekodieren; der Rest wird überlesen, ohne Texte zu dekodieren.
+//
+// Speicher-Optimierung Phase 5 (ohne Formatänderung):
+// - Überlesen prüft wie das Dekodieren, dass jede Textnummer in der String-Tabelle steht und der Dateiname einer Unit
+//   nicht leer ist (nur die Nummer und die Länge, ohne den Text zu dekodieren). Vorher nahm das Teil-Dekodieren Blöcke
+//   an, die das volle Dekodieren verwarf.
+// - Append ergänzt nur die Datei, die der übergebene Leser kennt: gleiche Größe und gleicher Kopf (Lage, Länge und
+//   Prüfsumme des Verzeichnisses). Der Zeitstempel allein (auf ms gerundet) unterschied eine ersetzte Datei nicht
+//   sicher.
+// - UnusedBytes nennt den ungenutzten Teil einer Datei (alte Verzeichnisse und Reste abgebrochener Ergänzungen); der
+//   Index-Dienst schreibt sie am Ende eines Aufbaus ganz neu, wenn er zu groß ist.
 
 interface
 
@@ -157,7 +167,15 @@ type
     /// Verzeichnis aller AItems, zuletzt der Kopf. -1, wenn AStream kein Cache dieses Formats ist (dann nichts
     /// geschrieben); sonst die Zahl der Units im neuen Verzeichnis.</summary>
     class function Append(AStream: TStream; const AItems: TArray<TIndexCacheItem>; const AInFile: TIndexBlockInFile;
-      out APlaces: TArray<TIndexBlockPlace>): Integer; static;
+      out APlaces: TArray<TIndexBlockPlace>): Integer; overload; static;
+    /// <summary>Wie oben, aber nur, wenn AStream dieselbe Datei ist, die AKnown gelesen hat: gleiche Größe und gleicher
+    /// Kopf (Phase 5); sonst -1 ohne zu schreiben. AKnown = nil prüft nicht.</summary>
+    class function Append(AStream: TStream; const AItems: TArray<TIndexCacheItem>; const AInFile: TIndexBlockInFile;
+      const AKnown: IIndexBlockReader; out APlaces: TArray<TIndexBlockPlace>): Integer; overload; static;
+    /// <summary>Ungenutzte Bytes der über AReader geöffneten Datei (Phase 5): Größe ohne Kopf, Verzeichnis und die
+    /// ABlockBytes der Blöcke, auf die das Verzeichnis verweist. 0, wenn AReader kein Cache dieses Formats ist.
+    /// </summary>
+    class function UnusedBytes(const AReader: IIndexBlockReader; ABlockBytes: Int64): Int64; static;
     /// <summary>Block an APlace der über AReader geöffneten Datei (nach Write oder Append).</summary>
     class function SourceAt(const AReader: IIndexBlockReader; const APlace: TIndexBlockPlace): IIndexUnitSource;
       static;
@@ -302,6 +320,12 @@ type
     function ReadInt: Int64;
     function ReadInt32: Integer;
     function ReadString: string;
+    /// <summary>Überliest die Nummer eines Textes; prüft wie ReadString, dass es ihn gibt, ohne ihn zu dekodieren
+    /// (Phase 5).</summary>
+    procedure SkipString;
+    /// <summary>Wie SkipString; ein leerer Text gilt wie in ReadUnitStart als beschädigt (Dateiname einer Unit).
+    /// </summary>
+    procedure SkipFileName;
     function ReadList: TArray<string>;
     /// <summary>Signatur als UTF-8 (ohne UTF-16-Fassung).</summary>
     function ReadSignature: UTF8String;
@@ -591,6 +615,26 @@ begin
     Fail;
   end;
   Result := Strings.Text(Integer(mIndex));
+end;
+
+procedure TCacheReader.SkipString;
+begin
+  if ReadVar >= UInt64(Strings.Count) then
+  begin
+    Fail;
+  end;
+end;
+
+procedure TCacheReader.SkipFileName;
+var
+  mIndex: UInt64;
+begin
+  mIndex := ReadVar;
+  // Leer heißt Länge 0 (Nummer 0 ist immer ''); dekodiert wird nichts.
+  if (mIndex >= UInt64(Strings.Count)) or (Strings.FSizes[Integer(mIndex)] = 0) then
+  begin
+    Fail;
+  end;
 end;
 
 function TCacheReader.ReadSignature: UTF8String;
@@ -1276,7 +1320,8 @@ begin
   Result.Patterns := ReadPatterns(AReader);
 end;
 
-//// <summary>Überliest eine Liste (Anzahl, Nummern der Texte), ohne die Texte zu dekodieren (Phase 4).</summary>
+/// <summary>Überliest eine Liste (Anzahl, Nummern der Texte), ohne die Texte zu dekodieren (Phase 4); prüft die
+/// Nummern wie ReadList (Phase 5).</summary>
 procedure SkipList(var AReader: TCacheReader);
 var
   mIndex, mCount: Integer;
@@ -1284,57 +1329,62 @@ begin
   mCount := AReader.ReadCount;
   for mIndex := 1 to mCount do
   begin
-    AReader.ReadVar;
+    AReader.SkipString;
   end;
 end;
 
-/// <summary>Überliest ein Symbol (Gegenstück zu ReadSymbol).</summary>
+/// <summary>Überliest ein Symbol (Gegenstück zu ReadSymbol, mit denselben Prüfungen).</summary>
 procedure SkipSymbol(var AReader: TCacheReader);
 var
   mIndex: Integer;
 begin
-  AReader.ReadVar;
-  AReader.ReadVar;
+  // Name, Container
+  AReader.SkipString;
+  AReader.SkipString;
   ReadKind(AReader);
   for mIndex := 1 to 8 do
   begin
     AReader.ReadInt32;
   end;
+  // Merker, Vorfahren, Typ, Typargumente, Vorfahr-Typargumente, Typparameter
   AReader.ReadCount;
   SkipList(AReader);
-  AReader.ReadVar;
-  AReader.ReadVar;
+  AReader.SkipString;
+  AReader.SkipString;
   SkipList(AReader);
-  AReader.ReadVar;
+  AReader.SkipString;
   if AReader.ReadVar > UInt64(Ord(High(TIndexVisibility))) then
   begin
     Fail;
   end;
   ReadArgCount(AReader);
   ReadArgCount(AReader);
+  // Parametertypen, Include-Datei, Bedingung, Signatur, Direktiven, Kurztext, Grund, Variante
   SkipList(AReader);
-  AReader.ReadVar;
-  AReader.ReadVar;
-  AReader.ReadVar;
+  AReader.SkipString;
+  AReader.SkipString;
+  AReader.SkipString;
   SkipList(AReader);
-  AReader.ReadVar;
-  AReader.ReadVar;
-  AReader.ReadVar;
+  AReader.SkipString;
+  AReader.SkipString;
+  AReader.SkipString;
+  // Inline-Verweise, Zuordnungen, Begründungen
   SkipList(AReader);
   SkipList(AReader);
   SkipList(AReader);
 end;
 
-/// <summary>Überliest den Kopf einer Unit im Block (Gegenstück zu ReadUnitHeader).</summary>
+/// <summary>Überliest den Kopf einer Unit im Block (Gegenstück zu ReadUnitHeader, mit denselben Prüfungen).</summary>
 procedure SkipUnitHeader(var AReader: TCacheReader);
 var
   mIndex, mCount, mLine: Integer;
   mKind: TNamingKind;
 begin
-  AReader.ReadVar;
-  AReader.ReadVar;
+  // Name, Datei (nicht leer), Zeitstempel, Hash, Merker
+  AReader.SkipString;
+  AReader.SkipFileName;
   AReader.ReadInt;
-  AReader.ReadVar;
+  AReader.SkipString;
   AReader.ReadCount;
   SkipList(AReader);
   SkipList(AReader);
@@ -1350,14 +1400,14 @@ begin
     AReader.ReadNumber;
   end;
   SkipList(AReader);
-  AReader.ReadVar;
+  AReader.SkipString;
   SkipList(AReader);
   // Folgemuster
   mCount := AReader.ReadCount;
   for mIndex := 1 to mCount do
   begin
-    AReader.ReadVar;
-    AReader.ReadVar;
+    AReader.SkipString;
+    AReader.SkipString;
     AReader.ReadNumber;
     for mLine := 1 to AReader.ReadCount do
     begin
@@ -1371,7 +1421,7 @@ procedure SkipUsage(var AReader: TCacheReader);
 var
   mIndex, mCount: Integer;
 begin
-  AReader.ReadVar;
+  AReader.SkipString;
   mCount := AReader.ReadCount;
   for mIndex := 1 to mCount do
   begin
@@ -1505,7 +1555,7 @@ begin
   end;
 end;
 
-// <summary>Katalog einer Unit aus dem Verzeichnis.</summary>
+/// <summary>Katalog einer Unit aus dem Verzeichnis.</summary>
 function ReadCatalog(var AReader: TCacheReader; const AHeader: TUnitIndex): TCatalogUnit;
 var
   mIndex: Integer;
@@ -1532,21 +1582,19 @@ begin
   end;
 end;
 
-/// <summary>Überspringt den Katalog einer Unit im Verzeichnis, ohne seine Texte zu dekodieren.</summary>
+/// <summary>Überspringt den Katalog einer Unit im Verzeichnis, ohne seine Texte zu dekodieren; prüft die Nummern
+/// wie ReadCatalog (Phase 5).</summary>
 procedure SkipCatalog(var AReader: TCacheReader);
 var
   mIndex, mCount, mEntry: Integer;
 begin
   AReader.ReadNumber;
-  for mIndex := 1 to AReader.ReadCount do
-  begin
-    AReader.ReadVar;
-  end;
+  SkipList(AReader);
   mCount := AReader.ReadCount;
   for mIndex := 1 to mCount do
   begin
-    AReader.ReadVar;
-    AReader.ReadVar;
+    AReader.SkipString;
+    AReader.SkipString;
     ReadKind(AReader);
     AReader.ReadInt32;
     AReader.ReadInt32;
@@ -1555,7 +1603,7 @@ begin
     AReader.ReadNumber;
     for mEntry := 1 to AReader.ReadCount do
     begin
-      AReader.ReadVar;
+      AReader.SkipString;
     end;
   end;
 end;
@@ -1700,8 +1748,14 @@ end;
 
 class function TIndexCache.Append(AStream: TStream; const AItems: TArray<TIndexCacheItem>;
   const AInFile: TIndexBlockInFile; out APlaces: TArray<TIndexBlockPlace>): Integer;
+begin
+  Result := Append(AStream, AItems, AInFile, nil, APlaces);
+end;
+
+class function TIndexCache.Append(AStream: TStream; const AItems: TArray<TIndexCacheItem>;
+  const AInFile: TIndexBlockInFile; const AKnown: IIndexBlockReader; out APlaces: TArray<TIndexBlockPlace>): Integer;
 var
-  mHead: TBytes;
+  mHead, mKnownHead: TBytes;
   mDirectoryAt: Int64;
   mLength: Integer;
   mChecksum: Cardinal;
@@ -1715,10 +1769,34 @@ begin
   begin
     Exit(-1);
   end;
+  // Phase 5: Nur die Datei, deren Blöcke AKnown kennt. Gleiche Größe und gleicher Kopf (die Prüfsumme des
+  // Verzeichnisses deckt die Lage aller Blöcke); hat ein anderer sie ersetzt, stimmen die Stellen nicht mehr.
+  if (AKnown <> nil) and ((AStream.Size <> AKnown.Size) or not AKnown.Read(0, cHeadSize, mKnownHead) or
+    (Length(mKnownHead) <> cHeadSize) or not CompareMem(@mKnownHead[0], @mHead[0], cHeadSize)) then
+  begin
+    Exit(-1);
+  end;
   // Neue Blöcke und das Verzeichnis hinter das Ende; erst zuletzt zeigt der Kopf darauf.
   AStream.Seek(0, soEnd);
   Result := WriteBody(AStream, 0, AItems, AInFile, APlaces, mDirectoryAt, mLength, mChecksum);
   WriteHead(AStream, 0, mDirectoryAt, mLength, mChecksum);
+end;
+
+class function TIndexCache.UnusedBytes(const AReader: IIndexBlockReader; ABlockBytes: Int64): Int64;
+var
+  mHead: TBytes;
+begin
+  Result := 0;
+  if (AReader = nil) or (AReader.Size < cHeadSize) or not AReader.Read(0, cHeadSize, mHead) or not HasMagic(mHead) or
+    (mHead[cVersionAt] <> cFormatVersion) then
+  begin
+    Exit;
+  end;
+  Result := AReader.Size - cHeadSize - Int64(GetFixed(mHead, cDirectoryAt + 8, 4)) - ABlockBytes;
+  if Result < 0 then
+  begin
+    Result := 0;
+  end;
 end;
 
 class function TIndexCache.SourceAt(const AReader: IIndexBlockReader; const APlace: TIndexBlockPlace):

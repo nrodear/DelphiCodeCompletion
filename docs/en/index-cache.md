@@ -47,18 +47,19 @@ one unused for the longest time. It always releases the whole unit; its catalog 
 a setting. Units from the `uses` of a project unit and frequently used units do not count; they are pinned (see
 above).
 
-Limitation: actions that search a name in all units (for example when creating accessor methods or for field names
-from data modules) find top-level symbols of all units and load those units for it. While such a search is loading,
-dpcc releases no unit, so that it sees all matches; afterwards the limit applies again. They find members of classes
-and records only in loaded units.
+Limitation: actions that search a name in all units (for example when creating accessor methods or for field names from
+data modules) find top-level symbols of all units and load those units for it. Such a search takes over the matches of
+every reloaded unit at once; the 32 MB limit keeps applying meanwhile, also for other requests. That way it sees all
+matches without holding all units of a frequent name (such as `Register`) in memory at the same time. They find members
+of classes and records only in loaded units.
 
 #### Usage statistics
 
 For every unit of the library, dpcc counts how often requests need it and how often a project unit newly adds it to its
 `uses`, for example through “+ Unit”. The points are halved every week. The next build loads frequently used units at
 once, and dpcc does not release them. The statistics are stored in `usage.dat` next to the library cache (see
-[Cache](#cache)). The server writes them when it ends and at most every 10 minutes. If they are lost, they start over;
-the index does not notice.
+[Cache](#cache)). The server writes them when it ends and at most every 10 minutes, and only if they have changed; two
+writes never run at the same time. If they are lost, they start over; the index does not notice.
 
 ### Office type libraries and WinRT
 
@@ -114,10 +115,15 @@ reads it again from the source file. dpcc no longer reads caches of older format
 first start after the update builds the index once more. The old file stays until the size-based cleanup removes it;
 “Rebuild index” (see [below](#rebuilding-the-index)) deletes it at once.
 
-During the first build without a cache, dpcc writes the library cache in between so that the newly read units may
-leave memory again. It only appends the new blocks and a new directory to the file; it writes the project cache and the
-whole file only at the end of the build. If appending is interrupted, the previous state stays valid. For these
-intermediate states, the “cacheWrite library” lines of the diagnostic log give only the appended KB.
+During the first build without a cache, dpcc writes the library cache in between so that the newly read units may leave
+memory again. It only appends the new blocks and a new directory to the file, and only to the file it last wrote itself
+(same time stamp, same size, same header); otherwise it writes the whole file. It writes the project cache in between
+only if library units outside the installation were added (for example third-party sources; they are stored in the
+project cache), otherwise only at the end of the build. Every append leaves the previous directory as unused space in
+the file; if that space is larger than 4 MB or 10 % of the file at the end of a build, dpcc rewrites the whole file. If
+appending is interrupted, the previous state stays valid, and whoever is reading the file keeps reading its blocks
+unchanged. For these intermediate states, the “cacheWrite library” lines of the diagnostic log give only the appended
+KB.
 
 The environment variable `DPCC_CACHE_ROOT` moves the server's whole `%LOCALAPPDATA%\dpcc` folder (caches and
 diagnostic log), for example for tests with a copy of the cache. Without it, `LOCALAPPDATA` from the process

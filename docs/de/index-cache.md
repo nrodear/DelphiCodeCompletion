@@ -48,17 +48,18 @@ ist fest und keine Einstellung. Units aus den `uses` einer Projekt-Unit und oft 
 sind gepinnt (siehe oben).
 
 Einschränkung: Aktionen, die einen Namen in allen Units suchen (etwa beim Anlegen von Zugriffsmethoden oder bei
-Feldnamen aus Datenmodulen), finden Symbole oberster Ebene aller Units und laden die Units dafür nach. Solange eine
-solche Suche lädt, gibt dpcc keine Unit frei, damit sie alle Treffer sieht; danach gilt wieder die Grenze. Mitglieder
-von Klassen und Records finden sie nur in geladenen Units.
+Feldnamen aus Datenmodulen), finden Symbole oberster Ebene aller Units und laden die Units dafür nach. Eine solche Suche
+übernimmt die Treffer jeder nachgeladenen Unit sofort; die Grenze von 32 MB gilt dabei weiter, auch für andere Anfragen.
+So sieht sie alle Treffer, ohne dass bei häufigen Namen (etwa `Register`) alle ihre Units zugleich im Speicher liegen.
+Mitglieder von Klassen und Records finden sie nur in geladenen Units.
 
 #### Nutzungsstatistik
 
 dpcc zählt je Unit der Bibliothek, wie oft Anfragen sie brauchen und wie oft eine Projekt-Unit sie neu in ihre `uses`
 aufnimmt, etwa über „+ Unit“. Die Punkte halbieren sich jede Woche. Oft genutzte Units lädt der nächste Aufbau gleich,
 und dpcc gibt sie nicht wieder frei. Die Statistik steht in `usage.dat` neben dem Bibliotheks-Cache (siehe
-[Cache](#cache)). Der Server schreibt sie beim Beenden und höchstens alle 10 Minuten. Geht sie verloren, beginnt sie
-neu; der Index merkt davon nichts.
+[Cache](#cache)). Der Server schreibt sie beim Beenden und höchstens alle 10 Minuten, und nur, wenn sie sich geändert
+hat; zwei Schreibvorgänge laufen nie gleichzeitig. Geht sie verloren, beginnt sie neu; der Index merkt davon nichts.
 
 ### Office-Typbibliotheken und WinRT
 
@@ -115,9 +116,14 @@ Der erste Start nach dem Update baut den Index einmal neu auf. Die alte Datei bl
 Größe sie entfernt; „Index neu aufbauen“ (siehe [unten](#index-neu-aufbauen)) löscht sie sofort.
 
 Beim ersten Aufbau ohne Cache schreibt dpcc den Bibliotheks-Cache zwischendurch, damit die neu gelesenen Units den
-Speicher wieder verlassen dürfen. Dabei hängt es nur die neuen Blöcke und ein neues Verzeichnis an die Datei an; den
-Projekt-Cache und die ganze Datei schreibt es erst am Ende des Aufbaus. Bricht das Anhängen ab, gilt der vorige Stand
-weiter. Die Zeilen „cacheWrite library“ des Diagnoselogs nennen bei den Zwischenständen nur die angehängten KB.
+Speicher wieder verlassen dürfen. Dabei hängt es nur die neuen Blöcke und ein neues Verzeichnis an die Datei an, und
+zwar nur an die Datei, die es selbst zuletzt geschrieben hat (gleicher Zeitstempel, gleiche Größe, gleicher Kopf); sonst
+schreibt es sie ganz. Den Projekt-Cache schreibt es zwischendurch nur, wenn Units der Bibliothek außerhalb der
+Installation hinzugekommen sind (etwa Quellen von Drittanbietern; sie stehen im Projekt-Cache), sonst erst am Ende des
+Aufbaus. Jedes Anhängen lässt das vorige Verzeichnis als ungenutzten Platz in der Datei; ist er am Ende eines Aufbaus
+größer als 4 MB oder als 10 % der Datei, schreibt dpcc sie ganz neu. Bricht das Anhängen ab, gilt der vorige Stand
+weiter, und wer die Datei gerade liest, liest seine Blöcke unverändert weiter. Die Zeilen „cacheWrite library“ des
+Diagnoselogs nennen bei den Zwischenständen nur die angehängten KB.
 
 Die Umgebungsvariable `DPCC_CACHE_ROOT` verlegt den ganzen Ordner `%LOCALAPPDATA%\dpcc` des Servers (Caches und
 Diagnoselog), etwa für Tests mit einer Kopie des Caches. Ohne sie gilt `LOCALAPPDATA` aus der Umgebung des Prozesses.

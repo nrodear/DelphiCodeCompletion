@@ -57,9 +57,8 @@
 //   Unit zu verdrängen gibt nur die Verweise des Index frei.
 //
 // Speicher-Optimierung Phase 4 (Korrektheit, Verdrängen ohne Flattern, kürzere Sperren):
-// - FindSymbols und HasSymbol schieben das Verdrängen auf, solange sie die kalten Units eines Namens laden und die
-//   Verweise lesen (FEvictDefer); erst danach geht der Index wieder ins Budget. Vorher konnte das Laden der letzten
-//   Unit eine eben geladene desselben Namens wieder verdrängen, und die Antwort war unvollständig.
+// - FindSymbols und HasSymbol finden alle Units eines Namens, auch wenn das Laden der letzten eine eben geladene
+//   desselben Namens wieder verdrängt (seit Phase 5 ohne aufgeschobenes Verdrängen, siehe unten).
 // - Units aus den uses einer Projekt-Unit und oft genutzte (Nutzungsstatistik) gelten als geschützt (Guarded) und
 //   zählen wie gepinnte nicht gegen cEvictableBudget; das Budget gilt nur für die tatsächlich verdrängbaren
 //   (FCandidateBytes). Vorher zählten sie mit, wurden aber nie verdrängt: Lagen sie über 32 MB, verdrängte jedes
@@ -74,6 +73,19 @@
 //   der Sperre.
 // - Lädt ein zweiter Thread dieselbe kalte Unit, wartet er auf das Ergebnis des ersten (TIndexLoadSignal), statt den
 //   Block ein zweites Mal zu lesen. Größe und Katalog einer Unit entstehen vor der Sperre und nur einmal.
+//
+// Speicher-Optimierung Phase 5 (Review der Phase 4):
+// - FindSymbols liest unter einer Sperre die Verweise der geladenen Units und merkt sich die kalten Units, deren
+//   Katalog den Namen hat; jede Unit ist in diesem Augenblick entweder geladen oder kalt. Danach lädt es die kalten
+//   einzeln und übernimmt ihre Symbole dieses Namens sofort; das Verdrängen läuft dabei normal weiter, für alle
+//   Threads. Phase 4 schob es für den ganzen Index auf, solange eine Suche lud (FEvictDefer): Bei häufigen Namen
+//   (Register) lagen alle ihre Units zugleich im Speicher, und auch andere Threads verdrängten nichts. Die Spitze einer
+//   Suche ist jetzt höchstens die Grenze der verdrängbaren Units plus eine Unit plus die gefundenen Symbole.
+// - HasSymbol prüft erst die geladenen Units und lädt kalte nur, solange es nichts gefunden hat.
+// - Beim Tippen ändert sich der Schutz der Units aus den uses nicht mehr bei jeder neuen Fassung (nur ein neu
+//   hinzugekommener oder weggefallener Name macht ihn ungültig, FGuardDirty).
+// - Scheitert das Nachladen, weil der Block inzwischen an eine neue Datei gebunden wurde (BindSources), lädt LoadKey
+//   aus dem neuen Block, statt die Unit aus dem Index zu nehmen.
 
 interface
 
@@ -311,9 +323,9 @@ type
     // Schutzes; der nächste Verdrängungslauf prüft ihn neu.
     FGuardDirty: Boolean;
     FGuardEpoch: Integer;
-    // Phase 4: > 0, solange FindSymbols oder HasSymbol die kalten Units eines Namens laden und lesen.
-    FEvictDefer: Integer;
     FEvictionRuns: Integer;
+    // So oft wurde der Schutz neu geprüft (Tests, Phase 5).
+    FGuardRefreshes: Integer;
     FCatalogBytes: Int64;
     FColdSymbols: Integer;
     FLoads: Integer;
@@ -351,8 +363,6 @@ type
     procedure SetGuardedLocked(AEntry: TIndexEntry; AValue: Boolean);
     /// <summary>Prüft den Schutz aller geladenen, nicht gepinnten Units neu.</summary>
     procedure RefreshGuardsLocked;
-    /// <summary>Beendet ein aufgeschobenes Verdrängen (FindSymbols, HasSymbol) und geht wieder ins Budget.</summary>
-    procedure EndDeferLocked;
     procedure ShrinkLocked;
     function OverBudgetLocked: Boolean;
     /// <summary>Verkleinert die Unit AKey im Durchgang APass: 0 Bibliothek kompakt halten, 1 Verwendungen der
@@ -366,15 +376,23 @@ type
     procedure TouchLocked(AEntry: TIndexEntry);
     /// <summary>Lädt die Unit AKey nach, falls sie verdrängt ist; liefert sie.</summary>
     function LoadKey(const AKey: string; out AUnit: TUnitIndex): Boolean;
+    /// <summary>Ein Versuch von LoadKey; ARetry: Der Block war unlesbar, aber die Unit hat inzwischen einen neuen
+    /// (BindSources nach dem Schreiben des Caches), also noch einmal (Phase 5).</summary>
+    function LoadKeyOnce(const AKey: string; out AUnit: TUnitIndex; out ARetry: Boolean): Boolean;
     /// <summary>Verdrängt, bis die verdrängbaren Units wieder ins Budget passen; AKeep bleibt.</summary>
     procedure EvictLocked(AKeep: TIndexEntry);
     procedure UnloadLocked(const AKey: string; AEntry: TIndexEntry);
-    /// <summary>Lädt die verdrängten Units, in deren Katalog ein Symbol AName steht. True: Es gab welche, und das
-    /// Verdrängen ist aufgeschoben, bis der Aufrufer die Verweise gelesen hat und EndDeferLocked ruft.</summary>
-    function LoadColdNamed(const AName: string): Boolean;
+    /// <summary>Einträge, deren Katalog vielleicht ein Symbol AName hat (gleicher Hash), über das Namensverzeichnis;
+    /// AMembership ist der Stand der Mitgliedschaft, für den es gilt. Ohne Sperre.</summary>
+    procedure ColdCandidates(const AName: string; out ACandidates: TArray<string>; out AMembership: Int64);
+    /// <summary>Die kalten Einträge aus ACandidates, deren Katalog ein Symbol AName hat (Phase 5).</summary>
+    function ColdKeysLocked(const AName: string; const ACandidates: TArray<string>): TArray<string>;
+    /// <summary>Liest unter einer Sperre mit ARead die geladenen Units und liefert die kalten Units mit AName
+    /// (Phase 5); hat sich die Menge der kalten Units während des Namensverzeichnisses geändert, noch einmal.</summary>
+    function SnapshotNamed(const AName: string; const ARead: TProc): TArray<string>;
     /// <summary>Namensverzeichnis der kalten Units für die Mitgliedschaft FNameMembership; baut es außerhalb der Sperre
-    /// neu, wenn es nicht mehr gilt.</summary>
-    procedure NameLookup(out AHashes: TArray<UInt64>; out AKeys: TArray<string>);
+    /// neu, wenn es nicht mehr gilt. AMembership: Stand, für den das Ergebnis gilt.</summary>
+    procedure NameLookup(out AHashes: TArray<UInt64>; out AKeys: TArray<string>; out AMembership: Int64);
     procedure NoteLoad(AMs: Double; ABytes: Int64);
     /// <summary>Nutzungsstatistik: Namen, die eine Projekt-Unit neu in ihre uses aufnimmt (angenommenes "+ Unit").
     /// </summary>
@@ -419,6 +437,8 @@ type
     function NameLookupBuilds: Integer;
     /// <summary>So oft suchte der Index Units zum Verdrängen (Tests, Phase 4).</summary>
     function EvictionRuns: Integer;
+    /// <summary>So oft prüfte der Index den Schutz aller geladenen Units neu (Tests, Phase 5).</summary>
+    function GuardRefreshes: Integer;
     /// <summary>Belegte Plätze und Knoten der Verweistabellen (Tests, Phase 4).</summary>
     function RefSlots: Integer;
     function RefNodes: Integer;
@@ -591,7 +611,10 @@ begin
     end
     else
     begin
-      if mCount = 1 then
+      // Nur ein neu hinzugekommener Name (0 → 1) ändert den Schutz. Beim Tippen zählt die neue Fassung vorab mit
+      // (1 → 2 → 1 → 2 → 1): Das Sinken auf 1 ist kein Wegfall und darf nicht jedes Mal alle Units neu prüfen
+      // (Phase 5, R1).
+      if (ASign > 0) and (mCount = 1) then
       begin
         FGuardDirty := True;
       end;
@@ -630,6 +653,7 @@ begin
   end;
   FGuardDirty := False;
   FGuardEpoch := FEpoch;
+  Inc(FGuardRefreshes);
 end;
 
 function TSymbolIndex.UsesPinned(AEntry: TIndexEntry): Boolean;
@@ -1611,9 +1635,9 @@ var
   mCandidates: TList<TEvictCandidate>;
   mCandidate: TEvictCandidate;
 begin
-  // Aufgeschoben (FindSymbols liest gerade) oder ohne Überschreitung: nichts zu tun. Die Summe aller verdrängbaren
-  // begrenzt die der nicht geschützten nach oben; erst darüber lohnt das Prüfen.
-  if (FEvictDefer > 0) or (FEvictableBytes <= cEvictableBudget) then
+  // Ohne Überschreitung nichts zu tun. Die Summe aller verdrängbaren begrenzt die der nicht geschützten nach oben;
+  // erst darüber lohnt das Prüfen.
+  if FEvictableBytes <= cEvictableBudget then
   begin
     Exit;
   end;
@@ -1664,13 +1688,20 @@ begin
   end;
 end;
 
-procedure TSymbolIndex.EndDeferLocked;
+function TSymbolIndex.LoadKey(const AKey: string; out AUnit: TUnitIndex): Boolean;
+var
+  mAttempt: Integer;
+  mRetry: Boolean;
 begin
-  Dec(FEvictDefer);
-  EvictLocked(nil);
+  // Höchstens drei Versuche: Ein neuer Block kommt nur nach dem Schreiben des Caches.
+  mAttempt := 0;
+  repeat
+    Inc(mAttempt);
+    Result := LoadKeyOnce(AKey, AUnit, mRetry);
+  until not mRetry or (mAttempt >= 3);
 end;
 
-function TSymbolIndex.LoadKey(const AKey: string; out AUnit: TUnitIndex): Boolean;
+function TSymbolIndex.LoadKeyOnce(const AKey: string; out AUnit: TUnitIndex; out ARetry: Boolean): Boolean;
 var
   mEntry: TIndexEntry;
   mSerial: Int64;
@@ -1683,6 +1714,7 @@ var
   mWait, mOwn: IInterface;
 begin
   AUnit := Default(TUnitIndex);
+  ARetry := False;
   mSerial := 0;
   mBytes := 0;
   mUsageBytes := 0;
@@ -1769,6 +1801,13 @@ begin
         AUnit := mEntry.Unit_;
         Exit(True);
       end;
+      if not mLoaded and (mEntry.Source <> mSource) then
+      begin
+        // Inzwischen an die neue Datei gebunden (Phase 5): Der alte Block war während des Schreibens nicht lesbar, der
+        // neue gilt. Nicht aus dem Index nehmen, sondern noch einmal laden.
+        ARetry := True;
+        Exit(False);
+      end;
       if not mLoaded then
       begin
         // Block fehlt oder ist beschädigt: Die Unit fällt aus dem Index; EnsureUnit liest sie aus der Datei neu.
@@ -1812,7 +1851,7 @@ type
     Symbols: TArray<TCatalogSymbol>;
   end;
 
-procedure TSymbolIndex.NameLookup(out AHashes: TArray<UInt64>; out AKeys: TArray<string>);
+procedure TSymbolIndex.NameLookup(out AHashes: TArray<UInt64>; out AKeys: TArray<string>; out AMembership: Int64);
 var
   mPair: TPair<string, TIndexEntry>;
   mUnits: TArray<TCatalogNames>;
@@ -1825,11 +1864,13 @@ begin
     begin
       AHashes := FNameHashes;
       AKeys := FNameKeys;
+      AMembership := FNameBuiltFor;
       Exit;
     end;
     // Nur verdrängbare Units (nicht gepinnt, mit Block): Gepinnte sind immer geladen. Unter der Sperre nur die
     // Verweise auf die Kataloge sammeln (Phase 4).
     mMembership := FNameMembership;
+    AMembership := mMembership;
     SetLength(mUnits, FFiles.Count);
     mCount := 0;
     for mPair in FFiles do
@@ -1879,19 +1920,17 @@ begin
   end;
 end;
 
-function TSymbolIndex.LoadColdNamed(const AName: string): Boolean;
+procedure TSymbolIndex.ColdCandidates(const AName: string; out ACandidates: TArray<string>;
+  out AMembership: Int64);
 var
   mHashes: TArray<UInt64>;
-  mNameKeys, mCandidates, mKeys: TArray<string>;
+  mNameKeys: TArray<string>;
   mHash: UInt64;
-  mLow, mHigh, mMiddle, mPosition, mSymbol: Integer;
+  mLow, mHigh, mMiddle, mPosition: Integer;
   mKey: string;
-  mEntry: TIndexEntry;
-  mUnit: TUnitIndex;
-  mFound: Boolean;
 begin
-  Result := False;
-  NameLookup(mHashes, mNameKeys);
+  ACandidates := nil;
+  NameLookup(mHashes, mNameKeys, AMembership);
   if Length(mHashes) = 0 then
   begin
     Exit;
@@ -1912,70 +1951,109 @@ begin
       mHigh := mMiddle;
     end;
   end;
-  mCandidates := nil;
   mPosition := mLow;
   while (mPosition < Length(mHashes)) and ((mHashes[mPosition] shr 32) = (mHash shr 32)) do
   begin
     mKey := mNameKeys[Integer(mHashes[mPosition] and $FFFFFFFF)];
-    if IndexText(mKey, mCandidates) < 0 then
+    if IndexText(mKey, ACandidates) < 0 then
     begin
-      mCandidates := mCandidates + [mKey];
+      ACandidates := ACandidates + [mKey];
     end;
     Inc(mPosition);
   end;
-  if Length(mCandidates) = 0 then
+end;
+
+function TSymbolIndex.ColdKeysLocked(const AName: string; const ACandidates: TArray<string>): TArray<string>;
+var
+  mKey: string;
+  mEntry: TIndexEntry;
+  mSymbol: Integer;
+begin
+  Result := nil;
+  for mKey in ACandidates do
   begin
-    Exit;
+    if not FFiles.TryGetValue(mKey, mEntry) or mEntry.Loaded then
+    begin
+      Continue;
+    end;
+    // Gleicher Hash heißt nicht gleicher Name.
+    for mSymbol := 0 to High(mEntry.Catalog.Symbols) do
+    begin
+      if SameText(mEntry.Catalog.Symbols[mSymbol].Name, AName) then
+      begin
+        Result := Result + [mKey];
+        Break;
+      end;
+    end;
   end;
-  mKeys := nil;
-  FLock.Enter;
-  try
-    for mKey in mCandidates do
-    begin
-      if not FFiles.TryGetValue(mKey, mEntry) or mEntry.Loaded then
-      begin
-        Continue;
-      end;
-      // Gleicher Hash heißt nicht gleicher Name.
-      mFound := False;
-      for mSymbol := 0 to High(mEntry.Catalog.Symbols) do
-      begin
-        if SameText(mEntry.Catalog.Symbols[mSymbol].Name, AName) then
-        begin
-          mFound := True;
-          Break;
-        end;
-      end;
-      if mFound then
-      begin
-        mKeys := mKeys + [mKey];
-      end;
-    end;
-    if Length(mKeys) = 0 then
-    begin
-      Exit;
-    end;
-    // Phase 4: Bis der Aufrufer die Verweise gelesen hat, verdrängt der Index nichts. Sonst konnte das Laden der
-    // letzten Unit eine eben geladene desselben Namens wieder verdrängen, und die Antwort war unvollständig.
-    Inc(FEvictDefer);
-    Result := True;
-  finally
-    FLock.Leave;
-  end;
-  try
-    for mKey in mKeys do
-    begin
-      LoadKey(mKey, mUnit);
-    end;
-  except
+end;
+
+function TSymbolIndex.SnapshotNamed(const AName: string; const ARead: TProc): TArray<string>;
+var
+  mCandidates: TArray<string>;
+  mMembership: Int64;
+  mTry: Integer;
+  mDone: Boolean;
+begin
+  Result := nil;
+  mTry := 0;
+  repeat
+    Inc(mTry);
+    ColdCandidates(AName, mCandidates, mMembership);
     FLock.Enter;
     try
-      EndDeferLocked;
+      // Kam inzwischen eine kalte Unit hinzu, kennt das Namensverzeichnis sie nicht: noch einmal (höchstens dreimal).
+      mDone := (mMembership = FNameMembership) or (mTry >= 3);
+      if mDone then
+      begin
+        // Unter derselben Sperre: Jede Unit ist jetzt entweder geladen (ARead) oder kalt (Ergebnis).
+        ARead();
+        Result := ColdKeysLocked(AName, mCandidates);
+      end;
     finally
       FLock.Leave;
     end;
-    raise;
+  until mDone;
+end;
+
+/// <summary>Symbole AName der geladenen Unit AUnit wie TSymbolRefTables.Locations (Phase 5).</summary>
+function NamedIn(const AUnit: TUnitIndex; const AName: string): TArray<TSymbolLocation>;
+var
+  mPosition, mCount: Integer;
+begin
+  Result := nil;
+  mCount := 0;
+  // Über den Index: die Symbol-Records nicht kopieren.
+  for mPosition := 0 to High(AUnit.Symbols) do
+  begin
+    if CompareText(AUnit.Symbols[mPosition].Name, AName) = 0 then
+    begin
+      SetLength(Result, mCount + 1);
+      Result[mCount].UnitName := AUnit.UnitName;
+      Result[mCount].FileName := AUnit.Symbols[mPosition].FileName;
+      if Result[mCount].FileName = '' then
+      begin
+        Result[mCount].FileName := AUnit.FileName;
+      end;
+      Result[mCount].Symbol := AUnit.Symbols[mPosition];
+      Inc(mCount);
+    end;
   end;
+end;
+
+/// <summary>Hat die geladene Unit AUnit ein Symbol AName, auf das AMatch passt (Phase 5)?</summary>
+function HasNamedIn(const AUnit: TUnitIndex; const AName: string; const AMatch: TSymbolMatch): Boolean;
+var
+  mPosition: Integer;
+begin
+  for mPosition := 0 to High(AUnit.Symbols) do
+  begin
+    if (CompareText(AUnit.Symbols[mPosition].Name, AName) = 0) and AMatch(AUnit.Symbols[mPosition]) then
+    begin
+      Exit(True);
+    end;
+  end;
+  Result := False;
 end;
 
 procedure TSymbolIndex.NoteAddedUsesLocked(const AOld, ANew: TUnitIndex);
@@ -2323,44 +2401,58 @@ end;
 
 function TSymbolIndex.FindSymbols(const AName: string): TArray<TSymbolLocation>;
 var
-  mDeferred: Boolean;
+  mFound: TArray<TSymbolLocation>;
+  mKeys: TArray<string>;
+  mKey: string;
+  mUnit: TUnitIndex;
 begin
-  // Symbole oberster Ebene verdrängter Units kennt der Katalog: diese Units zuerst laden. Bis die Verweise gelesen
-  // sind, verdrängt der Index nichts (Phase 4).
-  mDeferred := LoadColdNamed(AName);
-  FLock.Enter;
-  try
-    try
-      Result := FRefs.ByName(AName);
-    finally
-      if mDeferred then
-      begin
-        EndDeferLocked;
-      end;
+  // Verweise der geladenen Units und die kalten Units mit diesem Namen oberster Ebene (Katalog) im selben Augenblick
+  // (Phase 5).
+  mKeys := SnapshotNamed(AName,
+    procedure
+    begin
+      mFound := FRefs.ByName(AName);
+    end);
+  // Die kalten einzeln laden und ihre Symbole gleich übernehmen: Das Verdrängen läuft weiter (auch die eben geladene
+  // darf wieder gehen), die Antwort bleibt vollständig, und nie liegen alle Units eines häufigen Namens zugleich im
+  // Speicher.
+  for mKey in mKeys do
+  begin
+    if LoadKey(mKey, mUnit) then
+    begin
+      mFound := mFound + NamedIn(mUnit, AName);
     end;
-  finally
-    FLock.Leave;
+    mUnit := Default(TUnitIndex);
   end;
+  Result := mFound;
 end;
 
 function TSymbolIndex.HasSymbol(const AName: string; const AMatch: TSymbolMatch): Boolean;
 var
-  mDeferred: Boolean;
+  mHas: Boolean;
+  mKeys: TArray<string>;
+  mKey: string;
+  mUnit: TUnitIndex;
 begin
-  mDeferred := LoadColdNamed(AName);
-  FLock.Enter;
-  try
-    try
-      Result := FRefs.HasName(AName, AMatch);
-    finally
-      if mDeferred then
-      begin
-        EndDeferLocked;
-      end;
-    end;
-  finally
-    FLock.Leave;
+  mHas := False;
+  mKeys := SnapshotNamed(AName,
+    procedure
+    begin
+      mHas := FRefs.HasName(AName, AMatch);
+    end);
+  if mHas then
+  begin
+    Exit(True);
   end;
+  // Kalte Units nur, solange nichts gefunden ist (Phase 5).
+  for mKey in mKeys do
+  begin
+    if LoadKey(mKey, mUnit) and HasNamedIn(mUnit, AName, AMatch) then
+    begin
+      Exit(True);
+    end;
+  end;
+  Result := False;
 end;
 
 function TSymbolIndex.Descendants(const ATypeName: string): TArray<TSymbolLocation>;
@@ -2681,6 +2773,16 @@ begin
   FLock.Enter;
   try
     Result := FEvictionRuns;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function TSymbolIndex.GuardRefreshes: Integer;
+begin
+  FLock.Enter;
+  try
+    Result := FGuardRefreshes;
   finally
     FLock.Leave;
   end;

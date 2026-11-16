@@ -511,9 +511,11 @@ type
   IIndexFileAppend = interface
     ['{7A3C9E51-2D84-4B6F-9C17-E05B8D2F4A63}']
     /// <summary>Öffnet AFileName zum Lesen und Schreiben, wenn sie noch den Zeitstempel AStamp hat, und übergibt sie
-    /// AWrite (der Strom umfasst die ganze Datei). Andere Leser behalten ihre Handles; AWrite schreibt neue Teile ans
-    /// Ende und zuletzt den Kopf. False mit AError (ohne Pfad), wenn die Datei fehlt, sich geändert hat, sich nicht
-    /// öffnen lässt oder AWrite False liefert.</summary>
+    /// AWrite (der Strom umfasst die ganze Datei). Andere Leser lesen die Blöcke vor dem alten Ende weiter (mit
+    /// gehaltenem Handle wie ohne, TReopeningBlockReader); AWrite schreibt neue Teile ans Ende und zuletzt den Kopf.
+    /// Der Zeitstempel (auf ms gerundet) ist nur die erste Prüfung: AWrite vergleicht Größe und Kopf mit dem bekannten
+    /// Stand (TIndexCache.Append mit AKnown, Phase 5). False mit AError (ohne Pfad), wenn die Datei fehlt, sich
+    /// geändert hat, sich nicht öffnen lässt oder AWrite False liefert.</summary>
     function AppendStream(const AFileName: string; AStamp: Int64; const AWrite: TIndexStreamWrite;
       out AError: string): Boolean;
   end;
@@ -523,8 +525,8 @@ type
 
   /// <summary>Lesen einzelner Abschnitte einer Datei (Speicher-Optimierung Phase 3). Ohne Opener öffnet jeder
   /// Lesevorgang die Datei neu (RTL, ohne Löschen zu teilen) und prüft, dass sie seit dem Öffnen nicht ersetzt
-  /// wurde; unter Windows trägt die Plattform einen Opener ein, der das Handle hält und Löschen teilt
-  /// (dpcc.Windows.Documents.SharedRead).</summary>
+  /// wurde (nur am Ende gewachsen gilt als unverändert, Phase 5); unter Windows trägt die Plattform einen Opener ein,
+  /// der das Handle hält und Löschen teilt (dpcc.Windows.Documents.SharedRead).</summary>
   TIndexBlockFiles = class
   private
     class var FOpener: TIndexBlockOpener;
@@ -944,8 +946,10 @@ type
   end;
 
   /// <summary>Ohne Opener der Plattform: öffnet die Datei je Lesevorgang neu (die RTL teilt Löschen nicht, ein
-  /// gehaltenes Handle verhinderte das Ersetzen) und liest nur, solange sie den Zeitstempel vom Öffnen hat.
-  /// </summary>
+  /// gehaltenes Handle verhinderte das Ersetzen) und liest nur, solange sie den Stand vom Öffnen hat (Zeitstempel und
+  /// Größe) oder nur am Ende gewachsen ist (Ergänzen, IIndexFileAppend, Phase 5): Was vor der alten Größe steht, ändert
+  /// das Ergänzen nicht außer dem Kopf, und jeden Block schützt seine Prüfsumme. Vorher scheiterte nach einem Ergänzen
+  /// jeder Lesevorgang über die alten Blöcke, und der Index verlor Units.</summary>
   TReopeningBlockReader = class(TInterfacedObject, IIndexBlockReader)
   private
     FFileName: string;
@@ -1012,15 +1016,15 @@ var
   mStamp: Int64;
 begin
   ABytes := nil;
-  if (AOffset < 0) or (ACount < 0) or (AOffset + ACount > FSize) or not DiskStamp(FFileName, mStamp) or
-    (mStamp <> FStamp) then
+  if (AOffset < 0) or (ACount < 0) or (AOffset + ACount > FSize) or not DiskStamp(FFileName, mStamp) then
   begin
     Exit(False);
   end;
   try
     mStream := TFileStream.Create(FFileName, fmOpenRead or fmShareDenyNone);
     try
-      Result := mStream.Size = FSize;
+      // Unverändert oder nur gewachsen (Phase 5); kleiner oder gleich groß mit anderem Zeitstempel heißt ersetzt.
+      Result := ((mStamp = FStamp) and (mStream.Size = FSize)) or (mStream.Size > FSize);
       if Result then
       begin
         SetLength(ABytes, ACount);

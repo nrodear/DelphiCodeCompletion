@@ -66,7 +66,7 @@ Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --exclude:Benchmark --exitbehav
 | `Tests\Common\Lsp` | côté serveur : complétion, survol, aide aux paramètres |
 | `Tests\IDE` | côté plugin sans ToolsAPI : déroulement de la liste, classement, favoris, mode ensemble, espaces réservés, réglages, textes |
 | `Tests\Application\Shell` | enveloppe du serveur |
-| `Tests\Common` | mémoire : auto-mesure, noms des `.dcp`, cache partagé, bibliothèques de types Office et WinRT, libération après l'arrêt du serveur, documents, tables de noms et de références, signatures dans le cache, format de cache 34, catalogue, chargement à la demande et éviction, statistiques d'utilisation, recherche dans les unités non chargées, unités protégées, réutilisation des tables de références, chargement simultané, ajout au cache |
+| `Tests\Common` | mémoire : auto-mesure, noms des `.dcp`, cache partagé, bibliothèques de types Office et WinRT, libération après l'arrêt du serveur, documents, tables de noms et de références, signatures dans le cache, format de cache 34, catalogue, chargement à la demande et éviction, statistiques d'utilisation, recherche dans les unités non chargées, unités protégées, réutilisation des tables de références, chargement simultané, ajout au cache, compactage du cache, libération des états partagés après l'arrêt, écriture des statistiques d'utilisation |
 | `Tests\Memory` | programme de mesure de la mémoire (catégorie `Benchmark`) |
 | `Tests\Support` | utilitaires : source de données fixe, surveillance des fuites |
 
@@ -93,6 +93,7 @@ comptent le chargement et l'éviction (`DPCC_MEMBENCH_PINNED`).
 | `DPCC_MEMBENCH_COLD`, `DPCC_MEMBENCH_LIBDIR` | nombre de complétions « Unit. » sur des unités de la bibliothèque prises au hasard (0) et dossier de leurs sources (`source` de Delphi 13) |
 | `DPCC_MEMBENCH_TYPING` | tours de frappe (0) : quatre frappes chacun, puis la pause de frappe ; pendant ce temps, un second thread envoie des requêtes. Ligne « [typing] » avec médiane, 95e et 99e centile et maximum des temps de réponse, chacun dans `<fichier>-latency.csv` |
 | `DPCC_MEMBENCH_PINNED`, `DPCC_MEMBENCH_PINNEDUNITS`, `DPCC_MEMBENCH_PINNEDCOUNT` | complétions sur des unités prises au hasard (0) après qu'une unité du projet a nommé et chargé de grandes unités dans ses `uses` : noms séparés par des virgules ou les plus gros fichiers de la bibliothèque (80). Ligne « [pinned] » avec chargement et éviction |
+| `DPCC_MEMBENCH_FREQUENT`, `DPCC_MEMBENCH_FREQNAMES` | tours (0) avec un nom de premier niveau fréquent (séparés par des virgules, par défaut `Register`) : une complétion après « := » sur une variable de ce type (le cherche dans toutes les unités), puis cinq complétions sur des unités prises au hasard. Ligne « [frequent] » avec chargement, éviction et temps de réponse de la recherche |
 | `DPCC_CACHE_ROOT` ou `LOCALAPPDATA`, `APPDATA` | dossiers propres pour que le cache de l'utilisateur reste intact ; pour un démarrage à chaud, y placer une copie du cache de la bibliothèque |
 
 ```
