@@ -1,9 +1,10 @@
 ﻿unit dpcc.UI.Popup.Styled;
 
-// Eingefärbter Code-Text für Detailpanel und Parameter-Hint (#411, #436):
+// Eingefärbter Code-Text für Hover-Tooltip und Parameter-Hint (#411, #436):
 // Schlüsselwörter halbfett in Schlüsselwortfarbe, Strings und Kommentare in
-// eigener Farbe; optional ein aktiver Bereich (aktiver Parameter) halbfett in
-// Akzentfarbe auf einer abgerundeten Akzentfläche; Standardwerte von Parametern
+// eigener Farbe; optional ein aktiver Bereich (aktiver Parameter) fett in
+// Textfarbe, in der gewählten Überladung zusätzlich unterstrichen (seit S8 flach
+// wie der Hover statt einer gerundeten Akzentfläche); Standardwerte von Parametern
 // (" = 1", #441) gedämpft. Messen und Zeichnen gehen
 // über dieselben Stücke, damit Umbruch und Zeichnung übereinstimmen.
 // Schnell: Stücke ohne Array-Verkettung und ohne Sortieren je Token; der Umbruch
@@ -19,13 +20,11 @@ uses
   dpcc.Core.Style.Syntax;
 
 type
-  /// <summary>Wohin gezeichnet wird: Leinwand, Farben und Eckradius der Akzentfläche.</summary>
+  /// <summary>Wohin gezeichnet wird: Leinwand und Farben.</summary>
   TDpccStyledTarget = record
     Canvas: TCanvas;
     Colors: TDpccColors;
-    Radius: Integer;
-    class function Create(ACanvas: TCanvas; const AColors: TDpccColors; ARadius: Integer): TDpccStyledTarget;
-      static;
+    class function Create(ACanvas: TCanvas; const AColors: TDpccColors): TDpccStyledTarget; static;
   end;
 
   TDpccStyledText = record
@@ -52,8 +51,8 @@ type
     /// <summary>Aktiver Bereich, 0-basiert, Stop exklusiv; -1 ohne.</summary>
     ActiveStart: Integer;
     ActiveStop: Integer;
-    /// <summary>Aktiven Bereich auf Akzentfläche (sonst nur halbfett).</summary>
-    ActiveFill: Boolean;
+    /// <summary>Aktiven Bereich unterstreichen (gewählte Überladung; sonst nur fett).</summary>
+    ActiveUnderline: Boolean;
     /// <summary>Gedämpfte Bereiche (Standardwerte), X = Start, Y = Stop.</summary>
     MutedRanges: TArray<TPoint>;
     class function Create(const AText: string): TDpccStyledText; static;
@@ -95,12 +94,12 @@ begin
   end;
 end;
 
-/// <summary>Farbe eines Stücks: aktiv in Akzent, gedämpft, sonst nach der Art des Tokens.</summary>
+/// <summary>Farbe eines Stücks: aktiv in Textfarbe, gedämpft, sonst nach der Art des Tokens.</summary>
 function PieceColor(const AColors: TDpccColors; AKind: TDpccTokenKind; AActive, AMuted: Boolean): TDpccColor;
 begin
   if AActive then
   begin
-    Exit(AColors.Accent);
+    Exit(AColors.Text);
   end;
   if AMuted then
   begin
@@ -117,12 +116,10 @@ end;
 
 { TDpccStyledTarget }
 
-class function TDpccStyledTarget.Create(ACanvas: TCanvas; const AColors: TDpccColors;
-  ARadius: Integer): TDpccStyledTarget;
+class function TDpccStyledTarget.Create(ACanvas: TCanvas; const AColors: TDpccColors): TDpccStyledTarget;
 begin
   Result.Canvas := ACanvas;
   Result.Colors := AColors;
-  Result.Radius := ARadius;
 end;
 
 { TDpccStyledText }
@@ -133,7 +130,7 @@ begin
   Result.Tokens := TDpccSyntax.Tokens(AText);
   Result.ActiveStart := -1;
   Result.ActiveStop := -1;
-  Result.ActiveFill := True;
+  Result.ActiveUnderline := True;
   Result.MutedRanges := TDpccSyntax.DefaultRanges(AText);
 end;
 
@@ -265,37 +262,6 @@ begin
   ACanvas.Font.Style := [];
 end;
 
-/// <summary>Akzentfläche unter jedem zusammenhängenden aktiven Lauf ab AX.</summary>
-procedure DrawActiveFill(const ATarget: TDpccStyledTarget; const AActive: TArray<Boolean>;
-  const AWidths: TArray<Integer>; AX: Integer; const ARow: TRect);
-var
-  mIndex, mX, mFillStart, mPad: Integer;
-  mCanvas: TCanvas;
-begin
-  mCanvas := ATarget.Canvas;
-  mX := AX;
-  mFillStart := -1;
-  mPad := Max(1, ATarget.Radius div 2);
-  for mIndex := 0 to High(AActive) do
-  begin
-    if AActive[mIndex] and (mFillStart < 0) then
-    begin
-      mFillStart := mX;
-    end;
-    Inc(mX, AWidths[mIndex]);
-    if (mFillStart >= 0) and ((mIndex = High(AActive)) or not AActive[mIndex + 1]) then
-    begin
-      mCanvas.Brush.Style := bsSolid;
-      mCanvas.Brush.Color := TColor(ATarget.Colors.AccentSoft);
-      mCanvas.Pen.Style := psClear;
-      mCanvas.RoundRect(mFillStart - mPad, ARow.Top + 1, Min(mX + mPad, ARow.Right) + 1, ARow.Bottom,
-        2 * ATarget.Radius, 2 * ATarget.Radius);
-      mCanvas.Pen.Style := psSolid;
-      mFillStart := -1;
-    end;
-  end;
-end;
-
 procedure TDpccStyledText.Draw(const ATarget: TDpccStyledTarget; const ARange: TPoint; var AX: Integer;
   const ARow: TRect; ADimmed: Boolean);
 const
@@ -303,7 +269,6 @@ const
 var
   mPieces: TArray<TPiece>;
   mWidths: TArray<Integer>;
-  mActive: TArray<Boolean>;
   mIndex: Integer;
   mPart: TRect;
   mText: string;
@@ -312,17 +277,6 @@ begin
   mCanvas := ATarget.Canvas;
   mPieces := Pieces(ARange.X, ARange.Y);
   mWidths := PieceWidths(mCanvas, mPieces);
-  // 1. Akzentfläche unter dem aktiven Bereich (vor dem Text, damit Nachbarzeichen darüber liegen).
-  if ActiveFill and not ADimmed then
-  begin
-    SetLength(mActive, Length(mPieces));
-    for mIndex := 0 to High(mPieces) do
-    begin
-      mActive[mIndex] := mPieces[mIndex].Active;
-    end;
-    DrawActiveFill(ATarget, mActive, mWidths, AX, ARow);
-  end;
-  // 2. Text.
   mCanvas.Brush.Style := bsClear;
   for mIndex := 0 to High(mPieces) do
   begin
@@ -331,6 +285,11 @@ begin
       Break;
     end;
     ApplyFont(mCanvas, mPieces[mIndex]);
+    // Unterstreichung ändert die Breite nicht; Messen (ApplyFont) und Zeichnen bleiben gleich.
+    if mPieces[mIndex].Active and ActiveUnderline and not ADimmed then
+    begin
+      mCanvas.Font.Style := mCanvas.Font.Style + [fsUnderline];
+    end;
     mCanvas.Font.Color := TColor(PieceColor(ATarget.Colors, mPieces[mIndex].Kind,
       mPieces[mIndex].Active and not ADimmed, ADimmed or mPieces[mIndex].Muted));
     mText := PieceText(mPieces[mIndex]);

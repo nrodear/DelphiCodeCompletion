@@ -36,10 +36,6 @@ type
   IDpccSettingsNames = dpcc.Core.Settings.Plugin.Store.IDpccSettingsNames;
 
   TDpccPluginSettings = record
-  public const
-    /// <summary>Wie TDpccPluginRecorder.cMinThresholdMs/cMaxThresholdMs (Diagnose-Fenster).</summary>
-    cMinSlowThreshold = 1;
-    cMaxSlowThreshold = 1000;
   private
     FCompletion: TDpccPluginCompletionSettings;
     FEditingKeys: TDpccPluginEditingKeysSettings;
@@ -57,7 +53,6 @@ type
     FDebug: TDpccPluginDebugSettings;
     FGeneral: TDpccPluginGeneralSettings;
     FUnitSearch: TDpccPluginUnitSearchSettings;
-    FStickyScroll: TDpccPluginStickyScrollSettings;
     FEditorView: TDpccPluginEditorViewSettings;
     FIssues: TDpccPluginIssuesSettings;
     FWelcome: TDpccPluginWelcomeSettings;
@@ -78,21 +73,6 @@ type
     cMaxTestsAffectedDepth = dpcc.Core.Settings.Plugin.Build.cMaxTestsAffectedDepth;
     cMinDataFlowDepth = dpcc.Core.Settings.Plugin.Editor.cMinDataFlowDepth;
     cMaxDataFlowDepth = dpcc.Core.Settings.Plugin.Editor.cMaxDataFlowDepth;
-    cMinStickyLines = dpcc.Core.Settings.Plugin.Editor.cMinStickyLines;
-    cMaxStickyLines = dpcc.Core.Settings.Plugin.Editor.cMaxStickyLines;
-    cMinStickyBlockLines = dpcc.Core.Settings.Plugin.Editor.cMinStickyBlockLines;
-    cMinSelectionMatchLength = dpcc.Core.Settings.Plugin.Highlighting.cMinSelectionMatchLength;
-    cMaxSelectionMatchLength = dpcc.Core.Settings.Plugin.Highlighting.cMaxSelectionMatchLength;
-    cMinSelectionMatches = dpcc.Core.Settings.Plugin.Highlighting.cMinSelectionMatches;
-    cMaxSelectionMatches = dpcc.Core.Settings.Plugin.Highlighting.cMaxSelectionMatches;
-    cMinMinimapWidth = dpcc.Core.Settings.Plugin.Editor.cMinMinimapWidth;
-    cMaxMinimapWidth = dpcc.Core.Settings.Plugin.Editor.cMaxMinimapWidth;
-    cMinMinimapScale = dpcc.Core.Settings.Plugin.Editor.cMinMinimapScale;
-    cMaxMinimapScale = dpcc.Core.Settings.Plugin.Editor.cMaxMinimapScale;
-    cMinMinimapColumn = dpcc.Core.Settings.Plugin.Editor.cMinMinimapColumn;
-    cMaxMinimapColumn = dpcc.Core.Settings.Plugin.Editor.cMaxMinimapColumn;
-    cMinBlockEndLines = dpcc.Core.Settings.Plugin.Editor.cMinBlockEndLines;
-    cMaxBlockEndLines = dpcc.Core.Settings.Plugin.Editor.cMaxBlockEndLines;
     cMinInlineValuesPerLine = dpcc.Core.Settings.Plugin.Debug.cMinInlineValuesPerLine;
     cMaxQuickChordWait = dpcc.Core.Settings.Plugin.Bookmarks.cMaxQuickChordWait;
     cMinRecursionDepth = dpcc.Core.Settings.Plugin.Editor.cMinRecursionDepth;
@@ -175,8 +155,6 @@ type
     cMinNotificationEntries = dpcc.Core.Settings.Plugin.General.cMinNotificationEntries;
     cMaxNotificationEntries = dpcc.Core.Settings.Plugin.General.cMaxNotificationEntries;
     cDefaultTrendSeries = dpcc.Core.Settings.Plugin.Welcome.cDefaultTrendSeries;
-    cMaxPairGuideWidth = dpcc.Core.Settings.Plugin.Highlighting.cMaxPairGuideWidth;
-    cMinPairGuideOpacity = dpcc.Core.Settings.Plugin.Highlighting.cMinPairGuideOpacity;
     cDefaultHelpReportUrl = dpcc.Core.Settings.Plugin.Welcome.cDefaultHelpReportUrl;
   public
     class function Defaults: TDpccPluginSettings; static;
@@ -184,14 +162,6 @@ type
     procedure Normalize;
     procedure Load(const AStore: IDpccSettingsStore);
     procedure Save(const AStore: IDpccSettingsStore);
-    /// <summary>Rechtsklick auf das Statusfeld öffnet die Schnellschalter (StatusFieldToggles).</summary>
-    function StatusTogglesOnRightClick: Boolean;
-    /// <summary>Doppelklick auf das Statusfeld öffnet die Schnellschalter (StatusFieldToggles).</summary>
-    function StatusTogglesOnDoubleClick: Boolean;
-    /// <summary>Statusfeld zeigt den Fortschritt des Symbol-Index (IndexProgressPlace).</summary>
-    function IndexProgressInField: Boolean;
-    /// <summary>Titel des Menüs dpcc zeigt den Fortschritt (IndexProgressPlace, Statusfeld aus).</summary>
-    function IndexProgressInMenu: Boolean;
     property Enabled: Boolean read FCompletion.Enabled write FCompletion.Enabled;
     property VisibleRows: Integer read FCompletion.VisibleRows write FCompletion.VisibleRows;
     property ListWidth: Integer read FCompletion.ListWidth write FCompletion.ListWidth;
@@ -221,19 +191,7 @@ type
     property CompletionListScope: string read FCompletion.CompletionListScope write FCompletion.CompletionListScope;
     property Preview: Boolean read FCompletion.Preview write FCompletion.Preview;
     property HoverTooltip: Boolean read FEditorTyping.HoverTooltip write FEditorTyping.HoverTooltip;
-    property ReloadExternal: Boolean read FEditorTyping.ReloadExternal write FEditorTyping.ReloadExternal;
     property PairColors: Boolean read FHighlighting.PairColors write FHighlighting.PairColors;
-    property InactiveDim: Boolean read FHighlighting.InactiveDim write FHighlighting.InactiveDim;
-    property OpenForEdits: Boolean read FEditorTyping.OpenForEdits write FEditorTyping.OpenForEdits;
-    property InlayHints: Boolean read FEditorInsight.InlayHints write FEditorInsight.InlayHints;
-    property InlayTypeHints: Boolean read FEditorInsight.InlayTypeHints write FEditorInsight.InlayTypeHints;
-    property InlayDefineHints: Boolean read FEditorInsight.InlayDefineHints write FEditorInsight.InlayDefineHints;
-    property InlayCharHints: Boolean read FEditorInsight.InlayCharHints write FEditorInsight.InlayCharHints;
-    property InlayMethodHints: Boolean read FEditorInsight.InlayMethodHints write FEditorInsight.InlayMethodHints;
-    property BlockEndLabels: Boolean read FEditorTyping.BlockEndLabels write FEditorTyping.BlockEndLabels;
-    property BlockEndLabelsMinLines: Integer read FEditorTyping.BlockEndLabelsMinLines
-      write FEditorTyping.BlockEndLabelsMinLines;
-    property DimUnusedUses: Boolean read FEditorTyping.DimUnusedUses write FEditorTyping.DimUnusedUses;
     property RecursionMarkers: Boolean read FEditorTyping.RecursionMarkers write FEditorTyping.RecursionMarkers;
     property RecursionMarkersDepth: Integer read FEditorTyping.RecursionMarkersDepth
       write FEditorTyping.RecursionMarkersDepth;
@@ -257,14 +215,8 @@ type
     property SearchPreviousKey: Integer read FNavigationKeys.SearchPreviousKey write FNavigationKeys.SearchPreviousKey;
     property SearchMethodKey: Integer read FNavigationKeys.SearchMethodKey write FNavigationKeys.SearchMethodKey;
     property PairGuides: Boolean read FHighlighting.PairGuides write FHighlighting.PairGuides;
-    property PairOwners: Boolean read FHighlighting.PairOwners write FHighlighting.PairOwners;
-    property PairGuideWidth: Integer read FHighlighting.PairGuideWidth write FHighlighting.PairGuideWidth;
-    property PairGuideOpacity: Integer read FHighlighting.PairGuideOpacity write FHighlighting.PairGuideOpacity;
     property PairColorsLight: string read FHighlighting.PairColorsLight write FHighlighting.PairColorsLight;
     property PairColorsDark: string read FHighlighting.PairColorsDark write FHighlighting.PairColorsDark;
-    /// <summary>Lokale Routinen abheben (#1788).</summary>
-    property NestedRoutines: string read FHighlighting.NestedRoutines write FHighlighting.NestedRoutines;
-    property NestedRoutineBand: Boolean read FHighlighting.NestedRoutineBand write FHighlighting.NestedRoutineBand;
     property NestedRoutineColorLight: string read FHighlighting.NestedRoutineColorLight
       write FHighlighting.NestedRoutineColorLight;
     property NestedRoutineColorDark: string read FHighlighting.NestedRoutineColorDark
@@ -412,7 +364,6 @@ type
     property BaselineUpdate: Boolean read FEditorInsight.BaselineUpdate write FEditorInsight.BaselineUpdate;
     property MetricsReport: Boolean read FEditorInsight.MetricsReport write FEditorInsight.MetricsReport;
     property DfmPropertyRules: Boolean read FEditorInsight.DfmPropertyRules write FEditorInsight.DfmPropertyRules;
-    property TeamFile: Boolean read FGeneralServer.TeamFile write FGeneralServer.TeamFile;
     property EditorKeysPriority: Boolean read FKeyPriorities.EditorKeysPriority write FKeyPriorities.EditorKeysPriority;
     property SlashCommands: Boolean read FCodeActions.SlashCommands write FCodeActions.SlashCommands;
     property GenerateMenu: Boolean read FCodeActions.GenerateMenu write FCodeActions.GenerateMenu;
@@ -431,18 +382,9 @@ type
       write FCodeActions.GenerateMenuShowCommandNames;
     property XmlDocExpand: string read FEditorInsight.XmlDocExpand write FEditorInsight.XmlDocExpand;
     property XmlDocMaxLines: Integer read FEditorInsight.XmlDocMaxLines write FEditorInsight.XmlDocMaxLines;
-    property StatusField: Boolean read FGeneral.StatusField write FGeneral.StatusField;
-    property StatusFieldHidden: string read FGeneral.StatusFieldHidden write FGeneral.StatusFieldHidden;
-    property StatusFieldSummary: Boolean read FGeneral.StatusFieldSummary write FGeneral.StatusFieldSummary;
-    property StatusFieldToggles: string read FGeneral.StatusFieldToggles write FGeneral.StatusFieldToggles;
-    property IndexProgressPlace: string read FGeneral.IndexProgressPlace write FGeneral.IndexProgressPlace;
     property QuickToggleKey: Integer read FEditingKeys.QuickToggleKey write FEditingKeys.QuickToggleKey;
     property QuickToggleKeyPriority: Boolean read FKeyPriorities.QuickToggleKeyPriority
       write FKeyPriorities.QuickToggleKeyPriority;
-    property DiagnosticMode: Boolean read FGeneralServer.DiagnosticMode write FGeneralServer.DiagnosticMode;
-    property DiagnosticPluginTimings: Boolean read FGeneralServer.DiagnosticPluginTimings
-      write FGeneralServer.DiagnosticPluginTimings;
-    property DiagnosticSlowMs: Integer read FGeneralServer.DiagnosticSlowMs write FGeneralServer.DiagnosticSlowMs;
     property DiagnosticModeKey: Integer read FEditingKeys.DiagnosticModeKey write FEditingKeys.DiagnosticModeKey;
     property DiagnosticModeKeyPriority: Boolean read FKeyPriorities.DiagnosticModeKeyPriority
       write FKeyPriorities.DiagnosticModeKeyPriority;
@@ -470,8 +412,6 @@ type
     property SetupChecklistSeen: Boolean read FGeneral.SetupChecklistSeen write FGeneral.SetupChecklistSeen;
     property KeyOverview: Boolean read FNavigationKeys.KeyOverview write FNavigationKeys.KeyOverview;
     property KeyStartupCheck: Boolean read FEditingKeys.KeyStartupCheck write FEditingKeys.KeyStartupCheck;
-    property ShortcutTips: Boolean read FGeneral.ShortcutTips write FGeneral.ShortcutTips;
-    property ShortcutTipsScope: string read FGeneral.ShortcutTipsScope write FGeneral.ShortcutTipsScope;
     property SafeAskAfterCrash: Boolean read FGeneralServer.SafeAskAfterCrash write FGeneralServer.SafeAskAfterCrash;
     property SafeAutoAfterRepeatedCrash: Boolean read FGeneralServer.SafeAutoAfterRepeatedCrash
       write FGeneralServer.SafeAutoAfterRepeatedCrash;
@@ -533,8 +473,6 @@ type
     property QuickOpenLibrary: Boolean read FEditorNavigation.QuickOpenLibrary write FEditorNavigation.QuickOpenLibrary;
     property QuickOpenKey: Integer read FNavigationKeys.QuickOpenKey write FNavigationKeys.QuickOpenKey;
     property NavHistory: Boolean read FEditorNavigation.NavHistory write FEditorNavigation.NavHistory;
-    property MouseNavButtons: Boolean read FEditorNavigation.MouseNavButtons
-      write FEditorNavigation.MouseNavButtons;
     property NavBackKey: Integer read FNavigationKeys.NavBackKey write FNavigationKeys.NavBackKey;
     property NavForwardKey: Integer read FNavigationKeys.NavForwardKey write FNavigationKeys.NavForwardKey;
     property LastEditKey: Integer read FNavigationKeys.LastEditKey write FNavigationKeys.LastEditKey;
@@ -546,8 +484,6 @@ type
       write FEditorNavigation.ReferencesInferred;
     property ReferencesTextMatches: Boolean read FEditorNavigation.ReferencesTextMatches
       write FEditorNavigation.ReferencesTextMatches;
-    property CallHierarchyDiagram: Boolean read FEditorNavigation.CallHierarchyDiagram
-      write FEditorNavigation.CallHierarchyDiagram;
     property Impact: Boolean read FEditorNavigation.Impact write FEditorNavigation.Impact;
     property ImpactDepth: Integer read FEditorNavigation.ImpactDepth write FEditorNavigation.ImpactDepth;
     property DataFlow: Boolean read FEditorNavigation.DataFlow write FEditorNavigation.DataFlow;
@@ -563,40 +499,6 @@ type
       write FEditorNavigation.OutlineFollowCursor;
     property OutlineConditions: Boolean read FEditorNavigation.OutlineConditions
       write FEditorNavigation.OutlineConditions;
-    property Breadcrumbs: Boolean read FStickyScroll.Breadcrumbs write FStickyScroll.Breadcrumbs;
-    property BreadcrumbsShowUnit: Boolean read FStickyScroll.BreadcrumbsShowUnit
-      write FStickyScroll.BreadcrumbsShowUnit;
-    property BreadcrumbsVisibility: Boolean read FStickyScroll.BreadcrumbsVisibility
-      write FStickyScroll.BreadcrumbsVisibility;
-    property BreadcrumbsMemberBlocks: Boolean read FStickyScroll.BreadcrumbsMemberBlocks
-      write FStickyScroll.BreadcrumbsMemberBlocks;
-    property BreadcrumbsVisibilityMark: Boolean read FStickyScroll.BreadcrumbsVisibilityMark
-      write FStickyScroll.BreadcrumbsVisibilityMark;
-    property BreadcrumbsDeclarationBlocks: Boolean read FStickyScroll.BreadcrumbsDeclarationBlocks
-      write FStickyScroll.BreadcrumbsDeclarationBlocks;
-    property BreadcrumbsConditionals: Boolean read FStickyScroll.BreadcrumbsConditionals
-      write FStickyScroll.BreadcrumbsConditionals;
-    property BreadcrumbsRegions: Boolean read FStickyScroll.BreadcrumbsRegions write FStickyScroll.BreadcrumbsRegions;
-    property BreadcrumbsStatements: Boolean read FStickyScroll.BreadcrumbsStatements
-      write FStickyScroll.BreadcrumbsStatements;
-    property BreadcrumbsSectionCounts: Boolean read FStickyScroll.BreadcrumbsSectionCounts
-      write FStickyScroll.BreadcrumbsSectionCounts;
-    property BreadcrumbsSectionAppend: Boolean read FStickyScroll.BreadcrumbsSectionAppend
-      write FStickyScroll.BreadcrumbsSectionAppend;
-    property BreadcrumbsSectionCreate: Boolean read FStickyScroll.BreadcrumbsSectionCreate
-      write FStickyScroll.BreadcrumbsSectionCreate;
-    property BreadcrumbsContextMenu: Boolean read FStickyScroll.BreadcrumbsContextMenu
-      write FStickyScroll.BreadcrumbsContextMenu;
-    property BreadcrumbsOverloads: Boolean read FStickyScroll.BreadcrumbsOverloads
-      write FStickyScroll.BreadcrumbsOverloads;
-    property BreadcrumbsInterfaces: Boolean read FStickyScroll.BreadcrumbsInterfaces
-      write FStickyScroll.BreadcrumbsInterfaces;
-    property BreadcrumbsMetrics: Boolean read FStickyScroll.BreadcrumbsMetrics
-      write FStickyScroll.BreadcrumbsMetrics;
-    property BreadcrumbsIdeColors: Boolean read FStickyScroll.BreadcrumbsIdeColors
-      write FStickyScroll.BreadcrumbsIdeColors;
-    property BreadcrumbsHideIdeToolbar: Boolean read FStickyScroll.BreadcrumbsHideIdeToolbar
-      write FStickyScroll.BreadcrumbsHideIdeToolbar;
     property EditorToolbar: Boolean read FEditorView.EditorToolbar write FEditorView.EditorToolbar;
     property EditorToolbarPosition: string read FEditorView.EditorToolbarPosition
       write FEditorView.EditorToolbarPosition;
@@ -604,8 +506,6 @@ type
     property EditorToolbarReturnButton: Boolean read FEditorView.EditorToolbarReturnButton
       write FEditorView.EditorToolbarReturnButton;
     property EditorToolbarLabels: Boolean read FEditorView.EditorToolbarLabels write FEditorView.EditorToolbarLabels;
-    property EditorStatusBar: Boolean read FEditorView.EditorStatusBar write FEditorView.EditorStatusBar;
-    property EditorStatusBarItems: string read FEditorView.EditorStatusBarItems write FEditorView.EditorStatusBarItems;
     property EditorDesignerBar: Boolean read FEditorView.EditorDesignerBar write FEditorView.EditorDesignerBar;
     property DesignerSearchKey: Integer read FEditorView.DesignerSearchKey write FEditorView.DesignerSearchKey;
     property DesignerSearchStyle: string read FEditorView.DesignerSearchStyle write FEditorView.DesignerSearchStyle;
@@ -868,54 +768,7 @@ type
     property NextBookmarkKey: Integer read FNavigationKeys.NextBookmarkKey write FNavigationKeys.NextBookmarkKey;
     property PreviousBookmarkKey: Integer read FNavigationKeys.PreviousBookmarkKey
       write FNavigationKeys.PreviousBookmarkKey;
-    property StickyScroll: Boolean read FStickyScroll.StickyScroll write FStickyScroll.StickyScroll;
-    property StickyScrollMaxLines: Integer read FStickyScroll.StickyScrollMaxLines
-      write FStickyScroll.StickyScrollMaxLines;
-    property StickyScrollTypes: Boolean read FStickyScroll.StickyScrollTypes write FStickyScroll.StickyScrollTypes;
-    property StickyScrollRoutines: Boolean read FStickyScroll.StickyScrollRoutines
-      write FStickyScroll.StickyScrollRoutines;
-    property StickyScrollBlocks: Boolean read FStickyScroll.StickyScrollBlocks write FStickyScroll.StickyScrollBlocks;
-    property StickyScrollLoops: Boolean read FStickyScroll.StickyScrollLoops write FStickyScroll.StickyScrollLoops;
-    property StickyScrollTry: Boolean read FStickyScroll.StickyScrollTry write FStickyScroll.StickyScrollTry;
-    property StickyScrollCase: Boolean read FStickyScroll.StickyScrollCase write FStickyScroll.StickyScrollCase;
-    property StickyScrollWith: Boolean read FStickyScroll.StickyScrollWith write FStickyScroll.StickyScrollWith;
-    property StickyScrollBlockMinLines: Integer read FStickyScroll.StickyScrollBlockMinLines
-      write FStickyScroll.StickyScrollBlockMinLines;
-    property Minimap: Boolean read FEditorView.Minimap write FEditorView.Minimap;
-    property MinimapRender: string read FEditorView.MinimapRender write FEditorView.MinimapRender;
-    property MinimapWidth: Integer read FEditorView.MinimapWidth write FEditorView.MinimapWidth;
-    property MinimapScale: Integer read FEditorView.MinimapScale write FEditorView.MinimapScale;
-    property MinimapMaxColumn: Integer read FEditorView.MinimapMaxColumn write FEditorView.MinimapMaxColumn;
-    property MinimapSide: string read FEditorView.MinimapSide write FEditorView.MinimapSide;
-    property MinimapShowSlider: string read FEditorView.MinimapShowSlider write FEditorView.MinimapShowSlider;
-    property MinimapSectionHeaders: Boolean read FEditorView.MinimapSectionHeaders
-      write FEditorView.MinimapSectionHeaders;
-    property MinimapHighlightMethod: Boolean read FEditorView.MinimapHighlightMethod
-      write FEditorView.MinimapHighlightMethod;
-    property MinimapMarkers: Boolean read FEditorView.MinimapMarkers write FEditorView.MinimapMarkers;
-    property MinimapClickJumps: Boolean read FEditorView.MinimapClickJumps write FEditorView.MinimapClickJumps;
     property MinimapNoticeShown: Boolean read FEditorView.MinimapNoticeShown write FEditorView.MinimapNoticeShown;
-    property BreadcrumbsKey: Integer read FNavigationKeys.BreadcrumbsKey write FNavigationKeys.BreadcrumbsKey;
-    property SectionAppendKey: Integer read FNavigationKeys.SectionAppendKey write FNavigationKeys.SectionAppendKey;
-    property GitGutter: Boolean read FEditorTyping.GitGutter write FEditorTyping.GitGutter;
-    property GitBlame: Boolean read FEditorTyping.GitBlame write FEditorTyping.GitBlame;
-    property GutterColumn: Boolean read FEditorView.GutterColumn write FEditorView.GutterColumn;
-    property GutterColumnProblems: Boolean read FEditorView.GutterColumnProblems write FEditorView.GutterColumnProblems;
-    property GutterColumnCodeActions: Boolean read FEditorView.GutterColumnCodeActions
-      write FEditorView.GutterColumnCodeActions;
-    property GutterColumnOverrides: Boolean read FEditorView.GutterColumnOverrides
-      write FEditorView.GutterColumnOverrides;
-    property SelectionMatches: Boolean read FHighlighting.SelectionMatches write FHighlighting.SelectionMatches;
-    property SelectionMatchesMinLength: Integer read FHighlighting.SelectionMatchesMinLength
-      write FHighlighting.SelectionMatchesMinLength;
-    property SelectionMatchesCaseSensitive: Boolean read FHighlighting.SelectionMatchesCaseSensitive
-      write FHighlighting.SelectionMatchesCaseSensitive;
-    property SelectionMatchesWholeWord: Boolean read FHighlighting.SelectionMatchesWholeWord
-      write FHighlighting.SelectionMatchesWholeWord;
-    property SelectionMatchesNavigateF3: Boolean read FHighlighting.SelectionMatchesNavigateF3
-      write FHighlighting.SelectionMatchesNavigateF3;
-    property SelectionMatchesMaxMatches: Integer read FHighlighting.SelectionMatchesMaxMatches
-      write FHighlighting.SelectionMatchesMaxMatches;
     property ExitPoints: Boolean read FHighlighting.ExitPoints write FHighlighting.ExitPoints;
     property ExitPointsExceptions: Boolean read FHighlighting.ExitPointsExceptions
       write FHighlighting.ExitPointsExceptions;
@@ -948,8 +801,6 @@ type
     property RegionFolds: string read FEditorTyping.RegionFolds write FEditorTyping.RegionFolds;
     property SafeDelete: Boolean read FEditingKeys.SafeDelete write FEditingKeys.SafeDelete;
     property SafeDeleteKey: Integer read FEditingKeys.SafeDeleteKey write FEditingKeys.SafeDeleteKey;
-    property NextChangeKey: Integer read FNavigationKeys.NextChangeKey write FNavigationKeys.NextChangeKey;
-    property PreviousChangeKey: Integer read FNavigationKeys.PreviousChangeKey write FNavigationKeys.PreviousChangeKey;
     property OverviewRuler: Boolean read FEditorView.OverviewRuler write FEditorView.OverviewRuler;
     property OverviewRulerKinds: string read FEditorView.OverviewRulerKinds write FEditorView.OverviewRulerKinds;
     property JumpToMatch: Boolean read FNavigationKeys.JumpToMatch write FNavigationKeys.JumpToMatch;
@@ -1243,7 +1094,6 @@ begin
   Result.FDebug := TDpccPluginDebugSettings.Defaults;
   Result.FGeneral := TDpccPluginGeneralSettings.Defaults;
   Result.FUnitSearch := TDpccPluginUnitSearchSettings.Defaults;
-  Result.FStickyScroll := TDpccPluginStickyScrollSettings.Defaults;
   Result.FEditorView := TDpccPluginEditorViewSettings.Defaults;
   Result.FIssues := TDpccPluginIssuesSettings.Defaults;
   Result.FWelcome := TDpccPluginWelcomeSettings.Defaults;
@@ -1269,7 +1119,6 @@ begin
   FDebug.Normalize;
   FGeneral.Normalize;
   FUnitSearch.Normalize;
-  FStickyScroll.Normalize;
   FEditorView.Normalize;
   FIssues.Normalize;
   FWelcome.Normalize;
@@ -1296,7 +1145,6 @@ begin
   FDebug.Exchange(AIo);
   FGeneral.Exchange(AIo);
   FUnitSearch.Exchange(AIo);
-  FStickyScroll.Exchange(AIo);
   FEditorView.Exchange(AIo);
   FIssues.Exchange(AIo);
   FWelcome.Exchange(AIo);
@@ -1316,27 +1164,6 @@ procedure TDpccPluginSettings.Save(const AStore: IDpccSettingsStore);
 begin
   Normalize;
   Exchange(TDpccSettingsExchange.Writer(AStore));
-end;
-
-function TDpccPluginSettings.StatusTogglesOnRightClick: Boolean;
-begin
-  Result := not SameText(Trim(StatusFieldToggles), 'doubleClick');
-end;
-
-function TDpccPluginSettings.StatusTogglesOnDoubleClick: Boolean;
-begin
-  Result := not SameText(Trim(StatusFieldToggles), 'rightClick');
-end;
-
-function TDpccPluginSettings.IndexProgressInField: Boolean;
-begin
-  Result := StatusField and SameText(Trim(IndexProgressPlace), 'statusField');
-end;
-
-function TDpccPluginSettings.IndexProgressInMenu: Boolean;
-begin
-  Result := SameText(Trim(IndexProgressPlace), 'menu') or
-    (not StatusField and SameText(Trim(IndexProgressPlace), 'statusField'));
 end;
 
 end.

@@ -100,7 +100,6 @@ contains
   dpcc.IDE.Hover.Editor in 'Source\IDE\Hover\dpcc.IDE.Hover.Editor.pas',
   dpcc.IDE.Completion.Preview in 'Source\IDE\Completion\dpcc.IDE.Completion.Preview.pas',
   dpcc.IDE.Foundation.StructureSwitch in 'Source\IDE\Foundation\dpcc.IDE.Foundation.StructureSwitch.pas',
-  dpcc.IDE.Foundation.TeamFile in 'Source\IDE\Foundation\dpcc.IDE.Foundation.TeamFile.pas',
   dpcc.IDE.Forms.Designer in 'Source\IDE\Forms\dpcc.IDE.Forms.Designer.pas';
 
 end.

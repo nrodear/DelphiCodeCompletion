@@ -12,8 +12,9 @@
 //   - Verknüpfte Platzhalter: Nach jeder Änderung im aktuellen Platzhalter
 //     gleicht dpcc die übrigen mit derselben Nummer an (gleich danach per
 //     ForceQueue, nicht in der Benachrichtigung).
-//   - Zeichnen: aktueller Platzhalter durchgezogen umrahmt, verknüpfte
-//     gestrichelt, die übrigen gepunktet; hinter der Zeile die Fußzeile
+//   - Zeichnen (eckige 1-px-Rahmen in Farben des Editors, TDpccIdeStyle.ListColors, S8):
+//     aktueller Platzhalter durchgezogen in Textfarbe umrahmt, verknüpfte gestrichelt,
+//     die übrigen gepunktet (beide gedämpft); hinter der Zeile gedämpft die Fußzeile
 //     „Platzhalter 1 / 3 · Tab weiter · Esc fertig“.
 //   - Eine Änderung außerhalb, ein Wechsel der Ansicht oder Esc beendet den Modus.
 //   - Ein Undo-Schritt: Endet der Modus regulär (Esc, Enter, Tab nach dem
@@ -642,12 +643,12 @@ begin
   if (AField.Start = ACurrent.Start) and (AField.Number = ACurrent.Number) then
   begin
     mPenStyle := PS_SOLID;
-    mColor := TColor(Colors.Accent);
+    mColor := TColor(Colors.Text);
   end
   else if AField.Number = ACurrent.Number then
   begin
     mPenStyle := PS_DASH;
-    mColor := TColor(Colors.Accent);
+    mColor := TColor(Colors.Muted);
   end
   else
   begin
@@ -727,7 +728,7 @@ begin
     begin
       Exit;
     end;
-    mPaint.Colors := TDpccIdeStyle.Colors;
+    mPaint.Colors := TDpccIdeStyle.ListColors;
     mPaint.DC := Context.Canvas.Handle;
     mSaved := SaveDC(mPaint.DC);
     try

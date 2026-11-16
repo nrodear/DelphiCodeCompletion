@@ -88,6 +88,7 @@ uses
   System.SysUtils,
   System.Generics.Collections,
   Vcl.Graphics,
+  Vcl.Themes,
   dpcc.UI.Strings,
   dpcc.UI.Settings.Strings,
   dpcc.UI.Settings.Page.Sheets;
@@ -577,9 +578,12 @@ begin
   Result := TDpccSettingsGroup.Create(Self);
   FPlaceTop := 100000;
   Place(Result, FNodePages[AMain].Box);
+  // Überschrift im Stil des Hovers (Großbuchstaben, fett, gedämpft); die Linie zeichnet der Rahmen oben.
   mCaption := TLabel.Create(Self);
-  mCaption.Caption := TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsOverviewTitle);
+  mCaption.Caption := AnsiUpperCase(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsOverviewTitle));
   mCaption.Font.Style := [fsBold];
+  mCaption.StyleElements := mCaption.StyleElements - [seFont];
+  mCaption.Font.Color := StyleServices.GetSystemColor(clGrayText);
   Result.SetMaster(mCaption, '');
   FOverviews := FOverviews + [Result];
   FMarks.Pin(Result);
@@ -603,7 +607,8 @@ begin
   mDetails.Layout := tlCenter;
   mDetails.Caption := TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsOverviewDetails);
   mDetails.Font.Style := [fsUnderline];
-  mDetails.Font.Color := clHotLight;
+  // Verweisfarbe aus dem IDE-Thema (hell und dunkel), keine eigene Farbe.
+  mDetails.Font.Color := StyleServices.GetSystemColor(clHotLight);
   mDetails.Cursor := crHandPoint;
   mDetails.Tag := APage;
   mDetails.OnClick := DetailsClick;

@@ -2,11 +2,12 @@
 
 // Vervollständigungs-Popup (#410), Stufe Zeichnen: Warnleiste, Überschriften, Zeilen, Scrollleiste, Fußzeile und
 // leerer Zustand; dazu der Tooltip für gekürzte Zeilen (#420). Kette und Aussehen: dpcc.UI.Completion.Popup.
-// Schlicht (S6): Zeilen wie die Code-Insight-Liste der IDE und der Hover-Tooltip (DrawRow): Art als Wort in der
-// Farbe der reservierten Wörter, Name fett (getippte Zeichen unterstrichen), Rest der Signatur direkt dahinter bzw.
+// Schlicht (S6): Zeilen wie die Code-Insight-Liste der IDE und der Hover-Tooltip (DrawRow): Art als Wort gedämpft
+// (Colors.KindLabel, S8), Name fett (getippte Zeichen unterstrichen), Rest der Signatur direkt dahinter bzw.
 // das Detail gedämpft, rechts gedämpft „+ Unit“ und Warnungen als Text; Auswahl flach über die ganze Zeile.
 // Fußzeile auf der Fläche mit Trennlinie, nur Tasten bzw. Hinweise. Badges, Tags als Flächen, Sterne, Chips,
-// Auswahlmarke, Griff und Detailpanel gibt es seit S7a nicht mehr.
+// Auswahlmarke, Griff und Detailpanel gibt es seit S7a nicht mehr. Seit S8 sind auch Warnleiste (Text in
+// Warnfarbe über einer Trennlinie) und Kästchen im Mengenmodus (1 px, eckig) flach.
 
 interface
 
@@ -106,8 +107,9 @@ begin
   begin
     Exit;
   end;
+  // Flach wie der Hover-Tooltip: nur Text in Warnfarbe, darunter eine dünne Trennlinie.
   mBar := Rect(Pad + Scale(4), Pad + Scale(2), ListWidth - Pad - Scale(4), Pad + SyntaxHeight - Scale(2));
-  FillRounded(mBar, Colors.WarnSoft, TDpccDraw.cChipRadius);
+  TDpccDraw.Separator(Canvas, Pad, ListWidth - Pad, Pad + SyntaxHeight - 1, Colors.Line);
   mLead := TDpccCompletionTexts.SyntaxLead(FSyntax.Trust);
   mLineText := TDpccCompletionTexts.SyntaxLineText(FSyntax.Line);
   Canvas.Font := UIFont;
@@ -243,12 +245,13 @@ begin
   mSize := Scale(13);
   mTop := ARow.Top + (ARow.Height - mSize) div 2;
   mBox := Rect(ARow.Left + Scale(7), mTop, ARow.Left + Scale(7) + mSize, mTop + mSize);
+  // Eckig und flach (S8): leer nur der Rand, gewählt gefüllt mit Haken.
   if not AChecked then
   begin
-    FrameRounded(mBox, Colors.Muted, 3);
+    FrameBox(mBox, Colors.Muted);
     Exit;
   end;
-  FillRounded(mBox, Colors.Accent, 3);
+  FillBox(mBox, Colors.Accent);
   // Haken in der Flächenfarbe.
   mPoints[0] := Point(mBox.Left + MulDiv(mSize, 3, 13), mBox.Top + MulDiv(mSize, 7, 13));
   mPoints[1] := Point(mBox.Left + MulDiv(mSize, 5, 13), mBox.Top + MulDiv(mSize, 10, 13));
@@ -351,7 +354,7 @@ begin
   else
   begin
     mTextColor := Dim(Colors.Text);
-    mKindColor := Dim(Colors.Keyword);
+    mKindColor := Dim(Colors.KindLabel);
     mMutedColor := Dim(Colors.Muted);
     // Aktionen (#444, #471) und Hinweise (#466) in Akzentfarbe.
     if mItem.IsAction or mItem.Hint then
@@ -463,7 +466,7 @@ begin
   mThumbHeight := Max(Scale(16), mTrack.Height * mVisible div mTotal);
   mThumbTop := mTrack.Top + (mTrack.Height - mThumbHeight) * FTop div Max(1, mTotal - mVisible);
   mThumb := Rect(mTrack.Left, mThumbTop, mTrack.Right, mThumbTop + mThumbHeight);
-  TDpccDraw.Thumb(Canvas, mThumb, Colors, Scale(2));
+  TDpccDraw.Thumb(Canvas, mThumb, Colors);
 end;
 
 procedure TDpccCompletionPopupPainter.Paint;

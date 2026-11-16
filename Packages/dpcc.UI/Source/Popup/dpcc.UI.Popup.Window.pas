@@ -7,10 +7,9 @@
 //     Hauptfenster der IDE; Schatten über CS_DROPSHADOW.
 //   - WM_MOUSEACTIVATE liefert MA_NOACTIVATE: Klicks wählen, ohne zu aktivieren.
 //   - Zeigen über SetWindowPos mit SWP_NOACTIVATE (wie THintWindow), nicht über Visible.
-// Aussehen nach dem Entwurf (#411): Farben aus TDpccColors, Rahmen in
-// Akzentfarbe, abgerundete Ecken (ab Windows 11 vom Fenstermanager mit
-// Kantenglättung, sonst über eine Fensterregion). Mit FlatFrame (Hover-Tooltip seit S3b) flach wie ein Menü der
-// IDE: eckig, dünner Rand in der Linienfarbe (Colors.Line) statt Akzent. Code (Namen, Signaturen)
+// Aussehen (seit S8 für alle Fenster gleich, wie der Hover-Tooltip): Farben aus TDpccColors, flach wie ein Menü
+// der IDE – eckig (unter Windows 11 die Rundung des Fenstermanagers ausgeschaltet), dünner Rand in der
+// Linienfarbe (Colors.Line). Den früheren runden Weg mit Akzentrahmen gibt es nicht mehr. Code (Namen, Signaturen)
 // steht in der Editorschrift (Font), Beschriftungen in der UI-Schrift (UIFont).
 // Maße (#412, #445): alle in logischen Pixeln (96 dpi), umgerechnet mit PPI =
 // DPI des Monitors am Caret mal Zoom des Editors (SetScaling). So wachsen Schrift,
@@ -48,19 +47,9 @@ type
       /// <summary>Zuletzt vorgelesener Text.</summary>
       Announced: string;
     end;
-
-    /// <summary>Wer die Ecken rundet: der Fenstermanager (Windows 11) oder eine Fensterregion.</summary>
-    TCorners = record
-      ByWindowManager: Boolean;
-      /// <summary>CreateWnd hat entschieden, wer die Ecken rundet; vorher keine Region setzen.</summary>
-      Known: Boolean;
-    end;
   private
     FColors: TDpccColors;
     FUIFont: TFont;
-    FBorderColor: TDpccColor;
-    FCorners: TCorners;
-    FFlatFrame: Boolean;
     FPPI: Integer;
     FAccess: TAccess;
     FGuardFeature: TDpccFeature;
@@ -70,26 +59,22 @@ type
     function HandleOwnMessage(var AMessage: TMessage): Boolean;
     procedure CMFontChanged(var Message: TMessage); message CM_FONTCHANGED;
     procedure SetColors(const AValue: TDpccColors);
-    procedure SetBorderColor(AValue: TDpccColor);
-    procedure SetFlatFrame(AValue: Boolean);
-    procedure UpdateCorners;
+    /// <summary>Eckig und ohne Rahmen des Fenstermanagers (Windows 11); den Rand zeichnet PaintBorder.</summary>
+    procedure SquareCorners;
   protected
     procedure CreateParams(var Params: TCreateParams); override;
     /// <summary>Alle Nachrichten geschützt (#493): Zeichnen, Maus, Tasten des Fensters.</summary>
     procedure WndProc(var Message: TMessage); override;
     procedure CreateWnd; override;
     procedure DestroyWnd; override;
-    procedure Resize; override;
-    /// <summary>Rahmen in BorderColor, sofern nicht der Fenstermanager ihn zeichnet.</summary>
+    /// <summary>Dünner, eckiger Rand in Colors.Line.</summary>
     procedure PaintBorder;
     /// <summary>Logische Pixel (96 dpi) auf den Monitor des Fensters umrechnen.</summary>
     function Scale(AValue: Integer): Integer;
-    /// <summary>Gefülltes Rechteck mit abgerundeten Ecken (ARadius logisch).</summary>
-    procedure FillRounded(const ARect: TRect; AColor: TDpccColor; ARadius: Integer);
-    /// <summary>Umrandetes Rechteck mit abgerundeten Ecken, innen AFill (clNone = durchsichtig).</summary>
-    procedure FrameRounded(const ARect: TRect; ALine: TDpccColor; ARadius: Integer; AFill: TColor); overload;
-    /// <summary>Wie oben, innen durchsichtig (AFill = clNone).</summary>
-    procedure FrameRounded(const ARect: TRect; ALine: TDpccColor; ARadius: Integer); overload;
+    /// <summary>Gefülltes, eckiges Rechteck.</summary>
+    procedure FillBox(const ARect: TRect; AColor: TDpccColor);
+    /// <summary>Eckiger Rahmen von 1 px in ALine, innen durchsichtig.</summary>
+    procedure FrameBox(const ARect: TRect; ALine: TDpccColor);
     /// <summary>Rolle (UiaListControlType, UiaToolTipControlType) und Name für Screenreader.</summary>
     procedure SetAccessible(ARole: Integer; const AName: string);
     /// <summary>Element für UI Automation; Listen liefern hier eine TDpccAccessibleList mit Einträgen.</summary>
@@ -111,10 +96,6 @@ type
     /// <summary>Arbeitsbereich des Monitors, auf dem APoint liegt.</summary>
     class function WorkAreaAt(const APoint: TPoint): TRect; static;
     property Colors: TDpccColors read FColors write SetColors;
-    /// <summary>Rahmenfarbe; Standard Akzent, im Fehlerzustand des Hints Fehlerfarbe.</summary>
-    property BorderColor: TDpccColor read FBorderColor write SetBorderColor;
-    /// <summary>Flach wie ein Menü der IDE: eckig, Rand in Colors.Line, BorderColor gilt dann nicht.</summary>
-    property FlatFrame: Boolean read FFlatFrame write SetFlatFrame;
     /// <summary>Wirksame Pixel je Zoll: Monitor-DPI mal Zoom; Schriften in AFontName/AFontSize (Punkt).</summary>
     procedure SetScaling(AMonitorPPI: Integer; AZoom: Double; const AFontName: string; AFontSize: Integer);
     /// <summary>Pixel je Zoll des Monitors, auf dem APoint liegt.</summary>
@@ -146,9 +127,7 @@ const
   cDWMWA_WINDOW_CORNER_PREFERENCE = 33;
   cDWMWA_BORDER_COLOR = 34;
   cDWMWCP_DONOTROUND = 1;
-  cDWMWCP_ROUNDSMALL = 3;
   cDWMWA_COLOR_NONE = DWORD($FFFFFFFE);
-  cCornerRadius = 6;
 
 function ToColor(AColor: TDpccColor): TColor;
 begin
@@ -173,7 +152,6 @@ begin
   FUIFont := TFont.Create;
   FPPI := Screen.PixelsPerInch;
   FColors := StyleColors;
-  FBorderColor := FColors.Accent;
   Perform(CM_FONTCHANGED, 0, 0);
 end;
 
@@ -208,21 +186,13 @@ begin
 end;
 
 procedure TDpccPopupWindow.CreateWnd;
-var
-  mPreference: DWORD;
 begin
   inherited CreateWnd;
-  // Windows 11: runde Ecken mit Kantenglättung und Rahmen vom Fenstermanager.
-  mPreference := cDWMWCP_ROUNDSMALL;
-  FCorners.ByWindowManager := Succeeded(DwmSetWindowAttribute(Handle, cDWMWA_WINDOW_CORNER_PREFERENCE,
-    @mPreference, SizeOf(mPreference)));
-  FCorners.Known := True;
-  UpdateCorners;
+  SquareCorners;
 end;
 
 procedure TDpccPopupWindow.DestroyWnd;
 begin
-  FCorners.Known := False;
   if FAccess.Provider <> nil then
   begin
     // Erst lösen: Elemente, die UI Automation noch hält, fragen das Fenster dann nicht mehr.
@@ -298,47 +268,18 @@ begin
   TDpccAccessibility.Announce(Accessible, AText);
 end;
 
-procedure TDpccPopupWindow.UpdateCorners;
+procedure TDpccPopupWindow.SquareCorners;
 var
   mBorder, mPreference: DWORD;
 begin
-  // Schon während inherited CreateWnd kommt WM_SIZE; eine Region mit der Größe von dann bliebe sonst stehen.
-  if not HandleAllocated or not FCorners.Known then
+  // Windows 11 rundet Popups sonst selbst und zeichnet einen eigenen Rand; ältere Versionen tun beides nicht.
+  // Schlägt der Aufruf fehl (Windows 10), bleibt das Fenster ohnehin eckig.
+  mPreference := cDWMWCP_DONOTROUND;
+  if Succeeded(DwmSetWindowAttribute(Handle, cDWMWA_WINDOW_CORNER_PREFERENCE, @mPreference,
+    SizeOf(mPreference))) then
   begin
-    Exit;
-  end;
-  if FFlatFrame then
-  begin
-    // Flach: eckig, ohne Rahmen des Fenstermanagers und ohne Region; den Rand zeichnet PaintBorder.
-    if FCorners.ByWindowManager then
-    begin
-      mPreference := cDWMWCP_DONOTROUND;
-      DwmSetWindowAttribute(Handle, cDWMWA_WINDOW_CORNER_PREFERENCE, @mPreference, SizeOf(mPreference));
-      mBorder := cDWMWA_COLOR_NONE;
-      DwmSetWindowAttribute(Handle, cDWMWA_BORDER_COLOR, @mBorder, SizeOf(mBorder));
-    end;
-    SetWindowRgn(Handle, 0, IsWindowVisible(Handle));
-    Exit;
-  end;
-  if FCorners.ByWindowManager then
-  begin
-    mBorder := DWORD(FBorderColor);
+    mBorder := cDWMWA_COLOR_NONE;
     DwmSetWindowAttribute(Handle, cDWMWA_BORDER_COLOR, @mBorder, SizeOf(mBorder));
-  end
-  else
-  begin
-    // Ältere Windows-Versionen: Region mit runden Ecken; das Fenster übernimmt sie.
-    SetWindowRgn(Handle, CreateRoundRectRgn(0, 0, Width + 1, Height + 1, Scale(2 * cCornerRadius),
-      Scale(2 * cCornerRadius)), IsWindowVisible(Handle));
-  end;
-end;
-
-procedure TDpccPopupWindow.Resize;
-begin
-  inherited Resize;
-  if not FCorners.ByWindowManager and not FFlatFrame then
-  begin
-    UpdateCorners;
   end;
 end;
 
@@ -359,84 +300,26 @@ end;
 procedure TDpccPopupWindow.SetColors(const AValue: TDpccColors);
 begin
   FColors := AValue;
-  FBorderColor := FColors.Accent;
-  UpdateCorners;
   Invalidate;
 end;
 
-procedure TDpccPopupWindow.SetBorderColor(AValue: TDpccColor);
-begin
-  if FBorderColor = AValue then
-  begin
-    Exit;
-  end;
-  FBorderColor := AValue;
-  UpdateCorners;
-  Invalidate;
-end;
-
-procedure TDpccPopupWindow.SetFlatFrame(AValue: Boolean);
-begin
-  if FFlatFrame = AValue then
-  begin
-    Exit;
-  end;
-  // Nur vor dem ersten Zeigen umschalten (Konstruktor): zurück zu runden Ecken setzt UpdateCorners nicht.
-  FFlatFrame := AValue;
-  UpdateCorners;
-  Invalidate;
-end;
-
-procedure TDpccPopupWindow.FillRounded(const ARect: TRect; AColor: TDpccColor; ARadius: Integer);
+procedure TDpccPopupWindow.FillBox(const ARect: TRect; AColor: TDpccColor);
 begin
   Canvas.Brush.Style := bsSolid;
   Canvas.Brush.Color := ToColor(AColor);
-  Canvas.Pen.Style := psClear;
-  // Bei psClear zeichnet RoundRect ein Pixel kleiner; deshalb +1.
-  Canvas.RoundRect(ARect.Left, ARect.Top, ARect.Right + 1, ARect.Bottom + 1, Scale(2 * ARadius),
-    Scale(2 * ARadius));
-  Canvas.Pen.Style := psSolid;
+  Canvas.FillRect(ARect);
 end;
 
-procedure TDpccPopupWindow.FrameRounded(const ARect: TRect; ALine: TDpccColor; ARadius: Integer);
+procedure TDpccPopupWindow.FrameBox(const ARect: TRect; ALine: TDpccColor);
 begin
-  FrameRounded(ARect, ALine, ARadius, clNone);
-end;
-
-procedure TDpccPopupWindow.FrameRounded(const ARect: TRect; ALine: TDpccColor; ARadius: Integer;
-  AFill: TColor);
-begin
-  if AFill = clNone then
-  begin
-    Canvas.Brush.Style := bsClear;
-  end
-  else
-  begin
-    Canvas.Brush.Style := bsSolid;
-    Canvas.Brush.Color := AFill;
-  end;
-  Canvas.Pen.Style := psSolid;
-  Canvas.Pen.Color := ToColor(ALine);
-  Canvas.RoundRect(ARect.Left, ARect.Top, ARect.Right, ARect.Bottom, Scale(2 * ARadius), Scale(2 * ARadius));
   Canvas.Brush.Style := bsSolid;
+  Canvas.Brush.Color := ToColor(ALine);
+  Canvas.FrameRect(ARect);
 end;
 
 procedure TDpccPopupWindow.PaintBorder;
 begin
-  // Flach: dünner Rand in der Linienfarbe, eckig.
-  if FFlatFrame then
-  begin
-    Canvas.Brush.Style := bsSolid;
-    Canvas.Brush.Color := ToColor(FColors.Line);
-    Canvas.FrameRect(ClientRect);
-    Exit;
-  end;
-  // Unter Windows 11 zeichnet der Fenstermanager den Rahmen (DWMWA_BORDER_COLOR).
-  if FCorners.ByWindowManager then
-  begin
-    Exit;
-  end;
-  FrameRounded(ClientRect, FBorderColor, cCornerRadius);
+  FrameBox(ClientRect, FColors.Line);
 end;
 
 procedure TDpccPopupWindow.ShowAt(const ABounds: TRect);
@@ -477,7 +360,6 @@ begin
   Font.PixelsPerInch := FPPI;
   // Erst nach PixelsPerInch: Size rechnet mit der neuen Dichte in die Höhe um.
   Font.Size := AFontSize;
-  UpdateCorners;
 end;
 
 class function TDpccPopupWindow.MonitorPPI(const APoint: TPoint): Integer;

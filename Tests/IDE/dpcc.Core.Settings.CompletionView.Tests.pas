@@ -5,7 +5,9 @@
 // gibt, welche Tasten „Tastenkonflikte“ zeigt und dass die Suche über die Einstellungen nichts Ausgeblendetes mehr
 // findet. Seit S3 auch: keine Seite „Robustheit“ und keine Extras des Hovers mehr. Seit S4: keine Seite „Index“ und
 // keine Schalter zum Server mehr; Umfang, Verwendungen und Speichergrenze des Index sind fest. Seit S7a: keine
-// Schalter der früheren Liste (Filter-Chips, Detailpanel, Auswahlmarke) und keine gelernten Vorschläge mehr.
+// Schalter der früheren Liste (Filter-Chips, Detailpanel, Auswahlmarke) und keine gelernten Vorschläge mehr. Seit S8:
+// keine versteckten Schalter ohne Wirkung der Reiter Allgemein und Hints mehr (weder im Katalog noch gespeichert);
+// die versteckten, aber wirksamen (experimental.enabled, highlight.pairColors/pairGuides) bleiben.
 
 interface
 
@@ -44,8 +46,13 @@ type
     /// gespeichert, die übrigen Schalter der Liste stehen auf der Seite.</summary>
     [Test]
     procedure PlainListSwitchesAreGone;
+    /// <summary>S8: Die versteckten Schalter ohne Wirkung der Reiter Allgemein und Hints (Statusfeld, Diagnose,
+    /// Tastenkürzel-Tipps, Projektdatei, Inlay-Hints, Brotkrumenleiste, Minimap, mitlaufender Kopf, Statusleiste,
+    /// Änderungsmarken, dpcc-Spalte, gleichen Text hervorheben, übrige Paarfärbung usw.) sind weder im Katalog noch
+    /// gespeichert noch nach settings.json umgeleitet; die Unterpunkte (x-nodes) dazu fehlen auch. Was noch wirkt,
+    /// bleibt versteckt.</summary>
     [Test]
-    procedure KeysPageShowsCompletionAndSignature;
+    procedure HiddenSwitchesWithoutEffectAreGone;
     [Test]
     procedure SearchFindsNoHiddenSetting;
   end;
@@ -61,7 +68,6 @@ uses
   dpcc.Core.Settings.Plugin,
   dpcc.Core.Settings.History,
   dpcc.Core.Settings.Scopes,
-  dpcc.Core.Commands.KeyConflicts,
   dpcc.Core.Settings.CompletionView,
   dpcc.Common.Configuration.Contract,
   dpcc.Common.Configuration.Parser;
@@ -186,10 +192,10 @@ begin
       Assert.IsFalse(TDpccCompletionView.ShowsSetting(mEntry), mEntry.Key + ' (' + mEntry.Page + ')');
     end;
     Assert.IsTrue(mChecked > 300, 'Einträge geprüft: ' + IntToStr(mChecked));
-    // Aus Allgemein nur der Hauptschalter; Statusfeld, Diagnose, Übertragen, Team-Datei usw. fallen weg.
-    for mName in ['DiagnosticMode', 'ExperimentalEnabled', 'StatusField', 'ShortcutTips',
-      'Notifications', 'SettingsExportImport', 'SettingsSearch', 'TeamFile', 'ArchitectureEnabled', 'QueryEnabled',
-      'ReloadExternal'] do
+    // Aus Allgemein nur der Hauptschalter; Übertragen, Suche, Architektur usw. fallen weg (Statusfeld, Diagnose,
+    // Tipps, Projektdatei und Neuladen gibt es seit S8 auch als Einstellung nicht mehr).
+    for mName in ['ExperimentalEnabled', 'Notifications', 'SettingsExportImport', 'SettingsSearch',
+      'ArchitectureEnabled', 'QueryEnabled'] do
     begin
       Assert.AreEqual(Ord(spHidden), Ord(PlaceOfName(mCatalog, mName)), mName);
     end;
@@ -354,15 +360,102 @@ begin
   Assert.IsFalse(mSettings.IndexRemoveOrphans, 'index.removeOrphans');
 end;
 
-procedure TDpccCompletionViewTests.KeysPageShowsCompletionAndSignature;
+procedure TDpccCompletionViewTests.HiddenSwitchesWithoutEffectAreGone;
+const
+  // Registry-Namen der entfernten Schalter (Reiter Allgemein und Hints, S8).
+  cGone: array[0..85] of string = ('ReloadExternal', 'OpenForEdits', 'StatusField', 'StatusFieldSummary',
+    'StatusFieldToggles', 'IndexProgressPlace', 'StatusFieldHidden', 'DiagnosticMode', 'DiagnosticPluginTimings',
+    'DiagnosticSlowMs', 'ShortcutTips', 'ShortcutTipsScope', 'TeamFile', 'PairOwners', 'PairGuideWidth',
+    'PairGuideOpacity', 'NestedRoutines', 'NestedRoutineBand', 'InactiveDim', 'InlayHints', 'InlayTypeHints',
+    'InlayDefineHints', 'InlayCharHints', 'InlayMethodHints', 'BlockEndLabels', 'BlockEndLabelsMinLines',
+    'DimUnusedUses', 'Breadcrumbs', 'BreadcrumbsShowUnit', 'BreadcrumbsVisibility', 'BreadcrumbsMemberBlocks',
+    'BreadcrumbsVisibilityMark', 'BreadcrumbsDeclarationBlocks', 'BreadcrumbsConditionals', 'BreadcrumbsRegions',
+    'BreadcrumbsStatements', 'BreadcrumbsSectionCounts', 'BreadcrumbsSectionAppend', 'BreadcrumbsSectionCreate',
+    'BreadcrumbsHideIdeToolbar', 'BreadcrumbsIdeColors', 'BreadcrumbsKey', 'SectionAppendKey', 'BreadcrumbsContextMenu',
+    'BreadcrumbsOverloads', 'BreadcrumbsInterfaces', 'BreadcrumbsMetrics', 'MouseNavButtons', 'EditorStatusBar',
+    'EditorStatusBarItems', 'CallHierarchyDiagram', 'StickyScroll', 'StickyScrollMaxLines', 'StickyScrollTypes',
+    'StickyScrollRoutines', 'StickyScrollBlocks', 'StickyScrollLoops', 'StickyScrollTry', 'StickyScrollCase',
+    'StickyScrollWith', 'StickyScrollBlockMinLines', 'Minimap', 'MinimapRender', 'MinimapWidth', 'MinimapScale',
+    'MinimapMaxColumn', 'MinimapSide', 'MinimapShowSlider', 'MinimapSectionHeaders', 'MinimapHighlightMethod',
+    'MinimapMarkers', 'MinimapClickJumps', 'GitGutter', 'NextChangeKey', 'PreviousChangeKey', 'GitBlame',
+    'GutterColumn', 'GutterColumnProblems', 'GutterColumnCodeActions', 'GutterColumnOverrides', 'SelectionMatches',
+    'SelectionMatchesMinLength', 'SelectionMatchesCaseSensitive', 'SelectionMatchesWholeWord',
+    'SelectionMatchesNavigateF3', 'SelectionMatchesMaxMatches');
+  // Präfixe der x-keys, die es im Plugin gar nicht mehr gibt.
+  cGonePrefixes: array[0..7] of string = ('statusField.', 'shortcutTips.', 'diagnosticMode.', 'teamFile.',
+    'inlayHints.', 'editor.stickyScroll', 'editor.gutterColumn', 'highlight.selectionMatches');
+  cGoneNodes: array[0..8] of string = ('general.statusField', 'general.shortcutTips', 'editor.breadcrumbs',
+    'editor.statusBar', 'editor.stickyScroll', 'editor.minimap', 'editor.gitGutter', 'editor.gutterColumn',
+    'editor.selectionMatches');
 var
-  mFunc: TDpccKeyFunction;
+  mCatalog: TDpccSettingsCatalog;
+  mGroups: TDpccSettingsGroups;
+  mStore: IDpccMemorySettingsStore;
+  mRouted: TDpccRoutedSetting;
+  mNode: TDpccCatalogArea;
+  mIndex: Integer;
+  mName, mPrefix, mIssue: string;
 begin
-  for mFunc := Low(TDpccKeyFunction) to High(TDpccKeyFunction) do
-  begin
-    Assert.IsTrue((mFunc in [TDpccKeyFunction.Completion, TDpccKeyFunction.Signature]) =
-      TDpccCompletionView.ShowsKey(mFunc), IntToStr(Ord(mFunc)));
+  mCatalog := TDpccSettingsCatalog.CreateDefault;
+  mGroups := TDpccSettingsGroups.Create(mCatalog);
+  try
+    for mName in cGone do
+    begin
+      Assert.IsTrue(mCatalog.IndexOfName(mName) < 0, mName);
+    end;
+    for mIndex := 0 to mCatalog.Count - 1 do
+    begin
+      if mCatalog[mIndex].Source <> asPlugin then
+      begin
+        Continue;
+      end;
+      for mPrefix in cGonePrefixes do
+      begin
+        Assert.IsFalse(StartsText(mPrefix, mCatalog[mIndex].Key), mCatalog[mIndex].Key);
+      end;
+    end;
+    for mNode in mGroups.Nodes do
+    begin
+      Assert.IsFalse(MatchText(mNode.Id, cGoneNodes), mNode.Id);
+    end;
+    // Das gekürzte Schema bleibt stimmig: keine Verweise auf entfernte Hauptschalter oder Unterpunkte.
+    for mIssue in mGroups.Issues do
+    begin
+      for mPrefix in cGonePrefixes do
+      begin
+        Assert.IsFalse(ContainsText(mIssue, mPrefix), mIssue);
+      end;
+      for mName in cGoneNodes do
+      begin
+        Assert.IsFalse(ContainsText(mIssue, mName), mIssue);
+      end;
+    end;
+    // Versteckt, aber wirksam: Hauptschalter der experimentellen Funktionen (settings.json, experimentelle Schlüssel
+    // des Servers) und Paarfärbung mit Blocklinien (schalten die Strukturhervorhebung der IDE ab).
+    for mName in ['ExperimentalEnabled', 'PairColors', 'PairGuides'] do
+    begin
+      Assert.AreEqual(Ord(spHidden), Ord(PlaceOfName(mCatalog, mName)), mName);
+    end;
+  finally
+    mGroups.Free;
+    mCatalog.Free;
   end;
+  mStore := TDpccMemorySettingsStore.FromSettings(TDpccPluginSettings.Defaults);
+  for mName in cGone do
+  begin
+    Assert.IsFalse(MatchText(mName, mStore.Names), mName + ' gespeichert');
+    Assert.IsFalse(TDpccSettingsScopes.TryRouted(mName, mRouted), mName + ' umgeleitet');
+  end;
+  for mName in ['ExperimentalEnabled', 'PairColors', 'PairGuides'] do
+  begin
+    Assert.IsTrue(MatchText(mName, mStore.Names), mName + ' gespeichert');
+  end;
+  // Das Plugin schreibt keine Inlay-Hints mehr nach settings.json; experimental.enabled schon.
+  for mRouted in TDpccSettingsScopes.Routed do
+  begin
+    Assert.IsFalse(StartsText('inlayHints.', mRouted.Path), mRouted.Path);
+  end;
+  Assert.IsTrue(TDpccSettingsScopes.TryRouted('ExperimentalEnabled', mRouted), 'ExperimentalEnabled umgeleitet');
 end;
 
 procedure TDpccCompletionViewTests.SearchFindsNoHiddenSetting;

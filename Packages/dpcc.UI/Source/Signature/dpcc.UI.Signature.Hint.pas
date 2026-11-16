@@ -3,20 +3,25 @@
 // Parameter-Hint (#436, #437, #439, #440): Fenster ohne Fokus mit allen
 // Überladungen des Aufrufs untereinander (Wunsch aus dem Test in der IDE, statt "‹ 1 / 3 ›").
 //   - Signaturen in der Editorschrift, eingefärbt wie im Entwurf (#411).
-//   - Die gewählte Überladung hat links einen Akzentbalken; ihr aktiver Parameter
-//     steht halbfett in Akzentfarbe auf einer Akzentfläche.
-//   - In den übrigen passenden Überladungen ist der aktive Parameter halbfett;
+//   - Aussehen seit S8 wie der Hover-Tooltip: flach und eckig, 1 px Rand in Colors.Line,
+//     Farben des Editors (ListColors, setzt TDpccIdeStyle.Apply), keine Flächen, Bänder,
+//     Balken oder Pillen.
+//   - Bei mehreren Überladungen liegt die gewählte auf einer flachen Auswahlfläche
+//     (Colors.Selection); ihr aktiver Parameter ist fett und unterstrichen.
+//   - In den übrigen passenden Überladungen ist der aktive Parameter fett;
 //     Überladungen mit zu wenigen Parametern sind gedämpft.
-//   - Darunter auf abgesetzter Fläche (#770) unter der Überschrift PARAMETER Name
-//     und Beschreibung des aktiven Parameters, ohne <param> „nicht dokumentiert“
+//   - Darunter nach einer Trennlinie (#770) unter der Überschrift PARAMETER (wie im
+//     Hover: Großbuchstaben, fett, gedämpft, Linie bis zum Rand) Name (fett) und
+//     Beschreibung des aktiven Parameters, ohne <param> „nicht dokumentiert“
 //     (kursiv, gedämpft), dann gedämpft die Beschreibung der Methode; Standardwerte
-//     (#441) gedämpft, die Pille endet davor, dahinter "optional, Standard 1".
-//   - Erlaubt keine Überladung so viele Argumente: Rahmen und untere Zeile in
-//     Fehlerfarbe, "Keine Überladung mit n Parametern." (#439).
-//   - Verschachtelte Aufrufe (#438): Pfadzeile oben mit den äußeren Aufrufen,
-//     "ShowMessage › Format"; höchstens drei Ebenen, darüber "… ›".
+//     (#441) gedämpft, die Unterstreichung endet davor, dahinter "optional, Standard 1".
+//   - Erlaubt keine Überladung so viele Argumente: untere Zeile als Text in
+//     Fehlerfarbe, "Keine Überladung mit n Parametern." (#439); der Rand bleibt grau.
+//   - Verschachtelte Aufrufe (#438): Pfadzeile oben mit den äußeren Aufrufen (gedämpft,
+//     ohne eigenes Band, darunter eine Trennlinie), "ShowMessage › Format"; höchstens
+//     drei Ebenen, darüber "… ›".
 //   - Klick auf eine Überladung wählt sie; Alt+↑/↓ über die Tastatur (dpcc.IDE).
-//   - Formatroutinen (#451): Oben in der Doku-Fläche eine Zeile zum Platzhalter des
+//   - Formatroutinen (#451): Oben im Doku-Bereich eine Zeile zum Platzhalter des
 //     Arguments am Cursor („Platzhalter 2 von 2 erwartet ganzzahlig“) in Akzentfarbe,
 //     ein Problem (überzähliges Argument, Typkonflikt, ungültiger Platzhalter) in
 //     Fehlerfarbe. Abschaltbar mit completion.formatPlaceholders (FormatPlaceholders).
@@ -118,16 +123,16 @@ uses
   dpcc.Core.Diagnostics.Guard,
   System.Math,
   dpcc.UI.Strings,
+  dpcc.UI.Popup.Draw,
   dpcc.UI.Popup.Accessibility;
 
 const
   cTextFlags = DT_LEFT or DT_VCENTER or DT_SINGLELINE or DT_NOPREFIX;
   /// <summary>Logische Bildpunkte bei 96 dpi: Rand oben und unten, Abstand links und rechts, Einzug der
-  /// Folgezeilen, Breite des Akzentbalkens.</summary>
+  /// Folgezeilen.</summary>
   cPad = 4;
   cGap = 10;
   cIndent = 24;
-  cBar = 3;
 
 /// <summary>Gezeigte Überladungen: höchstens MaxSignatures.</summary>
 function ShownCount(const AHelp: TDpccSignatureHelp): Integer;
@@ -413,20 +418,20 @@ var
   mSignature: TDpccSignature;
   mRange: TPoint;
 begin
-  // Eingefärbte Labels; aktiver Parameter nur in passenden Überladungen, Fläche nur in der gewählten.
+  // Eingefärbte Labels; aktiver Parameter nur in passenden Überladungen, unterstrichen nur in der gewählten.
   SetLength(FStyled, ShownCount(FHelp));
   for mIndex := 0 to ShownCount(FHelp) - 1 do
   begin
     mSignature := FHelp.Signatures[mIndex];
     FStyled[mIndex] := TDpccStyledText.Create(mSignature.Label_);
-    FStyled[mIndex].ActiveFill := mIndex = FSignature;
+    FStyled[mIndex].ActiveUnderline := mIndex = FSignature;
     if Fits(mIndex) and (FParameter >= 0) and (FParameter <= High(mSignature.Parameters)) and
       (mSignature.Parameters[FParameter].Start >= 0) and
       (mSignature.Parameters[FParameter].Stop > mSignature.Parameters[FParameter].Start) then
     begin
       FStyled[mIndex].ActiveStart := mSignature.Parameters[FParameter].Start;
       FStyled[mIndex].ActiveStop := mSignature.Parameters[FParameter].Stop;
-      // Der Standardwert steht gedämpft hinter der Pille (#441).
+      // Der Standardwert steht gedämpft hinter dem aktiven Parameter (#441).
       for mRange in FStyled[mIndex].MutedRanges do
       begin
         if (mRange.X >= FStyled[mIndex].ActiveStart) and (mRange.X < FStyled[mIndex].ActiveStop) then
@@ -495,22 +500,14 @@ var
   mWidth, mHeight, mAvailable: Integer;
 begin
   Prepare;
-  mAvailable := Scale(cMaxWidth) - 2 * Scale(cGap) - Scale(cBar) - 2;
+  mAvailable := Scale(cMaxWidth) - 2 * Scale(cGap) - 2;
   SetLength(FLayouts, ShownCount(FHelp));
   SetLength(FFirstRows, ShownCount(FHelp));
-  mWidth := Min(ContentWidth(mAvailable) + 2 * Scale(cGap) + Scale(cBar) + 2, Scale(cMaxWidth));
+  mWidth := Min(ContentWidth(mAvailable) + 2 * Scale(cGap) + 2, Scale(cMaxWidth));
   mHeight := CrumbHeight + 2 * Scale(cPad) + TotalRows * LineHeight;
   if HasDocLine then
   begin
     Inc(mHeight, DocHeight);
-  end;
-  if TooMany then
-  begin
-    BorderColor := Colors.Error;
-  end
-  else
-  begin
-    BorderColor := Colors.Accent;
   end;
   ShowAt(PopupBounds(FAnchor, WorkAreaAt(FAnchor.TopLeft), FAbove, mWidth, mHeight));
 end;
@@ -584,17 +581,14 @@ begin
   begin
     Exit;
   end;
+  // Ohne eigenes Band (S8): nur Text auf der Fläche, darunter eine Trennlinie wie zwischen den Abschnitten des
+  // Hovers.
   mBand := Rect(0, 0, ClientWidth, CrumbHeight);
-  Canvas.Brush.Style := bsSolid;
-  Canvas.Brush.Color := ToColor(Colors.Gutter);
-  Canvas.FillRect(mBand);
-  Canvas.Pen.Color := ToColor(Colors.Line);
-  Canvas.MoveTo(0, mBand.Bottom - 1);
-  Canvas.LineTo(ClientWidth, mBand.Bottom - 1);
+  TDpccDraw.Separator(Canvas, Scale(cGap), ClientWidth - Scale(cGap), mBand.Bottom - 1, Colors.Line);
   Canvas.Brush.Style := bsClear;
   Canvas.Font := Font;
   mParts := CrumbPartsOf(FOuter, FCallName);
-  X := Scale(cGap) + Scale(cBar);
+  X := Scale(cGap);
   for mIndex := 0 to High(mParts) do
   begin
     // Äußere Aufrufe gedämpft, der gezeigte in Textfarbe.
@@ -641,8 +635,8 @@ begin
     Exit;
   end;
   mLeft := APart.Left;
-  // Überschrift in Kapitälchen mit Linie bis zum Rand, wie in Tooltip und Detailpanel.
-  mHeading := TDpccStrings.Text(TDpccTextId.DocParams);
+  // Überschrift wie im Hover-Tooltip: Großbuchstaben, fett, gedämpft, Linie bis zum Rand.
+  mHeading := AnsiUpperCase(TDpccStrings.Text(TDpccTextId.DocParams));
   Canvas.Font := UIFont;
   Canvas.Font.Height := MulDiv(UIFont.Height, 85, 100);
   Canvas.Font.Style := [fsBold];
@@ -655,7 +649,7 @@ begin
   OffsetRect(APart, 0, ARow);
   Canvas.Font := Font;
   Canvas.Font.Style := [fsBold];
-  Canvas.Font.Color := ToColor(Colors.Accent);
+  Canvas.Font.Color := ToColor(Colors.Text);
   DrawText(Canvas.Handle, PChar(mName), -1, APart, cTextFlags or DT_END_ELLIPSIS);
   APart.Left := APart.Left + Canvas.TextWidth(mName) + Scale(8);
   Canvas.Font := UIFont;
@@ -682,29 +676,23 @@ end;
 
 procedure TDpccSignatureHint.PaintDocLine(ATop: Integer);
 var
-  mBand, mPart: TRect;
+  mPart: TRect;
   X, mRow: Integer;
-  mBack, mFore: TDpccColor;
+  mFore: TDpccColor;
 begin
+  // Ohne abgesetzte Fläche (S8): nur eine Trennlinie wie zwischen den Abschnitten des Hovers; ein Fehler steht
+  // als Text in Fehlerfarbe.
   if TooMany then
   begin
-    mBack := Colors.ErrorSoft;
     mFore := Colors.Error;
   end
   else
   begin
-    mBack := Colors.Gutter;
     mFore := Colors.Muted;
   end;
-  mBand := Rect(0, ATop, ClientWidth, ClientHeight);
-  Canvas.Brush.Style := bsSolid;
-  Canvas.Brush.Color := ToColor(mBack);
-  Canvas.FillRect(mBand);
-  Canvas.Pen.Color := ToColor(Colors.Line);
-  Canvas.MoveTo(0, ATop);
-  Canvas.LineTo(ClientWidth, ATop);
+  TDpccDraw.Separator(Canvas, Scale(cGap), ClientWidth - Scale(cGap), ATop, Colors.Line);
   Canvas.Brush.Style := bsClear;
-  X := Scale(cGap) + Scale(cBar);
+  X := Scale(cGap);
   mRow := DocRowHeight;
   mPart := Rect(X, ATop + Scale(4), ClientWidth - Scale(cGap), ATop + Scale(4) + mRow);
   // Platzhalter (#451) zuerst: Problem in Fehlerfarbe, sonst Akzent.
@@ -752,18 +740,18 @@ begin
     Exit;
   end;
   mHeight := LineHeight;
-  mLeft := Scale(cBar) + Scale(cGap);
+  mLeft := Scale(cGap);
   mRight := ClientWidth - Scale(cGap);
   mRowIndex := 0;
   PaintCrumb;
   mTop := CrumbHeight + Scale(cPad);
   for mIndex := 0 to High(FLayouts) do
   begin
-    // Akzentbalken links neben der gewählten Überladung.
-    if mIndex = FSignature then
+    // Bei mehreren Überladungen liegt die gewählte flach auf der Auswahlfläche (wie eine Zeile der Liste).
+    if (mIndex = FSignature) and (Length(FLayouts) > 1) then
     begin
-      FillRounded(Rect(Scale(3), mTop + mRowIndex * mHeight + Scale(3), Scale(3) + Scale(cBar),
-        mTop + (mRowIndex + Length(FLayouts[mIndex])) * mHeight - Scale(3)), Colors.Accent, 1);
+      FillBox(Rect(1, mTop + mRowIndex * mHeight, ClientWidth - 1,
+        mTop + (mRowIndex + Length(FLayouts[mIndex])) * mHeight), Colors.Selection);
     end;
     for mLine := 0 to High(FLayouts[mIndex]) do
     begin
@@ -774,7 +762,7 @@ begin
       end;
       X := mRow.Left;
       Canvas.Font := Font;
-      FStyled[mIndex].Draw(TDpccStyledTarget.Create(Canvas, Colors, Scale(3)), FLayouts[mIndex][mLine], X,
+      FStyled[mIndex].Draw(TDpccStyledTarget.Create(Canvas, Colors), FLayouts[mIndex][mLine], X,
         Rect(mRow.Left, mRow.Top + Scale(2), mRow.Right, mRow.Bottom - Scale(2)), not Fits(mIndex));
       Inc(mRowIndex);
     end;

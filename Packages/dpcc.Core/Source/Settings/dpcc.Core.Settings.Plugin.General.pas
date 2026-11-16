@@ -33,19 +33,8 @@ type
     // Meldungsfenster nach langen Hängern entfällt (nur noch das Log).
     // Pfad und Betriebsart eines eigenen Server-Prozesses gibt es seit S1 nicht mehr: Der Server läuft nur noch im
     // IDE-Prozess; alte Werte in der Registry liest dpcc nicht mehr.
-    /// <summary>Projektdatei .dpcc lesen (#486): Einstellungen für alle im Team aus dem Repository, Vorrang vor
-    /// den persönlichen; dazu der Befehl „Projektdatei .dpcc öffnen“ (dpcc.TeamFile) mit Tipp. Aus = nur die
-    /// persönlichen Einstellungen gelten, Befehl und Tipp verschwinden.</summary>
-    TeamFile: Boolean;
-    /// <summary>Diagnosemodus (#479, diagnosticMode.enabled): Diagnosefenster mit Zeitmessung je Abfrage der
-    /// Vervollständigung; Vorgabe aus. Aus heißt: keine Messung, kein Fenster, keine Statuszeile.</summary>
-    DiagnosticMode: Boolean;
-    /// <summary>Zeiten des Plugins im Diagnosefenster (diagnosticMode.pluginTimings): Hauptthread je
-    /// Funktion, Server-Anfragen, Quellen im Hintergrund, Hänger; Vorgabe an, wirkt nur im Diagnosemodus.</summary>
-    DiagnosticPluginTimings: Boolean;
-    /// <summary>Ab so vielen ms eigener Zeit gilt ein Aufruf als langsam (diagnosticMode.slowThresholdMs,
-    /// 1 bis 1000); Vorgabe 16, ein Bild bei 60 Hz.</summary>
-    DiagnosticSlowMs: Integer;
+    // Projektdatei .dpcc (teamFile.enabled) und Diagnosemodus (diagnosticMode.*) gibt es seit S8 nicht mehr: Nichts
+    // las die Werte außerhalb der Optionsseite.
     /// <summary>Architekturübersicht (#1118, architecture.enabled in settings.json): Fenster „dpcc-Architektur“,
     /// Bericht und get_architecture; Vorgabe an.</summary>
     ArchitectureEnabled: Boolean;
@@ -103,20 +92,7 @@ type
 
   /// <summary>Plugin-Einstellungen: Oberfläche, Statusfeld, Benachrichtigungen und Einstellungsübertragung.</summary>
   TDpccPluginGeneralSettings = record
-    /// <summary>dpcc-Feld in der Statusleiste (#591, statusField.enabled).</summary>
-    StatusField: Boolean;
-    /// <summary>Kennungen der Zeilen, die im Fenster des Felds nicht erscheinen, durch Komma getrennt
-    /// (#591, statusField.hidden).</summary>
-    StatusFieldHidden: string;
-    /// <summary>Kurztext neben „dpcc“ (#591, statusField.showSummary).</summary>
-    StatusFieldSummary: Boolean;
-    /// <summary>Womit das Feld die Schnellschalter öffnet: 'both' (Rechts- und Doppelklick, Vorgabe),
-    /// 'rightClick' oder 'doubleClick' (statusField.openToggles).</summary>
-    StatusFieldToggles: string;
-    /// <summary>Wo der Fortschritt beim Aufbau des Symbol-Index steht: 'statusField' (Vorgabe; mit
-    /// abgeschaltetem Statusfeld im Menütitel), 'menu' (Titel des Menüs dpcc) oder 'off'
-    /// (statusField.indexProgress).</summary>
-    IndexProgressPlace: string;
+    // Das dpcc-Statusfeld (statusField.*) und die Tastenkürzel-Tipps (shortcutTips.*) gibt es seit S8 nicht mehr.
     /// <summary>Zustand: Das Fenster „dpcc-Architektur“ wurde einmal rechts neben die Projektverwaltung
     /// gelegt (ui.architectureWindowPlaced); danach gilt die Lage aus dem Desktop der IDE.</summary>
     ArchitectureWindowPlaced: Boolean;
@@ -132,12 +108,6 @@ type
     /// <summary>Die Prüfliste war schon einmal offen (#625); vorher öffnet sie beim Start in jedem Fall. Kein
     /// Schlüssel in dpcc.json, nur Zustand des Plugins.</summary>
     SetupChecklistSeen: Boolean;
-    /// <summary>Tastenkürzel-Tipps (#600, shortcutTips.enabled): nach einem Aufruf per Maus kurz das Kürzel
-    /// zeigen; aus: dpcc beobachtet keine Aufrufe und zählt nichts.</summary>
-    ShortcutTips: Boolean;
-    /// <summary>dpcc (nur Befehle von dpcc) oder all (auch die der IDE und anderer Erweiterungen,
-    /// shortcutTips.scope).</summary>
-    ShortcutTipsScope: string;
     /// <summary>Einmal täglich nach einer neuen Version sehen (#495, updates.check); Vorgabe aus, beim ersten
     /// Start wird gefragt.</summary>
     UpdatesCheck: Boolean;
@@ -205,10 +175,6 @@ uses
 
 class function TDpccPluginGeneralServerSettings.Defaults: TDpccPluginGeneralServerSettings;
 begin
-  Result.TeamFile := True;
-  Result.DiagnosticMode := False;
-  Result.DiagnosticPluginTimings := True;
-  Result.DiagnosticSlowMs := 16;
   // Wie die Vorgaben im Schema (dpcc.schema.json, architecture).
   Result.ArchitectureEnabled := True;
   Result.QueryEnabled := True;
@@ -233,7 +199,6 @@ end;
 
 procedure TDpccPluginGeneralServerSettings.Normalize;
 begin
-  DiagnosticSlowMs := EnsureRange(DiagnosticSlowMs, 1, 1000);
   ArchitectureScope := Choice(ArchitectureScope, ['projectGroup', 'project']);
   ArchitectureCentralUnits := EnsureRange(ArchitectureCentralUnits, 5, 100);
   HotspotsMonths := EnsureRange(HotspotsMonths, 1, 60);
@@ -249,10 +214,6 @@ end;
 
 procedure TDpccPluginGeneralServerSettings.Exchange(const AIo: TDpccSettingsExchange);
 begin
-  AIo.Flag('TeamFile', TeamFile);
-  AIo.Flag('DiagnosticMode', DiagnosticMode);
-  AIo.Flag('DiagnosticPluginTimings', DiagnosticPluginTimings);
-  AIo.Number('DiagnosticSlowMs', DiagnosticSlowMs);
   AIo.Flag('ArchitectureEnabled', ArchitectureEnabled);
   AIo.Flag('QueryEnabled', QueryEnabled);
   AIo.Text('ArchitectureScope', ArchitectureScope);
@@ -276,18 +237,11 @@ end;
 
 class function TDpccPluginGeneralSettings.Defaults: TDpccPluginGeneralSettings;
 begin
-  Result.StatusField := True;
-  Result.StatusFieldHidden := '';
-  Result.StatusFieldSummary := True;
-  Result.StatusFieldToggles := 'both';
-  Result.IndexProgressPlace := 'statusField';
   Result.ArchitectureWindowPlaced := False;
   Result.UnitRelationsWindowPlaced := False;
   Result.HotspotsWindowPlaced := False;
   Result.SetupChecklist := True;
   Result.SetupChecklistSeen := False;
-  Result.ShortcutTips := True;
-  Result.ShortcutTipsScope := 'all';
   Result.UpdatesCheck := False;
   Result.UpdatesInstall := 'ask';
   Result.UpdatesChannel := 'stable';
@@ -309,38 +263,6 @@ end;
 
 procedure TDpccPluginGeneralSettings.Normalize;
 begin
-  if SameText(Trim(StatusFieldToggles), 'rightClick') then
-  begin
-    StatusFieldToggles := 'rightClick';
-  end
-  else if SameText(Trim(StatusFieldToggles), 'doubleClick') then
-  begin
-    StatusFieldToggles := 'doubleClick';
-  end
-  else
-  begin
-    StatusFieldToggles := 'both';
-  end;
-  if SameText(Trim(IndexProgressPlace), 'menu') then
-  begin
-    IndexProgressPlace := 'menu';
-  end
-  else if SameText(Trim(IndexProgressPlace), 'off') then
-  begin
-    IndexProgressPlace := 'off';
-  end
-  else
-  begin
-    IndexProgressPlace := 'statusField';
-  end;
-  if SameText(Trim(ShortcutTipsScope), 'dpcc') then
-  begin
-    ShortcutTipsScope := 'dpcc';
-  end
-  else
-  begin
-    ShortcutTipsScope := 'all';
-  end;
   NotificationsSources := TDpccNotificationSources.Normalize(NotificationsSources);
   NotificationsMaxEntries := EnsureRange(NotificationsMaxEntries, cMinNotificationEntries, cMaxNotificationEntries);
   SettingsExportSecrets := Choice(SettingsExportSecrets, ['omit', 'placeholder']);
@@ -352,18 +274,11 @@ end;
 
 procedure TDpccPluginGeneralSettings.Exchange(const AIo: TDpccSettingsExchange);
 begin
-  AIo.Flag('StatusField', StatusField);
-  AIo.TrimmedText('StatusFieldHidden', StatusFieldHidden);
-  AIo.Flag('StatusFieldSummary', StatusFieldSummary);
-  AIo.Text('StatusFieldToggles', StatusFieldToggles);
-  AIo.Text('IndexProgressPlace', IndexProgressPlace);
   AIo.Flag('ArchitectureWindowPlaced', ArchitectureWindowPlaced);
   AIo.Flag('UnitRelationsWindowPlaced', UnitRelationsWindowPlaced);
   AIo.Flag('HotspotsWindowPlaced', HotspotsWindowPlaced);
   AIo.Flag('SetupChecklist', SetupChecklist);
   AIo.Flag('SetupChecklistSeen', SetupChecklistSeen);
-  AIo.Flag('ShortcutTips', ShortcutTips);
-  AIo.Text('ShortcutTipsScope', ShortcutTipsScope);
   AIo.Flag('UpdatesCheck', UpdatesCheck);
   AIo.Text('UpdatesInstall', UpdatesInstall);
   AIo.Text('UpdatesChannel', UpdatesChannel);

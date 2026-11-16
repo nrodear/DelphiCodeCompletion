@@ -198,15 +198,6 @@ type
     NextBookmarkKey: Integer;
     /// <summary>Taste „Voriges Lesezeichen“ (#1104, keys.previousBookmark); 0 = keine.</summary>
     PreviousBookmarkKey: Integer;
-    /// <summary>Kürzel „Brotkrumenleiste“ (#590, keys.breadcrumbs); Vorgabe Strg+Umschalt+Punkt.</summary>
-    BreadcrumbsKey: Integer;
-    /// <summary>„Neue Zeile am Ende des Abschnitts“ (#1768, keys.sectionAppend): leere Zeile hinter dem letzten
-    /// Mitglied des Sichtbarkeitsabschnitts am Cursor; 0 = keine (Vorgabe).</summary>
-    SectionAppendKey: Integer;
-    /// <summary>Kürzel „Nächste Änderung“ (#507, keys.nextChange); Vorgabe Strg+Alt+Bild↓.</summary>
-    NextChangeKey: Integer;
-    /// <summary>Kürzel „Vorherige Änderung“ (#507, keys.previousChange); Vorgabe Strg+Alt+Bild↑.</summary>
-    PreviousChangeKey: Integer;
     /// <summary>Sprung zum Gegenstück (#635, keys.jumpToMatch).</summary>
     JumpToMatch: Boolean;
     /// <summary>Kürzel „Zum Gegenstück springen“ (#635, keys.jumpToMatchShortcut); Vorgabe Strg+Ü.</summary>
@@ -430,11 +421,6 @@ begin
   Result.QuickBookmarkJumpKey := $4031; // Strg+1
   Result.NextBookmarkKey := 0;
   Result.PreviousBookmarkKey := 0;
-  Result.BreadcrumbsKey := $60BE; // Strg+Umschalt+.
-  Result.SectionAppendKey := 0;
-  // Strg+Alt+↑/↓ springt in RAD Studio schon zwischen Methoden.
-  Result.NextChangeKey := $C022; // Strg+Alt+Bild↓
-  Result.PreviousChangeKey := $C021; // Strg+Alt+Bild↑
   Result.JumpToMatch := True;
   Result.JumpToMatchKey := $40BA; // Strg+Ü (VK_OEM_1 auf deutscher Tastatur)
   Result.JumpToMatchSelectKey := $60BA; // Strg+Umschalt+Ü
@@ -458,14 +444,10 @@ begin
   LastEditKey := EnsureRange(LastEditKey, 0, $FFFF);
   PeekDefinitionKey := EnsureRange(PeekDefinitionKey, 0, $FFFF);
   PeekReferencesKey := EnsureRange(PeekReferencesKey, 0, $FFFF);
-  BreadcrumbsKey := EnsureRange(BreadcrumbsKey, 0, $FFFF);
-  SectionAppendKey := EnsureRange(SectionAppendKey, 0, $FFFF);
   QuickBookmarkSetKey := EnsureRange(QuickBookmarkSetKey, 0, $FFFF);
   QuickBookmarkJumpKey := EnsureRange(QuickBookmarkJumpKey, 0, $FFFF);
   NextBookmarkKey := EnsureRange(NextBookmarkKey, 0, $FFFF);
   PreviousBookmarkKey := EnsureRange(PreviousBookmarkKey, 0, $FFFF);
-  NextChangeKey := EnsureRange(NextChangeKey, 0, $FFFF);
-  PreviousChangeKey := EnsureRange(PreviousChangeKey, 0, $FFFF);
   JumpToMatchKey := EnsureRange(JumpToMatchKey, 0, $FFFF);
   JumpToMatchSelectKey := EnsureRange(JumpToMatchSelectKey, 0, $FFFF);
   BookmarkKey := EnsureRange(BookmarkKey, 0, $FFFF);
@@ -515,10 +497,6 @@ begin
   AIo.Number('QuickBookmarkJumpKey', QuickBookmarkJumpKey);
   AIo.Number('NextBookmarkKey', NextBookmarkKey);
   AIo.Number('PreviousBookmarkKey', PreviousBookmarkKey);
-  AIo.Number('BreadcrumbsKey', BreadcrumbsKey);
-  AIo.Number('SectionAppendKey', SectionAppendKey);
-  AIo.Number('NextChangeKey', NextChangeKey);
-  AIo.Number('PreviousChangeKey', PreviousChangeKey);
   AIo.Flag('JumpToMatch', JumpToMatch);
   AIo.Number('JumpToMatchKey', JumpToMatchKey);
   AIo.Number('JumpToMatchSelectKey', JumpToMatchSelectKey);

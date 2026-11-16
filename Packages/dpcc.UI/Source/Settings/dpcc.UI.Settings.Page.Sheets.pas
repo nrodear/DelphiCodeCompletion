@@ -3,6 +3,8 @@
 // Bausteine der Optionsseite „dpcc“ (#227): Reiter je Bereich mit rollbarem Inhalt und die Zeilen darin
 // (Kontrollkästchen, Zahl, Auswahl, Taste, Textzeile, Überschrift, Hinweis, Feldzeile mit Knöpfen). Unterste Stufe
 // der Klassenkette der Seite; die Teile der Seite bauen ihre Elemente über diese Methoden.
+// Überschriften von Abschnitten seit S8 im Stil des Hovers: Großbuchstaben, fett, gedämpft, dahinter eine dünne Linie
+// bis zum rechten Rand; Farben aus dem IDE-Thema (hell und dunkel), keine eigenen Flächen.
 
 interface
 
@@ -25,6 +27,16 @@ type
   /// <summary>Zeile der Optionsseite (Beschriftung und Eingabefeld): zeichnet nichts selbst, der
   /// Hintergrund des Reiters scheint durch.</summary>
   TDpccSettingsRow = class(TWinControl)
+  public
+    constructor Create(AOwner: TComponent); override;
+  end;
+
+  /// <summary>Überschrift eines Abschnitts im Stil des Hovers: Text in Großbuchstaben, fett und gedämpft
+  /// (clGrayText des IDE-Themas), dahinter eine dünne Linie (clBtnShadow des Themas) bis zum rechten Rand. Bleibt ein
+  /// TLabel, damit die Seite sie wie jede Beschriftung behandelt (Completion-Schnitt, Suche).</summary>
+  TDpccSettingsTitle = class(TLabel)
+  protected
+    procedure Paint; override;
   public
     constructor Create(AOwner: TComponent); override;
   end;
@@ -54,7 +66,7 @@ type
     function AddPanel(AHeight: Integer): TWinControl;
     function AddNumber(const ACaption: string): TEdit;
     function AddChoice(const ACaption: string; const AItems: array of string): TDpccChoiceBox;
-    /// <summary>Fett gesetzte Überschrift eines Abschnitts.</summary>
+    /// <summary>Überschrift eines Abschnitts (TDpccSettingsTitle: Großbuchstaben, fett, gedämpft, mit Linie).</summary>
     procedure AddTitle(AId: TDpccTextId);
     procedure AddTitleText(const ACaption: string);
     /// <summary>Kürzel ohne eigenen Vorrang; der gilt für die Gruppe (#399). Palette und Prüfung stehen auf der
@@ -78,7 +90,8 @@ implementation
 uses
   System.SysUtils,
   System.Math,
-  Vcl.Graphics;
+  Vcl.Graphics,
+  Vcl.Themes;
 
 { TDpccSettingsRow }
 
@@ -88,6 +101,43 @@ begin
   ControlStyle := ControlStyle + [csAcceptsControls, csParentBackground] - [csOpaque];
   ParentBackground := True;
   ParentColor := True;
+end;
+
+{ TDpccSettingsTitle }
+
+constructor TDpccSettingsTitle.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  AutoSize := False;
+  Transparent := True;
+  ShowAccelChar := False;
+  Font.Style := [fsBold];
+  // Die Farbe setzt Paint aus dem IDE-Thema; der Stil soll sie nicht durch die Textfarbe ersetzen.
+  StyleElements := StyleElements - [seFont];
+end;
+
+procedure TDpccSettingsTitle.Paint;
+var
+  mText: string;
+  mTextWidth, mGap, mLineY: Integer;
+begin
+  mText := Caption;
+  Canvas.Brush.Style := bsClear;
+  Canvas.Font := Font;
+  Canvas.Font.Color := StyleServices.GetSystemColor(clGrayText);
+  Canvas.TextOut(0, 0, mText);
+  // Dünne Trennlinie von hinter dem Text bis zum rechten Rand, auf halber Texthöhe.
+  mTextWidth := Canvas.TextWidth(mText);
+  mGap := ScaleValue(8);
+  mLineY := Canvas.TextHeight(mText) div 2;
+  if mTextWidth + mGap < ClientWidth then
+  begin
+    Canvas.Pen.Style := psSolid;
+    Canvas.Pen.Width := 1;
+    Canvas.Pen.Color := StyleServices.GetSystemColor(clBtnShadow);
+    Canvas.MoveTo(mTextWidth + mGap, mLineY);
+    Canvas.LineTo(ClientWidth, mLineY);
+  end;
 end;
 
 { TDpccSettingsPageSheets }
@@ -164,15 +214,16 @@ end;
 procedure TDpccSettingsPageSheets.AddTitleText(const ACaption: string);
 var
   mPanel: TWinControl;
-  mCaption: TLabel;
+  mCaption: TDpccSettingsTitle;
 begin
   mPanel := AddPanel(22);
-  mCaption := TLabel.Create(Self);
+  mCaption := TDpccSettingsTitle.Create(Self);
   mCaption.Parent := mPanel;
-  mCaption.Caption := ACaption;
-  mCaption.Font.Style := [fsBold];
-  mCaption.Left := 0;
-  mCaption.Top := mCaption.ScaleValue(4);
+  mCaption.Caption := AnsiUpperCase(ACaption);
+  // Über die ganze Breite der Zeile: Die Linie reicht bis zum rechten Rand.
+  mCaption.Align := alClient;
+  mCaption.AlignWithMargins := True;
+  mCaption.Margins.SetBounds(0, mCaption.ScaleValue(6), 0, 0);
 end;
 
 function TDpccSettingsPageSheets.AddChoice(const ACaption: string; const AItems: array of string): TDpccChoiceBox;

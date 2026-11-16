@@ -1,14 +1,14 @@
 ﻿unit dpcc.UI.Hover.Tip;
 
 // Hover-Tooltip (#442), schlicht wie die Code-Insight-Liste der IDE (Strg+Leertaste; S3, S3b voller Inhalt, S3c
-// Aussehen der Liste): TDpccPopupWindow mit FlatFrame (eckig, 1 px Rand in Colors.Line), Farben von
+// Aussehen der Liste): TDpccPopupWindow (flach, eckig, 1 px Rand in Colors.Line), Farben von
 // TDpccIdeStyle.ListColors (setzt dpcc.IDE.Hover.Editor; Fläche, Namen, Art aus dem Farbschema des Editors wie die
 // Liste), alles in der UI-Schrift, Code in der Editorschrift auf UI-Größe (FCodeFont), knappe Ränder (cPadX,
 // cPadTop), zwischen Abschnitten nur eine dünne Trennlinie (TDpccDraw.Separator). Den Inhalt stellt
 // dpcc.Core.Hover.Plain zusammen; hier werden seine Abschnitte nur der Reihe nach gezeichnet:
 //   Wert im Debugger   Ausdruck in der Editorschrift, darunter Wert bzw. „wird ausgewertet …“, Trennlinie
-//   Kopfzeile          wie eine Zeile der Liste (Höhe, Art-Spalte nach „constructor“, Art in der Farbe der
-//                      reservierten Wörter, Name fett, Rest eingefärbt mit TDpccStyledText), an Leerzeichen
+//   Kopfzeile          wie eine Zeile der Liste (Höhe, Art-Spalte nach „constructor“, Art klein und gedämpft
+//                      (Colors.KindLabel, S8), Name fett, Rest eingefärbt mit TDpccStyledText), an Leerzeichen
 //                      umbrochen
 //   Herkunft, Fundort  gedämpft in der UI-Schrift
 //   Trennlinie, Wert und Veraltung, XMLDoc mit demselben Satz und Zeichner wie im Detailpanel (TDpccDocView, ganz
@@ -285,7 +285,7 @@ var
   mRange: TPoint;
   mNameText: string;
 begin
-  // Wie eine Zeile der Code-Insight-Liste: UI-Schrift, Art in der Art-Spalte (Farbe der reservierten Wörter, Breite
+  // Wie eine Zeile der Code-Insight-Liste: UI-Schrift, Art in der Art-Spalte (gedämpft wie in der Liste, Breite
   // nach „constructor“ wie die Spalte der Liste), Name fett, Rest der Signatur eingefärbt; Zeile 1 so hoch wie eine
   // Zeile der Liste, Folgezeilen eingerückt.
   mHover := Tip.FHover;
@@ -299,7 +299,7 @@ begin
     mRow := Rect(Left, Y, Right, Y + mRowHeight);
     if Draw then
     begin
-      Canvas.Font.Color := ToColor(Colors.Keyword);
+      Canvas.Font.Color := ToColor(Colors.KindLabel);
       Canvas.Brush.Style := bsClear;
       DrawText(Canvas.Handle, PChar(mHover.Kind), -1, mRow, DT_LEFT or DT_VCENTER or DT_SINGLELINE or DT_NOPREFIX);
     end;
@@ -339,7 +339,7 @@ begin
     end;
     if Draw then
     begin
-      Tip.FSignature.Draw(TDpccStyledTarget.Create(Canvas, Colors, Scale(3)), mRange, mX,
+      Tip.FSignature.Draw(TDpccStyledTarget.Create(Canvas, Colors), mRange, mX,
         Rect(mX, mRow.Top, Right, mRow.Bottom), False);
     end;
     Inc(Y, mRow.Height);
@@ -470,8 +470,6 @@ constructor TDpccHoverTip.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
   GuardFeature := TDpccFeature.Hover;
-  // Flach wie ein Menü der IDE und das Popup der Vervollständigung: eckig, grauer Rand, kein Akzentrahmen.
-  FlatFrame := True;
   FDoc := TDpccDocView.Create;
   FCodeFont := TFont.Create;
 end;

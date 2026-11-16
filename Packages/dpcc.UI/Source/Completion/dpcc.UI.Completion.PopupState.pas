@@ -7,7 +7,7 @@
 //   Anzeige der Liste, Barrierefreiheit).
 // Aufrufer verwenden nur TDpccCompletionPopup; Beschreibung des Aussehens dort.
 // Schlicht (S6): Zeilen in der UI-Schrift, so hoch wie die Zeilen des Hover-Tooltips (Schrifthöhe + cRowPad);
-// flacher Rahmen (FlatFrame) wie Hover und Menüs der IDE. Seit S7a ist das das einzige Aussehen: Filter-Chips,
+// flacher Rahmen wie Hover und Menüs der IDE. Seit S7a ist das das einzige Aussehen: Filter-Chips,
 // Detailpanel, Sternspalte, Badges und Auswahlmarke sind entfernt.
 
 interface
@@ -163,7 +163,6 @@ begin
   FTipTimer.Interval := cTipDelayMs;
   FOptions.ShowVariantBranch := True;
   // Schlicht (S6): flach wie der Hover-Tooltip und die Menüs der IDE.
-  FlatFrame := True;
 end;
 
 procedure TDpccCompletionPopupState.CMFontChanged(var Message: TMessage);

@@ -2,10 +2,11 @@
 
 // Zeichnet die gesetzte XMLDoc (#654, #770) in Hover-Tooltip und Detailpanel:
 // ein Ausschnitt fester Höhe, der mit dem Mausrad scrollt (rechts ein schmaler
-// Balken zeigt die Lage), Überschriften mit Linie bis zum Rand, Codeblöcke auf
-// schattierter, gerahmter Fläche, paramref als Pille, Verweise und Links
-// unterstrichen in Akzentfarbe, Markieren mit der Maus und Kopieren des
-// markierten Texts. „Mehr/Weniger anzeigen“ setzt die Doku neu (Toggle).
+// Balken zeigt die Lage), Überschriften mit Linie bis zum Rand, Codeblöcke flach
+// mit dünnem, eckigem Rahmen (S8, ohne Füllfläche), paramref fett in der
+// Editorschrift (S8, ohne Pille), Verweise und Links unterstrichen in
+// Akzentfarbe, Markieren mit der Maus und Kopieren des markierten Texts.
+// „Mehr/Weniger anzeigen“ setzt die Doku neu (Toggle).
 // Gemessen wird mit denselben Schriften, mit denen gezeichnet wird;
 // Unterstreichungen sind Linien, damit sie die Breite nicht ändern.
 
@@ -516,7 +517,8 @@ type
     Selected: Boolean;
     From: Integer;
     Till: Integer;
-    /// <summary>Codefläche: schattiert und gerahmt über aufeinanderfolgende Codezeilen.</summary>
+    /// <summary>Codebereich: 1 px eckiger Rahmen in Colors.Line über aufeinanderfolgende Codezeilen, ohne
+    /// Füllfläche.</summary>
     procedure Shade(AIndex, AY: Integer);
     /// <summary>Überschrift: Linie von hinter dem Text bis zum rechten Rand.</summary>
     procedure Rule(const ALine: TDpccDocLine; AY: Integer);
@@ -544,9 +546,6 @@ begin
   begin
     mBottom := Top + Layout.Lines[AIndex + 1].Top - Scroll;
   end;
-  Canvas.Brush.Style := bsSolid;
-  Canvas.Brush.Color := ToColor(Colors.Gutter);
-  Canvas.FillRect(Rect(Left + mLine.ShadeLeft, mTop, Left + Width, mBottom));
   Canvas.Pen.Style := psSolid;
   Canvas.Pen.Width := 1;
   Canvas.Pen.Color := ToColor(Colors.Line);
@@ -605,15 +604,6 @@ var
   mSpanTop, mSelLeft, mSelRight: Integer;
 begin
   mSpanTop := AY + (ALine.Height - Fonts.FaceHeight(ASpan.Face)) div 2;
-  if ASpan.Pill then
-  begin
-    Canvas.Brush.Style := bsSolid;
-    Canvas.Brush.Color := ToColor(Colors.AccentSoft);
-    Canvas.Pen.Style := psClear;
-    Canvas.RoundRect(Left + ASpan.Left, mSpanTop, Left + ASpan.Right, mSpanTop + Fonts.FaceHeight(ASpan.Face),
-      Fonts.Scale(6), Fonts.Scale(6));
-    Canvas.Pen.Style := psSolid;
-  end;
   if Selected and Layout.SpanRange(ASpan, From, Till, Measure, mSelLeft, mSelRight) then
   begin
     Canvas.Brush.Style := bsSolid;
@@ -623,7 +613,7 @@ begin
   Canvas.Font := Fonts.FontOf(ASpan.Face);
   Canvas.Font.Color := ToColor(ColorOf(Colors, ASpan.Color));
   Canvas.Brush.Style := bsClear;
-  Canvas.TextOut(Left + ASpan.Left + ASpan.Pad, mSpanTop, ASpan.Text);
+  Canvas.TextOut(Left + ASpan.Left, mSpanTop, ASpan.Text);
   Underline(ASpan, mSpanTop);
 end;
 
@@ -703,7 +693,7 @@ begin
   mThumb := Max(FFonts.Scale(16), MulDiv(FViewport, FViewport, FLayout.Height));
   mThumbTop := ATop + MulDiv(FViewport - mThumb, FScroll, Max(1, FLayout.Height - FViewport));
   TDpccDraw.Thumb(ACanvas, Rect(ALeft + FWidth + FFonts.Scale(4), mThumbTop, ALeft + FWidth + FFonts.Scale(7),
-    mThumbTop + mThumb), AColors, 0);
+    mThumbTop + mThumb), AColors);
 end;
 
 end.

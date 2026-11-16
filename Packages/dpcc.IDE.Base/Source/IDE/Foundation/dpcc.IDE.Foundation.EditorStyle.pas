@@ -19,32 +19,35 @@ uses
 
 type
   TDpccIdeStyle = class
+  private const
+    /// <summary>So lange (ms) gelten gelesene ListColors; Editor-Überlagerungen fragen sie je gezeichneter Zeile ab.
+    /// </summary>
+    cListColorsLifetime = 1000;
+  private class var
+    FListColors: TDpccColors;
+    FListColorsTick: Cardinal;
+    FListColorsKnown: Boolean;
+    class function ReadListColors: TDpccColors; static;
   public
-    /// <summary>Farben passend zum IDE-Thema bzw. zu Windows.</summary>
+    /// <summary>Feste dpcc-Palette, hell oder dunkel nach IDE-Thema bzw. Windows; nur noch Rückfall für
+    /// WindowColors ohne IDE-Thema. Alle Fenster und Editor-Überlagerungen nehmen seit S8 ListColors.</summary>
     class function Colors: TDpccColors; static;
-    /// <summary>Farben für Leisten im Rahmen der IDE (Brotkrumenleiste): Fläche und Schrift wie die
-    /// Werkzeugleisten des IDE-Themas (clBtnFace/clBtnText), ohne Thema die von Windows.</summary>
-    class function ChromeColors: TDpccColors; static;
-    /// <summary>Farben der Leisten im Editorfenster (Brotkrumen, Werkzeugleiste, Designer): ChromeColors mit
-    /// breadcrumbs.ideColors, sonst Colors.</summary>
-    class function BarColors: TDpccColors; static;
-    /// <summary>Farben für andockbare Fenster mit Inhalt (Issue, Board): Fläche und Schrift wie Listen und
-    /// Eingabefelder des IDE-Themas (clWindow/clWindowText), ohne Thema Colors. Colors nimmt vom Thema nur
+    /// <summary>Fläche und Schrift wie Listen und Eingabefelder des IDE-Themas (clWindow/clWindowText), ohne
+    /// Thema Colors. Colors nimmt vom Thema nur
     /// hell oder dunkel und setzt die feste Palette ein; deren dunkle Fläche liegt weit unter der des Themas.
     /// </summary>
     class function WindowColors: TDpccColors; static;
     /// <summary>Farben der Code-Insight-Liste der IDE (Strg+Leertaste, S3c): Die Liste malt mit dem Farbschema des
-    /// Editors – Fläche = Hintergrund von „Plain text“, Namen = „Identifier“, Art = „Reserved word“ (Editor\Highlight
-    /// unter dem Registry-Schlüssel der IDE, nur gelesen). Kommentare und Strings ebenso; Rand und Gedämpftes daraus
-    /// gemischt wie bei WindowColors. Ohne lesbares Farbschema WindowColors. Der Hover-Tooltip nimmt sie, damit er
-    /// aussieht wie die Liste.</summary>
+    /// Editors – Fläche = Hintergrund von „Plain text“, Namen = „Identifier“, Schlüsselwörter = „Reserved word“
+    /// (Editor\Highlight unter dem Registry-Schlüssel der IDE, nur gelesen). Kommentare und Strings ebenso; Rand und
+    /// Gedämpftes (auch die Art-Kennung, KindLabel, S8) daraus gemischt wie bei WindowColors. Ohne lesbares
+    /// Farbschema WindowColors. Seit S8 nehmen alle dpcc-Fenster (Hover, Parameter-Hint, Tooltip) und die
+    /// Editor-Überlagerungen sie, damit alles aussieht wie die Liste; eine Sekunde zwischengespeichert.</summary>
     class function ListColors: TDpccColors; static;
     /// <summary>Farben der Vervollständigungsliste (S6): ListColors, die gewählte Zeile in der Auswahlfarbe des
     /// IDE-Themas (clHighlight, ohne Thema die von Windows) wie in der Code-Insight-Liste der IDE.</summary>
     class function CompletionListColors: TDpccColors; static;
-    /// <summary>WindowColors mit AIdeColors (Schalter des Moduls, z. B. issues.ideColors), sonst Colors.</summary>
-    class function WindowColorsIf(AIdeColors: Boolean): TDpccColors; static;
-    /// <summary>Farben, Editorschrift und Skalierung auf AWindow übertragen. ACaret: Caret-Rechteck in
+    /// <summary>Farben (ListColors), Editorschrift und Skalierung auf AWindow übertragen. ACaret: Caret-Rechteck in
     /// Bildschirmkoordinaten (Monitor und Zoom). Liefert eine Zeile für das Diagnoseprotokoll.</summary>
     class function Apply(AWindow: TDpccPopupWindow; const ACaret: TRect): string; static;
     /// <summary>Texthöhe der Editorschrift bei 96 dpi ohne Zoom (Bezug für Linienbreiten, #653).</summary>
@@ -61,8 +64,7 @@ uses
   System.SysUtils,
   System.Win.Registry,
   ToolsAPI,
-  dpcc.Core.Style.Scaling,
-  dpcc.IDE.Foundation.Settings;
+  dpcc.Core.Style.Scaling;
 
 function WindowsUsesLightApps: Boolean;
 var
@@ -161,18 +163,6 @@ begin
   end;
 end;
 
-class function TDpccIdeStyle.ChromeColors: TDpccColors;
-var
-  mTheming: IOTAIDEThemingServices;
-begin
-  if Supports(BorlandIDEServices, IOTAIDEThemingServices, mTheming) and mTheming.IDEThemingEnabled then
-  begin
-    Exit(TDpccColors.ForChrome(TDpccColor(ColorToRGB(mTheming.StyleServices.GetSystemColor(clBtnFace))),
-      TDpccColor(ColorToRGB(mTheming.StyleServices.GetSystemColor(clBtnText)))));
-  end;
-  Result := TDpccColors.ForChrome(TDpccColor(ColorToRGB(clBtnFace)), TDpccColor(ColorToRGB(clBtnText)));
-end;
-
 class function TDpccIdeStyle.WindowColors: TDpccColors;
 var
   mTheming: IOTAIDEThemingServices;
@@ -223,6 +213,22 @@ end;
 
 class function TDpccIdeStyle.ListColors: TDpccColors;
 var
+  mNow: Cardinal;
+begin
+  // Kurz zwischengespeichert: Die Überlagerungen im Editor (Platzhalter, Vorschau) zeichnen Zeile für Zeile, das
+  // Farbschema steht in der Registry. Nach einer Sekunde wird neu gelesen, sodass Änderungen ohne Neustart wirken.
+  mNow := GetTickCount;
+  if not FListColorsKnown or (mNow < FListColorsTick) or (mNow - FListColorsTick > cListColorsLifetime) then
+  begin
+    FListColors := ReadListColors;
+    FListColorsTick := mNow;
+    FListColorsKnown := True;
+  end;
+  Result := FListColors;
+end;
+
+class function TDpccIdeStyle.ReadListColors: TDpccColors;
+var
   mServices: IOTAServices;
   mBaseKey: string;
   mBack, mText, mColor: TDpccColor;
@@ -272,31 +278,6 @@ begin
   end;
 end;
 
-class function TDpccIdeStyle.WindowColorsIf(AIdeColors: Boolean): TDpccColors;
-
-begin
-  if AIdeColors then
-  begin
-    Result := WindowColors;
-  end
-  else
-  begin
-    Result := Colors;
-  end;
-end;
-
-class function TDpccIdeStyle.BarColors: TDpccColors;
-begin
-  if TDpccIdeSettings.Current.BreadcrumbsIdeColors then
-  begin
-    Result := ChromeColors;
-  end
-  else
-  begin
-    Result := Colors;
-  end;
-end;
-
 class function TDpccIdeStyle.BaseTextHeight: Integer;
 var
   mEditor: IOTAEditorServices;
@@ -318,7 +299,7 @@ var
   mFontSize, mMonitorPPI, mTextHeight: Integer;
   mZoom: Double;
 begin
-  AWindow.Colors := Colors;
+  AWindow.Colors := ListColors;
   mFontName := AWindow.Font.Name;
   mFontSize := AWindow.Font.Size;
   if Supports(BorlandIDEServices, IOTAEditorServices, mEditor) and (mEditor.EditOptions <> nil) then

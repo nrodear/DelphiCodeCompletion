@@ -3,7 +3,8 @@
 // Rahmen einer Funktion auf der Optionsseite (#890): oben der Hauptschalter
 // (Kontrollkästchen oder Zeile mit Auswahl), darunter eine Zeile mit dem Grund
 // einer Sperre („gesperrt: …“, sonst ausgeblendet), dann die Unteroptionen
-// eingerückt. Der Rahmen zeichnet nur seine Kante in der Farbe des IDE-Themas,
+// eingerückt. Der Rahmen zeichnet schlicht wie die Abschnitte im Hover nur eine
+// dünne Linie oben in der Farbe des IDE-Themas (S8, vorher abgerundete Kante),
 // der Hintergrund des Reiters scheint durch. Die Höhe folgt dem Inhalt: Zeilen
 // stehen mit alTop untereinander, ausgeblendete (Filter) fallen heraus.
 // Welche Zeilen hineingehören und wann sie gesperrt sind, bestimmt die Seite
@@ -168,13 +169,14 @@ begin
 end;
 
 procedure TDpccSettingsGroup.Paint;
-var
-  mRadius: Integer;
 begin
+  // Eckig und ohne Fläche: eine Linie über die ganze Breite, Farbe aus dem IDE-Thema (hell und dunkel).
   Canvas.Brush.Style := bsClear;
+  Canvas.Pen.Style := psSolid;
+  Canvas.Pen.Width := 1;
   Canvas.Pen.Color := StyleServices.GetSystemColor(clBtnShadow);
-  mRadius := 6 * CurrentPPI div 96;
-  Canvas.RoundRect(0, 0, Width, Height, mRadius, mRadius);
+  Canvas.MoveTo(0, 0);
+  Canvas.LineTo(Width, 0);
 end;
 
 end.

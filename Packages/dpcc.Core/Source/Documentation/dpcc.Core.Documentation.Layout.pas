@@ -19,10 +19,10 @@
 //     nicht kennt, am Ende in Warnfarbe.
 //   - Rückgabe: Ergebnistyp (Schlüsselwortfarbe) und Text; ohne <returns> nur der
 //     Typ. Ausnahmen: Klasse in Fehlerfarbe, anklickbar mit Fundort.
-//   - Läufe: Code in der Editorschrift, paramref als Pille (Akzent auf
-//     AccentSoft), Verweise in Akzentfarbe, unterstrichen und anklickbar, wenn der
-//     Server den Fundort kennt; Links öffnen den Browser; Codeblöcke eingefärbt
-//     auf schattierter, gerahmter Fläche; Listen mit hängendem Einzug je Ebene;
+//   - Läufe: Code in der Editorschrift, paramref schlicht in der Editorschrift
+//     fett (seit S8 ohne Pille), Verweise in Akzentfarbe, unterstrichen und
+//     anklickbar, wenn der Server den Fundort kennt; Links öffnen den Browser;
+//     Codeblöcke eingefärbt mit dünnem, eckigem Rahmen ohne Füllfläche; Listen mit hängendem Einzug je Ebene;
 //     Tabellen zweispaltig. Eine Listenmarke mit Ziel (Kästchen einer
 //     Checkliste in der Issue-Vorschau, #1273) ist ein Link in Akzentfarbe.
 //   - Begründungen (#1123) unter BEGRÜNDUNG nach allen XMLDoc-Abschnitten: je
@@ -77,8 +77,6 @@ type
     SectionGap: Integer;
     /// <summary>Innenabstand der Codefläche links und rechts.</summary>
     CodePad: Integer;
-    /// <summary>Innenabstand der paramref-Pille links und rechts.</summary>
-    PillPad: Integer;
     /// <summary>Werte für 96 dpi, mit AScale (Pixel je Zoll / 96) multipliziert.</summary>
     class function Create(ALineHeight, AMonoHeight: Integer; AScale: Double): TDpccDocMetrics; static;
   end;
@@ -120,14 +118,10 @@ type
   TDpccDocSpan = record
     Text: string;
     Left: Integer;
-    /// <summary>Breite samt Innenabstand.</summary>
     Width: Integer;
     Face: TDpccDocFace;
     Color: TDpccDocColor;
     Underline: Boolean;
-    /// <summary>paramref: Hintergrund AccentSoft, Text um Pad eingerückt.</summary>
-    Pill: Boolean;
-    Pad: Integer;
     /// <summary>Index in Links; -1 ohne.</summary>
     Link: Integer;
     /// <summary>Anfang im Klartext (0-basiert).</summary>
@@ -144,7 +138,7 @@ type
     /// <summary>Überschrift: Linie ab RuleFrom bis zum rechten Rand.</summary>
     Rule: Boolean;
     RuleFrom: Integer;
-    /// <summary>Codezeile: schattierte, gerahmte Fläche ab ShadeLeft.</summary>
+    /// <summary>Codezeile: gerahmter Bereich ab ShadeLeft (1 px, eckig, ohne Füllfläche).</summary>
     Shaded: Boolean;
     ShadeLeft: Integer;
     function Bottom: Integer;
@@ -275,7 +269,6 @@ begin
   Result.ParagraphGap := Round(5 * AScale);
   Result.SectionGap := Round(6 * AScale);
   Result.CodePad := Round(6 * AScale);
-  Result.PillPad := Round(3 * AScale);
 end;
 
 type
@@ -494,13 +487,13 @@ function SpanPosition(const ASpan: TDpccDocSpan; AX: Integer; const AMeasure: TD
 var
   mCount: Integer;
 begin
-  if AX < ASpan.Left + ASpan.Pad then
+  if AX < ASpan.Left then
   begin
     Exit(ASpan.TextStart);
   end;
   mCount := 0;
   while (mCount < Length(ASpan.Text)) and
-    (ASpan.Left + ASpan.Pad + (AMeasure(Copy(ASpan.Text, 1, mCount), ASpan.Face) +
+    (ASpan.Left + (AMeasure(Copy(ASpan.Text, 1, mCount), ASpan.Face) +
     AMeasure(Copy(ASpan.Text, 1, mCount + 1), ASpan.Face)) div 2 <= AX) do
   begin
     Inc(mCount);
@@ -595,8 +588,8 @@ begin
   begin
     Exit;
   end;
-  ALeft := ASpan.Left + ASpan.Pad + AMeasure(Copy(ASpan.Text, 1, mFrom), ASpan.Face);
-  ARight := ASpan.Left + ASpan.Pad + AMeasure(Copy(ASpan.Text, 1, mTill), ASpan.Face);
+  ALeft := ASpan.Left + AMeasure(Copy(ASpan.Text, 1, mFrom), ASpan.Face);
+  ARight := ASpan.Left + AMeasure(Copy(ASpan.Text, 1, mTill), ASpan.Face);
 end;
 
 function TDpccDocLayout.Selected(AFrom, ATo: Integer): string;

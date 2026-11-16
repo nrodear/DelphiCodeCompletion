@@ -116,7 +116,6 @@
         <DCCReference Include="Source\Signature\dpcc.Core.Signature.Format.pas"/>
         <DCCReference Include="Source\Signature\dpcc.Core.Signature.Providers.Server.pas"/>
         <DCCReference Include="Source\Style\dpcc.Core.Style.Color.pas"/>
-        <DCCReference Include="Source\Style\dpcc.Core.Style.Signal.pas"/>
         <DCCReference Include="Source\Style\dpcc.Core.Style.Palette.pas"/>
         <DCCReference Include="Source\Style\dpcc.Core.Style.Syntax.pas"/>
         <DCCReference Include="Source\Style\dpcc.Core.Style.Wrap.pas"/>
@@ -158,10 +157,6 @@
         <DCCReference Include="Source\Settings\dpcc.Core.Settings.Groups.pas"/>
         <DCCReference Include="Source\Settings\dpcc.Core.Settings.Layers.pas"/>
         <DCCReference Include="Source\Settings\dpcc.Core.Settings.SchemaCheck.pas"/>
-        <DCCReference Include="Source\Commands\dpcc.Core.Commands.KeyConflicts.pas"/>
-        <DCCReference Include="Source\Commands\dpcc.Core.Commands.KeyMap.pas"/>
-        <DCCReference Include="Source\Commands\dpcc.Core.Commands.Usage.pas"/>
-        <DCCReference Include="Source\Commands\dpcc.Core.Commands.ShortcutTips.pas"/>
         <DCCReference Include="Source\Completion\dpcc.Core.Completion.Ranking.pas"/>
         <DCCReference Include="Source\Completion\dpcc.Core.Completion.Sets.pas"/>
         <DCCReference Include="Source\Completion\dpcc.Core.Completion.Width.pas"/>
@@ -189,11 +184,9 @@
         <DCCReference Include="Source\Editor\dpcc.Core.Editor.SnapshotPolicy.pas"/>
         <DCCReference Include="Source\Editor\dpcc.Core.Editor.CloseRules.pas"/>
         <DCCReference Include="Source\Editor\dpcc.Core.Editor.Guides.pas"/>
-        <DCCReference Include="Source\Editor\dpcc.Core.Editor.RoutineNesting.pas"/>
         <DCCReference Include="Source\Editor\dpcc.Core.Editor.CodeInsightKeys.pas"/>
         <DCCReference Include="Source\Problems\dpcc.Core.Problems.Contract.pas"/>
         <DCCReference Include="Source\Problems\dpcc.Core.Problems.InlineHints.pas"/>
-        <DCCReference Include="Source\Editor\dpcc.Core.Editor.SelectionMatches.pas"/>
         <DCCReference Include="Source\Settings\dpcc.Core.Settings.Reassigned.pas"/>
         <DCCReference Include="Source\Status\dpcc.Core.Status.Contract.pas"/>
         <DCCReference Include="Source\Files\dpcc.Core.Files.Format.pas"/>
@@ -204,7 +197,6 @@
         <DCCReference Include="Source\Settings\dpcc.Core.Settings.History.pas"/>
         <DCCReference Include="Source\Settings\dpcc.Core.Settings.Renames.pas"/>
         <DCCReference Include="Source\Settings\dpcc.Core.Settings.QueryMigration.pas"/>
-        <DCCReference Include="Source\Settings\dpcc.Core.Settings.TeamFile.pas"/>
         <DCCReference Include="Source\Modules\dpcc.Core.Modules.Contract.pas"/>
         <DCCReference Include="Source\Modules\dpcc.Core.Modules.Registration.pas"/>
         <DCCReference Include="Source\Modules\dpcc.Core.Modules.Answer.pas"/>
@@ -228,12 +220,10 @@
         <DCCReference Include="Source\Build\dpcc.Core.Build.PipelineSettings.pas"/>
         <DCCReference Include="Source\Versions\dpcc.Core.Versions.Project.pas"/>
         <DCCReference Include="Source\Editor\dpcc.Core.Editor.LineTracking.pas"/>
-        <DCCReference Include="Source\Settings\dpcc.Core.Settings.HiddenPlaces.pas"/>
         <DCCReference Include="Source\Notifications\dpcc.Core.Notifications.Contract.pas"/>
         <DCCReference Include="Source\Notifications\dpcc.Core.Notifications.Sources.pas"/>
         <DCCReference Include="Source\Notifications\dpcc.Core.Notifications.Center.pas"/>
         <DCCReference Include="Source\Settings\dpcc.Core.Settings.ToolbarItems.pas"/>
-        <DCCReference Include="Source\Settings\dpcc.Core.Settings.StatusBarItems.pas"/>
         <DCCReference Include="Source\Lsp\dpcc.Core.Lsp.DataFlow.pas"/>
         <DCCReference Include="Source\Lsp\dpcc.Core.Lsp.AccessChains.pas"/>
         <DCCReference Include="Source\Settings\dpcc.Core.Settings.VisualizerKinds.pas"/>

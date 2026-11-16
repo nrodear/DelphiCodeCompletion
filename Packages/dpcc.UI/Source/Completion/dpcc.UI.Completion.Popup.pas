@@ -3,7 +3,7 @@
 // Vervollständigungs-Popup (#410, #413): virtuelle Liste ohne Fokus. Gezeichnet
 // werden nur die sichtbaren Zeilen; Filtern liefert nur ein neues Index-Array
 // (AOrder), die Einträge selbst werden nicht kopiert.
-// Schlicht (S6): Aussehen wie die Code-Insight-Liste der IDE und der Hover-Tooltip, flacher Rahmen (FlatFrame),
+// Schlicht (S6): Aussehen wie die Code-Insight-Liste der IDE und der Hover-Tooltip, flacher Rahmen,
 // Farben aus TDpccIdeStyle.CompletionListColors (setzt dpcc.IDE.Completion.EditorOpen). Je Zeile die Art als Wort
 // (procedure, function, type, …), der Name fett, dahinter die Signatur bzw. gedämpft das Detail, rechts gedämpft
 // „+ Unit“ und Warnungen. Fußzeile nur mit Tasten bzw. Hinweisen. Zeichnen: dpcc.UI.Completion.PopupPainter.

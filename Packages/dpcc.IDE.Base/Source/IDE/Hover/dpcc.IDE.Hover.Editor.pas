@@ -649,9 +649,9 @@ begin
       TDpccIdeSettings.Current.XmlDocMaxLines);
   end;
   FShownData := mData;
+  // Aussehen der Code-Insight-Liste der IDE (S3c): Apply setzt Fläche, Namen und Art aus dem Farbschema des Editors
+  // (ListColors).
   TDpccIdeStyle.Apply(FTip, FWordRect);
-  // Aussehen der Code-Insight-Liste der IDE (S3c): Fläche, Namen und Art aus dem Farbschema des Editors.
-  FTip.Colors := TDpccIdeStyle.ListColors;
   FTip.ShowHover(mData, FDebugValue, TDpccPlainHover.UnitOfFile(FView.Buffer.FileName), FWordRect);
 end;
 

@@ -179,7 +179,8 @@ begin
       try
         SelectObject(mDC, mItalic.Handle);
         SetBkMode(mDC, TRANSPARENT);
-        SetTextColor(mDC, ColorToRGB(TColor(TDpccIdeStyle.Colors.Muted)));
+        // Gedämpft in den Farben des Editors (ListColors, S8), wie der Nebentext von Liste und Hover.
+        SetTextColor(mDC, ColorToRGB(TColor(TDpccIdeStyle.ListColors.Muted)));
         Winapi.Windows.TextOut(mDC, mCell.Left, mTop, PChar(FText), Length(FText));
       finally
         RestoreDC(mDC, mSaved);

@@ -16,12 +16,14 @@
 // - Tasten auf der Seite „Tastenkonflikte“: nur Vervollständigung und Parameter-Hint.
 // Die Werte selbst bleiben unangetastet (Registry, settings.json, dpcc.json); was hier fehlt, zeigt dpcc nur
 // nicht mehr an.
+// Seit S8 gibt es die versteckten Schalter ohne Wirkung der Reiter Allgemein und Hints auch als Einstellung nicht
+// mehr (Statusfeld, Diagnosemodus, Tastenkürzel-Tipps, Projektdatei, Inlay-Hints, Brotkrumenleiste, Minimap usw.);
+// ShowsKey (für die Seite „Tastenkonflikte“, seit Rückbau R5 weg) entfällt mit dpcc.Core.Commands.KeyConflicts.
 
 interface
 
 uses
-  dpcc.Core.Settings.Catalog,
-  dpcc.Core.Commands.KeyConflicts;
+  dpcc.Core.Settings.Catalog;
 
 type
   /// <summary>Wo eine Einstellung steht: gar nicht, auf der Seite „dpcc“ oder auf „Tastenkonflikte“. Die Seite
@@ -40,8 +42,6 @@ type
     class function ShowsSetting(const AEntry: TDpccCatalogEntry): Boolean; static;
     /// <summary>Wie ShowsSetting nach Registry-Name; False, wenn der Katalog den Namen nicht kennt.</summary>
     class function ShowsName(ACatalog: TDpccSettingsCatalog; const AName: string): Boolean; static;
-    /// <summary>Steht die Taste AFunc auf der Seite „Tastenkonflikte“?</summary>
-    class function ShowsKey(AFunc: TDpccKeyFunction): Boolean; static;
   end;
 
 implementation
@@ -99,11 +99,6 @@ var
 begin
   mIndex := ACatalog.IndexOfName(AName);
   Result := (mIndex >= 0) and ShowsSetting(ACatalog[mIndex]);
-end;
-
-class function TDpccCompletionView.ShowsKey(AFunc: TDpccKeyFunction): Boolean;
-begin
-  Result := AFunc in [TDpccKeyFunction.Completion, TDpccKeyFunction.Signature];
 end;
 
 end.

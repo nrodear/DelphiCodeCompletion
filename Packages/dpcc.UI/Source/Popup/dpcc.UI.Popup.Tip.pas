@@ -3,6 +3,7 @@
 // Kleiner Tooltip im dpcc-Stil (#420): zeigt den vollständigen Text eines
 // gekürzten Eintrags. Ohne Fokus wie alle dpcc-Fenster, eine Zeile in der
 // Editorschrift, höchstens so breit wie der Arbeitsbereich des Monitors.
+// Seit S8 flach wie der Hover-Tooltip: eckig, 1 px Rand in Colors.Line, Farben der Liste (ListColors).
 
 interface
 

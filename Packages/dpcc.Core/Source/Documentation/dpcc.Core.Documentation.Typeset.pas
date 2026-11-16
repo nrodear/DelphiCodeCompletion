@@ -106,7 +106,6 @@ type
     FOpen: Boolean;
     FPendingGap: Integer;
     procedure OpenLine;
-    procedure AddPill(const AText: string; const AFace: TDpccDocFace);
     procedure FlowCode(const AText: string; AHighlight: Boolean);
     procedure LayoutTable(const ARuns: TDpccDocRuns; var AIndex: Integer; ABaseColor: TDpccDocColor);
     procedure Merge(const ABuilders: TArray<TLayoutBuilder>; const ALefts: TArray<Integer>; AGap: Integer);
@@ -221,7 +220,7 @@ end;
 function CanExtend(const ASpan: TDpccDocSpan; AX: Integer; const AFace: TDpccDocFace; AColor: TDpccDocColor;
   AUnderline: Boolean; ALink: Integer): Boolean;
 begin
-  Result := (ASpan.Right = AX) and not ASpan.Pill and ASpan.Face.SameAs(AFace);
+  Result := (ASpan.Right = AX) and ASpan.Face.SameAs(AFace);
   if Result then
   begin
     Result := (ASpan.Color = AColor) and (ASpan.Underline = AUnderline) and (ASpan.Link = ALink);
@@ -434,47 +433,6 @@ begin
   Inc(FX, mWidth);
 end;
 
-procedure TLayoutBuilder.AddPill(const AText: string; const AFace: TDpccDocFace);
-var
-  mSpan: TDpccDocSpan;
-  mWidth, mLast: Integer;
-  mBare: string;
-begin
-  mBare := Trim(AText);
-  if mBare = '' then
-  begin
-    Exit;
-  end;
-  mWidth := FMeasure(mBare, AFace) + 2 * FMetrics.PillPad;
-  // Die Pille bleibt ganz: passt sie nicht mehr, in die nächste Zeile.
-  if FOpen and (FX > FNextStart) and (FX + mWidth > FWidth) then
-  begin
-    WrapLine;
-  end;
-  if not FOpen then
-  begin
-    OpenLine;
-  end;
-  mLast := High(FLines);
-  mSpan := Default(TDpccDocSpan);
-  mSpan.Text := mBare;
-  mSpan.Left := FX;
-  mSpan.Width := mWidth;
-  mSpan.Face := AFace;
-  mSpan.Color := TDpccDocColor.Accent;
-  mSpan.Pill := True;
-  mSpan.Pad := FMetrics.PillPad;
-  mSpan.Link := -1;
-  FLines[mLast].Spans := FLines[mLast].Spans + [mSpan];
-  FLines[mLast].Height := Max(FLines[mLast].Height, HeightOf(AFace, FMetrics));
-  Inc(FX, mWidth);
-  // Leerzeichen nach dem Namen bleiben als Text.
-  if Length(AText) > Length(TrimRight(AText)) then
-  begin
-    AddSpan(' ', TDpccDocFace.Create(TDpccDocFont.UI), TDpccDocColor.Text, False, -1);
-  end;
-end;
-
 procedure TLayoutBuilder.AddWords(const AText: string; const AFace: TDpccDocFace; AColor: TDpccDocColor);
 begin
   AddWords(AText, AFace, AColor, False, -1);
@@ -647,8 +605,7 @@ begin
 end;
 
 /// <summary>Breite der Läufe [AFrom, ATo) in einer Zeile ohne Umbruch.</summary>
-function SingleLineWidth(const ARuns: TDpccDocRuns; AFrom, ATo: Integer; const AMeasure: TDpccDocMeasure;
-  APillPad: Integer): Integer;
+function SingleLineWidth(const ARuns: TDpccDocRuns; AFrom, ATo: Integer; const AMeasure: TDpccDocMeasure): Integer;
 var
   mIndex: Integer;
   mFont: TDpccDocFont;
@@ -665,11 +622,9 @@ begin
     begin
       mFont := TDpccDocFont.UI;
     end;
-    Inc(Result, AMeasure(ARuns[mIndex].Text, TDpccDocFace.Create(mFont, ARuns[mIndex].Bold, ARuns[mIndex].Italic)));
-    if ARuns[mIndex].Kind = TDpccDocRunKind.ParamRef then
-    begin
-      Inc(Result, 2 * APillPad);
-    end;
+    // paramref fett wie beim Satz (FlowRuns).
+    Inc(Result, AMeasure(ARuns[mIndex].Text, TDpccDocFace.Create(mFont,
+      ARuns[mIndex].Bold or (ARuns[mIndex].Kind = TDpccDocRunKind.ParamRef), ARuns[mIndex].Italic)));
   end;
 end;
 
@@ -758,8 +713,7 @@ begin
   while IsTableRow(ARuns, mIndex) do
   begin
     mStop := RowEnd(ARuns, mIndex);
-    mColumn := Max(mColumn, SingleLineWidth(ARuns, mIndex + 1, CellOf(mIndex + 1, mStop), FMeasure,
-      FMetrics.PillPad));
+    mColumn := Max(mColumn, SingleLineWidth(ARuns, mIndex + 1, CellOf(mIndex + 1, mStop), FMeasure));
     mIndex := mStop;
   end;
   mTermWidth := Min(mColumn, (FWidth - mLeft) * TDpccDocLayout.cTermColumnPercent div 100);
@@ -834,7 +788,8 @@ begin
       TDpccDocRunKind.Code:
         AddWords(mRun.Text, TDpccDocFace.Create(TDpccDocFont.Mono, mRun.Bold, mRun.Italic), ABaseColor);
       TDpccDocRunKind.ParamRef:
-        AddPill(mRun.Text, TDpccDocFace.Create(TDpccDocFont.Mono, mRun.Bold, mRun.Italic));
+        // Schlicht (S8): Editorschrift fett in der Farbe des Absatzes, ohne Pille.
+        AddWords(mRun.Text, TDpccDocFace.Create(TDpccDocFont.Mono, True, mRun.Italic), ABaseColor);
       TDpccDocRunKind.Keyword:
         AddWords(mRun.Text, TDpccDocFace.Create(TDpccDocFont.Mono, mRun.Bold, mRun.Italic),
           TDpccDocColor.Keyword);

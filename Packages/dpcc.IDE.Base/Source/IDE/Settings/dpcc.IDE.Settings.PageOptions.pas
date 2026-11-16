@@ -1,13 +1,13 @@
 ﻿unit dpcc.IDE.Settings.PageOptions;
 
-// Haken der Optionsseite „dpcc“ zu anderen Teilen der IDE-Schicht: angeheftete Favoriten (#458), Projektdatei .dpcc
-// (#486) und „Index neu aufbauen“
-// (S4, Seite „Allgemein“): laufende Sitzung anhalten, Index-Caches löschen (TIndexCacheDirectory.Clear, wie früher
+// Haken der Optionsseite „dpcc“ zu anderen Teilen der IDE-Schicht: angeheftete Favoriten (#458) und „Index neu
+// aufbauen“ (S4, Seite „Allgemein“): laufende Sitzung anhalten, Index-Caches löschen (TIndexCacheDirectory.Clear, wie früher
 // „Index-Cache löschen“ #184) und die Sitzung neu starten. Kennzahlen, „Index löschen“ und andere Befehle an den Server
 // schickt die Seite seit S4 nicht mehr (der schlanke Server kennt kein workspace/executeCommand); sie startet den
 // Server auch nicht. Ohne Zustand; die Seite hält die Methodenreferenzen.
 // Seit S7a ohne „Leiste anpassen …“ (#1101), Export, Import und „Alles zurücksetzen“ (#723) und F1 zur Einstellung
-// unter dem Fokus (#1886): Diese Teile der Seite waren ausgeblendet bzw. ohne Hilfe-Anbieter.
+// unter dem Fokus (#1886): Diese Teile der Seite waren ausgeblendet bzw. ohne Hilfe-Anbieter. Seit S8 ohne die
+// Projektdatei .dpcc (#486): Der Reiter war ausgeblendet, und sonst las niemand die Datei.
 
 interface
 
@@ -28,8 +28,6 @@ type
     class procedure ConnectRebuild(APage: TDpccSettingsPage; const ARestart: TDpccIndexRestart); static;
     /// <summary>Angeheftete Favoriten (#458).</summary>
     class procedure ConnectFavorites(APage: TDpccSettingsPage); static;
-    /// <summary>Projektdatei .dpcc (#486).</summary>
-    class procedure ConnectTeamFile(APage: TDpccSettingsPage); static;
   end;
 
 implementation
@@ -38,14 +36,10 @@ uses
   dpcc.Core.Diagnostics.Guard,
   dpcc.Common.Index.Adapters.CacheDirectory,
   dpcc.UI.Settings.Strings,
-  dpcc.Core.Settings.TeamFile,
   dpcc.Core.Completion.Favorites,
   dpcc.IDE.Completion.Favorites,
-  dpcc.IDE.Foundation.TeamFile,
   dpcc.UI.Settings.Page.General,
-  dpcc.UI.Settings.Page.Completion,
-  dpcc.UI.Settings.Page.TeamFile,
-  dpcc.IDE.Foundation.Files;
+  dpcc.UI.Settings.Page.Completion;
 
 /// <summary>„Index neu aufbauen“ (S4): alle Index-Caches löschen, eine laufende Sitzung dafür anhalten und neu
 /// starten; Ergebnis als Meldung für die Seite.</summary>
@@ -112,25 +106,6 @@ begin
     function: TArray<TDpccFavorite>
     begin
       Result := TDpccIdeFavorites.Items;
-    end;
-end;
-
-class procedure TDpccPageOptions.ConnectTeamFile(APage: TDpccSettingsPage);
-begin
-  // Werte „aus .dpcc“ auch bei noch ausgeschaltetem Schalter; Öffnen legt die Datei an.
-  APage.Part<TDpccSettingsTeamFilePart>.OnTeamFile :=
-    function: TDpccTeamSettings
-    begin
-      Result := TDpccIdeTeamFile.Read(TDpccIdeFiles.ActiveProjectFile);
-    end;
-  APage.Part<TDpccSettingsTeamFilePart>.OnOpenTeamFile :=
-    procedure
-    begin
-      TDpccGuard.Run(TDpccFeature.Settings,
-        procedure
-        begin
-          TDpccIdeTeamFile.OpenInEditor;
-        end);
     end;
 end;
 

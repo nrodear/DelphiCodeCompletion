@@ -4,7 +4,7 @@
 // Elemente. Die Seite selbst kennt nur den Ablauf (Bindung, Baum). Seit S7a nur noch die Teile mit sichtbaren
 // Einstellungen: Allgemein, Vervollständigung (mit Favoriten), Einfügen (im Teil Projektdatei) und Hints (Teil
 // EditorView). Teile ohne sichtbare Einstellung (Build, Farben, Befehle, EditorCode, Prüfregeln, Start,
-// Export/Import, Benachrichtigungen) und die Abschnitte der Module gibt es nicht mehr.
+// Export/Import, Benachrichtigungen) und die Abschnitte der Module gibt es nicht mehr, den Reiter „Projektdatei“ seit S8.
 
 interface
 
@@ -41,15 +41,11 @@ class procedure TDpccSettingsPageParts.Build(APage: TDpccSettingsPageHost);
 begin
   CreateParts(APage);
   APage.Part<TDpccSettingsGeneralPart>.Build;
-  APage.Part<TDpccSettingsGeneralPart>.Build2;
   APage.Part<TDpccSettingsCompletionPart>.Build;
   APage.Part<TDpccSettingsCompletionPart>.Build2;
   APage.Part<TDpccSettingsFavoritesPart>.Build;
   APage.Part<TDpccSettingsTeamFilePart>.Build;
   APage.Part<TDpccSettingsEditorViewPart>.Build;
-  APage.Part<TDpccSettingsEditorViewPart>.Build2;
-  APage.Part<TDpccSettingsEditorViewPart>.Build3;
-  APage.Part<TDpccSettingsTeamFilePart>.Build2;
 end;
 
 end.

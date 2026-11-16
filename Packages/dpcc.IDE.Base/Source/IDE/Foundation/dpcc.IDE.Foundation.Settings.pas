@@ -8,7 +8,7 @@
 // gespeicherten mit den Sitzungswerten darüber (nur für diese Sitzung, „Alles
 // aus“); Stored die gespeicherten für Optionsseite und Update. Sitzungswerte
 // landen nie in der Registry.
-// Ort der Einstellungen: Index, Speicher, XMLDoc, Inlay-Hints, Schnellbefehle
+// Ort der Einstellungen: Index, Speicher, XMLDoc, Schnellbefehle
 // und Kompilieren nach dem Speichern gelten auch für den Server und liegen in
 // %APPDATA%\dpcc\settings.json (TDpccRoutedSettingsStore); der Server liest
 // die Datei selbst und beobachtet sie. Alte Werte aus der Registry übernimmt
@@ -38,7 +38,6 @@ uses
   dpcc.Core.Files.TextFile,
   dpcc.Core.Settings.Plugin,
   dpcc.Core.Problems.InlineHints,
-  dpcc.Core.Editor.SelectionMatches,
   dpcc.Core.Settings.History,
   dpcc.Core.Settings.Catalog,
   dpcc.Core.Settings.QuickToggles,
@@ -63,34 +62,10 @@ type
     class function Current: TDpccPluginSettings; static;
     /// <summary>Gespeicherte Werte (Registry) ohne Sitzungswerte; Grundlage für Optionsseite und Update.</summary>
     class function Stored: TDpccPluginSettings; static;
-    /// <summary>Plugin eingeschaltet und Inlay-Hints an; ohne Kopie des Einstellungsrecords.</summary>
-    class function InlayHintsOn: Boolean; static;
-    /// <summary>Plugin eingeschaltet und Typmarken an (#453); ohne Kopie des Einstellungsrecords.</summary>
-    class function InlayTypeHintsOn: Boolean; static;
-    /// <summary>Plugin eingeschaltet und Include-Symbole hinter {$I} an (#860); ohne Kopie des
-    /// Einstellungsrecords.</summary>
-    class function InlayDefineHintsOn: Boolean; static;
-    /// <summary>Plugin eingeschaltet und Codes von Steuerzeichen an (#862).</summary>
-    class function InlayCharHintsOn: Boolean; static;
-    /// <summary>Plugin eingeschaltet und Marken „braucht kein Self“ an (#686).</summary>
-    class function InlayMethodHintsOn: Boolean; static;
-    /// <summary>Plugin eingeschaltet und Blockende-Beschriftungen an (#620); ohne Kopie des Einstellungsrecords.
-    /// </summary>
-    class function BlockEndLabelsOn: Boolean; static;
-    /// <summary>Plugin eingeschaltet und ungenutzte uses abblenden an (#621); ohne Kopie des Einstellungsrecords.
-    /// </summary>
-    class function DimUnusedUsesOn: Boolean; static;
     /// <summary>Plugin eingeschaltet und Rekursionssymbole an (#623); ohne Kopie des Einstellungsrecords.</summary>
     class function RecursionMarkersOn: Boolean; static;
     /// <summary>editor.recursionMarkers.depth (#623).</summary>
     class function RecursionMarkersDepth: Integer; static;
-    /// <summary>Plugin eingeschaltet und dpcc-Spalte in der Zeilenleiste an (#768); ohne Kopie des
-    /// Einstellungsrecords.</summary>
-    class function GutterColumnOn: Boolean; static;
-    /// <summary>Plugin eingeschaltet und gleichen Text hervorheben an (#709); AOptions und ANavigateF3 aus
-    /// highlight.selectionMatches.*, ohne Kopie des Einstellungsrecords.</summary>
-    class function SelectionMatchesOn(out AOptions: TDpccSelectionMatchOptions; out ANavigateF3: Boolean): Boolean;
-      static;
     /// <summary>Plugin eingeschaltet und Austrittspunkte hervorheben an (#698); die Schalter aus
     /// editor.exitPoints.*, ohne Kopie des Einstellungsrecords.</summary>
     class function ExitPointsOn(out AExceptions, ALoops, ABadge: Boolean): Boolean; static;
@@ -105,9 +80,6 @@ type
     /// <summary>Fehlertext am Zeilenende (#509); Off, wenn das Plugin oder die Problem-Markierungen aus sind.
     /// </summary>
     class function InlineDiagnosticsMode: TDpccInlineDiagnosticsMode; static;
-    /// <summary>Plugin, Probleme und Zähler in der Statusleiste an (#509), außer die dpcc-Statusleiste am Editor
-    /// zeigt ihre Befundzähler (#1155): Dann stünden Zahlen doppelt.</summary>
-    class function ProblemsStatusCounterOn: Boolean; static;
     /// <summary>Übernimmt und speichert ASettings (gespeicherte Werte, ohne Sitzungswerte).</summary>
     class procedure Update(const ASettings: TDpccPluginSettings); static;
     /// <summary>Inhalt von %APPDATA%\dpcc\settings.json ('' ohne Datei) für Export und Import (#723).</summary>
@@ -159,7 +131,6 @@ uses
   dpcc.Core.Settings.Scopes,
   dpcc.Core.Settings.Renames,
   dpcc.Core.Settings.Experimental,
-  dpcc.Core.Settings.StatusBarItems,
   dpcc.Core.Diagnostics.Guard,
   dpcc.Core.Files.DataFile,
   dpcc.UI.Strings;
@@ -549,70 +520,10 @@ begin
   Result := GState.Effective;
 end;
 
-class function TDpccIdeSettings.InlayHintsOn: Boolean;
-begin
-  EnsureLoaded;
-  Result := GState.Effective.Enabled and GState.Effective.InlayHints;
-end;
-
-class function TDpccIdeSettings.InlayTypeHintsOn: Boolean;
-begin
-  EnsureLoaded;
-  Result := GState.Effective.Enabled and GState.Effective.InlayTypeHints;
-end;
-
-class function TDpccIdeSettings.InlayDefineHintsOn: Boolean;
-begin
-  EnsureLoaded;
-  Result := GState.Effective.Enabled and GState.Effective.InlayDefineHints;
-end;
-
-class function TDpccIdeSettings.InlayCharHintsOn: Boolean;
-begin
-  EnsureLoaded;
-  Result := GState.Effective.Enabled and GState.Effective.InlayCharHints;
-end;
-
-class function TDpccIdeSettings.InlayMethodHintsOn: Boolean;
-begin
-  EnsureLoaded;
-  Result := GState.Effective.Enabled and GState.Effective.InlayMethodHints;
-end;
-
-class function TDpccIdeSettings.BlockEndLabelsOn: Boolean;
-begin
-  EnsureLoaded;
-  Result := GState.Effective.Enabled and GState.Effective.BlockEndLabels;
-end;
-
-class function TDpccIdeSettings.DimUnusedUsesOn: Boolean;
-begin
-  EnsureLoaded;
-  Result := GState.Effective.Enabled and GState.Effective.DimUnusedUses;
-end;
-
 class function TDpccIdeSettings.RecursionMarkersOn: Boolean;
 begin
   EnsureLoaded;
   Result := GState.Effective.Enabled and GState.Effective.RecursionMarkers;
-end;
-
-class function TDpccIdeSettings.GutterColumnOn: Boolean;
-begin
-  EnsureLoaded;
-  Result := GState.Effective.Enabled and GState.Effective.GutterColumn;
-end;
-
-class function TDpccIdeSettings.SelectionMatchesOn(out AOptions: TDpccSelectionMatchOptions;
-  out ANavigateF3: Boolean): Boolean;
-begin
-  EnsureLoaded;
-  AOptions.MinLength := GState.Effective.SelectionMatchesMinLength;
-  AOptions.CaseSensitive := GState.Effective.SelectionMatchesCaseSensitive;
-  AOptions.WholeWord := GState.Effective.SelectionMatchesWholeWord;
-  AOptions.MaxMatches := GState.Effective.SelectionMatchesMaxMatches;
-  ANavigateF3 := GState.Effective.SelectionMatchesNavigateF3;
-  Result := GState.Effective.Enabled and GState.Effective.SelectionMatches;
 end;
 
 class function TDpccIdeSettings.ExitPointsOn(out AExceptions, ALoops, ABadge: Boolean): Boolean;
@@ -662,14 +573,6 @@ begin
   begin
     Result := TDpccInlineDiagnosticsMode.Off;
   end;
-end;
-
-class function TDpccIdeSettings.ProblemsStatusCounterOn: Boolean;
-begin
-  EnsureLoaded;
-  Result := GState.Effective.Enabled and GState.Effective.Problems and GState.Effective.ProblemsStatusCounter and
-    not (GState.Effective.EditorStatusBar and TDpccStatusBarItems.Contains(
-    TDpccStatusBarItems.Parse(GState.Effective.EditorStatusBarItems), TDpccStatusBarItems.cFindings));
 end;
 
 class function TDpccIdeSettings.Stored: TDpccPluginSettings;

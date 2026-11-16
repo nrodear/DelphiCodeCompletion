@@ -9,57 +9,22 @@ interface
 uses
   dpcc.Core.Settings.Plugin.Store;
 
-const
-  /// <summary>Grenzen für highlight.selectionMatches.minLength und .maxMatches (#709).</summary>
-  cMinSelectionMatchLength = 1;
-  cMaxSelectionMatchLength = 100;
-  cMinSelectionMatches = 1;
-  cMaxSelectionMatches = 100000;
-  cMinPairGuideWidth = 1;
-  cMaxPairGuideWidth = 3;
-  cMinPairGuideOpacity = 10;
-  cMaxPairGuideOpacity = 100;
-
 type
-  /// <summary>Plugin-Einstellungen: Hervorhebungen im Editor und Farben.</summary>
+  /// <summary>Plugin-Einstellungen: Hervorhebungen im Editor und Farben. Anweisungen mitfärben, Breite und Deckkraft
+  /// der Blocklinien, Färbung lokaler Routinen, inaktive Zweige ausgrauen und gleichen Text hervorheben gibt es seit
+  /// S8 nicht mehr.</summary>
   TDpccPluginHighlightingSettings = record
     /// <summary>Klammer- und Blockpaare nach Tiefe färben (#514).</summary>
     PairColors: Boolean;
-    /// <summary>Inaktive {$IFDEF}-Zweige im Editor ausgrauen (#615).</summary>
-    InactiveDim: Boolean;
-    /// <summary>Blocklinien in den Paarfarben statt der Strukturhervorhebung der IDE (#514).</summary>
+    /// <summary>Blocklinien in den Paarfarben statt der Strukturhervorhebung der IDE (#514). Seit S8 versteckt, aber
+    /// wirksam: Mit PairColors schaltet TDpccIdeStructureSwitch.Sync die Strukturhervorhebung der IDE ab.</summary>
     PairGuides: Boolean;
-    /// <summary>Schlüsselwörter der Anweisung (if, then, else, for, do, procedure …) in der Farbe ihres
-    /// Blocks; Blocklinien beginnen an der Anweisung (#653). Wirkt nur mit PairColors.</summary>
-    PairOwners: Boolean;
-    /// <summary>Breite der Blocklinien in Pixeln bei 100 % (1–3, #653).</summary>
-    PairGuideWidth: Integer;
-    /// <summary>Deckkraft der Blocklinien in Prozent; der Rest ist Hintergrund.</summary>
-    PairGuideOpacity: Integer;
     /// <summary>Eigene Paarfarben je Thema („#RRGGBB,…“, fünf Stück); leer = Standardpalette.</summary>
     PairColorsLight: string;
     PairColorsDark: string;
-    /// <summary>Lokale Routinen färben (#1788): outer (wie die äußere Routine), deeper (eine Stufe tiefer) oder
-    /// color (eigene Farbe, Blocklinie gestrichelt).</summary>
-    NestedRoutines: string;
-    /// <summary>Zeilen lokaler Routinen schwach in ihrer Farbe hinterlegen (#1788).</summary>
-    NestedRoutineBand: Boolean;
     /// <summary>Eigene Farbe lokaler Routinen je Thema („#RRGGBB“); leer = Palette (#1788).</summary>
     NestedRoutineColorLight: string;
     NestedRoutineColorDark: string;
-    /// <summary>Gleichen Text wie die Markierung hervorheben (#709, highlight.selectionMatches).</summary>
-    SelectionMatches: Boolean;
-    /// <summary>Mindestlänge der Markierung, MinMinLength bis MaxMinLength von TDpccSelectionMatches (#709).
-    /// </summary>
-    SelectionMatchesMinLength: Integer;
-    /// <summary>Groß-/Kleinschreibung beachten (#709).</summary>
-    SelectionMatchesCaseSensitive: Boolean;
-    /// <summary>Nur ganze Wörter (#709).</summary>
-    SelectionMatchesWholeWord: Boolean;
-    /// <summary>F3/Umschalt+F3 springt zwischen den Treffern, solange die Markierung steht (#709).</summary>
-    SelectionMatchesNavigateF3: Boolean;
-    /// <summary>Höchstzahl der Treffer (#709).</summary>
-    SelectionMatchesMaxMatches: Integer;
     /// <summary>Austrittspunkte hervorheben (#698, editor.exitPoints).</summary>
     ExitPoints: Boolean;
     /// <summary>Auf except bzw. on die auslösenden Aufrufe zeigen (#698).</summary>
@@ -88,7 +53,6 @@ type
 implementation
 
 uses
-  System.Math,
   dpcc.Core.Settings.Reassigned,
   dpcc.Core.Style.Color,
   dpcc.Core.Style.Palette;
@@ -125,23 +89,11 @@ end;
 class function TDpccPluginHighlightingSettings.Defaults: TDpccPluginHighlightingSettings;
 begin
   Result.PairColors := True;
-  Result.InactiveDim := True;
   Result.PairGuides := True;
-  Result.PairOwners := True;
-  Result.PairGuideWidth := 1;
-  Result.PairGuideOpacity := 75;
   Result.PairColorsLight := '';
   Result.PairColorsDark := '';
-  Result.NestedRoutines := 'deeper';
-  Result.NestedRoutineBand := False;
   Result.NestedRoutineColorLight := '';
   Result.NestedRoutineColorDark := '';
-  Result.SelectionMatches := True;
-  Result.SelectionMatchesMinLength := 3;
-  Result.SelectionMatchesCaseSensitive := False;
-  Result.SelectionMatchesWholeWord := False;
-  Result.SelectionMatchesNavigateF3 := True;
-  Result.SelectionMatchesMaxMatches := 1000;
   Result.ExitPoints := True;
   Result.ExitPointsExceptions := True;
   Result.ExitPointsLoops := True;
@@ -154,16 +106,10 @@ end;
 
 procedure TDpccPluginHighlightingSettings.Normalize;
 begin
-  PairGuideWidth := EnsureRange(PairGuideWidth, cMinPairGuideWidth, cMaxPairGuideWidth);
-  PairGuideOpacity := EnsureRange(PairGuideOpacity, cMinPairGuideOpacity, cMaxPairGuideOpacity);
   PairColorsLight := NormalPairs(PairColorsLight);
   PairColorsDark := NormalPairs(PairColorsDark);
-  NestedRoutines := Choice(NestedRoutines, ['deeper', 'outer', 'color']);
   NestedRoutineColorLight := NormalColor(NestedRoutineColorLight);
   NestedRoutineColorDark := NormalColor(NestedRoutineColorDark);
-  SelectionMatchesMinLength := EnsureRange(SelectionMatchesMinLength, cMinSelectionMatchLength,
-    cMaxSelectionMatchLength);
-  SelectionMatchesMaxMatches := EnsureRange(SelectionMatchesMaxMatches, cMinSelectionMatches, cMaxSelectionMatches);
   ReassignedTargets := TDpccReassignedNames.NormalizeTargets(ReassignedTargets);
   ReassignedStyle := Choice(ReassignedStyle, TDpccReassignedNames.cStyles);
   ReassignedColor := TDpccReassignedNames.NormalizeColor(ReassignedColor);
@@ -172,23 +118,11 @@ end;
 procedure TDpccPluginHighlightingSettings.Exchange(const AIo: TDpccSettingsExchange);
 begin
   AIo.Flag('PairColors', PairColors);
-  AIo.Flag('InactiveDim', InactiveDim);
   AIo.Flag('PairGuides', PairGuides);
-  AIo.Flag('PairOwners', PairOwners);
-  AIo.Number('PairGuideWidth', PairGuideWidth);
-  AIo.Number('PairGuideOpacity', PairGuideOpacity);
   AIo.Text('PairColorsLight', PairColorsLight);
   AIo.Text('PairColorsDark', PairColorsDark);
-  AIo.Text('NestedRoutines', NestedRoutines);
-  AIo.Flag('NestedRoutineBand', NestedRoutineBand);
   AIo.Text('NestedRoutineColorLight', NestedRoutineColorLight);
   AIo.Text('NestedRoutineColorDark', NestedRoutineColorDark);
-  AIo.Flag('SelectionMatches', SelectionMatches);
-  AIo.Number('SelectionMatchesMinLength', SelectionMatchesMinLength);
-  AIo.Flag('SelectionMatchesCaseSensitive', SelectionMatchesCaseSensitive);
-  AIo.Flag('SelectionMatchesWholeWord', SelectionMatchesWholeWord);
-  AIo.Flag('SelectionMatchesNavigateF3', SelectionMatchesNavigateF3);
-  AIo.Number('SelectionMatchesMaxMatches', SelectionMatchesMaxMatches);
   AIo.Flag('ExitPoints', ExitPoints);
   AIo.Flag('ExitPointsExceptions', ExitPointsExceptions);
   AIo.Flag('ExitPointsLoops', ExitPointsLoops);

@@ -113,6 +113,7 @@
         <DCCReference Include="IDE\dpcc.Core.Hover.DebugValue.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Hover\dpcc.Core.Hover.Texts.pas"/>
         <DCCReference Include="IDE\dpcc.Core.Hover.Contract.Tests.pas"/>
+        <DCCReference Include="IDE\dpcc.Core.Style.Look.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Documentation\dpcc.Core.Documentation.Typeset.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Style\dpcc.Core.Style.Syntax.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Editor\dpcc.Core.Editor.CloseRules.pas"/>
@@ -121,7 +122,6 @@
         <DCCReference Include="..\Packages\dpcc.Core\Source\Documentation\dpcc.Core.Documentation.Layout.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Signature\dpcc.Core.Signature.Format.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Style\dpcc.Core.Style.Color.pas"/>
-        <DCCReference Include="..\Packages\dpcc.Core\Source\Style\dpcc.Core.Style.Signal.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Style\dpcc.Core.Style.Palette.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Completion\dpcc.Core.Completion.Presentation.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Completion\dpcc.Core.Completion.Word.pas"/>
@@ -153,7 +153,6 @@
         <DCCReference Include="..\Packages\dpcc.Core\Source\Settings\dpcc.Core.Settings.ModuleSwitches.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Settings\dpcc.Core.Settings.NodeScope.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Settings\dpcc.Core.Settings.Schema.pas"/>
-        <DCCReference Include="..\Packages\dpcc.Core\Source\Commands\dpcc.Core.Commands.KeyConflicts.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Settings\dpcc.Core.Settings.CompletionView.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Settings\dpcc.Core.Settings.Search.pas"/>
         <DCCReference Include="IDE\dpcc.Core.Settings.CompletionView.Tests.pas"/>
@@ -215,7 +214,6 @@
         <DCCReference Include="..\Packages\dpcc.Core\Source\Build\dpcc.Core.Build.Verdict.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Build\dpcc.Core.Build.OpenBuildSettings.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Settings\dpcc.Core.Settings.ToolbarItems.pas"/>
-        <DCCReference Include="..\Packages\dpcc.Core\Source\Settings\dpcc.Core.Settings.StatusBarItems.pas"/>
         <DCCReference Include="Application\Shell\Shell.Composition.Completion.Tests.pas"/>
         <DCCReference Include="Application\Shell\Shell.Composition.InProcess.Tests.pas"/>
         <DCCReference Include="Common\Lsp\dpcc.Common.Lsp.Completion.Postfix.Tests.pas"/>

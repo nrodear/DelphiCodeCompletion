@@ -40,6 +40,10 @@
 // Seit S7a baut die Seite die Teile ohne sichtbare Einstellung nicht mehr (Build, Farben, Befehle, EditorCode,
 // Prüfregeln, Start, Export/Import, Benachrichtigungen) und keine Abschnitte der Module: Es gab keine Module, die
 // welche anmelden. Was die Kommentare oben zu diesen Bereichen sagen, ist Geschichte.
+// Seit S8 baut sie auch die versteckten Schalter ohne Wirkung nicht mehr (Statusfeld, Diagnose, Tastenkürzel-Tipps,
+// Projektdatei, Inlay-Hints, Brotkrumenleiste, Minimap usw.; die Einstellungen gibt es nicht mehr). Rahmen und
+// Abschnittstitel sind schlicht wie im Hover (Linie oben bzw. Großbuchstaben, gedämpft, Linie), Farben aus dem
+// IDE-Thema.
 
 interface
 

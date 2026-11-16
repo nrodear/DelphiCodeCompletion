@@ -19,22 +19,6 @@ const
   /// <summary>Grenzen für navigation.dataFlow.maxDepth (#690).</summary>
   cMinDataFlowDepth = 1;
   cMaxDataFlowDepth = 20;
-  /// <summary>Grenzen für editor.stickyScrollMaxLines (#506).</summary>
-  cMinStickyLines = 1;
-  cMaxStickyLines = 10;
-  /// <summary>Grenzen für editor.stickyScrollBlockMinLines (#1230).</summary>
-  cMinStickyBlockLines = 5;
-  cMaxStickyBlockLines = 1000;
-  /// <summary>Grenzen für editor.minimap.width, .scale und .maxColumn (#873).</summary>
-  cMinMinimapWidth = 40;
-  cMaxMinimapWidth = 400;
-  cMinMinimapScale = 1;
-  cMaxMinimapScale = 3;
-  cMinMinimapColumn = 20;
-  cMaxMinimapColumn = 500;
-  /// <summary>Grenzen für editor.blockEndLabels.minLines (#620).</summary>
-  cMinBlockEndLines = 1;
-  cMaxBlockEndLines = 1000;
   /// <summary>Grenzen für editor.recursionMarkers.depth (#623); wie TRecursionAnalysis im Server.</summary>
   cMinRecursionDepth = 1;
   cMaxRecursionDepth = 16;
@@ -122,21 +106,6 @@ type
   TDpccPluginEditorTypingSettings = record
     /// <summary>Eigener Hover-Tooltip (#442).</summary>
     HoverTooltip: Boolean;
-    /// <summary>Extern geänderte Dateien ohne eigene Änderungen still neu laden (#536).</summary>
-    ReloadExternal: Boolean;
-    /// <summary>Änderungen des Servers an nicht geöffneten Dateien: im Editor öffnen (an) oder
-    /// direkt auf die Platte schreiben (aus, #397).</summary>
-    OpenForEdits: Boolean;
-    /// <summary>Beschriftung hinter dem end langer Blöcke (#620, editor.blockEndLabels): „// TKunde.Speichern“ in
-    /// grauer Pille; Quelle sind die Endmarken des Servers (inlayHints.endMarkers, Mindestlänge
-    /// inlayHints.endMarkerMinLines in dpcc.json); unabhängig von InlayHints.</summary>
-    BlockEndLabels: Boolean;
-    /// <summary>Beschriftung erst ab so vielen Zeilen Blocklänge (#620, editor.blockEndLabels.minLines); geht mit
-    /// der Anfrage an den Server und ersetzt dort inlayHints.endMarkerMinLines.</summary>
-    BlockEndLabelsMinLines: Integer;
-    /// <summary>Ungenutzte uses-Einträge abblenden (#621, editor.dimUnusedUses); der Tooltip nennt den Grund und
-    /// bietet Entfernen und Verschieben an. Aus: weder Abblenden noch Hinweise.</summary>
-    DimUnusedUses: Boolean;
     /// <summary>Rekursionssymbol (↻) in der Rinne neben Aufrufen, die zur Methode zurückführen (#623,
     /// editor.recursionMarkers); der Tooltip zeigt die Kette, jede Methode anklickbar.</summary>
     RecursionMarkers: Boolean;
@@ -147,10 +116,6 @@ type
     InlineDiagnostics: string;
     /// <summary>Marken folgen ihrer Zeile sofort bei Bearbeitungen (#1818, editor.trackLines).</summary>
     TrackLines: Boolean;
-    /// <summary>Änderungsmarken in der Rinne (#507, editor.gitGutter).</summary>
-    GitGutter: Boolean;
-    /// <summary>Zeilenhistorie am Ende der Cursorzeile (#507, editor.gitBlame).</summary>
-    GitBlame: Boolean;
     /// <summary>Reihenfolge der Methodenrümpfe (#660, editor.methodPlacement): grouped (Lebenszyklus, Get/Set-Paare,
     /// Überschreibungen, Rest; #1834), declaration oder alphabetical; off schaltet Verschieben und Befehl ab.
     /// </summary>
@@ -208,19 +173,6 @@ type
 
   /// <summary>Plugin-Einstellungen: Hinweise, Inlay-Hints, CodeLens, Probleme, Notizen und Rückgängig.</summary>
   TDpccPluginEditorInsightSettings = record
-    /// <summary>Parameternamen vor Literal-Argumenten als Inlay-Hints (#401); standardmäßig aus.</summary>
-    InlayHints: Boolean;
-    /// <summary>Abgeleiteter Typ von var X := …, const X = … und for var X in … als Marke (#453,
-    /// inlayHints.inferredTypes); unabhängig von InlayHints.</summary>
-    InlayTypeHints: Boolean;
-    /// <summary>Symbole aus Include-Dateien hinter {$I} („definiert COMPLIB_VCL“, #860,
-    /// inlayHints.includeDefines); unabhängig von InlayHints.</summary>
-    InlayDefineHints: Boolean;
-    /// <summary>Code hinter Steuerzeichen wie ^C in Konstanten („#3“, #862, inlayHints.controlChars).</summary>
-    InlayCharHints: Boolean;
-    /// <summary>Marke „braucht kein Self“ hinter Methoden, die Self nicht brauchen (#686,
-    /// refactoring.methodKindMarker).</summary>
-    InlayMethodHints: Boolean;
     /// <summary>Persönliche Notizen an Codezeilen (#545): Symbol in der Rinne, Befehle und Liste; gespeichert in
     /// %LOCALAPPDATA%\dpcc\Notes\, nie im Quelltext.</summary>
     Notes: Boolean;
@@ -317,8 +269,6 @@ type
     /// <summary>Navigationsverlauf über Dateien (#504, navHistory.enabled): Sprünge und Bearbeitungsstellen
     /// merken, Zurück/Vor, letzte Bearbeitungsstelle, Liste.</summary>
     NavHistory: Boolean;
-    /// <summary>Zurück-/Vor-Taste der Maus blättern im Navigationsverlauf (#1889, navigation.mouseButtons).</summary>
-    MouseNavButtons: Boolean;
     /// <summary>Definition und Referenzen einblenden (#505, peek.enabled).</summary>
     Peek: Boolean;
     /// <summary>Höhe des Peek-Fensters in Editorzeilen (#505, peek.heightLines), MinPeekLines bis
@@ -330,8 +280,6 @@ type
     ReferencesInferred: Boolean;
     /// <summary>Namen in String-Literalen als erschlossene Verwendung (#1119, references.textMatches).</summary>
     ReferencesTextMatches: Boolean;
-    /// <summary>Aufrufhierarchie auch als Diagramm (#1122, callHierarchy.diagram).</summary>
-    CallHierarchyDiagram: Boolean;
     /// <summary>Befehl „Auswirkungen anzeigen“ mit Menüeinträgen (#1120, navigation.impact in settings.json).</summary>
     Impact: Boolean;
     /// <summary>Vorgabe der Tiefe der Auswirkungsanalyse (#1120, navigation.impactDepth), MinImpactDepth bis
@@ -416,79 +364,11 @@ type
     procedure Exchange(const AIo: TDpccSettingsExchange);
   end;
 
-  /// <summary>Plugin-Einstellungen: Sticky Scroll und Brotkrumen.</summary>
-  TDpccPluginStickyScrollSettings = record
-    /// <summary>Brotkrumenleiste über dem Editor (#590, editor.breadcrumbs).</summary>
-    Breadcrumbs: Boolean;
-    /// <summary>Unit-Namen als erstes Glied (#590, editor.breadcrumbsShowUnit).</summary>
-    BreadcrumbsShowUnit: Boolean;
-    /// <summary>Sichtbarkeitsabschnitt als Glied hinter dem Typ (#1759, editor.breadcrumbsVisibility).</summary>
-    BreadcrumbsVisibility: Boolean;
-    /// <summary>Unterblock (const, type, class var) als Glied (#1767, editor.breadcrumbsMemberBlocks).</summary>
-    BreadcrumbsMemberBlocks: Boolean;
-    /// <summary>Sichtbarkeitsmarke am Methodenglied im implementation-Teil (#1765,
-    /// editor.breadcrumbsVisibilityMark).</summary>
-    BreadcrumbsVisibilityMark: Boolean;
-    /// <summary>Deklarationsblock der Unit als Glied (#1766, editor.breadcrumbsDeclarationBlocks).</summary>
-    BreadcrumbsDeclarationBlocks: Boolean;
-    /// <summary>Bedingungszweig ({$IFDEF …}) als Glied (#1763, editor.breadcrumbsConditionals).</summary>
-    BreadcrumbsConditionals: Boolean;
-    /// <summary>Region ({$REGION}) als Glied (#1764, editor.breadcrumbsRegions).</summary>
-    BreadcrumbsRegions: Boolean;
-    /// <summary>try/except/finally und case-Zweig als Glied (#1769, editor.breadcrumbsStatements).</summary>
-    BreadcrumbsStatements: Boolean;
-    /// <summary>Mitgliederzahl je Abschnitt im Menü des Sichtbarkeitsglieds (#1768,
-    /// editor.breadcrumbsSectionCounts).</summary>
-    BreadcrumbsSectionCounts: Boolean;
-    /// <summary>Einträge „Neue Zeile am Ende von …“ im Menü des Sichtbarkeitsglieds (#1768,
-    /// editor.breadcrumbsSectionAppend); auch Befehl und Taste keys.sectionAppend.</summary>
-    BreadcrumbsSectionAppend: Boolean;
-    /// <summary>Einträge „Abschnitt anlegen: …“ für fehlende Abschnitte (#1768,
-    /// editor.breadcrumbsSectionCreate).</summary>
-    BreadcrumbsSectionCreate: Boolean;
-    /// <summary>Rechtsklick-Menü an den Gliedern der Leiste (#1786, editor.breadcrumbsContextMenu).</summary>
-    BreadcrumbsContextMenu: Boolean;
-    /// <summary>Zähler und Parameter bei Überladungen (#1784, editor.breadcrumbsOverloads).</summary>
-    BreadcrumbsOverloads: Boolean;
-    /// <summary>Interface-Marke an Methodengliedern (#1785, editor.breadcrumbsInterfaces).</summary>
-    BreadcrumbsInterfaces: Boolean;
-    /// <summary>Kennzahlen-Karte an Methoden- und Typgliedern (#1787, editor.breadcrumbsMetrics).</summary>
-    BreadcrumbsMetrics: Boolean;
-    /// <summary>Brotkrumenleiste in den Farben der IDE-Werkzeugleisten statt der dpcc-Palette
-    /// (editor.breadcrumbsIdeColors).</summary>
-    BreadcrumbsIdeColors: Boolean;
-    /// <summary>Navigationsleiste der IDE („Typ suchen“/„Methode suchen“) ausblenden, solange die
-    /// Brotkrumenleiste an ist (editor.breadcrumbsHideIdeToolbar).</summary>
-    BreadcrumbsHideIdeToolbar: Boolean;
-    /// <summary>Mitlaufender Kopf (#506, editor.stickyScroll, experimentell).</summary>
-    StickyScroll: Boolean;
-    /// <summary>Höchstzahl seiner Zeilen, MinStickyLines bis MaxStickyLines (#506,
-    /// editor.stickyScrollMaxLines).</summary>
-    StickyScrollMaxLines: Integer;
-    /// <summary>Was der Kopf zeigt (editor.stickyScrollTypes, …Routines): Klassen/Records und Routinen der
-    /// Gliederung.</summary>
-    StickyScrollTypes: Boolean;
-    StickyScrollRoutines: Boolean;
-    /// <summary>Große if/else-Blöcke im Kopf (#1230, editor.stickyScrollBlocks).</summary>
-    StickyScrollBlocks: Boolean;
-    /// <summary>Weitere große Anweisungsblöcke im Kopf: for/while/repeat, try, case, with
-    /// (editor.stickyScrollLoops, …Try, …Case, …With).</summary>
-    StickyScrollLoops: Boolean;
-    StickyScrollTry: Boolean;
-    StickyScrollCase: Boolean;
-    StickyScrollWith: Boolean;
-    /// <summary>Mindestlänge solcher Blöcke in Zeilen, MinStickyBlockLines bis MaxStickyBlockLines (#1230,
-    /// editor.stickyScrollBlockMinLines).</summary>
-    StickyScrollBlockMinLines: Integer;
-    /// <summary>Vorgaben.</summary>
-    class function Defaults: TDpccPluginStickyScrollSettings; static;
-    /// <summary>Werte in ihre Grenzen bringen.</summary>
-    procedure Normalize;
-    /// <summary>Werte über AIo lesen bzw. schreiben, jeden unter seinem Namen.</summary>
-    procedure Exchange(const AIo: TDpccSettingsExchange);
-  end;
+  // Mitlaufender Kopf (editor.stickyScroll*) und Brotkrumenleiste (editor.breadcrumbs*) gibt es seit S8 nicht mehr,
+  // damit auch den Bereich TDpccPluginStickyScrollSettings.
 
-  /// <summary>Plugin-Einstellungen: Minimap, Werkzeugleisten, Statusleiste, Randspalte und Übersichtslineal.</summary>
+  /// <summary>Plugin-Einstellungen: Werkzeugleisten, Designer und Übersichtslineal. Minimap, dpcc-Statusleiste
+  /// und dpcc-Spalte in der Zeilenleiste gibt es seit S8 nicht mehr.</summary>
   TDpccPluginEditorViewSettings = record
     /// <summary>dpcc-Editorleiste mit Symbolen über dem Editor (#1101, editor.toolbar); Hauptschalter.</summary>
     EditorToolbar: Boolean;
@@ -502,12 +382,6 @@ type
     EditorToolbarReturnButton: Boolean;
     /// <summary>Text neben den Symbolen (#1101, editor.toolbar.labels).</summary>
     EditorToolbarLabels: Boolean;
-    /// <summary>dpcc-Statusleiste unten am Editor (#1155, editor.statusBar); Hauptschalter. Mit dem Element status
-    /// zieht das dpcc-Feld aus der Statuszeile der IDE in die Leiste.</summary>
-    EditorStatusBar: Boolean;
-    /// <summary>Sichtbare Elemente in Reihenfolge: status, findings, liveCheck, method, durch Komma getrennt (#1155,
-    /// editor.statusBar.items); leer = keine.</summary>
-    EditorStatusBarItems: string;
     /// <summary>Designer-Leiste im Formular-Designer statt Brotkrumen und Editorleiste (#1442,
     /// editor.designerBar): Komponenten suchen, Nichtvisuelle (Strg+H der IDE), Elternelement, Tab-Reihenfolge,
     /// Ausrichten.</summary>
@@ -791,38 +665,8 @@ type
     DesignerUndo: Boolean;
     /// <summary>Höchstzahl der Schritte je Formular (#1887, designer.undoSteps).</summary>
     DesignerUndoSteps: Integer;
-    /// <summary>Minimap neben der Scrollleiste (#873, editor.minimap, experimentell).</summary>
-    Minimap: Boolean;
-    /// <summary>Darstellung: blocks oder characters (#873, editor.minimap.render).</summary>
-    MinimapRender: string;
-    /// <summary>Breite in Pixeln bei 96 DPI, MinMinimapWidth bis MaxMinimapWidth (#873).</summary>
-    MinimapWidth: Integer;
-    /// <summary>Maßstab 1 bis 3, Pixel je Zeile = 2 × Maßstab (#873).</summary>
-    MinimapScale: Integer;
-    /// <summary>Höchste gezeigte Spalte (#873).</summary>
-    MinimapMaxColumn: Integer;
-    /// <summary>Seite: right oder left (#873).</summary>
-    MinimapSide: string;
-    /// <summary>Schieber: always oder mouseover (#873).</summary>
-    MinimapShowSlider: string;
-    /// <summary>Überschriften für Klassen und Methoden (#873).</summary>
-    MinimapSectionHeaders: Boolean;
-    /// <summary>Aktuelle Methode hinterlegen (#873).</summary>
-    MinimapHighlightMethod: Boolean;
-    /// <summary>Marken zeigen: Fehler, Suchtreffer, Git-Änderungen (#873).</summary>
-    MinimapMarkers: Boolean;
-    /// <summary>Klick springt an die Stelle; sonst scrollt er nur (#873).</summary>
-    MinimapClickJumps: Boolean;
     /// <summary>Hinweis „IDE-Minimap ist auch sichtbar“ schon gezeigt (#873, interner Zustand).</summary>
     MinimapNoticeShown: Boolean;
-    /// <summary>dpcc-Spalte in der Zeilenleiste (#768, editor.gutterColumn).</summary>
-    GutterColumn: Boolean;
-    /// <summary>Problemsymbole in der Spalte (#768, editor.gutterColumn.problems).</summary>
-    GutterColumnProblems: Boolean;
-    /// <summary>Glühbirne für Code-Aktionen der Cursorzeile (#768, editor.gutterColumn.codeActions).</summary>
-    GutterColumnCodeActions: Boolean;
-    /// <summary>„überschreibt“/„wird überschrieben“ an Methoden (#768, editor.gutterColumn.overrides).</summary>
-    GutterColumnOverrides: Boolean;
     /// <summary>Übersichtsleiste an der Scrollleiste (#519, editor.overviewRuler).</summary>
     OverviewRuler: Boolean;
     /// <summary>Arten der Übersichtsleiste, kommagetrennt (#519, editor.overviewRulerKinds); siehe
@@ -861,7 +705,6 @@ uses
   System.Math,
   System.SysUtils,
   dpcc.Core.Settings.OverviewKinds,
-  dpcc.Core.Settings.StatusBarItems,
   dpcc.Core.Settings.ToolbarItems;
 
 const
@@ -927,17 +770,10 @@ end;
 class function TDpccPluginEditorTypingSettings.Defaults: TDpccPluginEditorTypingSettings;
 begin
   Result.HoverTooltip := True;
-  Result.ReloadExternal := True;
-  Result.OpenForEdits := True;
-  Result.BlockEndLabels := True;
-  Result.BlockEndLabelsMinLines := 25;
-  Result.DimUnusedUses := True;
   Result.RecursionMarkers := True;
   Result.RecursionMarkersDepth := 4;
   Result.InlineDiagnostics := 'errors';
   Result.TrackLines := True;
-  Result.GitGutter := True;
-  Result.GitBlame := False;
   Result.MethodPlacement := 'grouped';
   Result.RegionFolds := 'keep';
   Result.ContinueComments := True;
@@ -961,7 +797,6 @@ end;
 
 procedure TDpccPluginEditorTypingSettings.Normalize;
 begin
-  BlockEndLabelsMinLines := EnsureRange(BlockEndLabelsMinLines, cMinBlockEndLines, cMaxBlockEndLines);
   RecursionMarkersDepth := EnsureRange(RecursionMarkersDepth, cMinRecursionDepth, cMaxRecursionDepth);
   ContinuePatternMinLines := EnsureRange(ContinuePatternMinLines, cMinPatternLines, cMaxPatternLines);
   MethodPlacement := Choice(MethodPlacement, cDpccMethodPlacements);
@@ -977,17 +812,10 @@ end;
 procedure TDpccPluginEditorTypingSettings.Exchange(const AIo: TDpccSettingsExchange);
 begin
   AIo.Flag('HoverTooltip', HoverTooltip);
-  AIo.Flag('ReloadExternal', ReloadExternal);
-  AIo.Flag('OpenForEdits', OpenForEdits);
-  AIo.Flag('BlockEndLabels', BlockEndLabels);
-  AIo.Number('BlockEndLabelsMinLines', BlockEndLabelsMinLines);
-  AIo.Flag('DimUnusedUses', DimUnusedUses);
   AIo.Flag('RecursionMarkers', RecursionMarkers);
   AIo.Number('RecursionMarkersDepth', RecursionMarkersDepth);
   AIo.Text('InlineDiagnostics', InlineDiagnostics);
   AIo.Flag('TrackLines', TrackLines);
-  AIo.Flag('GitGutter', GitGutter);
-  AIo.Flag('GitBlame', GitBlame);
   AIo.Text('MethodPlacement', MethodPlacement);
   AIo.Text('RegionFolds', RegionFolds);
   AIo.Flag('ContinueComments', ContinueComments);
@@ -1013,11 +841,6 @@ end;
 
 class function TDpccPluginEditorInsightSettings.Defaults: TDpccPluginEditorInsightSettings;
 begin
-  Result.InlayHints := False;
-  Result.InlayTypeHints := True;
-  Result.InlayDefineHints := True;
-  Result.InlayCharHints := True;
-  Result.InlayMethodHints := True;
   Result.Notes := True;
   Result.Problems := True;
   Result.ProblemsStatusCounter := True;
@@ -1070,11 +893,6 @@ end;
 
 procedure TDpccPluginEditorInsightSettings.Exchange(const AIo: TDpccSettingsExchange);
 begin
-  AIo.Flag('InlayHints', InlayHints);
-  AIo.Flag('InlayTypeHints', InlayTypeHints);
-  AIo.Flag('InlayDefineHints', InlayDefineHints);
-  AIo.Flag('InlayCharHints', InlayCharHints);
-  AIo.Flag('InlayMethodHints', InlayMethodHints);
   AIo.Flag('Notes', Notes);
   AIo.Flag('Problems', Problems);
   AIo.Flag('ProblemsStatusCounter', ProblemsStatusCounter);
@@ -1119,13 +937,11 @@ begin
   Result.QuickOpen := True;
   Result.QuickOpenLibrary := False;
   Result.NavHistory := True;
-  Result.MouseNavButtons := True;
   Result.Peek := True;
   Result.PeekHeightLines := 15;
   Result.PeekShowImplementation := True;
   Result.ReferencesInferred := True;
   Result.ReferencesTextMatches := False;
-  Result.CallHierarchyDiagram := True;
   Result.Impact := True;
   Result.ImpactDepth := 2;
   Result.DataFlow := True;
@@ -1159,13 +975,11 @@ begin
   AIo.Flag('QuickOpen', QuickOpen);
   AIo.Flag('QuickOpenLibrary', QuickOpenLibrary);
   AIo.Flag('NavHistory', NavHistory);
-  AIo.Flag('MouseNavButtons', MouseNavButtons);
   AIo.Flag('Peek', Peek);
   AIo.Number('PeekHeightLines', PeekHeightLines);
   AIo.Flag('PeekShowImplementation', PeekShowImplementation);
   AIo.Flag('ReferencesInferred', ReferencesInferred);
   AIo.Flag('ReferencesTextMatches', ReferencesTextMatches);
-  AIo.Flag('CallHierarchyDiagram', CallHierarchyDiagram);
   AIo.Flag('Impact', Impact);
   AIo.Number('ImpactDepth', ImpactDepth);
   AIo.Flag('DataFlow', DataFlow);
@@ -1231,78 +1045,6 @@ begin
   AIo.Text('UnitSearchDefaultScope', UnitSearchDefaultScope);
 end;
 
-{ TDpccPluginStickyScrollSettings }
-
-class function TDpccPluginStickyScrollSettings.Defaults: TDpccPluginStickyScrollSettings;
-begin
-  Result.Breadcrumbs := True;
-  Result.BreadcrumbsShowUnit := False;
-  Result.BreadcrumbsVisibility := True;
-  Result.BreadcrumbsMemberBlocks := True;
-  Result.BreadcrumbsVisibilityMark := True;
-  Result.BreadcrumbsDeclarationBlocks := True;
-  Result.BreadcrumbsConditionals := True;
-  Result.BreadcrumbsRegions := True;
-  Result.BreadcrumbsStatements := False;
-  Result.BreadcrumbsSectionCounts := True;
-  Result.BreadcrumbsSectionAppend := True;
-  Result.BreadcrumbsSectionCreate := True;
-  Result.BreadcrumbsContextMenu := True;
-  Result.BreadcrumbsOverloads := True;
-  Result.BreadcrumbsInterfaces := True;
-  Result.BreadcrumbsMetrics := True;
-  Result.BreadcrumbsIdeColors := True;
-  Result.BreadcrumbsHideIdeToolbar := True;
-  Result.StickyScroll := True;
-  Result.StickyScrollMaxLines := 3;
-  Result.StickyScrollTypes := True;
-  Result.StickyScrollRoutines := True;
-  Result.StickyScrollBlocks := True;
-  Result.StickyScrollLoops := False;
-  Result.StickyScrollTry := False;
-  Result.StickyScrollCase := False;
-  Result.StickyScrollWith := False;
-  Result.StickyScrollBlockMinLines := 25;
-end;
-
-procedure TDpccPluginStickyScrollSettings.Normalize;
-begin
-  StickyScrollMaxLines := EnsureRange(StickyScrollMaxLines, cMinStickyLines, cMaxStickyLines);
-  StickyScrollBlockMinLines := EnsureRange(StickyScrollBlockMinLines, cMinStickyBlockLines, cMaxStickyBlockLines);
-end;
-
-procedure TDpccPluginStickyScrollSettings.Exchange(const AIo: TDpccSettingsExchange);
-begin
-  AIo.Flag('Breadcrumbs', Breadcrumbs);
-  AIo.Flag('BreadcrumbsShowUnit', BreadcrumbsShowUnit);
-  AIo.Flag('BreadcrumbsVisibility', BreadcrumbsVisibility);
-  AIo.Flag('BreadcrumbsMemberBlocks', BreadcrumbsMemberBlocks);
-  AIo.Flag('BreadcrumbsVisibilityMark', BreadcrumbsVisibilityMark);
-  AIo.Flag('BreadcrumbsDeclarationBlocks', BreadcrumbsDeclarationBlocks);
-  AIo.Flag('BreadcrumbsConditionals', BreadcrumbsConditionals);
-  AIo.Flag('BreadcrumbsRegions', BreadcrumbsRegions);
-  AIo.Flag('BreadcrumbsStatements', BreadcrumbsStatements);
-  AIo.Flag('BreadcrumbsSectionCounts', BreadcrumbsSectionCounts);
-  AIo.Flag('BreadcrumbsSectionAppend', BreadcrumbsSectionAppend);
-  AIo.Flag('BreadcrumbsSectionCreate', BreadcrumbsSectionCreate);
-  AIo.Flag('BreadcrumbsContextMenu', BreadcrumbsContextMenu);
-  AIo.Flag('BreadcrumbsOverloads', BreadcrumbsOverloads);
-  AIo.Flag('BreadcrumbsInterfaces', BreadcrumbsInterfaces);
-  AIo.Flag('BreadcrumbsMetrics', BreadcrumbsMetrics);
-  AIo.Flag('BreadcrumbsIdeColors', BreadcrumbsIdeColors);
-  AIo.Flag('BreadcrumbsHideIdeToolbar', BreadcrumbsHideIdeToolbar);
-  AIo.Flag('StickyScroll', StickyScroll);
-  AIo.Number('StickyScrollMaxLines', StickyScrollMaxLines);
-  AIo.Flag('StickyScrollTypes', StickyScrollTypes);
-  AIo.Flag('StickyScrollRoutines', StickyScrollRoutines);
-  AIo.Flag('StickyScrollBlocks', StickyScrollBlocks);
-  AIo.Flag('StickyScrollLoops', StickyScrollLoops);
-  AIo.Flag('StickyScrollTry', StickyScrollTry);
-  AIo.Flag('StickyScrollCase', StickyScrollCase);
-  AIo.Flag('StickyScrollWith', StickyScrollWith);
-  AIo.Number('StickyScrollBlockMinLines', StickyScrollBlockMinLines);
-end;
-
 { TDpccPluginEditorViewSettings }
 
 class function TDpccPluginEditorViewSettings.Defaults: TDpccPluginEditorViewSettings;
@@ -1312,8 +1054,6 @@ begin
   Result.EditorToolbarItems := TDpccToolbarItems.DefaultText;
   Result.EditorToolbarReturnButton := True;
   Result.EditorToolbarLabels := False;
-  Result.EditorStatusBar := True;
-  Result.EditorStatusBarItems := TDpccStatusBarItems.DefaultText;
   Result.EditorDesignerBar := True;
   // Alt+^ (VK_OEM_5 mit Alt).
   Result.DesignerSearchKey := 32988;
@@ -1346,23 +1086,7 @@ begin
   Result.SetArrangeDefaults;
   Result.SetFormToolDefaults;
   Result.SetToolDefaults;
-  Result.Minimap := False;
-  Result.MinimapRender := 'characters';
-  Result.MinimapWidth := 120;
-  // 2: 4 Pixel je Zeile, Zeichen lesbar wie in VS Code (bei 1 kaum erkennbar).
-  Result.MinimapScale := 2;
-  Result.MinimapMaxColumn := 120;
-  Result.MinimapSide := 'right';
-  Result.MinimapShowSlider := 'always';
-  Result.MinimapSectionHeaders := True;
-  Result.MinimapHighlightMethod := True;
-  Result.MinimapMarkers := True;
-  Result.MinimapClickJumps := True;
   Result.MinimapNoticeShown := False;
-  Result.GutterColumn := True;
-  Result.GutterColumnProblems := True;
-  Result.GutterColumnCodeActions := True;
-  Result.GutterColumnOverrides := True;
   Result.OverviewRuler := True;
   Result.OverviewRulerKinds := TDpccOverviewKindNames.Text(TDpccOverviewKindNames.cAll);
 end;
@@ -1585,15 +1309,8 @@ end;
 
 procedure TDpccPluginEditorViewSettings.Normalize;
 begin
-  MinimapRender := Choice(MinimapRender, ['characters', 'blocks']);
-  MinimapWidth := EnsureRange(MinimapWidth, cMinMinimapWidth, cMaxMinimapWidth);
-  MinimapScale := EnsureRange(MinimapScale, cMinMinimapScale, cMaxMinimapScale);
-  MinimapMaxColumn := EnsureRange(MinimapMaxColumn, cMinMinimapColumn, cMaxMinimapColumn);
-  MinimapSide := Choice(MinimapSide, ['right', 'left']);
-  MinimapShowSlider := Choice(MinimapShowSlider, ['always', 'mouseover']);
   EditorToolbarPosition := Choice(EditorToolbarPosition, ['belowBreadcrumbs', 'aboveBreadcrumbs', 'inBreadcrumbs']);
   EditorToolbarItems := TDpccToolbarItems.Normalize(EditorToolbarItems);
-  EditorStatusBarItems := TDpccStatusBarItems.Normalize(EditorStatusBarItems);
   OverviewRulerKinds := TDpccOverviewKindNames.Normalize(OverviewRulerKinds);
   DesignerSearchKey := EnsureRange(DesignerSearchKey, 0, $FFFF);
   DesignerSearchStyle := Choice(DesignerSearchStyle, [cDesignerSearchWindow, cDesignerSearchPopup]);
@@ -1648,8 +1365,6 @@ begin
   AIo.Text('EditorToolbarItems', EditorToolbarItems);
   AIo.Flag('EditorToolbarReturnButton', EditorToolbarReturnButton);
   AIo.Flag('EditorToolbarLabels', EditorToolbarLabels);
-  AIo.Flag('EditorStatusBar', EditorStatusBar);
-  AIo.Text('EditorStatusBarItems', EditorStatusBarItems);
   AIo.Flag('EditorDesignerBar', EditorDesignerBar);
   AIo.Number('DesignerSearchKey', DesignerSearchKey);
   AIo.Text('DesignerSearchStyle', DesignerSearchStyle);
@@ -1679,22 +1394,7 @@ begin
   ExchangeArrange(AIo);
   ExchangeFormTools(AIo);
   ExchangeTools(AIo);
-  AIo.Flag('Minimap', Minimap);
-  AIo.Text('MinimapRender', MinimapRender);
-  AIo.Number('MinimapWidth', MinimapWidth);
-  AIo.Number('MinimapScale', MinimapScale);
-  AIo.Number('MinimapMaxColumn', MinimapMaxColumn);
-  AIo.Text('MinimapSide', MinimapSide);
-  AIo.Text('MinimapShowSlider', MinimapShowSlider);
-  AIo.Flag('MinimapSectionHeaders', MinimapSectionHeaders);
-  AIo.Flag('MinimapHighlightMethod', MinimapHighlightMethod);
-  AIo.Flag('MinimapMarkers', MinimapMarkers);
-  AIo.Flag('MinimapClickJumps', MinimapClickJumps);
   AIo.Flag('MinimapNoticeShown', MinimapNoticeShown);
-  AIo.Flag('GutterColumn', GutterColumn);
-  AIo.Flag('GutterColumnProblems', GutterColumnProblems);
-  AIo.Flag('GutterColumnCodeActions', GutterColumnCodeActions);
-  AIo.Flag('GutterColumnOverrides', GutterColumnOverrides);
   AIo.Flag('OverviewRuler', OverviewRuler);
   AIo.Text('OverviewRulerKinds', OverviewRulerKinds);
 end;

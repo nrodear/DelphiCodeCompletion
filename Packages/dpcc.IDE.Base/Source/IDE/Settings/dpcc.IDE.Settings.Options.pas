@@ -116,7 +116,6 @@ begin
   TDpccPageOptions.ConnectFavorites(FPage);
   // „Index neu aufbauen“ (S4); startet keinen Server, der nicht läuft.
   TDpccPageOptions.ConnectRebuild(FPage, Hooks.RestartIndex);
-  TDpccPageOptions.ConnectTeamFile(FPage);
   // Suchfeld über dem Baum (#1884): ohne Module nur Base. Andere Knoten gibt es seit S2 nicht mehr.
   FPage.Search.OnInstalled :=
     function(const ASwitch: string): Boolean

@@ -4,7 +4,7 @@
 // globale Schlüssel in %APPDATA%\dpcc\settings.json, Projekt-Schlüssel in
 // dpcc.json (x-scope im Schema).
 // Ein Teil der globalen Server-Einstellungen steht auf den Reitern der
-// Optionsseite: XMLDoc, Inlay-Hints, Code-Metriken, Schnellbefehle,
+// Optionsseite: XMLDoc, Code-Metriken, Schnellbefehle,
 // Kompilieren nach dem Speichern, die Treffersicherheit der Verwendungen, der Weg
 // zwischen Symbolen und die Auswirkungsanalyse. Sie gehören zu TDpccPluginSettings, liegen
 // aber in settings.json statt in der Registry; TDpccRoutedSettingsStore leitet
@@ -120,8 +120,7 @@ begin
     LegacySetting('XmlDocFull', 'hints.xmlDocFull', True),
     Setting('XmlDocMaxLines', 'hints.xmlDocMaxLines', False),
     Setting('SlashCommands', 'slashCommands.enabled', True),
-    // Das Plugin zeigt nur Parameternamen; die übrigen Inlay-Hints betreffen es nicht.
-    Setting('InlayHints', 'inlayHints.parameterNames', True),
+    // inlayHints.parameterNames schickt das Plugin seit S8 nicht mehr (der Schalter InlayHints ist entfallen).
     Setting('CodeLensMetrics', 'codeLens.metrics', True),
     Setting('Metrics', 'metrics', True),
     Setting('ExperimentalEnabled', 'experimental.enabled', True),

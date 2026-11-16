@@ -74,15 +74,8 @@ uses
 
 type
 {$SCOPEDENUMS ON}
-  TDpccFeature = (Completion, Signature, Hover, Pairs, Problems, Reloader, Palette, CheckOnSave, Watchdog, Server,
-    Settings, Menu, Files, InlayHints, Results, EditorCommands, Forms, Build, Status, WelcomePage, ShortcutTips,
-    Notes, Bookmarks, Notifications, Breadcrumbs, Outline, StickyScroll, Minimap, LineChanges, GutterColumn,
-    RecursionMarkers, OverviewRuler, SelectionMatches, MultiCursor, LinkedEditing, CodeLens, NavHistory, Peek,
-    SmartPaste, WrapSelection, Unwrap, Hide, Search, UnitSearch, Generate, ContinueLines, SlashCommands,
-    GoToDefinition, EditorToolbar, QuickBookmarks, StatusBar, Architecture, UnitRelations, SymbolPath, Tasks, Debugger,
-    ExitPoints, Reassigned, ExpressionType, MethodPlacement, IssueLinks,
-    BlameIssues, Query, Hotspots, DesignerBar, Tracker, WelcomeUpdates, RegionFolds, SmartIndent,
-    LearnedSuggestions);
+  TDpccFeature = (Completion, Signature, Hover, Problems, Server, Settings, Files, EditorCommands, Forms, Status,
+    Notifications, GoToDefinition);
 {$SCOPEDENUMS OFF}
 
   TDpccFeatures = set of TDpccFeature;
@@ -796,36 +789,14 @@ end;
 class function TDpccGuard.FeatureName(AFeature: TDpccFeature): string;
 const
   cNames: array[TDpccLanguage, TDpccFeature] of string = (
-    ('Vervollständigung', 'Parameter-Hint', 'Tooltip', 'Klammerpaare',
-      'Probleme', 'Neuladen', 'Befehlspalette', 'Prüfung beim Speichern', 'Wächter', 'Server', 'Einstellungen', 'Menü',
-      'Dateien', 'Inlay-Hints', 'Ergebnisfenster', 'Editorbefehle', 'Formulare', 'Compile-Ereignisse', 'Statusfeld',
-      'Willkommensseite', 'Tastenkürzel-Tipps', 'Notizen', 'Lesezeichen',
-      'Benachrichtigungen', 'Brotkrumenleiste', 'Gliederung', 'Mitlaufender Kopf', 'Minimap', 'Änderungsmarken',
-      'dpcc-Spalte', 'Rekursionssymbole', 'Übersichtsleiste', 'Gleichen Text hervorheben', 'Mehrere Einfügemarken',
-      'Bezeichner mitziehen', 'Code Lens', 'Navigationsverlauf', 'Definition einblenden', 'Einfügen mit uses-Ergänzung',
-      'Markierung umschließen', 'Umschließung entfernen', 'Ausblenden am Element', 'dpcc-Suche', 'Units suchen',
-      'Erzeugen-Menü', 'Kommentar und Muster fortsetzen', 'Schnellbefehle', 'Gehe zu Definition', 'Editorleiste',
-      'Schnelle Lesezeichen', 'dpcc-Statusleiste', 'Architekturübersicht', 'Unit-Beziehungen',
-      'Weg zwischen Symbolen', 'Projektaufgaben', 'Debuggen',
-      'Austrittspunkte', 'Neu zugewiesene Variablen', 'Typ des Ausdrucks', 'Methodenreihenfolge',
-      'Issue-Kennungen', 'Issues in der Zeilenhistorie', 'Code-Abfragen', 'Hotspots', 'Designer-Leiste', 'Tracker',
-      'Willkommensseite: Aktualisieren', 'Regionen falten', 'Einrückung beim Tippen',
-      'Gelernte Vorschläge'),
-    ('Completion', 'Parameter hint', 'Tooltip', 'Bracket pairs',
-      'Problems', 'Reload', 'Command palette', 'Check on save', 'Watchdog', 'Server', 'Settings', 'Menu',
-      'Files', 'Inlay hints', 'Results window', 'Editor commands', 'Forms', 'Compile events', 'Status field',
-      'Welcome page', 'Shortcut tips', 'Notes', 'Bookmarks',
-      'Notifications', 'Breadcrumbs', 'Outline', 'Sticky scroll', 'Minimap', 'Change marks',
-      'dpcc column', 'Recursion markers', 'Overview ruler', 'Highlight same text', 'Multiple carets',
-      'Linked identifier editing', 'Code Lens', 'Navigation history', 'Peek definition', 'Paste with uses completion',
-      'Surround selection', 'Remove surrounding', 'Hide at element', 'dpcc Search', 'Search units',
-      'Generate menu', 'Continue comment and pattern', 'Quick commands', 'Go to definition', 'Editor toolbar',
-      'Quick bookmarks', 'dpcc status bar', 'Architecture overview', 'Unit relations',
-      'Path between symbols', 'Project tasks', 'Debugging',
-      'Exit points', 'Reassigned variables', 'Type of expression', 'Method order',
-      'Issue keys', 'Issues in line history', 'Code queries', 'Hotspots', 'Designer bar', 'Tracker',
-      'Welcome page: updates', 'Region folding', 'Indent while typing',
-      'Learned suggestions'));
+    ('Vervollständigung', 'Parameter-Hint', 'Tooltip',
+      'Probleme', 'Server', 'Einstellungen',
+      'Dateien', 'Editorbefehle', 'Formulare', 'Statusfeld',
+      'Benachrichtigungen', 'Gehe zu Definition'),
+    ('Completion', 'Parameter hint', 'Tooltip',
+      'Problems', 'Server', 'Settings',
+      'Files', 'Editor commands', 'Forms', 'Status field',
+      'Notifications', 'Go to definition'));
 begin
   Result := cNames[TDpccTextLanguage.Current, AFeature];
 end;
