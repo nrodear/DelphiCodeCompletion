@@ -14,7 +14,7 @@
 // steht in der Editorschrift (Font), Beschriftungen in der UI-Schrift (UIFont).
 // Maße (#412, #445): alle in logischen Pixeln (96 dpi), umgerechnet mit PPI =
 // DPI des Monitors am Caret mal Zoom des Editors (SetScaling). So wachsen Schrift,
-// Zeilen, Badges und Abstände gemeinsam.
+// Zeilen und Abstände gemeinsam.
 // Barrierefreiheit (#447): Jedes Fenster ist ein UI-Automation-Element mit
 // Rolle und Name; Announce lässt die Sprachausgabe einen Text vorlesen.
 // Tasten bekommt das Fenster nie; der Editor leitet sie über den Tastatur-Hook

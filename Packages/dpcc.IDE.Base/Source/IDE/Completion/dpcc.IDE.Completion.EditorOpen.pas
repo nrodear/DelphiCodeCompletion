@@ -97,10 +97,7 @@ begin
   Log(TDpccIdeStyle.Apply(FPopup, ACaret));
   // Schlicht (S6): Farben wie der Hover-Tooltip und die Code-Insight-Liste der IDE (Farbschema des Editors),
   // Auswahl in der Auswahlfarbe des IDE-Themas.
-  if FPopup.Plain then
-  begin
-    FPopup.Colors := TDpccIdeStyle.CompletionListColors;
-  end;
+  FPopup.Colors := TDpccIdeStyle.CompletionListColors;
 end;
 
 function TDpccEditorCompletionOpen.CaretRect(out AWindow: HWND; out ARect: TRect): Boolean;
@@ -169,9 +166,7 @@ procedure TDpccEditorCompletionOpen.ApplyOptions;
 begin
   FPopup.VisibleRows := TDpccIdeSettings.Current.VisibleRows;
   FPopup.ManualListWidth := TDpccIdeSettings.Current.ListWidth;
-  FPopup.PanelWidthSetting := TDpccIdeSettings.Current.PanelWidth;
-  FPopup.PanelCollapsed := TDpccIdeSettings.Current.PanelCollapsed;
-  // Gruppen geerbter Member (#419), Chips (#422), lernende Gewichtung (#418).
+  // Gruppen geerbter Member (#419), lernende Gewichtung (#418).
   FController.GroupInherited := TDpccIdeSettings.Current.GroupInherited;
   FPopup.DimInherited := TDpccIdeSettings.Current.GroupInherited;
   // Marke „Zweig 0“ an Feldern varianter Records (#846).
@@ -182,9 +177,6 @@ begin
   // Während der Server indiziert, liefert er den vorhandenen Stand; die Fußzeile sagt es (#492).
   FPopup.Limited := IndexingNow;
   FPopup.Target := ActiveTarget;
-  // Schlicht (S6): keine Filter-Chips (auch nicht über Alt+1 … Alt+6).
-  FController.ChipsEnabled := TDpccIdeSettings.Current.FilterChips and not FPopup.Plain;
-
   if TDpccIdeSettings.Current.Learning then
   begin
     FController.Usage := TDpccIdeHistory.Instance;
@@ -193,9 +185,7 @@ begin
   begin
     FController.Usage := nil;
   end;
-  // Favoriten (#458): abgeschaltet weder Stern noch Sonderstellung.
-  FPopup.FavoritesEnabled := TDpccIdeSettings.Current.Favorites;
-  FPopup.SelectionMarker := TDpccIdeSettings.Current.SelectionMarker;
+  // Favoriten (#458): abgeschaltet keine Sonderstellung und kein Strg+D.
   if TDpccIdeSettings.Current.Favorites then
   begin
     FController.Favorites := TDpccIdeFavorites.Instance;

@@ -62,7 +62,6 @@ type
     procedure HideList;
     procedure ShowEmpty(const APrefix: string; ATotal: Integer);
     function PageSize: Integer;
-    procedure ShowChips(const ACounts: TDpccChipCounts; AActive: TDpccChip; AVisible: Boolean);
   end;
 
 procedure TSetView.ShowList(const AItems: TDpccCompletionItems; const AOrder: TArray<Integer>; ASelected: Integer;
@@ -97,10 +96,6 @@ end;
 function TSetView.PageSize: Integer;
 begin
   Result := 5;
-end;
-
-procedure TSetView.ShowChips(const ACounts: TDpccChipCounts; AActive: TDpccChip; AVisible: Boolean);
-begin
 end;
 
 function Value(const AName: string; AOrdinal: Integer; AChecked: Boolean = False): TDpccCompletionItem;

@@ -1,6 +1,7 @@
 ﻿unit dpcc.UI.Settings.Page.General;
 
-// Reiter „Allgemein“: Hauptschalter, „Index neu aufbauen“, Statusfeld, Diagnose, Hinweise und Benachrichtigungen.
+// Reiter „Allgemein“: Hauptschalter, „Index neu aufbauen“, Statusfeld, Diagnose und Hinweise. Den Teil
+// „Benachrichtigungen“ gibt es seit S7a nicht mehr (es gibt keine Benachrichtigungszentrale).
 // „Index neu aufbauen“ (S4, statt der Seite „Index“): Rückfrage, dann leert die IDE-Schicht die Index-Caches und baut
 // den Index neu auf (OnRebuildIndex); die Seite zeigt nur das Ergebnis. Anzeigen und Schalter zum Server (Zustand,
 // Version, Fenster „dpcc-Server“, „Prozesse am Projekt…“) gibt es seit S1 bzw. S4 nicht mehr.
@@ -15,8 +16,7 @@ uses
   dpcc.UI.Settings.Page.Host;
 
 type
-  /// <summary>Reiter „Allgemein“: Hauptschalter, Statusfeld, Diagnose, Architektur, Hinweise und
-  /// Benachrichtigungen.</summary>
+  /// <summary>Reiter „Allgemein“: Hauptschalter, Statusfeld, Diagnose, Architektur und Hinweise.</summary>
   TDpccSettingsGeneralPart = class(TDpccSettingsPagePart)
   private
     FDiagnosticMode: TCheckBox;
@@ -56,28 +56,6 @@ type
     property ConfirmRebuild: TFunc<Boolean> read FConfirmRebuild write FConfirmRebuild;
   end;
 
-  /// <summary>Benachrichtigungszentrale (#601) am Ende des Reiters „Allgemein“: Schalter, Größe und Verhalten je
-  /// Quelle.</summary>
-  TDpccSettingsNotificationsPart = class(TDpccSettingsPagePart)
-  private
-    FNotificationsMax: TEdit;
-    FNotificationSource: TDpccChoiceBox;
-    FNotificationMode: TDpccChoiceBox;
-    FNotificationsSpec: string;
-    /// <summary>Zeile „Verhalten je Quelle“ (#601): Quelle und Verhalten nebeneinander.</summary>
-    procedure AddNotificationSources;
-    procedure NotificationSourceChange(Sender: TObject);
-    procedure NotificationModeChange(Sender: TObject);
-  public
-    procedure Build;
-    procedure Load(const ASettings: TDpccPluginSettings); override;
-    procedure Save(var ASettings: TDpccPluginSettings); override;
-    procedure BindMarks; override;
-    property NotificationsMax: TEdit read FNotificationsMax;
-    property NotificationSource: TDpccChoiceBox read FNotificationSource;
-    property NotificationMode: TDpccChoiceBox read FNotificationMode;
-  end;
-
 implementation
 
 uses
@@ -91,10 +69,7 @@ uses
   dpcc.UI.Settings.Page.Sheets,
   dpcc.UI.Strings,
   dpcc.UI.Settings.Strings,
-  dpcc.Core.Commands.ShortcutTips,
-  dpcc.Core.Notifications.Contract,
-  dpcc.Core.Notifications.Sources,
-  dpcc.UI.Notifications.Window;
+  dpcc.Core.Commands.ShortcutTips;
 
 { TDpccSettingsGeneralPart }
 
@@ -262,101 +237,6 @@ begin
     ASettings.IndexProgressPlace := 'statusField';
   end;
   ASettings.StatusFieldHidden := Trim(FStatusHidden.Text);
-end;
-
-{ TDpccSettingsNotificationsPart }
-
-procedure TDpccSettingsNotificationsPart.Build;
-begin
-  // Benachrichtigungszentrale (#601); Taste auf dem Reiter Befehle.
-  BindCheck('Notifications', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsNotifications)));
-  FNotificationsMax := AddNumber(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsNotificationsMax));
-  AddNotificationSources;
-end;
-
-procedure TDpccSettingsNotificationsPart.Load(const ASettings: TDpccPluginSettings);
-begin
-  FNotificationsMax.Text := IntToStr(ASettings.NotificationsMaxEntries);
-  FNotificationsSpec := ASettings.NotificationsSources;
-  NotificationSourceChange(nil);
-end;
-
-procedure TDpccSettingsNotificationsPart.Save(var ASettings: TDpccPluginSettings);
-begin
-  ASettings.NotificationsMaxEntries := StrToIntDef(Trim(FNotificationsMax.Text), ASettings.NotificationsMaxEntries);
-  ASettings.NotificationsSources := TDpccNotificationSources.Normalize(FNotificationsSpec);
-end;
-
-procedure TDpccSettingsNotificationsPart.BindMarks;
-begin
-  FPage.Marks.Bind(FNotificationsMax, ['NotificationsMaxEntries']);
-  FPage.Marks.Bind(FNotificationSource, ['NotificationsSources']);
-end;
-
-procedure TDpccSettingsNotificationsPart.AddNotificationSources;
-var
-  mPanel: TWinControl;
-  mCaption: TLabel;
-  mNames: TArray<string>;
-  mSource: string;
-begin
-  mPanel := AddPanel(26);
-  mCaption := TLabel.Create(FPage);
-  mCaption.Parent := mPanel;
-  mCaption.Caption := TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsNotificationsSources);
-  mCaption.Left := 0;
-  mCaption.Top := mCaption.ScaleValue(5);
-  mNames := nil;
-  for mSource in TDpccNotificationSources.Known do
-  begin
-    mNames := mNames + [TDpccNotificationTexts.SourceCaption(mSource)];
-  end;
-  FNotificationSource := TDpccChoiceBox.Create(FPage);
-  FNotificationSource.Parent := mPanel;
-  FNotificationSource.Left := cFieldLeft;
-  FNotificationSource.Top := 1;
-  FNotificationSource.Width := FNotificationSource.ScaleValue(180);
-  FNotificationSource.SetChoices(mNames);
-  FNotificationSource.Choice := 0;
-  FNotificationSource.OnChange := NotificationSourceChange;
-  // Reihenfolge wie TDpccNotificationMode: einblenden und sammeln, nur sammeln, aus.
-  FNotificationMode := TDpccChoiceBox.Create(FPage);
-  FNotificationMode.Parent := mPanel;
-  FNotificationMode.Left := cFieldLeft + FNotificationMode.ScaleValue(186);
-  FNotificationMode.Top := 1;
-  FNotificationMode.Width := FNotificationMode.ScaleValue(170);
-  FNotificationMode.SetChoices([TDpccStrings.Text(TDpccTextId.NotificationsModeShow),
-    TDpccStrings.Text(TDpccTextId.NotificationsModeCollect), TDpccStrings.Text(TDpccTextId.NotificationsModeOff)]);
-  FNotificationMode.Choice := 0;
-  FNotificationMode.OnChange := NotificationModeChange;
-end;
-
-procedure TDpccSettingsNotificationsPart.NotificationSourceChange(Sender: TObject);
-var
-  mKnown: TArray<string>;
-begin
-  mKnown := TDpccNotificationSources.Known;
-  if (FNotificationSource.Choice < 0) or (FNotificationSource.Choice > High(mKnown)) then
-  begin
-    Exit;
-  end;
-  FNotificationMode.Choice := Ord(TDpccNotificationSources.ModeIn(FNotificationsSpec,
-    mKnown[FNotificationSource.Choice]));
-end;
-
-procedure TDpccSettingsNotificationsPart.NotificationModeChange(Sender: TObject);
-var
-  mKnown: TArray<string>;
-begin
-  mKnown := TDpccNotificationSources.Known;
-  if (FNotificationSource.Choice < 0) or (FNotificationSource.Choice > High(mKnown)) or
-    (FNotificationMode.Choice < Ord(Low(TDpccNotificationMode))) or
-    (FNotificationMode.Choice > Ord(High(TDpccNotificationMode))) then
-  begin
-    Exit;
-  end;
-  FNotificationsSpec := TDpccNotificationSources.WithMode(FNotificationsSpec, mKnown[FNotificationSource.Choice],
-    TDpccNotificationMode(FNotificationMode.Choice));
 end;
 
 end.

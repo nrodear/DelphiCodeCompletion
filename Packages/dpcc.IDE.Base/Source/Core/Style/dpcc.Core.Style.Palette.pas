@@ -13,15 +13,6 @@ uses
   dpcc.Core.Style.Signal;
 
 type
-  /// <summary>Art eines Badges in der Liste (#421); bestimmt dessen Farben.</summary>
-  TDpccBadgeKind = (Function_, Procedure_, Property_, Field, Event, Constant, Type_, Variable, Unit_, Snippet,
-    Keyword, XmlDoc);
-
-  TDpccBadgeColors = record
-    Background: TDpccColor;
-    Text: TDpccColor;
-  end;
-
   /// <summary>Farben der Klammer- und Blockpaare je Tiefe, zyklisch (#514).</summary>
   TDpccPairColors = array[0..4] of TDpccColor;
 
@@ -60,7 +51,6 @@ type
     WarnSoft: TDpccColor;
     Error: TDpccColor;
     ErrorSoft: TDpccColor;
-    Badges: array[TDpccBadgeKind] of TDpccBadgeColors;
     /// <summary>Klammer- und Blockpaare je Tiefe, zyklisch (#514).</summary>
     Pairs: TDpccPairColors;
     /// <summary>Eigene Farbe lokaler Routinen (#1788, highlight.nestedRoutines = color).</summary>
@@ -85,7 +75,7 @@ type
     /// <summary>Light oder Dark, je nachdem ob ABackground (Fensterfarbe der IDE) dunkel ist.</summary>
     class function ForBackground(ABackground: TDpccColor): TDpccColors; static;
     /// <summary>Farben für Leisten im Rahmen der IDE (Brotkrumenleiste): Fläche AFace und Text AText aus dem
-    /// IDE-Thema, Gedämpftes, Linien und Auswahl daraus gemischt; Badges und Akzent wie ForBackground(AFace).</summary>
+    /// IDE-Thema, Gedämpftes, Linien und Auswahl daraus gemischt; Akzent wie ForBackground(AFace).</summary>
     class function ForChrome(AFace, AText: TDpccColor): TDpccColors; static;
     /// <summary>Farben für andockbare Fenster mit Inhalt (Issue, Board): Fläche AWindow und Text AText aus dem
     /// IDE-Thema (clWindow/clWindowText) wie ForChrome; Gutter leicht zum Text hin abgesetzt, damit Spalten und
@@ -111,8 +101,7 @@ const
   cDpccMixChromeLine = 0.18;
   /// <summary>Fenster im Rahmen der IDE: Anteil des Textes über der Fläche für Gutter (Spalten, Abzeichen).</summary>
   cDpccMixWindowGutter = 0.06;
-  /// <summary>Chips und Tags: Innenabstand links und rechts zusammen und Eckenradius, logische Pixel.</summary>
-  cDpccChipPad = 12;
+  /// <summary>Eckenradius gerundeter Flächen (Warnleiste der Liste), logische Pixel.</summary>
   cDpccChipRadius = 4;
 
 implementation
@@ -123,12 +112,6 @@ uses
 function Hex(const AHex: string): TDpccColor;
 begin
   Result := TDpccColorMath.FromHex(AHex);
-end;
-
-function Badge(const ABackground, AText: string): TDpccBadgeColors;
-begin
-  Result.Background := Hex(ABackground);
-  Result.Text := Hex(AText);
 end;
 
 { TDpccColors }
@@ -154,18 +137,6 @@ begin
   Result.WarnSoft := Hex('#FDF1DC');
   Result.Error := Hex('#B42318');
   Result.ErrorSoft := Hex('#FDE8E6');
-  Result.Badges[TDpccBadgeKind.Function_] := Badge('#E3EEF9', '#0D4C8C');
-  Result.Badges[TDpccBadgeKind.Procedure_] := Badge('#E6F0EC', '#24634B');
-  Result.Badges[TDpccBadgeKind.Property_] := Badge('#FCEBDD', '#9A3412');
-  Result.Badges[TDpccBadgeKind.Field] := Badge('#E7F1F3', '#245A66');
-  Result.Badges[TDpccBadgeKind.Event] := Badge('#F1E8FA', '#6B2FA0');
-  Result.Badges[TDpccBadgeKind.Constant] := Badge('#FBF3D6', '#7A5A00');
-  Result.Badges[TDpccBadgeKind.Type_] := Badge('#CCDDF2', '#0A3F75');
-  Result.Badges[TDpccBadgeKind.Variable] := Badge('#E7F1F3', '#245A66');
-  Result.Badges[TDpccBadgeKind.Unit_] := Badge('#ECEFF3', '#3E4756');
-  Result.Badges[TDpccBadgeKind.Snippet] := Badge('#ECEFF3', '#3E4756');
-  Result.Badges[TDpccBadgeKind.Keyword] := Badge('#ECEFF3', '#3E4756');
-  Result.Badges[TDpccBadgeKind.XmlDoc] := Badge('#ECEFF3', '#3E4756');
   // Kräftig und gesättigt (#653): vom schwarzen bzw. dunkelblauen Text der Schlüsselwörter klar
   // verschieden (ΔE2000 ≥ 30), untereinander ≥ 30, gegen Weiß ≥ 4,5 : 1. Tiefe 0 nicht blau, weil
   // die IDE Schlüsselwörter im hellen Schema dunkelblau zeichnet; kein Rot neben der Fehlerfarbe.
@@ -209,18 +180,6 @@ begin
   Result.WarnSoft := Hex('#3A2E17');
   Result.Error := Hex('#F59A8F');
   Result.ErrorSoft := Hex('#3E201E');
-  Result.Badges[TDpccBadgeKind.Function_] := Badge('#1B2D45', '#9CC3F2');
-  Result.Badges[TDpccBadgeKind.Procedure_] := Badge('#1C3329', '#86D0AE');
-  Result.Badges[TDpccBadgeKind.Property_] := Badge('#43301F', '#F5B783');
-  Result.Badges[TDpccBadgeKind.Field] := Badge('#1F3338', '#8FCAD6');
-  Result.Badges[TDpccBadgeKind.Event] := Badge('#36264A', '#CBA6F2');
-  Result.Badges[TDpccBadgeKind.Constant] := Badge('#3B3218', '#E8C96A');
-  Result.Badges[TDpccBadgeKind.Type_] := Badge('#2A4670', '#B8D5F7');
-  Result.Badges[TDpccBadgeKind.Variable] := Badge('#1F3338', '#8FCAD6');
-  Result.Badges[TDpccBadgeKind.Unit_] := Badge('#272D36', '#B9C1CC');
-  Result.Badges[TDpccBadgeKind.Snippet] := Badge('#272D36', '#B9C1CC');
-  Result.Badges[TDpccBadgeKind.Keyword] := Badge('#272D36', '#B9C1CC');
-  Result.Badges[TDpccBadgeKind.XmlDoc] := Badge('#272D36', '#B9C1CC');
   // #653: Die bisherigen Pastelltöne lagen zu nah am hellen Text (Kontrast unter 1,8 : 1 und
   // ΔE2000 unter 30); dieselben Farbtöne wie hell, gesättigt und mittelhell.
   // Reihenfolge beginnt bei Blau; zyklisch wie zuvor, damit Nachbarn unterscheidbar bleiben.

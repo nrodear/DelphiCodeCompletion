@@ -99,7 +99,6 @@ type
     procedure HideList;
     procedure ShowEmpty(const APrefix: string; ATotal: Integer);
     function PageSize: Integer;
-    procedure ShowChips(const ACounts: TDpccChipCounts; AActive: TDpccChip; AVisible: Boolean);
     procedure ShowSyntax(const ANotice: TDpccSyntaxNotice);
   end;
 
@@ -107,10 +106,6 @@ procedure TFakeView.ShowSyntax(const ANotice: TDpccSyntaxNotice);
 begin
   Syntax := ANotice;
   Inc(SyntaxCount);
-end;
-
-procedure TFakeView.ShowChips(const ACounts: TDpccChipCounts; AActive: TDpccChip; AVisible: Boolean);
-begin
 end;
 
 procedure TFakeView.ShowList(const AItems: TDpccCompletionItems; const AOrder: TArray<Integer>;

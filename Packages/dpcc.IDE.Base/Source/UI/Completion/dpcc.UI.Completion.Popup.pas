@@ -3,52 +3,37 @@
 // Vervollständigungs-Popup (#410, #413): virtuelle Liste ohne Fokus. Gezeichnet
 // werden nur die sichtbaren Zeilen; Filtern liefert nur ein neues Index-Array
 // (AOrder), die Einträge selbst werden nicht kopiert.
-// Schlicht (S6, Plain, Vorgabe): Aussehen wie die Code-Insight-Liste der IDE und der Hover-Tooltip, flacher
-// Rahmen (FlatFrame), Farben aus TDpccIdeStyle.ListColors (setzt dpcc.IDE.Completion.EditorOpen). Je Zeile die
-// Art als Wort (procedure, function, type, …), der Name fett, dahinter die Signatur bzw. gedämpft das Detail,
-// rechts gedämpft „+ Unit“; keine Chips, kein Detailpanel, keine Badges, Tags als Flächen, Sterne oder Griff.
-// Fußzeile nur mit Tasten bzw. Hinweisen. Zeichnen: dpcc.UI.Completion.PopupPainter (DrawPlainRow).
-// Bisheriges Aussehen (nur noch ohne Plain) nach dem Entwurf (#411, #420, #421):
-//   - Zeile: farbiges Badge mit Kürzel (fn, pr, pp, ...), Name in der
-//     Editorschrift mit den getippten Zeichen in Akzentfarbe, rechtsbündig
-//     gedämpft das Detail und Tags ("+ Unit", deprecated). Zu lang: erst das
-//     Detail kürzen, dann den Namen.
-//   - Gewählte Zeile auf einer abgerundeten Akzentfläche, Text bleibt lesbar.
-//   - Fußzeile mit Tasten und "n von m"; schmale Scrollleiste.
+// Schlicht (S6): Aussehen wie die Code-Insight-Liste der IDE und der Hover-Tooltip, flacher Rahmen (FlatFrame),
+// Farben aus TDpccIdeStyle.CompletionListColors (setzt dpcc.IDE.Completion.EditorOpen). Je Zeile die Art als Wort
+// (procedure, function, type, …), der Name fett, dahinter die Signatur bzw. gedämpft das Detail, rechts gedämpft
+// „+ Unit“ und Warnungen. Fußzeile nur mit Tasten bzw. Hinweisen. Zeichnen: dpcc.UI.Completion.PopupPainter.
+// Das frühere Aussehen (Badges, Tags als Flächen, Filter-Chips, Sternspalte, Auswahlmarke, Griff, Zählung „n von
+// m“, Detailpanel mit Überladungen und XMLDoc) ist seit S7a entfernt.
 //   - Gekürzte Zeilen zeigen nach 600 ms Verweilen mit der Maus den vollen Text (#420).
-//   - Detailpanel (#424) im selben Fenster, durch eine Linie abgetrennt auf
-//     abgesetzter Fläche; rechts der Liste, ohne Platz dort links davon. Ist
-//     es einmal offen, bleibt sein Bereich bis zum Schließen stehen. Strg+Q bzw.
-//     Klick auf die Leiste klappt es auf eine schmale Leiste ein und wieder auf
-//     (#428); passt es weder rechts noch links, ist es automatisch eingeklappt.
-//   - Breiten (#416): Splitter zwischen Liste und Panel, rechter Rand und Griff
-//     unten rechts mit der Maus ziehbar; Doppelklick auf den Griff stellt die
-//     automatische Breite wieder her. Ohne gezogene Breite wächst die Liste mit
-//     dem breitesten Eintrag. Gezogen wird ohne Aktivierung, der Editor behält
-//     den Fokus.
+//   - Breite (#416): Der rechte Rand ist mit der Maus ziehbar; Doppelklick unten rechts stellt die automatische
+//     Breite wieder her. Ohne gezogene Breite wächst die Liste mit dem breitesten Eintrag. Gezogen wird ohne
+//     Aktivierung, der Editor behält den Fokus.
 // Die Position ergibt sich aus dem Anker (Caret-Rechteck in Bildschirm-
 // koordinaten): darunter, sonst darüber; nie über den Monitorrand hinaus.
 // Ohne Treffer zeigt es den leeren Zustand (#423). Breite und Höhe wachsen bei
 // Bedarf, schrumpfen während einer Sitzung aber nicht (#416), damit es beim
 // Filtern und Blättern nicht springt.
-// Mengenmodus (#448): Kontrollkästchen vor dem Badge, Überschrift „TAnchors ·
-// Menge von TAnchorKind“, Fußzeile mit Leertaste und „n gewählt“.
+// Mengenmodus (#448): Kontrollkästchen vor der Art, Überschrift „TAnchors · Menge von TAnchorKind“, Fußzeile mit
+// Leertaste und „n gewählt“.
 // Diagnosemodus (#479): Ist die Messung an, meldet Paint seine Dauer an
 // TDpccQueryTimings (Schritt „Zeichnen“); aus kein Zeitstempel.
-// Favoriten (#458, FavoritesEnabled): Spalte vor dem Badge; angeheftete Einträge tragen dort einen gefüllten
-// Stern, beim Überfahren einer Zeile erscheint ein leerer. Klick auf den Stern meldet OnFavorite, ohne die
-// Auswahl zu ändern. ShowNotice zeigt einen Hinweis links in der Fußzeile („Schon 5 Favoriten bei TDataSet …“)
-// bis zum nächsten getippten Zeichen bzw. Schließen.
+// Favoriten (#458): Angeheftete Einträge stehen oben (Rangfolge im Controller) und werden als Favorit angesagt;
+// anheften bzw. lösen mit Strg+D (IDE-Schicht). ShowNotice zeigt einen Hinweis links in der Fußzeile („Schon 5
+// Favoriten bei TDataSet …“) bis zum nächsten getippten Zeichen bzw. Schließen.
 // Rest der Liste (#497): Einträge unter der Überschrift „Weitere Einträge“ (TDpccRanking.cRestHeader) sind
-// gedämpft; die Fußzeile nennt „n Treffer · m weitere“ bzw. „Keine Treffer“, wenn nur der Rest steht.
+// gedämpft; die Fußzeile nennt „Keine Treffer“, wenn nur der Rest steht.
 // Barrierefreiheit (#447): Die Einträge sind für UI Automation Listeneinträge (IDpccAccessibleItems) mit
-// Zustand aus den Tags; die gewählte Zeile trägt mit SelectionMarker zusätzlich Rahmen und Marke ▸, damit sie
-// nicht nur an der Farbe erkennbar ist.
-// Unvollständiger Code (#457, IDpccCompletionSyntaxView): Unter den Chips steht eine Leiste in Warnfarbe
+// Zustand aus den Tags.
+// Unvollständiger Code (#457, IDpccCompletionSyntaxView): Über der Liste steht eine Leiste in Warnfarbe
 // „Ergebnisse möglicherweise unvollständig · Syntaxfehler in Zeile n“ (unbekannt: „Kontext unklar · …“), auch im
 // leeren Zustand, der dann den Fehlertext nennt. Klick auf die unterstrichene Zeilenangabe meldet OnSyntaxLine.
 // Aufbau: Die Klasse erbt ihre Teile über die Kette TDpccCompletionPopupState (Zustand, Höhen) →
-// TDpccCompletionPopupLayout (Lage, Panel) → TDpccCompletionPopupPainter (Zeichnen, Tooltip); hier stehen Maus,
+// TDpccCompletionPopupLayout (Lage) → TDpccCompletionPopupPainter (Zeichnen, Tooltip); hier stehen Maus,
 // Anzeige der Liste und Barrierefreiheit. Texte in dpcc.UI.Completion.PopupTexts.
 
 interface
@@ -59,7 +44,6 @@ uses
   Vcl.Controls,
   dpcc.Core.Completion.Contract,
   dpcc.Core.Completion.Controller,
-  dpcc.Core.Completion.Ranking,
   dpcc.UI.Popup.Accessibility,
   dpcc.UI.Completion.PopupState,
   dpcc.UI.Completion.PopupPainter;
@@ -70,7 +54,7 @@ type
   private
     /// <summary>Breite ziehen (#416): Bildschirmkoordinaten, weil das Fenster beim Ziehen mitwächst.</summary>
     procedure DragTo;
-    /// <summary>Mauszeiger über Splitter, Rand, Leiste, Verweis, Stern, Warnleiste oder Doku.</summary>
+    /// <summary>Mauszeiger über dem rechten Rand bzw. der Zeilenangabe der Warnleiste.</summary>
     procedure UpdateCursor(AX, AY: Integer);
     procedure AnnounceSelected;
     { IDpccAccessibleItems }
@@ -101,17 +85,10 @@ type
       const APattern: string);
     procedure HideList;
     procedure ShowEmpty(const APrefix: string; ATotal: Integer);
-    procedure ShowChips(const ACounts: TDpccChipCounts; AActive: TDpccChip; AVisible: Boolean);
     { IDpccCompletionSyntaxView }
     procedure ShowSyntax(const ANotice: TDpccSyntaxNotice);
     property OnSelect: TDpccPositionEvent read FEvents.OnSelect write FEvents.OnSelect;
     property OnAccept: TDpccPositionEvent read FEvents.OnAccept write FEvents.OnAccept;
-    property OnChip: TDpccChipEvent read FEvents.OnChip write FEvents.OnChip;
-    /// <summary>Klick auf ‹ bzw. › im Panel (#425).</summary>
-    property OnOverload: TDpccOverloadEvent read FEvents.OnOverload write FEvents.OnOverload;
-    property OnDocLink: TDpccDocLinkEvent read FEvents.OnDocLink write FEvents.OnDocLink;
-    /// <summary>Klick auf den Stern einer Zeile (#458); APosition in der Anzeigereihenfolge.</summary>
-    property OnFavorite: TDpccPositionEvent read FEvents.OnFavorite write FEvents.OnFavorite;
     /// <summary>Klick auf die Zeilenangabe der Warnleiste (#457).</summary>
     property OnSyntaxLine: TDpccSyntaxLineEvent read FEvents.OnSyntaxLine write FEvents.OnSyntaxLine;
   end;
@@ -120,215 +97,16 @@ implementation
 
 uses
   Winapi.Windows,
-  System.SysUtils,
   System.Math,
   dpcc.Core.Completion.Width,
+  dpcc.Core.Completion.Ranking,
   dpcc.Core.Completion.Presentation,
-  dpcc.Core.Documentation.Layout,
   dpcc.UI.Completion.Strings,
   dpcc.UI.Completion.PopupTexts;
 
 const
   // Rand neben dem Text „keine Treffer für …“ in der Breite des Fensters.
   cNoMatchesPadding = 32;
-
-type
-  /// <summary>Linksklick ins Popup (MouseDown): Die Teile, die ihn abnehmen, kommen in fester Reihenfolge dran;
-  /// nimmt ihn keiner ab, wählt er die Zeile.</summary>
-  TPopupClick = record
-    Popup: TDpccCompletionPopup;
-    X: Integer;
-    Y: Integer;
-    Shift: TShiftState;
-    /// <summary>Zeilenangabe der Warnleiste (#457).</summary>
-    function Syntax: Boolean;
-    /// <summary>Leiste des eingeklappten Panels (#428), Splitter, Rand und Griff (#416).</summary>
-    function Area: Boolean;
-    procedure StartDrag(AKind: TDpccDragKind; AWidth, ASign: Integer);
-    /// <summary>Pfeile der Überladungen im Panel (#425).</summary>
-    function Overload: Boolean;
-    /// <summary>XMLDoc im Panel (#654): Verweis bzw. Link, sonst Beginn einer Markierung.</summary>
-    function Doc: Boolean;
-    procedure OpenDocLink(AIndex: Integer);
-    /// <summary>Filter-Chip (#422).</summary>
-    function Chip: Boolean;
-    /// <summary>Stern einer Zeile (#458): anheften bzw. lösen, die Auswahl bleibt.</summary>
-    function Star: Boolean;
-    procedure Run;
-  end;
-
-{ TPopupClick }
-
-function TPopupClick.Syntax: Boolean;
-begin
-  Result := PtInRect(Popup.FSyntaxLink, Point(X, Y)) and Assigned(Popup.FEvents.OnSyntaxLine);
-  if Result then
-  begin
-    Popup.FEvents.OnSyntaxLine(Popup.FSyntax.Line, Popup.FSyntax.Character);
-  end;
-end;
-
-procedure TPopupClick.StartDrag(AKind: TDpccDragKind; AWidth, ASign: Integer);
-begin
-  Popup.HideTip;
-  Popup.FDrag.Kind := AKind;
-  Popup.FDrag.StartWidth := AWidth;
-  Popup.FDrag.Sign := ASign;
-  Popup.FDrag.StartX := Mouse.CursorPos.X;
-end;
-
-function TPopupClick.Area: Boolean;
-begin
-  Result := True;
-  case Popup.HitArea(X, Y) of
-    TDpccHitArea.PanelBar:
-      begin
-        Popup.TogglePanel;
-      end;
-    TDpccHitArea.Splitter:
-      begin
-        // Splitter: rechts liegendes Panel → Breite der Liste; links liegendes → Breite des Panels. Die Liste
-        // bleibt am Wortanfang; ein links liegendes Panel wächst nach links.
-        if Popup.FPanel.Left then
-        begin
-          StartDrag(TDpccDragKind.PanelWidth, Popup.PanelWidth, -1);
-        end
-        else
-        begin
-          StartDrag(TDpccDragKind.ListWidth, Popup.ListWidth, 1);
-        end;
-      end;
-    TDpccHitArea.Edge, TDpccHitArea.Grip:
-      begin
-        // Rechter Rand: Panel rechts und offen → dessen Breite, sonst die der Liste.
-        if Popup.FPanel.Shown and not Popup.FPanel.Left and not Popup.Collapsed then
-        begin
-          StartDrag(TDpccDragKind.PanelWidth, Popup.PanelWidth, 1);
-        end
-        else
-        begin
-          StartDrag(TDpccDragKind.ListWidth, Popup.ListWidth, 1);
-        end;
-      end;
-  else
-    Result := False;
-  end;
-end;
-
-function TPopupClick.Overload: Boolean;
-begin
-  Result := False;
-  if not Popup.FPanel.Shown or Popup.Collapsed or not Assigned(Popup.FEvents.OnOverload) then
-  begin
-    Exit;
-  end;
-  if PtInRect(Popup.FDetailView.PreviousRect, Point(X, Y)) then
-  begin
-    Popup.FEvents.OnOverload(-1);
-    Result := True;
-  end
-  else if PtInRect(Popup.FDetailView.NextRect, Point(X, Y)) then
-  begin
-    Popup.FEvents.OnOverload(1);
-    Result := True;
-  end;
-end;
-
-procedure TPopupClick.OpenDocLink(AIndex: Integer);
-begin
-  // „Mehr/Weniger anzeigen“ (#770): Zugeklappt darf das Popup wieder schrumpfen.
-  if Popup.FDetailView.Doc.Link(AIndex).Kind = TDpccDocLinkKind.Toggle then
-  begin
-    if not Popup.FDetailView.ToggleDoc(Popup.Canvas) then
-    begin
-      Popup.FSessionHeight := 0;
-    end;
-    Popup.Relayout;
-    Popup.Invalidate;
-  end
-  else if Assigned(Popup.FEvents.OnDocLink) then
-  begin
-    Popup.FEvents.OnDocLink(Popup.FDetailView.Doc.Link(AIndex), ssCtrl in Shift);
-  end;
-end;
-
-function TPopupClick.Doc: Boolean;
-var
-  mIndex: Integer;
-begin
-  Result := False;
-  if not Popup.DocActive then
-  begin
-    Exit;
-  end;
-  mIndex := Popup.FDetailView.DocLinkAt(X, Y);
-  if mIndex >= 0 then
-  begin
-    OpenDocLink(mIndex);
-    Result := True;
-  end
-  else if Popup.FDetailView.InDoc(X, Y) then
-  begin
-    Popup.FDetailView.Doc.StartSelection(Popup.Canvas, X - Popup.FDetailView.DocLeft, Y - Popup.FDetailView.DocTop);
-    Popup.Invalidate;
-    Result := True;
-  end
-  else if Popup.FDetailView.Doc.HasSelection then
-  begin
-    Popup.FDetailView.Doc.ClearSelection;
-    Popup.Invalidate;
-  end;
-end;
-
-function TPopupClick.Chip: Boolean;
-var
-  mIndex: Integer;
-begin
-  Result := False;
-  for mIndex := 0 to High(Popup.FChips.Rects) do
-  begin
-    if PtInRect(Popup.FChips.Rects[mIndex], Point(X, Y)) then
-    begin
-      if Assigned(Popup.FEvents.OnChip) then
-      begin
-        Popup.FEvents.OnChip(Popup.FChips.Kinds[mIndex]);
-      end;
-      Exit(True);
-    end;
-  end;
-end;
-
-function TPopupClick.Star: Boolean;
-var
-  mPosition: Integer;
-begin
-  mPosition := Popup.StarAt(X, Y);
-  Result := mPosition >= 0;
-  if Result and Assigned(Popup.FEvents.OnFavorite) then
-  begin
-    Popup.FEvents.OnFavorite(mPosition);
-  end;
-end;
-
-procedure TPopupClick.Run;
-var
-  mHandled: Boolean;
-  mPosition: Integer;
-begin
-  mHandled := Syntax or Area or Overload;
-  if not mHandled then
-  begin
-    mHandled := Doc or Chip or Star;
-  end;
-  if not mHandled then
-  begin
-    mPosition := Popup.RowAt(X, Y);
-    if (mPosition >= 0) and Assigned(Popup.FEvents.OnSelect) then
-    begin
-      Popup.FEvents.OnSelect(mPosition);
-    end;
-  end;
-end;
 
 { TDpccCompletionPopup }
 
@@ -349,25 +127,6 @@ begin
     Relayout;
   end;
   Invalidate;
-end;
-
-procedure TDpccCompletionPopup.ShowChips(const ACounts: TDpccChipCounts; AActive: TDpccChip; AVisible: Boolean);
-var
-  mShown: Integer;
-  mChip: TDpccChip;
-begin
-  FChips.Counts := ACounts;
-  FChips.Active := AActive;
-  // Nur sinnvoll, wenn es mehr als eine Art gibt.
-  mShown := 0;
-  for mChip := Succ(TDpccChip.All) to High(TDpccChip) do
-  begin
-    if ACounts[mChip] > 0 then
-    begin
-      Inc(mShown);
-    end;
-  end;
-  FChips.Visible := AVisible and (mShown >= 2);
 end;
 
 procedure TDpccCompletionPopup.ShowList(const AItems: TDpccCompletionItems; const AOrder: TArray<Integer>;
@@ -463,12 +222,7 @@ begin
   FSessionWidth := 0;
   FSessionHeight := 0;
   FEmpty.Showing := False;
-  FPanel.Shown := False;
-  FPanel.AutoCollapsed := False;
-  FDrag.Kind := TDpccDragKind.None;
-  FDetailView.Details := Default(TDpccItemDetails);
-  FDetailView.OverloadIndex := 0;
-  FDetailView.OverloadCount := 0;
+  FDrag.Active := False;
   FSyntax := Default(TDpccSyntaxNotice);
   FSyntaxLink := Rect(0, 0, 0, 0);
 end;
@@ -615,16 +369,32 @@ end;
 
 procedure TDpccCompletionPopup.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
 var
-  mClick: TPopupClick;
+  mPosition: Integer;
 begin
   inherited;
-  if Button = mbLeft then
+  if Button <> mbLeft then
   begin
-    mClick.Popup := Self;
-    mClick.X := X;
-    mClick.Y := Y;
-    mClick.Shift := Shift;
-    mClick.Run;
+    Exit;
+  end;
+  // Zeilenangabe der Warnleiste (#457).
+  if PtInRect(FSyntaxLink, Point(X, Y)) and Assigned(FEvents.OnSyntaxLine) then
+  begin
+    FEvents.OnSyntaxLine(FSyntax.Line, FSyntax.Character);
+    Exit;
+  end;
+  // Rechter Rand (#416): Breite der Liste ziehen.
+  if HitArea(X, Y) <> TDpccHitArea.None then
+  begin
+    HideTip;
+    FDrag.Active := True;
+    FDrag.StartWidth := ListWidth;
+    FDrag.StartX := Mouse.CursorPos.X;
+    Exit;
+  end;
+  mPosition := RowAt(X, Y);
+  if (mPosition >= 0) and Assigned(FEvents.OnSelect) then
+  begin
+    FEvents.OnSelect(mPosition);
   end;
 end;
 
@@ -633,16 +403,15 @@ var
   mPoint_: TPoint;
 begin
   inherited;
-  // Doppelklick auf den Griff: automatische Breiten (#416).
+  // Doppelklick unten rechts: automatische Breite (#416).
   mPoint_ := ScreenToClient(Mouse.CursorPos);
-  if HitArea(mPoint_.X, mPoint_.Y) = TDpccHitArea.Grip then
+  if HitArea(mPoint_.X, mPoint_.Y) = TDpccHitArea.Corner then
   begin
     FManualListWidth := 0;
-    FPanel.Width := cDefaultPanelWidth;
-    FDrag.Kind := TDpccDragKind.None;
+    FDrag.Active := False;
     Relayout;
     Invalidate;
-    WidthsChanged;
+    WidthChanged;
     Exit;
   end;
   if (FSelected >= 0) and Assigned(FEvents.OnAccept) then
@@ -652,42 +421,26 @@ begin
 end;
 
 procedure TDpccCompletionPopup.DragTo;
-var
-  mWidth: Integer;
 begin
-  mWidth := Logical(FDrag.StartWidth + FDrag.Sign * (Mouse.CursorPos.X - FDrag.StartX));
-  if FDrag.Kind = TDpccDragKind.ListWidth then
-  begin
-    FManualListWidth := TDpccPopupWidth.Fit(mWidth, cMinWidth, cMaxWidth);
-  end
-  else
-  begin
-    FPanel.Width := TDpccPopupWidth.Fit(mWidth, TDpccPopupWidth.cMinPanelWidth, TDpccPopupWidth.cMaxPanelWidth);
-  end;
+  FManualListWidth := TDpccPopupWidth.Fit(Logical(FDrag.StartWidth + Mouse.CursorPos.X - FDrag.StartX), cMinWidth,
+    cMaxWidth);
   Relayout;
   Invalidate;
 end;
 
 procedure TDpccCompletionPopup.UpdateCursor(AX, AY: Integer);
 begin
-  case HitArea(AX, AY) of
-    TDpccHitArea.Splitter: Cursor := crHSplit;
-    TDpccHitArea.Edge, TDpccHitArea.Grip: Cursor := crSizeWE;
-    TDpccHitArea.PanelBar: Cursor := crHandPoint;
+  if HitArea(AX, AY) <> TDpccHitArea.None then
+  begin
+    Cursor := crSizeWE;
+  end
+  else if PtInRect(FSyntaxLink, Point(AX, AY)) then
+  begin
+    Cursor := crHandPoint;
+  end
   else
-    if (DocActive and (FDetailView.DocLinkAt(AX, AY) >= 0)) or (StarAt(AX, AY) >= 0) or
-      PtInRect(FSyntaxLink, Point(AX, AY)) then
-    begin
-      Cursor := crHandPoint;
-    end
-    else if DocActive and FDetailView.InDoc(AX, AY) then
-    begin
-      Cursor := crIBeam;
-    end
-    else
-    begin
-      Cursor := crDefault;
-    end;
+  begin
+    Cursor := crDefault;
   end;
 end;
 
@@ -696,24 +449,12 @@ var
   mPosition: Integer;
 begin
   inherited;
-  if FDrag.Kind <> TDpccDragKind.None then
+  if FDrag.Active then
   begin
     DragTo;
     Exit;
   end;
-  // Markieren in der Doku (#654).
-  if FDetailView.Doc.Selecting and (ssLeft in Shift) then
-  begin
-    FDetailView.Doc.ExtendSelection(Canvas, X - FDetailView.DocLeft, Y - FDetailView.DocTop);
-    Invalidate;
-    Exit;
-  end;
   UpdateCursor(X, Y);
-  if DocActive and (FDetailView.DocLinkAt(X, Y) <> FDetailView.Doc.HotLink) then
-  begin
-    FDetailView.Doc.HotLink := FDetailView.DocLinkAt(X, Y);
-    Invalidate;
-  end;
   mPosition := RowAt(X, Y);
   if mPosition = FHoverPosition then
   begin
@@ -722,47 +463,23 @@ begin
   HideTip;
   FHoverPosition := mPosition;
   FTipTimer.Enabled := mPosition >= 0;
-  // Der leere Stern (#458) folgt der Maus.
-  if FOptions.FavoritesEnabled then
-  begin
-    Invalidate;
-  end;
 end;
 
 procedure TDpccCompletionPopup.MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
 begin
   inherited;
-  if FDetailView.Doc.Selecting then
-  begin
-    FDetailView.Doc.EndSelection;
-    Invalidate;
-  end;
-  if FDrag.Kind = TDpccDragKind.None then
+  if not FDrag.Active then
   begin
     Exit;
   end;
-  FDrag.Kind := TDpccDragKind.None;
-  WidthsChanged;
+  FDrag.Active := False;
+  WidthChanged;
 end;
 
 function TDpccCompletionPopup.DoMouseWheel(Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint): Boolean;
 begin
   Result := True;
   HideTip;
-  // Über dem Panel scrollt die Doku, wenn sie höher als das Popup ist (#654).
-  if DocActive and FDetailView.Doc.CanScroll and PtInRect(PanelRect, ScreenToClient(MousePos)) then
-  begin
-    if WheelDelta > 0 then
-    begin
-      FDetailView.ScrollDoc(-Max(1, WheelDelta div WHEEL_DELTA));
-    end
-    else
-    begin
-      FDetailView.ScrollDoc(Max(1, -WheelDelta div WHEEL_DELTA));
-    end;
-    Invalidate;
-    Exit;
-  end;
   if WheelDelta > 0 then
   begin
     FTop := Max(0, FTop - 3);

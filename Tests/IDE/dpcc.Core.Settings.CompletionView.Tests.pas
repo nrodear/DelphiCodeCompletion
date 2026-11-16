@@ -4,7 +4,8 @@
 // Tools › Optionen › dpcc noch zeigt (und wo), dass es seit S2 keine Code-Vorlagen und keine Seite „Server“ mehr
 // gibt, welche Tasten „Tastenkonflikte“ zeigt und dass die Suche über die Einstellungen nichts Ausgeblendetes mehr
 // findet. Seit S3 auch: keine Seite „Robustheit“ und keine Extras des Hovers mehr. Seit S4: keine Seite „Index“ und
-// keine Schalter zum Server mehr; Umfang, Verwendungen und Speichergrenze des Index sind fest.
+// keine Schalter zum Server mehr; Umfang, Verwendungen und Speichergrenze des Index sind fest. Seit S7a: keine
+// Schalter der früheren Liste (Filter-Chips, Detailpanel, Auswahlmarke) und keine gelernten Vorschläge mehr.
 
 interface
 
@@ -38,10 +39,11 @@ type
     /// Server nimmt feste Werte, auch wenn settings.json andere enthält.</summary>
     [Test]
     procedure IndexPageAndServerSwitchesAreGone;
-    /// <summary>S6: Die Liste ist schlicht wie die Code-Insight-Liste der IDE; Filter-Chips, eingeklapptes
-    /// Detailpanel und Auswahlmarke stehen nicht mehr auf der Seite, die übrigen Schalter der Liste schon.</summary>
+    /// <summary>S6/S7a: Die Liste ist schlicht wie die Code-Insight-Liste der IDE; Filter-Chips, Detailpanel
+    /// (Breite, eingeklappt), Auswahlmarke und die gelernten Vorschläge (suggestions.*) sind weder im Katalog noch
+    /// gespeichert, die übrigen Schalter der Liste stehen auf der Seite.</summary>
     [Test]
-    procedure PlainListSwitchesAreHidden;
+    procedure PlainListSwitchesAreGone;
     [Test]
     procedure KeysPageShowsCompletionAndSignature;
     [Test]
@@ -92,16 +94,29 @@ begin
   end;
 end;
 
-procedure TDpccCompletionViewTests.PlainListSwitchesAreHidden;
+procedure TDpccCompletionViewTests.PlainListSwitchesAreGone;
+const
+  cGone: array[0..8] of string = ('FilterChips', 'PanelWidth', 'PanelCollapsed', 'SelectionMarker',
+    'SuggestionsLearned', 'SuggestionsDelayMs', 'SuggestionsMinShare', 'SuggestionsMinCount',
+    'SuggestionsLearnFromUsage');
 var
   mCatalog: TDpccSettingsCatalog;
+  mStore: IDpccMemorySettingsStore;
+  mIndex: Integer;
   mName: string;
 begin
+  mStore := TDpccMemorySettingsStore.FromSettings(TDpccPluginSettings.Defaults);
   mCatalog := TDpccSettingsCatalog.CreateDefault;
   try
-    for mName in ['FilterChips', 'PanelCollapsed', 'SelectionMarker'] do
+    for mName in cGone do
     begin
-      Assert.AreEqual(Ord(spHidden), Ord(PlaceOfName(mCatalog, mName)), mName);
+      Assert.IsTrue(mCatalog.IndexOfName(mName) < 0, mName);
+      Assert.IsFalse(MatchText(mName, mStore.Names), mName + ' gespeichert');
+    end;
+    for mIndex := 0 to mCatalog.Count - 1 do
+    begin
+      Assert.IsFalse((mCatalog[mIndex].Source = asPlugin) and StartsText('suggestions.', mCatalog[mIndex].Key),
+        mCatalog[mIndex].Key);
     end;
     for mName in ['Learning', 'Favorites', 'GroupInherited'] do
     begin

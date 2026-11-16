@@ -37,6 +37,9 @@
 // Completion-Schnitt: Nach dem Aufbau blendet ApplyView aus, was dpcc.Core.Settings.CompletionView nicht mehr zeigt;
 // die Suche findet nur, was hier sichtbar steht, und die Einstellungen der Seite „Tastenkonflikte“ (die Seite
 // „Server“ gibt es seit S2 nicht mehr).
+// Seit S7a baut die Seite die Teile ohne sichtbare Einstellung nicht mehr (Build, Farben, Befehle, EditorCode,
+// Prüfregeln, Start, Export/Import, Benachrichtigungen) und keine Abschnitte der Module: Es gab keine Module, die
+// welche anmelden. Was die Kommentare oben zu diesen Bereichen sagen, ist Geschichte.
 
 interface
 
@@ -124,9 +127,7 @@ uses
   dpcc.UI.Settings.Page.Host,
   dpcc.UI.Settings.Page.Nodes,
   dpcc.UI.Settings.Page.Parts,
-  dpcc.UI.Settings.Page.Sections,
   dpcc.UI.Settings.Page.General,
-  dpcc.UI.Settings.Page.Transfer,
   dpcc.UI.Settings.Marks,
   dpcc.UI.Settings.Strings,
   dpcc.Core.Diagnostics.Hangs;
@@ -159,7 +160,6 @@ begin
   TDpccSettingsPageParts.Build(Self);
   // „Einstellungen dazu …“ am gezeichneten Element (#628) und an Bereichen der Willkommensseite (#767).
   BindControls;
-  Part<TDpccSettingsSectionsPart>.Build;
   AddFilterRow;
   BuildNodes;
   ApplyView;
@@ -427,7 +427,6 @@ end;
 
 procedure TDpccSettingsPage.RefreshMarks;
 begin
-  Part<TDpccSettingsTransferPart>.ShowModified;
   FExperimentalBanner.Visible := FMarks.HasExperimental and
     not Part<TDpccSettingsGeneralPart>.ExperimentalEnabled.Checked;
   UpdateLocks;

@@ -7,26 +7,16 @@
 // Die Unterseiten „Snippets“ und „Server“ gibt es seit S2 nicht mehr, die Seite „Index“ seit S4: Statt Kennzahlen,
 // „Index löschen“ und „Index-Cache löschen“ (Befehle an den Server, die den Server auch startete) steht auf der Seite
 // „Allgemein“ nur noch „Index neu aufbauen“ (Haken RestartIndex, dpcc.IDE.Settings.PageOptions).
-// ShowSetting (#628, „Einstellungen dazu …“): öffnet Tools › Optionen, wählt
-// die Seite „dpcc“ in der Baumansicht des Dialogs (soweit sie sich finden
-// lässt) und zeigt dort die Einstellung mit markierter Zeile (Reveal).
-// Seite Issue-Tracker: Den Abschnitt mit Verbindungen, Projekten, Abfragen
-// und Prüfungen baut das Modul Tracker (#1455, dpcc.IDE.Tracker.Settings).
-// ShowSetting mit Vorgabe („zuordnen …“ aus „Meine Issues“, #1261) reicht die
-// Vorgabe nach dem Laden an den Abschnitt, dem die Einstellung gehört.
-// Seite Versionsverwaltung: baut und verdrahtet das Modul Versionsverwaltung
-// als Abschnitt (#1905); nach OK liest es settings.json über ApplySettings neu.
-// ShowVcsServer reicht den Ordner als Vorgabe an dessen Abschnitt.
 // Completion-Schnitt: Unter Drittanbieter steht seit S2 nur noch „dpcc“ (die Optionsseite, gefiltert nach
 // dpcc.Core.Settings.CompletionView); „Tastenkonflikte“ entfällt seit Rückbau R5, „Snippets“ und „Server“ seit S2.
-// Übersicht, „Module“ und die Knoten je Package meldet dpcc nicht mehr an. ShowSetting öffnet immer die Seite
-// „dpcc“.
+// Übersicht, „Module“ und die Knoten je Package meldet dpcc nicht mehr an.
+// Seit S7a ohne ShowSetting („Einstellungen dazu …“, #628; es gab keinen Aufrufer mehr), ohne Abschnitte der Module
+// (#1455) und ohne „Leiste anpassen …“ der Editorleiste (#1101).
 
 interface
 
 uses
   System.SysUtils,
-  dpcc.UI.EditorToolbar.Customize,
   dpcc.IDE.Settings.PageOptions;
 
 type
@@ -39,23 +29,12 @@ type
     /// <summary>„Index neu aufbauen“ (S4): Caches bei angehaltener Sitzung löschen, laufende Sitzung neu starten.
     /// </summary>
     RestartIndex: TDpccIndexRestart;
-    /// <summary>dpcc-Befehle der Palette für „Leiste anpassen …“ der Editorleiste (#1101).</summary>
-    ToolbarCommands: TFunc<TArray<TDpccToolbarCommandInfo>>;
   end;
 
   TDpccOptionsRegistration = class
   public
     class procedure Register(const AHooks: TDpccOptionsHooks); static;
     class procedure Unregister; static;
-    /// <summary>Tools › Optionen öffnen und auf der Seite „dpcc“ die Einstellung AKey (Name der
-    /// Plugin-Einstellung) zeigen und markieren (#628).</summary>
-    class procedure ShowSetting(const AKey: string); overload; static;
-    /// <summary>Wie ShowSetting; danach bekommt der Abschnitt des Moduls, dem AKey gehört, die Vorgabe AArgument
-    /// (z. B. „zuordnen …“ mit dem Projekt, #1261).</summary>
-    class procedure ShowSetting(const AKey, AArgument: string); overload; static;
-    /// <summary>„Anmeldung am Server nötig – prüfen …“ (#1287): Tools › Optionen auf der Seite Versionsverwaltung
-    /// öffnen und den Serverzugang für AFolder prüfen.</summary>
-    class procedure ShowVcsServer(const AFolder: string); static;
   end;
 
 implementation
@@ -69,9 +48,7 @@ uses
   dpcc.Core.Settings.History,
   dpcc.Core.Settings.NodeScope,
   dpcc.UI.Settings.Page,
-  dpcc.IDE.Settings.OptionsDialog,
   dpcc.UI.Settings.Page.Completion,
-  dpcc.UI.Settings.Page.Sections,
   dpcc.UI.Strings,
   dpcc.UI.Settings.Strings,
   dpcc.IDE.Foundation.StructureSwitch,
@@ -105,12 +82,6 @@ var
   Options: INTAAddInOptions;
   /// <summary>Gesetzt von Register, geleert von Unregister.</summary>
   Hooks: TDpccOptionsHooks;
-  /// <summary>Einstellung, die die Seite „dpcc“ beim nächsten Anlegen zeigen soll (#628); '' ohne.</summary>
-  PendingReveal: string;
-  /// <summary>Vorgabe zu PendingReveal für den Abschnitt eines Moduls (#1455); '' ohne.</summary>
-  PendingArgument: string;
-  /// <summary>Rückfall, solange der modale Dialog offen ist: wählt die Seite „dpcc“ im Baum.</summary>
-  Selector: TDpccOptionsSelector;
 
 { TDpccAddInOptions }
 
@@ -142,16 +113,10 @@ procedure TDpccAddInOptions.FrameCreated(AFrame: TCustomFrame);
 begin
   FPage := AFrame as TDpccSettingsPage;
   FPage.Part<TDpccSettingsCompletionPart>.OnResetHistory := Hooks.ResetHistory;
-  // „Einstellungen dazu …“ (#628): gewünschte Zeile zeigen.
-  if PendingReveal <> '' then
-  begin
-    FPage.Reveal(PendingReveal);
-  end;
-  TDpccPageOptions.ConnectFavorites(FPage, Hooks.ToolbarCommands);
+  TDpccPageOptions.ConnectFavorites(FPage);
   // „Index neu aufbauen“ (S4); startet keinen Server, der nicht läuft.
   TDpccPageOptions.ConnectRebuild(FPage, Hooks.RestartIndex);
-  TDpccPageOptions.ConnectTransfer(FPage);
-  TDpccPageOptions.ConnectHelp(FPage);
+  TDpccPageOptions.ConnectTeamFile(FPage);
   // Suchfeld über dem Baum (#1884): ohne Module nur Base. Andere Knoten gibt es seit S2 nicht mehr.
   FPage.Search.OnInstalled :=
     function(const ASwitch: string): Boolean
@@ -163,11 +128,6 @@ begin
   FPage.ApplyScope(FScope);
   FLoaded := TDpccIdeSettings.Stored;
   FPage.LoadFrom(FLoaded);
-  // Vorgabe für den Abschnitt eines Moduls (#1455), z. B. „zuordnen …“ aus „Meine Issues“: nach dem Laden.
-  if (PendingReveal <> '') and (PendingArgument <> '') then
-  begin
-    FPage.Part<TDpccSettingsSectionsPart>.ShowSettingArgument(PendingReveal, PendingArgument);
-  end;
 end;
 
 procedure TDpccAddInOptions.DialogClosed(Accepted: Boolean);
@@ -175,8 +135,6 @@ var
   mSettings: TDpccPluginSettings;
   mTarget: IDpccMemorySettingsStore;
 begin
-  PendingReveal := '';
-  PendingArgument := '';
   try
     if Accepted and (FPage <> nil) then
     begin
@@ -256,56 +214,6 @@ begin
   end;
   Options := nil;
   Hooks := Default(TDpccOptionsHooks);
-  PendingReveal := '';
-  PendingArgument := '';
-  FreeAndNil(Selector);
-end;
-
-class procedure TDpccOptionsRegistration.ShowSetting(const AKey: string);
-begin
-  if Options = nil then
-  begin
-    Exit;
-  end;
-  PendingReveal := AKey;
-  if Selector = nil then
-  begin
-    Selector := TDpccOptionsSelector.Create(
-      function: Boolean
-      begin
-        Result := PendingReveal <> '';
-      end);
-  end;
-  // Der Dialog ist modal: Der Zeitgeber wählt die Seite, während er offen ist (nur noch Rückfall).
-  Selector.Start;
-  try
-    // Offizieller Weg: Dialog gleich auf der Seite „dpcc“ unter „Fremdhersteller“ (leere Area). Die Seite zeigt
-    // beim Anlegen PendingReveal. Der Baum von Delphi 13 ist kein TTreeView mehr; die Suche darin fand nichts.
-    TDpccIdeOptionsDialog.Open(Options.GetCaption);
-  finally
-    // Modal: Hier ist der Dialog wieder zu. Nicht gefunden oder geschlossen: nichts mehr vormerken.
-    if Selector <> nil then
-    begin
-      Selector.Stop;
-    end;
-    PendingReveal := '';
-  end;
-end;
-
-class procedure TDpccOptionsRegistration.ShowSetting(const AKey, AArgument: string);
-begin
-  PendingArgument := AArgument;
-  try
-    ShowSetting(AKey);
-  finally
-    PendingArgument := '';
-  end;
-end;
-
-class procedure TDpccOptionsRegistration.ShowVcsServer(const AFolder: string);
-begin
-  // Der Abschnitt der Versionsverwaltung nimmt den Ordner als Vorgabe zu vcs.projects (#1905).
-  ShowSetting('VcsProjects', AFolder);
 end;
 
 end.

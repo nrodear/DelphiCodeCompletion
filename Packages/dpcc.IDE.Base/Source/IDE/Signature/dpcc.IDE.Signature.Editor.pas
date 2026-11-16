@@ -104,12 +104,7 @@ type
     procedure ActiveChanged;
     function WantsKey(AKey: Word; AShift: TShiftState): Boolean;
     procedure HandleKey(AKey: Word);
-  private class var
-    FPreferredName: string;
-    FPreferredIndex: Integer;
   public
-    /// <summary>Beim nächsten Hint für AName die Überladung AIndex wählen (aus dem Detailpanel, #425).</summary>
-    class procedure PreferOverload(const AName: string; AIndex: Integer); static;
     /// <summary>ASource: Server-Anbieter, eingesetzt von der Kompositionswurzel.</summary>
     constructor Create(const ASource: IDpccSignatureSource; const ACompletionOpen: TDpccBoolFunc;
       const ALog: TDpccLogFunc);
@@ -479,22 +474,9 @@ begin
   FHint.Above := Assigned(FCompletionOpen) and FCompletionOpen();
   FHint.SetPath(mCurrent.Outer, mCurrent.Name);
   FController.Show(AHelp, mCurrent.ActiveParameter);
-  // Im Detailpanel gewählte Überladung übernehmen (#425), einmalig.
-  if (FPreferredName <> '') and SameText(FPreferredName, mCurrent.Name) and (FPreferredIndex > 0) and
-    (FPreferredIndex < Length(AHelp.Signatures)) then
-  begin
-    FController.SelectOverload(FPreferredIndex);
-  end;
-  FPreferredName := '';
   ShowFormat(AHelp.Format, AText);
   Log(Format('Parameter-Hint: %d Signaturen, Parameter %d', [Length(AHelp.Signatures), mCurrent.ActiveParameter]));
   ActiveChanged;
-end;
-
-class procedure TDpccEditorSignature.PreferOverload(const AName: string; AIndex: Integer);
-begin
-  FPreferredName := AName;
-  FPreferredIndex := AIndex;
 end;
 
 procedure TDpccEditorSignature.Close;

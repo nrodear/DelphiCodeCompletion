@@ -19,8 +19,8 @@ type
   TDpccLanguage = dpcc.Core.Localization.Language.TDpccLanguage;
 
   TDpccTextId = (
-    OptionalDefault, NoOverloadWith, MoreOverloads, ChipAll, ChipMethods, ChipProperties, ChipEvents, ChipTypes,
-    ChipSnippets, CompileCancelled, ReloadDone, ReloadKeptModified, ReloadDeleted, PaletteLog,
+    OptionalDefault, NoOverloadWith, MoreOverloads, CompileCancelled, ReloadDone, ReloadKeptModified, ReloadDeleted,
+    PaletteLog,
     PaletteResetHistory, CheckOnSaveDisabled, PaletteCheckNow, KindClass, KindClassRef, KindObject, KindRecord,
     KindInterface, KindHelper, KindEnum, KindType, KindMethod, KindConstructor, KindRoutine, KindProperty,
     KindField, KindVariable, KindConstant, KindEnumMember, PairGuidesIdeOff, PairGuidesIdeOn, ProblemsConfidence,
@@ -176,8 +176,6 @@ type
     ElementExitPoints, ElementExitPointsPlural,
     // Neu zugewiesene Variablen (#712): Optionsseite, Hover, Element.
     ElementReassigned, ElementReassignedPlural,
-    // Gelernte Vorschläge (#1890): Element zum Ausblenden.
-    ElementLearnedSuggestions, ElementLearnedSuggestionsPlural,
     // Typ des markierten Ausdrucks (#689): Befehl, Optionsseite, Tooltip.
     ExpressionTypeCommand,
     // Methodenrümpfe in Deklarationsreihenfolge (#660): Befehl, Vorschau, Meldungen, Optionsseite.
@@ -275,8 +273,7 @@ uses
 const
   cTexts: array[TDpccLanguage, TDpccTextId] of string = (
     ( 'optional, Standard %s',
-     'Keine Überladung mit %d Parametern.', '… %d weitere', 'Alle', 'Methoden', 'Eigenschaften', 'Ereignisse',
-     'Typen', 'Vorlagen', 'dpcc: Compile abgebrochen – %s',
+     'Keine Überladung mit %d Parametern.', '… %d weitere', 'dpcc: Compile abgebrochen – %s',
      'dpcc: %d Dateien neu geladen', 'dpcc: %s wurde außerhalb geändert und hat ungespeicherte Änderungen; die IDE fragt nach.',
      'dpcc: %s existiert nicht mehr.', 'Protokoll öffnen', 'Verlauf der Vervollständigung zurücksetzen',
      'dpcc: Compilerprüfung nach dem Speichern für %s abgeschaltet (%d ms > %d ms); Strg+Alt+F9 prüft von Hand.',
@@ -675,7 +672,6 @@ const
      'Überladung anlegen fehlgeschlagen: %s',
      'Hervorhebung der Austrittspunkte', 'Hervorhebungen der Austrittspunkte', 'Unterstreichung einer neu zugewiesenen Variablen',
      'Unterstreichungen neu zugewiesener Variablen',
-     'gelernter Vorschlag', 'gelernte Vorschläge',
      'Typ des Ausdrucks',
      'implementation wie Klasse ordnen',
      'Interface herauslösen fehlgeschlagen: %s',
@@ -755,8 +751,7 @@ const
      'Zurück zu Zeile %d',
      'Zurück zu Zeile %d · %s',
      'Zur uses-Klausel (%s)'),
-    ( 'optional, default %s', 'No overload with %d parameters.', '… %d more',
-     'All', 'Methods', 'Properties', 'Events', 'Types', 'Templates', 'dpcc: compile cancelled – %s',
+    ( 'optional, default %s', 'No overload with %d parameters.', '… %d more', 'dpcc: compile cancelled – %s',
      'dpcc: %d files reloaded', 'dpcc: %s was changed outside and has unsaved changes; the IDE will ask.',
      'dpcc: %s no longer exists.', 'Open log', 'Reset completion history',
      'dpcc: compiler check after saving switched off for %s (%d ms > %d ms); Ctrl+Alt+F9 checks manually.',
@@ -1144,7 +1139,6 @@ const
      'Creating the overload failed: %s',
      'exit point highlight', 'exit point highlights', 'reassigned variable underline',
      'reassigned variable underlines',
-     'learned suggestion', 'learned suggestions',
      'Expression type',
      'Order implementation like class',
      'Extract interface failed: %s',

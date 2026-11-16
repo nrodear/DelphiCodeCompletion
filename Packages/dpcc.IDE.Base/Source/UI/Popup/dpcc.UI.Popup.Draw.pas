@@ -16,9 +16,7 @@ uses
 type
   TDpccDraw = class
   public const
-    /// <summary>Innenabstand links und rechts zusammen (logische Pixel) für Chips und Tags.</summary>
-    cChipPad = cDpccChipPad;
-    /// <summary>Eckenradius (logische Pixel) für Chips und Tags.</summary>
+    /// <summary>Eckenradius (logische Pixel) für die Warnleiste der Liste.</summary>
     cChipRadius = cDpccChipRadius;
   public
     /// <summary>Farbe des Scroll-Daumens.</summary>

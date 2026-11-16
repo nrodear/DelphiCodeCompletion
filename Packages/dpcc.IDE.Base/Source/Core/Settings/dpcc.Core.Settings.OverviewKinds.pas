@@ -3,8 +3,8 @@
 // Arten der Übersichtsleiste (#519) für editor.overviewRulerKinds:
 // kommagetrennte Namen ("diagnostics,search,changes,breakpoints,bookmarks,
 // cursor"); unbekannte fallen weg, die Reihenfolge ist fest. Liegt bei den
-// Einstellungen, damit der Parser ohne den Editor-Kern auskommt; die Marken
-// selbst rechnet dpcc.Core.Editor.Overview.
+// Einstellungen, damit der Parser ohne den Editor-Kern auskommt (die Marken
+// selbst rechnete der Editor-Kern; seit S7a entfernt).
 
 interface
 

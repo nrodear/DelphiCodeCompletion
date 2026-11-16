@@ -1,9 +1,9 @@
 ﻿unit dpcc.Core.Completion.Presentation;
 
 // Darstellung eines Eintrags in der Liste (#420, #421), ohne Fenster:
-//   - Badge: Kürzel und Farbart nach der Art; Funktion oder Prozedur nach
-//     der Signatur, solange der Server beides als Methode meldet. Attribute
-//     nach "[" (#465) tragen "at" in der Farbe der Typen.
+//   - Art als Wort (KindWord) wie in der Code-Insight-Liste der IDE; Funktion oder Prozedur nach der Signatur,
+//     solange der Server beides als Methode meldet. Attribute nach "[" (#465) gelten als type. Die farbigen
+//     Badges der früheren Liste gibt es seit S7a nicht mehr.
 //   - Detail: gedämpfter Text rechts (Typ, Klasse, Unit-Datei).
 //   - Tags: "+ Unit" für Einträge aus nicht eingebundenen Units (#180),
 //     "deprecated", "constructor"/"destructor", "+2" bei drei Überladungen
@@ -23,16 +23,9 @@ interface
 
 uses
   System.SysUtils,
-  dpcc.Core.Completion.Contract,
-  dpcc.Core.Style.Palette;
+  dpcc.Core.Completion.Contract;
 
 type
-  TDpccBadge = record
-    Kind: TDpccBadgeKind;
-    /// <summary>Zwei Buchstaben, z. B. "fn".</summary>
-    Code: string;
-  end;
-
   TDpccTagKind = (Neutral, Accent, Add, Warn, Error);
 
   /// <summary>Übersetzbare Marken (#446); Plain = Text unverändert zeigen; Cycle = Zirkelbezug im uses-Abschnitt
@@ -78,7 +71,6 @@ type
     /// <summary>Schlichte Zeile (S6) zu AItem; ADetail ist das Detail der Liste, ATrailer der Text rechts.</summary>
     class function PlainRow(const AItem: TDpccCompletionItem; const ADetail, ATrailer: string): TDpccPlainRow;
       static;
-    class function Badge(const AItem: TDpccCompletionItem): TDpccBadge; static;
     class function Detail(const AItem: TDpccCompletionItem): string; static;
     /// <summary>Ansage für Screenreader (#447): "Name, Art, Position von Anzahl. Kurzbeschreibung";
     /// AOf ist das Format von "Position von Anzahl" (z. B. "%d von %d").</summary>
@@ -177,12 +169,6 @@ end;
 const
   /// <summary>Endung des Details, mit der der Server die Unit nennt, je Sprache der Servertexte (#1458).</summary>
   cUsesSuffixes: array[0..1] of string = (' (uses ergänzen)', ' (add to uses)'); // german-ok: Text des Servers
-
-function MakeBadge(AKind: TDpccBadgeKind; const ACode: string): TDpccBadge;
-begin
-  Result.Kind := AKind;
-  Result.Code := ACode;
-end;
 
 function MakeTag(const AText: string; AKind: TDpccTagKind): TDpccTag;
 begin
@@ -344,7 +330,7 @@ end;
 
 class function TDpccItemPresentation.KindWord(const AItem: TDpccCompletionItem): string;
 const
-  // Wie die Kürzel der Badges: Methode und Funktion ohne Signatur gelten als function.
+  // Methode und Funktion ohne Signatur gelten als function.
   cWords: array[TDpccItemKind] of string = ('', 'function', 'function', 'procedure', 'constructor', 'destructor',
     'property', 'field', 'event', 'var', 'var', 'const', 'type', 'type', 'type', 'type', 'type', 'const', 'unit',
     'keyword', 'snippet', 'xmldoc');
@@ -413,36 +399,6 @@ begin
   if SameText(Result.Detail, AItem.Name) or SameText(Result.Detail, Result.Kind) then
   begin
     Result.Detail := '';
-  end;
-end;
-
-class function TDpccItemPresentation.Badge(const AItem: TDpccCompletionItem): TDpccBadge;
-const
-  cKinds: array[TDpccItemKind] of TDpccBadgeKind = (TDpccBadgeKind.Variable, TDpccBadgeKind.Function_,
-    TDpccBadgeKind.Function_, TDpccBadgeKind.Procedure_, TDpccBadgeKind.Function_, TDpccBadgeKind.Procedure_,
-    TDpccBadgeKind.Property_, TDpccBadgeKind.Field, TDpccBadgeKind.Event, TDpccBadgeKind.Variable,
-    TDpccBadgeKind.Variable, TDpccBadgeKind.Constant, TDpccBadgeKind.Type_, TDpccBadgeKind.Type_,
-    TDpccBadgeKind.Type_, TDpccBadgeKind.Type_, TDpccBadgeKind.Type_, TDpccBadgeKind.Constant,
-    TDpccBadgeKind.Unit_, TDpccBadgeKind.Keyword, TDpccBadgeKind.Snippet, TDpccBadgeKind.XmlDoc);
-  cCodes: array[TDpccItemKind] of string = ('··', 'fn', 'fn', 'pr', 'fn', 'pr', 'pp', 'fd', 'ev', 'va', 'va', 'co',
-    'ty', 'ty', 'ty', 'ty', 'ty', 'co', 'un', 'kw', 'sn', 'xd');
-var
-  mSignature: string;
-begin
-  if AItem.Attribute then
-  begin
-    Exit(MakeBadge(TDpccBadgeKind.Type_, 'at'));
-  end;
-  // Methode: Funktion oder Prozedur nach der Signatur.
-  mSignature := LowerCase(TrimLeft(AItem.Signature));
-  if (AItem.Kind = TDpccItemKind.Method) and (mSignature.StartsWith('procedure') or
-    mSignature.StartsWith('destructor')) then
-  begin
-    Result := MakeBadge(TDpccBadgeKind.Procedure_, 'pr');
-  end
-  else
-  begin
-    Result := MakeBadge(cKinds[AItem.Kind], cCodes[AItem.Kind]);
   end;
 end;
 

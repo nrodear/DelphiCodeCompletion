@@ -21,7 +21,7 @@
 //
 // Rangfolge über TDpccRanking: Lernzuschlag (#418, Usage), Gruppen geerbter
 // Member mit Überschriften (#419; Header in der Reihenfolge, die Auswahl
-// überspringt sie), Filter-Chips (#422).
+// überspringt sie). Filter-Chips (#422) gibt es seit S7a nicht mehr (schlichte Liste, S6).
 //
 // Favoriten (#458, Favorites): Eintreffende Einträge bekommen Favorite gesetzt; ToggleFavorite heftet den
 // Eintrag an einer Position an bzw. löst ihn, sortiert neu und lässt die Auswahl auf dem gewählten Eintrag.
@@ -80,8 +80,6 @@ type
     procedure ShowEmpty(const APrefix: string; ATotal: Integer);
     /// <summary>Zahl der sichtbaren Zeilen für Bild auf/ab.</summary>
     function PageSize: Integer;
-    /// <summary>Filter-Chips (#422): Treffer je Art, gewählter Chip; AVisible = False blendet sie aus.</summary>
-    procedure ShowChips(const ACounts: TDpccChipCounts; AActive: TDpccChip; AVisible: Boolean);
   end;
 
   /// <summary>Ansicht mit Hinweis bei unvollständigem Code (#457); das Popup, wahlweise auch Tests.</summary>
@@ -93,28 +91,25 @@ type
 
   TDpccCommitEvent = reference to procedure(const AItem: TDpccCompletionItem);
 
-  /// <summary>Einstellungen der Vervollständigung, die der Aufrufer setzt (#418, #419, #422, #458, #497).
+  /// <summary>Einstellungen der Vervollständigung, die der Aufrufer setzt (#418, #419, #458, #497).
   /// </summary>
   TDpccCompletionSettings = class
   private
     FOnCommit: TDpccCommitEvent;
     FGroupInherited: Boolean;
-    FChipsEnabled: Boolean;
     FListMode: TDpccListMode;
     FListScope: TDpccListScope;
     FUsage: TDpccUsage;
     FFavorites: TDpccFavorites;
     /// <summary>Marken „zuletzt“/„häufig“ (#418) und Favorit (#458) in AItems ab AFrom setzen.</summary>
     procedure MarkItems(var AItems: TDpccCompletionItems; AFrom: Integer);
-    /// <summary>Optionen für TDpccRanking: Chip, Listenmodus (AMembers: Mitgliederliste nach ".") und
-    /// Lernzuschlag für AItems.</summary>
-    function RankOptions(AChip: TDpccChip; AMembers: Boolean;
-      const AItems: TDpccCompletionItems): TDpccRankOptions;
+    /// <summary>Optionen für TDpccRanking: Listenmodus (AMembers: Mitgliederliste nach ".") und Lernzuschlag für
+    /// AItems.</summary>
+    function RankOptions(AMembers: Boolean; const AItems: TDpccCompletionItems): TDpccRankOptions;
   public
     property OnCommit: TDpccCommitEvent read FOnCommit write FOnCommit;
     /// <summary>Geerbte Member gruppieren (#419).</summary>
     property GroupInherited: Boolean read FGroupInherited write FGroupInherited;
-    property ChipsEnabled: Boolean read FChipsEnabled write FChipsEnabled;
     /// <summary>Einträge ohne Treffer zeigen (#497); Filter = nur Treffer.</summary>
     property ListMode: TDpccListMode read FListMode write FListMode;
     /// <summary>Wo ListMode gilt (#497).</summary>
@@ -149,7 +144,6 @@ type
     FPendingSyntax: TDpccSyntaxNotice;
     /// <summary>Die nächsten Einträge ersetzen die Liste (laufendes Requery).</summary>
     FReplace: Boolean;
-    FChip: TDpccChip;
     /// <summary>Zeichen, nach dem automatisch geöffnet wurde (#448).</summary>
     FTrigger: string;
     /// <summary>Im Mengenmodus schon umgeschaltet.</summary>
@@ -231,7 +225,6 @@ type
     procedure Dismiss;
     procedure ToggleSelected;
     procedure CommitSet;
-    procedure ShowChips;
     procedure ItemsArrived(AGeneration: Integer; const AItems: TDpccCompletionItems);
     procedure IncompleteArrived(AGeneration: Integer);
     procedure SyntaxArrived(AGeneration: Integer; const ANotice: TDpccSyntaxNotice);
@@ -266,10 +259,6 @@ type
     /// <summary>Auswahl per Maus; APosition in der Anzeigereihenfolge.</summary>
     procedure Select(APosition: Integer);
     procedure CommitSelected;
-    /// <summary>Filter-Chip wählen (#422); gilt bis zum Schließen.</summary>
-    procedure SelectChip(AChip: TDpccChip);
-    /// <summary>Chip an Position AIndex (0-basiert) unter den angezeigten (Alt+1 … Alt+6).</summary>
-    procedure SelectChipAt(AIndex: Integer);
     /// <summary>Eintrag an APosition (Anzeigereihenfolge) anheften bzw. lösen (Klick auf den Stern); AItem ist
     /// der Eintrag. Added bzw. Removed sortieren neu, die Auswahl bleibt auf dem gewählten Eintrag. NotAllowed
     /// ohne Favoriten, ohne Liste oder auf einer Überschrift.</summary>
@@ -437,15 +426,10 @@ begin
   end;
 end;
 
-function TDpccCompletionSettings.RankOptions(AChip: TDpccChip; AMembers: Boolean;
-  const AItems: TDpccCompletionItems): TDpccRankOptions;
+function TDpccCompletionSettings.RankOptions(AMembers: Boolean; const AItems: TDpccCompletionItems): TDpccRankOptions;
 begin
   Result := TDpccRankOptions.Defaults;
   Result.GroupInherited := FGroupInherited;
-  if FChipsEnabled then
-  begin
-    Result.Chip := AChip;
-  end;
   if AMembers or (FListScope = TDpccListScope.Everywhere) then
   begin
     Result.ListMode := FListMode;
@@ -666,49 +650,6 @@ begin
   inherited;
 end;
 
-procedure TDpccCompletionController.ShowChips;
-begin
-  if FChipsEnabled then
-  begin
-    FView.ShowChips(TDpccRanking.ChipCounts(FItems, FPrefix), FChip, Length(FItems) > 0);
-  end
-  else
-  begin
-    FView.ShowChips(Default(TDpccChipCounts), TDpccChip.All, False);
-  end;
-end;
-
-procedure TDpccCompletionController.SelectChip(AChip: TDpccChip);
-begin
-  if not FActive or (AChip = FChip) then
-  begin
-    Exit;
-  end;
-  FChip := AChip;
-  Refresh(True);
-end;
-
-procedure TDpccCompletionController.SelectChipAt(AIndex: Integer);
-var
-  mCounts: TDpccChipCounts;
-  mChip: TDpccChip;
-begin
-  // Wie angezeigt: nur Chips mit Treffern, "Alle" immer.
-  mCounts := TDpccRanking.ChipCounts(FItems, FPrefix);
-  for mChip := Low(TDpccChip) to High(TDpccChip) do
-  begin
-    if (mChip = TDpccChip.All) or (mCounts[mChip] > 0) then
-    begin
-      if AIndex = 0 then
-      begin
-        SelectChip(mChip);
-        Exit;
-      end;
-      Dec(AIndex);
-    end;
-  end;
-end;
-
 function TDpccCompletionController.Dismissed(const AContext: TDpccContext): Boolean;
 begin
   Result := FDismissed.Matches(AContext);
@@ -733,7 +674,6 @@ begin
   Inc(FGeneration);
   FActive := True;
   FLoading := True;
-  FChip := TDpccChip.All;
   FPrefix := AContext.Prefix;
   FTrigger := AContext.Trigger;
   FMembers := AContext.Kind = TDpccContextKind.MemberAccess;
@@ -937,13 +877,12 @@ begin
     mStamp := TDpccQueryTimings.Stamp;
   end;
   mKept := KeptIndex(FOrder, FSelected, AKeepSelection, FPassive);
-  FOrder := TDpccRanking.Order(FItems, FPrefix, RankOptions(FChip, FMembers, FItems), FRestStart);
+  FOrder := TDpccRanking.Order(FItems, FPrefix, RankOptions(FMembers, FItems), FRestStart);
   if mTimings <> nil then
   begin
     mTimings.FilterSorted(TDpccQueryTimings.MsSince(mStamp), Length(FItems), TDpccRanking.ItemCount(FOrder));
   end;
   FSelected := FirstSelection(FItems, FOrder);
-  ShowChips;
   FSelected := PositionOf(FOrder, mKept, FSelected);
   FEmpty := False;
   FPassive := IsPassive(FItems, FOrder, FSelected, FRestStart, mKept);
@@ -1156,8 +1095,7 @@ begin
     // Die Liste zeigt alle Felder, auch wenn hinter dem Punkt schon etwas getippt ist; späte Antworten der
     // alten Anfrage gehören nicht mehr dazu.
     FPrefix := '';
-    FChip := TDpccChip.All;
-    Inc(FGeneration);
+      Inc(FGeneration);
     FLoading := False;
     Refresh(False);
     Exit;

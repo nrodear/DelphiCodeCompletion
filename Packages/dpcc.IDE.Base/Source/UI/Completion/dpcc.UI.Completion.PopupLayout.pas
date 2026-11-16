@@ -1,10 +1,10 @@
 ﻿unit dpcc.UI.Completion.PopupLayout;
 
-// Vervollständigungs-Popup (#410), Stufe Lage: wo Liste, Zeilen, Chips, Warnleiste und Detailpanel liegen, wie
-// breit die Liste wird (#416) und wohin das Fenster kommt (darunter, sonst darüber; nie über den Monitorrand).
-// Dazu die Schnittstelle des Detailpanels (#424, #425, #428, #654). Kette und Aussehen: dpcc.UI.Completion.Popup.
-// Schlicht (S6, Plain): kein Detailpanel (ShowDetails merkt sich die Details nur, TogglePanel tut nichts), keine
-// Chips und keine Sternspalte; die Breite misst Art-Spalte, fetten Namen, Signatur bzw. Detail und den Text rechts.
+// Vervollständigungs-Popup (#410), Stufe Lage: wo Liste, Zeilen und Warnleiste liegen, wie breit die Liste wird
+// (#416) und wohin das Fenster kommt (darunter, sonst darüber; nie über den Monitorrand). Kette und Aussehen:
+// dpcc.UI.Completion.Popup.
+// Die Breite misst wie die schlichte Liste (S6) zeichnet: Art-Spalte, fetter Name, Signatur bzw. Detail und den
+// Text rechts. Detailpanel, Chips und Sternspalte gibt es seit S7a nicht mehr.
 
 interface
 
@@ -18,59 +18,33 @@ uses
 type
   TDpccCompletionPopupLayout = class(TDpccCompletionPopupState)
   protected
-    function Collapsed: Boolean;
     function Logical(APixels: Integer): Integer;
     function ListWidth: Integer;
-    function PanelWidth: Integer;
-    function ChipsHeight: Integer;
     /// <summary>Höhe der Warnleiste (#457); 0 ohne Hinweis.</summary>
     function SyntaxHeight: Integer;
     function ListTop: Integer;
-    /// <summary>Linker Rand der Listenspalte im Fenster.</summary>
-    function ListLeft: Integer;
-    function ListRight: Integer;
     function ListHeight: Integer;
-    function PanelHeight: Integer;
-    function PanelRect: TRect;
-    /// <summary>Höchste Höhe des Panels: größerer Platz unter bzw. über dem Wort, mindestens die Liste.</summary>
-    function PanelCap: Integer;
-    function DocActive: Boolean;
     procedure Relayout;
     function RowAt(AX, AY: Integer): Integer;
     function RowRect(ARow: Integer): TRect;
     procedure EnsureSelectedVisible;
     procedure PlaceAt(AListWidth, AHeight: Integer);
     function HitArea(AX, AY: Integer): TDpccHitArea;
-    /// <summary>Position (Anzeigereihenfolge) des Sterns unter (AX, AY); -1 ohne.</summary>
-    function StarAt(AX, AY: Integer): Integer;
+    /// <summary>Breite der Liste: Art-Spalte, fetter Name, Signatur bzw. Detail, Text rechts.</summary>
     function MeasureWidth: Integer;
-    /// <summary>Breite der schlichten Liste (S6).</summary>
-    function MeasurePlainWidth: Integer;
-    /// <summary>Breite der Art-Spalte der schlichten Liste: „constructor“ plus Abstand (wie im Hover-Tooltip).
-    /// </summary>
-    function PlainKindWidth: Integer;
-    /// <summary>Text rechts in der schlichten Zeile: „+ Unit“ und Warnungen (PlainTags) in Worten.</summary>
-    function PlainTrailer(const AItem: TDpccCompletionItem): string;
-    /// <summary>Schlichte Zeile (S6) zu AItem.</summary>
-    function PlainRowOf(const AItem: TDpccCompletionItem): TDpccPlainRow;
-    function TagWidth(const ATag: TDpccTag): Integer;
+    /// <summary>Breite der Art-Spalte: „constructor“ plus Abstand (wie im Hover-Tooltip).</summary>
+    function KindWidth: Integer;
+    /// <summary>Text rechts in der Zeile: „+ Unit“ und Warnungen (PlainTags) in Worten.</summary>
+    function Trailer(const AItem: TDpccCompletionItem): string;
+    /// <summary>Zeile zu AItem: Art, Signatur bzw. Detail, Text rechts.</summary>
+    function RowOf(const AItem: TDpccCompletionItem): TDpccPlainRow;
     /// <summary>Tags der Zeile; ohne ShowVariantBranch fehlt „Zweig 0“ (#846).</summary>
     function ItemTags(const AItem: TDpccCompletionItem): TDpccTags;
     procedure PlaceAndShow;
-    procedure WidthsChanged;
+    procedure WidthChanged;
     /// <summary>Gezeigte Liste für die Texte der Fußzeile.</summary>
     function ListState: TDpccCompletionList;
   public
-    /// <summary>Details zum gewählten Eintrag im Panelbereich zeigen; öffnet ihn bei Bedarf.</summary>
-    procedure ShowDetails(const ADetails: TDpccItemDetails);
-    /// <summary>Details leeren; ein offener Panelbereich bleibt mit Hinweis stehen.</summary>
-    procedure ClearDetails;
-    /// <summary>Panel ein- bzw. ausklappen (Strg+Q, #428).</summary>
-    procedure TogglePanel;
-    /// <summary>Gezeigte Überladung im Panel (#425); ACount 1 = keine Kopfzeile.</summary>
-    procedure SetOverload(AIndex, ACount: Integer);
-    /// <summary>Im Panel markierter Doku-Text (#654); '' ohne Markierung.</summary>
-    function SelectedDocText: string;
     function PageSize: Integer;
     /// <summary>Caret-Rechteck in Bildschirmkoordinaten; vor dem ersten ShowList setzen.</summary>
     property Anchor: TRect read FAnchor write FAnchor;
@@ -85,8 +59,6 @@ type
     property Limited: Boolean read FOptions.Limited write FOptions.Limited;
     /// <summary>Aktives Ziel („Win32 · Debug“) für die Fußzeile (#476); '' = keins bekannt.</summary>
     property Target: string read FOptions.Target write FOptions.Target;
-    /// <summary>Schlichte Liste (S6) wie die Code-Insight-Liste der IDE; Vorgabe an.</summary>
-    property Plain: Boolean read FOptions.Plain;
   end;
 
 implementation
@@ -96,42 +68,14 @@ uses
   System.Math,
   Vcl.Graphics,
   dpcc.Core.Completion.Width,
-
   dpcc.Core.Completion.Ranking,
-  dpcc.Core.Completion.Sets,
-  dpcc.Core.Completion.Favorites,
-  dpcc.UI.Popup.Draw,
-  dpcc.UI.Completion.Strings,
-  dpcc.UI.Completion.Details;
+  dpcc.UI.Completion.Strings;
 
 const
-  // Breiteste Zählung „999 von 9999“ für die Breite der Fußzeile und ihr Rand.
-  cWidestShown = 999;
-  cWidestTotal = 9999;
+  // Rand der Fußzeile in der Breite des Fensters.
   cFooterPadding = 18;
 
 { TDpccCompletionPopupLayout }
-
-function TDpccCompletionPopupLayout.Collapsed: Boolean;
-begin
-  Result := FPanel.Collapsed or FPanel.AutoCollapsed;
-end;
-
-function TDpccCompletionPopupLayout.PanelWidth: Integer;
-begin
-  if not FPanel.Shown then
-  begin
-    Result := 0;
-  end
-  else if Collapsed then
-  begin
-    Result := Scale(cCollapsedPanelWidth);
-  end
-  else
-  begin
-    Result := Scale(FPanel.Width);
-  end;
-end;
 
 function TDpccCompletionPopupLayout.ListWidth: Integer;
 begin
@@ -143,119 +87,22 @@ begin
   Result := MulDiv(APixels, 96, PPI);
 end;
 
-function TDpccCompletionPopupLayout.ListLeft: Integer;
-begin
-  if FPanel.Shown and FPanel.Left then
-  begin
-    Result := PanelWidth;
-  end
-  else
-  begin
-    Result := 0;
-  end;
-end;
-
-function TDpccCompletionPopupLayout.ListRight: Integer;
-begin
-  Result := ListLeft + ListWidth;
-end;
-
 function TDpccCompletionPopupLayout.ListHeight: Integer;
 begin
   if FEmpty.Showing then
   begin
-    Result := 2 * Pad + ChipsHeight + SyntaxHeight + 2 * RowHeight + FooterHeight;
+    Result := 2 * Pad + SyntaxHeight + 2 * RowHeight + FooterHeight;
   end
   else
   begin
-    Result := 2 * Pad + ChipsHeight + SyntaxHeight + RowCount * RowHeight + FooterHeight;
+    Result := 2 * Pad + SyntaxHeight + RowCount * RowHeight + FooterHeight;
   end;
-end;
-
-function TDpccCompletionPopupLayout.PanelHeight: Integer;
-begin
-  if not FPanel.Shown or Collapsed then
-  begin
-    Exit(0);
-  end;
-  FDetailView.MaxHeight := PanelCap;
-  Result := FDetailView.Render(TDpccDetailSurface.Create(Canvas, Colors, Font, UIFont, PPI),
-    Rect(0, 0, PanelWidth, 0), False);
-  Canvas.Font := Font;
-end;
-
-function TDpccCompletionPopupLayout.PanelRect: TRect;
-begin
-  if FPanel.Left then
-  begin
-    Result := Rect(0, 0, PanelWidth, ClientHeight);
-  end
-  else
-  begin
-    Result := Rect(ListRight, 0, ListRight + PanelWidth, ClientHeight);
-  end;
-end;
-
-function TDpccCompletionPopupLayout.PanelCap: Integer;
-var
-  mArea: TRect;
-begin
-  mArea := WorkAreaAt(FAnchor.TopLeft);
-  Result := Max(ListHeight, Max(mArea.Bottom - FAnchor.Bottom, FAnchor.Top - mArea.Top) - Scale(8));
-end;
-
-function TDpccCompletionPopupLayout.DocActive: Boolean;
-begin
-  Result := FPanel.Shown and not Collapsed and not FDetailView.Doc.IsEmpty;
-end;
-
-function TDpccCompletionPopupLayout.SelectedDocText: string;
-begin
-  Result := FDetailView.Doc.SelectedText;
 end;
 
 procedure TDpccCompletionPopupLayout.Relayout;
 begin
-  // Mit Panel wächst die Höhe nur, damit das Fenster beim Blättern nicht springt.
-  if FPanel.Shown then
-  begin
-    FSessionHeight := Max(FSessionHeight, Max(ListHeight, PanelHeight));
-  end
-  else
-  begin
-    FSessionHeight := ListHeight;
-  end;
+  FSessionHeight := ListHeight;
   PlaceAt(ListWidth, FSessionHeight);
-end;
-
-procedure TDpccCompletionPopupLayout.ShowDetails(const ADetails: TDpccItemDetails);
-begin
-  FDetailView.Details := ADetails;
-  // Schlicht (S6): kein Detailpanel; die Details bleiben nur gemerkt.
-  if FOptions.Plain then
-  begin
-    Exit;
-  end;
-  if not FPanel.Shown and ADetails.IsEmpty then
-  begin
-    Exit;
-  end;
-  FPanel.Shown := True;
-  if IsShown then
-  begin
-    Relayout;
-  end;
-  Invalidate;
-end;
-
-function TDpccCompletionPopupLayout.ChipsHeight: Integer;
-begin
-  if not FChips.Visible or FEmpty.Showing or FOptions.Plain then
-  begin
-    Exit(0);
-  end;
-  EnsureMetrics;
-  Result := FMetrics.ChipsHeight;
 end;
 
 function TDpccCompletionPopupLayout.SyntaxHeight: Integer;
@@ -265,55 +112,12 @@ begin
     Exit(0);
   end;
   EnsureMetrics;
-  Result := FMetrics.ChipsHeight;
+  Result := FMetrics.SyntaxHeight;
 end;
 
 function TDpccCompletionPopupLayout.ListTop: Integer;
 begin
-  Result := Pad + ChipsHeight + SyntaxHeight;
-end;
-
-procedure TDpccCompletionPopupLayout.SetOverload(AIndex, ACount: Integer);
-begin
-  if (FDetailView.OverloadIndex = AIndex) and (FDetailView.OverloadCount = ACount) then
-  begin
-    Exit;
-  end;
-  FDetailView.OverloadIndex := AIndex;
-  FDetailView.OverloadCount := ACount;
-  if IsShown and FPanel.Shown then
-  begin
-    Relayout;
-  end;
-  Invalidate;
-end;
-
-procedure TDpccCompletionPopupLayout.TogglePanel;
-begin
-  // Schlicht (S6): kein Panel, also nichts ein- oder auszuklappen.
-  if FOptions.Plain then
-  begin
-    Exit;
-  end;
-  FPanel.Collapsed := not FPanel.Collapsed;
-  if Assigned(FEvents.OnPanelToggled) then
-  begin
-    FEvents.OnPanelToggled(FPanel.Collapsed);
-  end;
-  if IsShown then
-  begin
-    Relayout;
-  end;
-  Invalidate;
-end;
-
-procedure TDpccCompletionPopupLayout.ClearDetails;
-begin
-  FDetailView.Details := Default(TDpccItemDetails);
-  if FPanel.Shown then
-  begin
-    Invalidate;
-  end;
+  Result := Pad + SyntaxHeight;
 end;
 
 function TDpccCompletionPopupLayout.PageSize: Integer;
@@ -326,13 +130,12 @@ var
   mHeight: Integer;
 begin
   mHeight := RowHeight;
-  Result := Rect(ListLeft + Pad, ListTop + ARow * mHeight, ListRight - Pad - ScrollReserve, ListTop + (ARow + 1) *
-    mHeight);
+  Result := Rect(Pad, ListTop + ARow * mHeight, ListWidth - Pad - ScrollReserve, ListTop + (ARow + 1) * mHeight);
 end;
 
 function TDpccCompletionPopupLayout.RowAt(AX, AY: Integer): Integer;
 begin
-  if (AY < ListTop) or (AX < ListLeft) or (AX >= ListRight) then
+  if (AY < ListTop) or (AX < 0) or (AX >= ListWidth) then
   begin
     Exit(-1);
   end;
@@ -360,13 +163,6 @@ begin
   FTop := EnsureRange(FTop, 0, Max(0, Length(FOrder) - FVisibleRows));
 end;
 
-function TDpccCompletionPopupLayout.TagWidth(const ATag: TDpccTag): Integer;
-begin
-  Canvas.Font := UIFont;
-  Result := Canvas.TextWidth(TDpccCompletionTexts.TagText(ATag)) + Scale(TDpccDraw.cChipPad);
-  Canvas.Font := Font;
-end;
-
 function TDpccCompletionPopupLayout.ItemTags(const AItem: TDpccCompletionItem): TDpccTags;
 var
   mTag: TDpccTag;
@@ -381,14 +177,14 @@ begin
   end;
 end;
 
-function TDpccCompletionPopupLayout.PlainKindWidth: Integer;
+function TDpccCompletionPopupLayout.KindWidth: Integer;
 begin
   Canvas.Font := UIFont;
-  Result := Canvas.TextWidth(cPlainKindSample) + Scale(cPlainKindGap);
+  Result := Canvas.TextWidth(cKindSample) + Scale(cKindGap);
   Canvas.Font := Font;
 end;
 
-function TDpccCompletionPopupLayout.PlainTrailer(const AItem: TDpccCompletionItem): string;
+function TDpccCompletionPopupLayout.Trailer(const AItem: TDpccCompletionItem): string;
 var
   mTag: TDpccTag;
 begin
@@ -403,18 +199,18 @@ begin
   end;
 end;
 
-function TDpccCompletionPopupLayout.PlainRowOf(const AItem: TDpccCompletionItem): TDpccPlainRow;
+function TDpccCompletionPopupLayout.RowOf(const AItem: TDpccCompletionItem): TDpccPlainRow;
 begin
-  Result := TDpccItemPresentation.PlainRow(AItem, TDpccCompletionTexts.DetailText(AItem), PlainTrailer(AItem));
+  Result := TDpccItemPresentation.PlainRow(AItem, TDpccCompletionTexts.DetailText(AItem), Trailer(AItem));
 end;
 
-function TDpccCompletionPopupLayout.MeasurePlainWidth: Integer;
+function TDpccCompletionPopupLayout.MeasureWidth: Integer;
 var
   mPosition, mCount, mWidest, mWidth: Integer;
   mItem: TDpccCompletionItem;
   mRow: TDpccPlainRow;
 begin
-  // Wie MeasureWidth, aber in der UI-Schrift: Art-Spalte, fetter Name, Signatur bzw. Detail, Text rechts.
+  // Nur die ersten Einträge messen, in der UI-Schrift; eine gezogene Breite (#416) hat Vorrang (ListWidth).
   mWidest := 0;
   mCount := Min(Length(FOrder), 200);
   for mPosition := 0 to mCount - 1 do
@@ -424,7 +220,7 @@ begin
       Continue;
     end;
     mItem := FItems[FOrder[mPosition]];
-    mRow := PlainRowOf(mItem);
+    mRow := RowOf(mItem);
     Canvas.Font := UIFont;
     Canvas.Font.Style := [fsBold];
     mWidth := Canvas.TextWidth(mItem.Name);
@@ -435,11 +231,11 @@ begin
     end;
     if mRow.Detail <> '' then
     begin
-      Inc(mWidth, Scale(cPlainGap) + Canvas.TextWidth(mRow.Detail));
+      Inc(mWidth, Scale(cGap) + Canvas.TextWidth(mRow.Detail));
     end;
     if mRow.Trailer <> '' then
     begin
-      Inc(mWidth, Scale(cPlainGap) + Canvas.TextWidth(mRow.Trailer));
+      Inc(mWidth, Scale(cGap) + Canvas.TextWidth(mRow.Trailer));
     end;
     if mItem.SetOf <> '' then
     begin
@@ -449,61 +245,9 @@ begin
   end;
   Canvas.Font := Font;
   // Art-Spalte, Ränder der Zeile, Ränder des Fensters und Scrollleiste.
-  Inc(mWidest, PlainKindWidth + Scale(2 * cPlainInset) + 2 * Pad + ScrollReserve);
+  Inc(mWidest, KindWidth + Scale(2 * cInset) + 2 * Pad + ScrollReserve);
   Canvas.Font := UIFont;
   mWidest := Max(mWidest, Canvas.TextWidth(TDpccCompletionStrings.Text(TDpccCompletionTextId.FooterKeys)) +
-    Scale(cFooterPadding));
-  Canvas.Font := Font;
-  Result := TDpccPopupWidth.Fit(mWidest, Scale(cMinWidth), Scale(cMaxWidth));
-end;
-
-function TDpccCompletionPopupLayout.MeasureWidth: Integer;
-var
-  mPosition, mCount, mWidest, mWidth: Integer;
-  mItem: TDpccCompletionItem;
-  mTag: TDpccTag;
-  mDetail: string;
-begin
-  if FOptions.Plain then
-  begin
-    Exit(MeasurePlainWidth);
-  end;
-  // Nur die ersten Einträge messen; eine gezogene Breite (#416) hat Vorrang (ListWidth).
-  Canvas.Font := Font;
-  mWidest := 0;
-  mCount := Min(Length(FOrder), 200);
-  for mPosition := 0 to mCount - 1 do
-  begin
-    if TDpccRanking.IsHeader(FOrder[mPosition]) then
-    begin
-      Continue;
-    end;
-    mItem := FItems[FOrder[mPosition]];
-    mWidth := Canvas.TextWidth(mItem.Name);
-    mDetail := TDpccCompletionTexts.DetailText(mItem);
-    if mDetail <> '' then
-    begin
-      Inc(mWidth, Scale(12) + Canvas.TextWidth(mDetail));
-    end;
-    for mTag in ItemTags(mItem) do
-    begin
-      Inc(mWidth, Scale(6) + TagWidth(mTag));
-    end;
-    mWidest := Max(mWidest, mWidth);
-  end;
-  // Badge (7 + 24 + 9), rechter Rand der Zeile (7), Ränder und Scrollleiste.
-  Inc(mWidest, Scale(7 + 24 + 9 + 7) + 2 * Pad + ScrollReserve);
-  if TDpccCompletionSets.Active(FItems) then
-  begin
-    Inc(mWidest, Scale(cCheckWidth));
-  end;
-  if FOptions.FavoritesEnabled then
-  begin
-    Inc(mWidest, Scale(cStarWidth));
-  end;
-  Canvas.Font := UIFont;
-  mWidest := Max(mWidest, Canvas.TextWidth(TDpccCompletionStrings.Text(TDpccCompletionTextId.FooterKeys) + '    ' +
-    TDpccCompletionStrings.Fmt(TDpccCompletionTextId.CountFits, [cWidestShown, cWidestTotal])) +
     Scale(cFooterPadding));
   Canvas.Font := Font;
   Result := TDpccPopupWidth.Fit(mWidest, Scale(cMinWidth), Scale(cMaxWidth));
@@ -519,35 +263,10 @@ end;
 procedure TDpccCompletionPopupLayout.PlaceAt(AListWidth, AHeight: Integer);
 var
   mBounds, mArea: TRect;
-  mLeft, mWidth: Integer;
 begin
   mArea := WorkAreaAt(FAnchor.TopLeft);
-  // Die Liste bleibt am Wortanfang; das Panel rechts davon, ohne Platz dort links, ohne Platz auf
-  // beiden Seiten eingeklappt (#428).
-  mLeft := FAnchor.Left;
-  FPanel.AutoCollapsed := False;
-  FPanel.Left := False;
-  if FPanel.Shown then
-  begin
-    if mLeft + AListWidth + PanelWidth > mArea.Right then
-    begin
-      if mLeft - PanelWidth >= mArea.Left then
-      begin
-        FPanel.Left := True;
-      end
-      else if not FPanel.Collapsed then
-      begin
-        FPanel.AutoCollapsed := True;
-        FPanel.Left := mLeft + AListWidth + PanelWidth > mArea.Right;
-      end;
-    end;
-  end;
-  mWidth := AListWidth + PanelWidth;
-  if FPanel.Left then
-  begin
-    Dec(mLeft, PanelWidth);
-  end;
-  mBounds := TRect.Create(Point(mLeft, FAnchor.Bottom + 2), mWidth, AHeight);
+  // Die Liste bleibt am Wortanfang.
+  mBounds := TRect.Create(Point(FAnchor.Left, FAnchor.Bottom + 2), AListWidth, AHeight);
   // Unten kein Platz: über die Zeile.
   if mBounds.Bottom > mArea.Bottom then
   begin
@@ -555,7 +274,7 @@ begin
   end;
   if mBounds.Right > mArea.Right then
   begin
-    mBounds.SetLocation(Max(mArea.Left, mArea.Right - mWidth), mBounds.Top);
+    mBounds.SetLocation(Max(mArea.Left, mArea.Right - AListWidth), mBounds.Top);
   end;
   if mBounds.Top < mArea.Top then
   begin
@@ -564,78 +283,27 @@ begin
   ShowAt(mBounds);
 end;
 
-function TDpccCompletionPopupLayout.StarAt(AX, AY: Integer): Integer;
-var
-  mRow: TRect;
+procedure TDpccCompletionPopupLayout.WidthChanged;
 begin
-  Result := -1;
-  // Schlicht (S6): keine Sternspalte; anheften weiter mit Strg+D.
-  if not FOptions.FavoritesEnabled or FEmpty.Showing or FOptions.Plain then
+  if Assigned(FEvents.OnWidthChanged) then
   begin
-    Exit;
-  end;
-  Result := RowAt(AX, AY);
-  if (Result < 0) or TDpccRanking.IsHeader(FOrder[Result]) or
-    not TDpccFavorites.CanPin(FItems[FOrder[Result]]) then
-  begin
-    Exit(-1);
-  end;
-  mRow := RowRect(Result - FTop);
-  if (AX < mRow.Left) or (AX >= mRow.Left + Scale(cStarWidth + 3)) then
-  begin
-    Result := -1;
-  end;
-end;
-
-procedure TDpccCompletionPopupLayout.WidthsChanged;
-begin
-  if Assigned(FEvents.OnWidthsChanged) then
-  begin
-    FEvents.OnWidthsChanged(FManualListWidth, FPanel.Width);
+    FEvents.OnWidthChanged(FManualListWidth);
   end;
 end;
 
 function TDpccCompletionPopupLayout.HitArea(AX, AY: Integer): TDpccHitArea;
-var
-  mBoundary, mZone: Integer;
 begin
   Result := TDpccHitArea.None;
-  mZone := Scale(4);
-  if AX >= ClientWidth - mZone then
+  if AX >= ClientWidth - Scale(4) then
   begin
     if AY >= ClientHeight - Scale(16) then
     begin
-      Result := TDpccHitArea.Grip;
+      Result := TDpccHitArea.Corner;
     end
     else
     begin
       Result := TDpccHitArea.Edge;
     end;
-    Exit;
-  end;
-  if not FPanel.Shown then
-  begin
-    Exit;
-  end;
-  if Collapsed then
-  begin
-    if PtInRect(PanelRect, Point(AX, AY)) then
-    begin
-      Result := TDpccHitArea.PanelBar;
-    end;
-    Exit;
-  end;
-  if FPanel.Left then
-  begin
-    mBoundary := PanelWidth;
-  end
-  else
-  begin
-    mBoundary := ListRight;
-  end;
-  if Abs(AX - mBoundary) <= mZone then
-  begin
-    Result := TDpccHitArea.Splitter;
   end;
 end;
 

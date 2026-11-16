@@ -1,6 +1,6 @@
 ﻿unit dpcc.Core.Completion.Ranking.Tests;
 
-// Tests für Rangfolge (#419), Filter-Chips (#422), lernende Gewichtung (#418) und Formular-Komponenten (#455).
+// Tests für Rangfolge (#419), lernende Gewichtung (#418) und Formular-Komponenten (#455).
 
 interface
 
@@ -20,8 +20,6 @@ type
     [Test]
     procedure BoostReordersButNeverBeatsBetterMatch;
     [Test]
-    procedure ChipsFilterAndCount;
-    [Test]
     procedure ServerGroupHeaderAndActionLast;
     [Test]
     procedure PostfixAfterMembers;
@@ -36,7 +34,7 @@ type
     [Test]
     procedure TypeArgumentsGetHeaderAndFooter;
     [Test]
-    procedure AttributesGetBadge;
+    procedure AttributesShowAsType;
     [Test]
     procedure DataNamesCarrySource;
     [Test]
@@ -95,8 +93,7 @@ uses
   dpcc.Core.Files.DataFile,
   dpcc.Core.Completion.Controller,
   dpcc.Core.Completion.Providers.Fixed,
-  dpcc.Core.Completion.Providers.Server,
-  dpcc.Core.Style.Palette;
+  dpcc.Core.Completion.Providers.Server;
 
 type
   TRecordingView = class(TInterfacedObject, IDpccCompletionView)
@@ -108,7 +105,6 @@ type
     procedure HideList;
     procedure ShowEmpty(const APrefix: string; ATotal: Integer);
     function PageSize: Integer;
-    procedure ShowChips(const ACounts: TDpccChipCounts; AActive: TDpccChip; AVisible: Boolean);
   end;
 
 procedure TRecordingView.ShowList(const AItems: TDpccCompletionItems; const AOrder: TArray<Integer>;
@@ -146,10 +142,6 @@ end;
 function TRecordingView.PageSize: Integer;
 begin
   Result := 9;
-end;
-
-procedure TRecordingView.ShowChips(const ACounts: TDpccChipCounts; AActive: TDpccChip; AVisible: Boolean);
-begin
 end;
 
 function Member(const AName, AContainer: string; ADepth, ARank: Integer;
@@ -259,7 +251,6 @@ var
   Items: TDpccCompletionItems;
   Order: TArray<Integer>;
   RestStart: Integer;
-  Options: TDpccRankOptions;
 begin
   // Variante 3: Treffer, darunter abgesetzt „Weitere Einträge“.
   Items := RestItems;
@@ -267,15 +258,10 @@ begin
   Assert.AreEqual('Assign,#,Add,BeginUpdate,Clear,Sort', Names(Items, Order));
   Assert.AreEqual(TDpccRanking.cRestHeader, Order[1]);
   Assert.AreEqual(2, RestStart);
-  // Der Chip schränkt auch den Rest ein.
+  // Eine weitere Art (Eigenschaft) steht im Rest nach Rang und Name hinten.
   Items := Items + [Member('Count', 'TStrings', 0, 5, TDpccItemKind.Property_)];
   Order := TDpccRanking.Order(Items, 'As', RestOptions(TDpccListMode.Rest), RestStart);
   Assert.AreEqual('Assign,#,Add,BeginUpdate,Clear,Sort,Count', Names(Items, Order));
-  Options := RestOptions(TDpccListMode.Rest);
-  Options.Chip := TDpccChip.Methods;
-  Order := TDpccRanking.Order(Items, 'Co', Options, RestStart);
-  Assert.AreEqual('#,Add,Assign,BeginUpdate,Clear,Sort', Names(Items, Order));
-  Assert.AreEqual(1, RestStart);
   Items := nil;
   Order := nil;
 end;
@@ -406,27 +392,6 @@ begin
   Assert.AreEqual('AddObject,BeginUpdate,Add', Names(Items, TDpccRanking.Order(Items, '', Options)));
   // Genauer Treffer bleibt vor einem gelernten Präfix-Treffer.
   Assert.AreEqual('Add,AddObject', Names(Items, TDpccRanking.Order(Items, 'Add', Options)));
-end;
-
-procedure TDpccRankingTests.ChipsFilterAndCount;
-var
-  Options: TDpccRankOptions;
-  Items: TDpccCompletionItems;
-  Counts: TDpccChipCounts;
-begin
-  Items := [Member('Add', '', 0, 0), Member('Count', '', 0, 1, TDpccItemKind.Property_),
-    Member('OnChange', '', 0, 2, TDpccItemKind.Event), Member('Capacity', '', 0, 3, TDpccItemKind.Property_),
-    Member('Total', '', 0, 4, TDpccItemKind.Variable)];
-  Counts := TDpccRanking.ChipCounts(Items, '');
-  Assert.AreEqual(5, Counts[TDpccChip.All]);
-  Assert.AreEqual(1, Counts[TDpccChip.Methods]);
-  Assert.AreEqual(2, Counts[TDpccChip.Properties]);
-  Assert.AreEqual(1, Counts[TDpccChip.Events]);
-  Assert.AreEqual(0, Counts[TDpccChip.Types]);
-  Options := TDpccRankOptions.Defaults;
-  Options.Chip := TDpccChip.Properties;
-  Assert.AreEqual('Count,Capacity', Names(Items, TDpccRanking.Order(Items, '', Options)));
-  Assert.AreEqual(1, TDpccRanking.ChipCounts(Items, 'cou')[TDpccChip.Properties]);
 end;
 
 procedure TDpccRankingTests.PostfixAfterMembers;
@@ -604,9 +569,8 @@ begin
   Options := TDpccRankOptions.Defaults;
   Assert.AreEqual('#,Count.ToString,Count', Names(Items, TDpccRanking.Order(Items, 'Cou', Options)));
   Assert.AreEqual('#,Text,#,Count.ToString,Count,Preis', Names(Items, TDpccRanking.Order(Items, '', Options)));
-  // Ohne sichtbares Original auch keine Umwandlung; gezählt wird sie nicht.
+  // Ohne sichtbares Original auch keine Umwandlung.
   Assert.AreEqual('#,Text', Names(Items, TDpccRanking.Order(Items, 'Tex', Options)));
-  Assert.AreEqual(1, TDpccRanking.ChipCounts(Items, 'Cou')[TDpccChip.All]);
   Found := False;
   for Tag in TDpccItemPresentation.Tags(Items[0]) do
   begin
@@ -618,12 +582,12 @@ begin
   Assert.IsTrue(Found);
 end;
 
-procedure TDpccRankingTests.AttributesGetBadge;
+procedure TDpccRankingTests.AttributesShowAsType;
 var
   Json: TJSONObject;
   Item: TDpccCompletionItem;
 begin
-  // Attribute nach "[" (#465): Badge "at", rechts die Konstruktorparameter.
+  // Attribute nach "[" (#465): Art „type“ wie in der Code-Insight-Liste der IDE, dahinter die Konstruktorparameter.
   Json := TJSONObject.ParseJSONValue('{"label":"TestCase","kind":7,"detail":"(const AName: string)",' +
     '"insertText":"TestCase","data":{"attribute":true}}') as TJSONObject;
   try
@@ -632,8 +596,7 @@ begin
     Json.Free;
   end;
   Assert.IsTrue(Item.Attribute);
-  Assert.AreEqual('at', TDpccItemPresentation.Badge(Item).Code);
-  Assert.IsTrue(TDpccItemPresentation.Badge(Item).Kind = TDpccBadgeKind.Type_);
+  Assert.AreEqual('type', TDpccItemPresentation.KindWord(Item));
   Json := TJSONObject.ParseJSONValue('{"label":"TKunde","kind":7}') as TJSONObject;
   try
     Item := TDpccServerCompletionProvider.ItemFromLsp(Json, 0);
@@ -641,7 +604,7 @@ begin
     Json.Free;
   end;
   Assert.IsFalse(Item.Attribute);
-  Assert.AreEqual('ty', TDpccItemPresentation.Badge(Item).Code);
+  Assert.AreEqual('type', TDpccItemPresentation.KindWord(Item));
 end;
 
 procedure TDpccRankingTests.TypeArgumentsGetHeaderAndFooter;

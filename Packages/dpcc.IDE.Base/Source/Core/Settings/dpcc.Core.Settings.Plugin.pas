@@ -69,7 +69,6 @@ type
     cMinVisibleRows = dpcc.Core.Settings.Plugin.Completion.cMinVisibleRows;
     cMaxVisibleRows = dpcc.Core.Settings.Plugin.Completion.cMaxVisibleRows;
     cMinListWidth = dpcc.Core.Settings.Plugin.Completion.cMinListWidth;
-    cMaxPanelWidth = dpcc.Core.Settings.Plugin.Completion.cMaxPanelWidth;
     cMaxXmlDocLines = dpcc.Core.Settings.Plugin.Editor.cMaxXmlDocLines;
     cMinPeekLines = dpcc.Core.Settings.Plugin.Editor.cMinPeekLines;
     cMaxPeekLines = dpcc.Core.Settings.Plugin.Editor.cMaxPeekLines;
@@ -196,9 +195,6 @@ type
     property Enabled: Boolean read FCompletion.Enabled write FCompletion.Enabled;
     property VisibleRows: Integer read FCompletion.VisibleRows write FCompletion.VisibleRows;
     property ListWidth: Integer read FCompletion.ListWidth write FCompletion.ListWidth;
-    property PanelWidth: Integer read FCompletion.PanelWidth write FCompletion.PanelWidth;
-    property PanelCollapsed: Boolean read FCompletion.PanelCollapsed write FCompletion.PanelCollapsed;
-    property SelectionMarker: Boolean read FCompletion.SelectionMarker write FCompletion.SelectionMarker;
     property AutoParentheses: Boolean read FCompletion.AutoParentheses write FCompletion.AutoParentheses;
     property FixCase: Boolean read FCompletion.FixCase write FCompletion.FixCase;
     property CommitCharacters: Boolean read FCompletion.CommitCharacters write FCompletion.CommitCharacters;
@@ -216,7 +212,6 @@ type
       write FKeyPriorities.CompletionKeyPriority;
     property SignatureKeyPriority: Boolean read FKeyPriorities.SignatureKeyPriority
       write FKeyPriorities.SignatureKeyPriority;
-    property FilterChips: Boolean read FCompletion.FilterChips write FCompletion.FilterChips;
     property Learning: Boolean read FCompletion.Learning write FCompletion.Learning;
     property Favorites: Boolean read FCompletion.Favorites write FCompletion.Favorites;
     property GroupInherited: Boolean read FCompletion.GroupInherited write FCompletion.GroupInherited;
@@ -224,12 +219,6 @@ type
       write FCompletion.CompletionVariantBranch;
     property CompletionListMode: string read FCompletion.CompletionListMode write FCompletion.CompletionListMode;
     property CompletionListScope: string read FCompletion.CompletionListScope write FCompletion.CompletionListScope;
-    property SuggestionsLearned: Boolean read FCompletion.SuggestionsLearned write FCompletion.SuggestionsLearned;
-    property SuggestionsDelayMs: Integer read FCompletion.SuggestionsDelayMs write FCompletion.SuggestionsDelayMs;
-    property SuggestionsMinShare: Integer read FCompletion.SuggestionsMinShare write FCompletion.SuggestionsMinShare;
-    property SuggestionsMinCount: Integer read FCompletion.SuggestionsMinCount write FCompletion.SuggestionsMinCount;
-    property SuggestionsLearnFromUsage: Boolean read FCompletion.SuggestionsLearnFromUsage
-      write FCompletion.SuggestionsLearnFromUsage;
     property Preview: Boolean read FCompletion.Preview write FCompletion.Preview;
     property HoverTooltip: Boolean read FEditorTyping.HoverTooltip write FEditorTyping.HoverTooltip;
     property ReloadExternal: Boolean read FEditorTyping.ReloadExternal write FEditorTyping.ReloadExternal;

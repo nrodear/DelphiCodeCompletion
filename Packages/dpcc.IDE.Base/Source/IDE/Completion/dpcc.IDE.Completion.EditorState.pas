@@ -5,7 +5,7 @@
 //   TDpccEditorCompletionState (Zustand, Schließen, Tastatur-Hook) → TDpccEditorCompletionOpen (Öffnen,
 //   Verzögerung) → TDpccEditorCompletionCommit (Übernehmen, Einträge mit Platzhaltern einsetzen) →
 //   TDpccEditorCompletion (dpcc.IDE.Completion.Editor: Tasten, Weitertippen,
-//   Detailpanel, Vorschau). Aufrufer verwenden nur TDpccEditorCompletion; Beschreibung des Ablaufs dort.
+//   Vorschau). Aufrufer verwenden nur TDpccEditorCompletion; Beschreibung des Ablaufs dort.
 
 interface
 
@@ -42,15 +42,6 @@ type
 
   TDpccCompletionSourcesFactory = reference to function(const ASession: TDpccSessionFunc;
     const ALog: TDpccLogProc): TDpccCompletionSources;
-
-  /// <summary>Detailpanel (#424): Schlüssel des gewählten Eintrags, Zeitpunkt der Anfrage, schon angefragt;
-  /// gezeigte Überladung (#425).</summary>
-  TDpccEditorDetailState = record
-    Key: string;
-    Due: UInt64;
-    Requested: Boolean;
-    OverloadIndex: Integer;
-  end;
 
   /// <summary>Verzögertes automatisches Öffnen (ARG-046): Ansicht, Zeile, Zeichen und Fenster beim Auslösen.
   /// </summary>
@@ -107,7 +98,6 @@ type
     FSources: TDpccCompletionSources;
     FPlaceholders: TDpccEditorPlaceholders;
     FPopup: TDpccCompletionPopup;
-    FDetails: TDpccEditorDetailState;
     // Automatisch eingefügte ")" nach dem Übernehmen (#430).
     FAutoParen: TDpccAutoParen;
     FOnOpenSignature: TProc;
@@ -128,7 +118,6 @@ type
     procedure Log(const AMessage: string);
     procedure CancelDelay;
     procedure ActiveChanged;
-    procedure HideDetails;
     procedure InstallKeyHook;
     procedure RemoveKeyHook;
     /// <summary>Indiziert der Server gerade (#492)?</summary>
@@ -161,19 +150,15 @@ type
 implementation
 
 uses
-  System.StrUtils,
   System.Math,
-  Winapi.ShellAPI,
   Vcl.Forms,
-  dpcc.Core.Documentation.Layout,
-  dpcc.Core.Completion.Ranking,
   dpcc.Core.Settings.Plugin,
   dpcc.IDE.Foundation.Settings,
   dpcc.IDE.Foundation.Navigation,
   dpcc.IDE.Foundation.EditorBuffer;
 
 const
-  /// <summary>Takt, in dem die offene Liste Cursor, Details und Vorschau prüft.</summary>
+  /// <summary>Takt, in dem die offene Liste Cursor und Vorschau prüft.</summary>
   cTickMs = 50;
 
 /// <summary>Größe des Editorfensters (Client-Bereich); (0, 0) ohne Fenster.</summary>
@@ -191,26 +176,16 @@ begin
   end;
 end;
 
-/// <summary>Gezogene Breiten (#416) und eingeklapptes Panel (#428) gelten auch beim nächsten Mal.</summary>
+/// <summary>Gezogene Breite der Liste (#416) gilt auch beim nächsten Mal.</summary>
 procedure WireSettings(APopup: TDpccCompletionPopup);
 begin
-  APopup.OnWidthsChanged :=
-    procedure(AListWidth, APanelWidth: Integer)
+  APopup.OnWidthChanged :=
+    procedure(AListWidth: Integer)
     var
       mSettings: TDpccPluginSettings;
     begin
       mSettings := TDpccIdeSettings.Stored;
       mSettings.ListWidth := AListWidth;
-      mSettings.PanelWidth := APanelWidth;
-      TDpccIdeSettings.Update(mSettings);
-    end;
-  APopup.OnPanelToggled :=
-    procedure(ACollapsed: Boolean)
-    var
-      mSettings: TDpccPluginSettings;
-    begin
-      mSettings := TDpccIdeSettings.Stored;
-      mSettings.PanelCollapsed := ACollapsed;
       TDpccIdeSettings.Update(mSettings);
     end;
 end;
@@ -271,35 +246,12 @@ begin
     begin
       FController.Select(APosition);
     end;
-  // XMLDoc im Panel (#654): Links im Browser, Verweise mit Strg+Klick zur Deklaration.
-  FPopup.OnDocLink :=
-    procedure(const ALink: TDpccDocLink; AControl: Boolean)
-    begin
-      if ALink.Kind = TDpccDocLinkKind.Url then
-      begin
-        if StartsText('http://', ALink.Url) or StartsText('https://', ALink.Url) or
-          StartsText('mailto:', ALink.Url) then
-        begin
-          ShellExecute(0, 'open', PChar(ALink.Url), nil, nil, SW_SHOWNORMAL);
-        end;
-      end
-      else if AControl and ALink.Target.HasLocation then
-      begin
-        Close;
-        TDpccIdeNavigation.GoToLocation(ALink.Target.FileName, ALink.Target.Line, ALink.Target.Character);
-      end;
-    end;
   // Zeilenangabe der Warnleiste (#457): Liste schließen, Caret an den Fehler.
   FPopup.OnSyntaxLine :=
     procedure(ALine, ACharacter: Integer)
     begin
       Close;
       TDpccIdeNavigation.GoToPosition(ALine, Max(0, ACharacter));
-    end;
-  FPopup.OnChip :=
-    procedure(AChip: TDpccChip)
-    begin
-      FController.SelectChip(AChip);
     end;
   FPopup.OnAccept :=
     procedure(APosition: Integer)
@@ -410,7 +362,6 @@ begin
   else
   begin
     RemoveKeyHook;
-    HideDetails;
     FOpen.View := nil;
   end;
 end;
@@ -427,13 +378,6 @@ end;
 procedure TDpccEditorCompletionState.RemoveKeyHook;
 begin
   TDpccKeyHook.Remove(FKeys);
-end;
-
-procedure TDpccEditorCompletionState.HideDetails;
-begin
-  FPopup.ClearDetails;
-  FDetails.Key := '';
-  FDetails.Requested := False;
 end;
 
 function TDpccEditorCompletionState.GuardNewLine(const AView: IOTAEditView): Boolean;

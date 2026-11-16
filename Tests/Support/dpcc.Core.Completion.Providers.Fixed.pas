@@ -3,6 +3,7 @@
 // Datenquelle mit festen Einträgen (#408): für Tests der Oberfläche ohne
 // Server (#415) und für den Fall eines langsamen Providers (#409, #431). Mit
 // ADelayMs > 0 liefert sie erst nach dieser Zeit und lässt sich solange abbrechen.
+// Seit S7a reine Testhilfe unter Tests\Support (nicht mehr im Package dpcc.IDE.Base, das Plugin benutzt sie nicht).
 
 interface
 

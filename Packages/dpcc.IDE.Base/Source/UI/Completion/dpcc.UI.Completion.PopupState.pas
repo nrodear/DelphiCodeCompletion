@@ -2,12 +2,13 @@
 
 // Vervollständigungs-Popup (#410), unterste Stufe: Typen, Zustand und gemessene Höhen. Die Klasse ist nach
 // Aufgaben in eine Kette geteilt, damit jede Stufe überschaubar bleibt:
-//   TDpccCompletionPopupState (Zustand, Höhen) → TDpccCompletionPopupLayout (Lage von Liste, Panel und
-//   Fenster, Panel-Schnittstelle) → TDpccCompletionPopupPainter (Zeichnen, Tooltip) → TDpccCompletionPopup
-//   (dpcc.UI.Completion.Popup: Maus, Anzeige der Liste, Barrierefreiheit).
+//   TDpccCompletionPopupState (Zustand, Höhen) → TDpccCompletionPopupLayout (Lage von Liste und Fenster) →
+//   TDpccCompletionPopupPainter (Zeichnen, Tooltip) → TDpccCompletionPopup (dpcc.UI.Completion.Popup: Maus,
+//   Anzeige der Liste, Barrierefreiheit).
 // Aufrufer verwenden nur TDpccCompletionPopup; Beschreibung des Aussehens dort.
-// Schlicht (S6, Vorgabe): Zeilen in der UI-Schrift, so hoch wie die Zeilen des Hover-Tooltips (Schrifthöhe +
-// cPlainRowPad); flacher Rahmen (FlatFrame) wie Hover und Menüs der IDE.
+// Schlicht (S6): Zeilen in der UI-Schrift, so hoch wie die Zeilen des Hover-Tooltips (Schrifthöhe + cRowPad);
+// flacher Rahmen (FlatFrame) wie Hover und Menüs der IDE. Seit S7a ist das das einzige Aussehen: Filter-Chips,
+// Detailpanel, Sternspalte, Badges und Auswahlmarke sind entfernt.
 
 interface
 
@@ -19,61 +20,31 @@ uses
   Vcl.ExtCtrls,
   dpcc.Core.Completion.Contract,
   dpcc.Core.Completion.Width,
-  dpcc.Core.Completion.Ranking,
-  dpcc.Core.Documentation.Layout,
   dpcc.UI.Popup.Window,
-  dpcc.UI.Popup.Tip,
-  dpcc.UI.Completion.Details;
+  dpcc.UI.Popup.Tip;
 
 type
   TDpccPositionEvent = reference to procedure(APosition: Integer);
-  /// <summary>Gezogene Breiten in logischen Pixeln; AListWidth 0 = automatisch.</summary>
-  TDpccWidthsEvent = reference to procedure(AListWidth, APanelWidth: Integer);
-  TDpccPanelEvent = reference to procedure(ACollapsed: Boolean);
+  /// <summary>Gezogene Breite der Liste in logischen Pixeln (#416); 0 = automatisch.</summary>
+  TDpccWidthEvent = reference to procedure(AListWidth: Integer);
   /// <summary>Klick auf die Zeilenangabe der Warnleiste (#457); 0-basiert.</summary>
   TDpccSyntaxLineEvent = reference to procedure(ALine, ACharacter: Integer);
 
 {$SCOPEDENUMS ON}
-  TDpccChipEvent = reference to procedure(AChip: TDpccChip);
-  TDpccOverloadEvent = reference to procedure(ADelta: Integer);
-  /// <summary>Klick auf einen Verweis bzw. Link der XMLDoc im Panel (#654); AControl bei Strg+Klick.</summary>
-  TDpccDocLinkEvent = reference to procedure(const ALink: TDpccDocLink; AControl: Boolean);
-  TDpccDragKind = (None, ListWidth, PanelWidth);
-  TDpccHitArea = (None, Splitter, Edge, Grip, PanelBar);
+  /// <summary>Rechter Rand des Fensters (Breite ziehen, #416) bzw. dessen unteres Ende (Doppelklick: automatische
+  /// Breite).</summary>
+  TDpccHitArea = (None, Edge, Corner);
 {$SCOPEDENUMS OFF}
 
-  /// <summary>Zeilen-, Chip- und Fußzeilenhöhe: einmal gemessen, neu nach Schrift- oder Dichtewechsel.
+  /// <summary>Zeilen-, Warnleisten- und Fußzeilenhöhe: einmal gemessen, neu nach Schrift- oder Dichtewechsel.
   /// </summary>
   TDpccPopupMetrics = record
     RowHeight: Integer;
-    ChipsHeight: Integer;
+    SyntaxHeight: Integer;
     FooterHeight: Integer;
     /// <summary>Dichte bei der Messung; Scale hängt an PPI, auch wenn die Schrift gleich bleibt.</summary>
     PPI: Integer;
     Valid: Boolean;
-  end;
-
-  /// <summary>Detailpanel (#424): Bereich, Seite, eingeklappt (#428) und Breite (#416).</summary>
-  TDpccPopupPanel = record
-    /// <summary>Panelbereich in dieser Sitzung belegt.</summary>
-    Shown: Boolean;
-    /// <summary>Panel links der Liste (rechts kein Platz).</summary>
-    Left: Boolean;
-    /// <summary>Vom Benutzer eingeklappt (Strg+Q, Klick auf die Leiste).</summary>
-    Collapsed: Boolean;
-    /// <summary>Weder rechts noch links Platz: für diese Lage eingeklappt.</summary>
-    AutoCollapsed: Boolean;
-    /// <summary>Breite in logischen Pixeln.</summary>
-    Width: Integer;
-  end;
-
-  /// <summary>Filter-Chips (#422): Anzahlen, aktiver Chip und die zuletzt gezeichneten Flächen.</summary>
-  TDpccPopupChips = record
-    Counts: TDpccChipCounts;
-    Active: TDpccChip;
-    Visible: Boolean;
-    Rects: TArray<TRect>;
-    Kinds: TArray<TDpccChip>;
   end;
 
   /// <summary>Leerer Zustand (#423): Präfix ohne Treffer und Gesamtzahl.</summary>
@@ -83,25 +54,18 @@ type
     Total: Integer;
   end;
 
-  /// <summary>Ziehen einer Breite (#416) in Bildschirmkoordinaten.</summary>
+  /// <summary>Ziehen der Breite der Liste am rechten Rand (#416) in Bildschirmkoordinaten.</summary>
   TDpccPopupDrag = record
-    Kind: TDpccDragKind;
+    Active: Boolean;
     StartX: Integer;
     StartWidth: Integer;
-    /// <summary>-1, wenn Ziehen nach links verbreitert (Panel links der Liste).</summary>
-    Sign: Integer;
   end;
 
   /// <summary>Ereignisse des Popups.</summary>
   TDpccPopupEvents = record
     OnSelect: TDpccPositionEvent;
     OnAccept: TDpccPositionEvent;
-    OnWidthsChanged: TDpccWidthsEvent;
-    OnPanelToggled: TDpccPanelEvent;
-    OnChip: TDpccChipEvent;
-    OnOverload: TDpccOverloadEvent;
-    OnDocLink: TDpccDocLinkEvent;
-    OnFavorite: TDpccPositionEvent;
+    OnWidthChanged: TDpccWidthEvent;
     OnSyntaxLine: TDpccSyntaxLineEvent;
   end;
 
@@ -111,11 +75,6 @@ type
     ShowVariantBranch: Boolean;
     Limited: Boolean;
     Target: string;
-    FavoritesEnabled: Boolean;
-    SelectionMarker: Boolean;
-    /// <summary>Schlichte Liste (S6) wie die Code-Insight-Liste der IDE und der Hover-Tooltip: Art als Wort, Name
-    /// fett, Signatur; keine Chips, kein Detailpanel, keine Badges und Tags als Flächen.</summary>
-    Plain: Boolean;
   end;
 
   TDpccCompletionPopupState = class(TDpccPopupWindow)
@@ -123,21 +82,17 @@ type
     cDefaultVisibleRows = 9;
     cMinWidth = TDpccPopupWidth.cMinListWidth;
     cMaxWidth = TDpccPopupWidth.cMaxListWidth;
-    cDefaultPanelWidth = 320;
-    cCollapsedPanelWidth = 22;
   protected const
     /// <summary>Platz für das Kontrollkästchen im Mengenmodus (#448): Rand 7, Kästchen 13, Abstand 6.</summary>
     cCheckWidth = 19;
-    /// <summary>Sternspalte der Favoriten (#458): Rand 4, Stern 12; das Badge rückt um so viel nach rechts.</summary>
-    cStarWidth = 14;
-    /// <summary>Schlichte Liste (S6), Maße wie im Hover-Tooltip (logische Pixel): Zeile = Schrifthöhe +
-    /// cPlainRowPad, Text cPlainInset vom Rand der Zeile, Art-Spalte so breit wie cPlainKindSample plus
-    /// cPlainKindGap, Abstand vor dem Detail bzw. der Unit cPlainGap.</summary>
-    cPlainRowPad = 9;
-    cPlainInset = 4;
-    cPlainKindSample = 'constructor';
-    cPlainKindGap = 24;
-    cPlainGap = 12;
+    /// <summary>Maße wie im Hover-Tooltip (logische Pixel): Zeile = Schrifthöhe + cRowPad, Text cInset vom Rand
+    /// der Zeile, Art-Spalte so breit wie cKindSample plus cKindGap, Abstand vor dem Detail bzw. der Unit cGap.
+    /// </summary>
+    cRowPad = 9;
+    cInset = 4;
+    cKindSample = 'constructor';
+    cKindGap = 24;
+    cGap = 12;
   protected
     FItems: TDpccCompletionItems;
     FOrder: TArray<Integer>;
@@ -151,12 +106,9 @@ type
     FSessionWidth: Integer;
     FSessionHeight: Integer;
     FEmpty: TDpccPopupEmpty;
-    FDetailView: TDpccDetailView;
-    FPanel: TDpccPopupPanel;
     /// <summary>Gezogene Breite der Liste in logischen Pixeln, 0 = automatisch (#416).</summary>
     FManualListWidth: Integer;
     FMetrics: TDpccPopupMetrics;
-    FChips: TDpccPopupChips;
     // Unvollständiger Code (#457): Hinweis und Fläche der Zeilenangabe.
     FSyntax: TDpccSyntaxNotice;
     FSyntaxLink: TRect;
@@ -170,9 +122,8 @@ type
     FDrag: TDpccPopupDrag;
     FEvents: TDpccPopupEvents;
     FOptions: TDpccPopupOptions;
-    // Gerade gezeichnete Zeile: gedämpft (#419, #476, #497) bzw. Aktion in Akzentfarbe (#444).
+    // Gerade gezeichnete Zeile: gedämpft (#419, #476, #497).
     FDimRow: Boolean;
-    FActionRow: Boolean;
     procedure CMFontChanged(var Message: TMessage); message CM_FONTCHANGED;
     procedure InvalidateMetrics;
     procedure EnsureMetrics;
@@ -183,7 +134,6 @@ type
     function RowCount: Integer;
   public
     constructor Create(AOwner: TComponent); override;
-    destructor Destroy; override;
   end;
 
 implementation
@@ -206,25 +156,14 @@ begin
   FVisibleRows := cDefaultVisibleRows;
   FSelected := -1;
   FRestFrom := -1;
-  FDetailView := TDpccDetailView.Create;
   FHoverPosition := -1;
   FTip := TDpccTextTip.Create(Self);
   FTipTimer := TTimer.Create(Self);
   FTipTimer.Enabled := False;
   FTipTimer.Interval := cTipDelayMs;
-  // lsp-ignore: control-fixed-bounds -- Record in logischen Pixeln, skaliert beim Zeichnen
-  FPanel.Width := cDefaultPanelWidth;
-  FOptions.SelectionMarker := True;
   FOptions.ShowVariantBranch := True;
   // Schlicht (S6): flach wie der Hover-Tooltip und die Menüs der IDE.
-  FOptions.Plain := True;
   FlatFrame := True;
-end;
-
-destructor TDpccCompletionPopupState.Destroy;
-begin
-  FDetailView.Free;
-  inherited Destroy;
 end;
 
 procedure TDpccCompletionPopupState.CMFontChanged(var Message: TMessage);
@@ -251,16 +190,9 @@ begin
   Canvas.Font := UIFont;
   mUIHeight := Canvas.TextHeight('Wg');
   Canvas.Font := Font;
-  if FOptions.Plain then
-  begin
-    // Wie eine Zeile des Hover-Tooltips bzw. der Code-Insight-Liste: UI-Schrift + cPlainRowPad.
-    FMetrics.RowHeight := mUIHeight + Scale(cPlainRowPad);
-  end
-  else
-  begin
-    FMetrics.RowHeight := Max(Canvas.TextHeight('Wg') + Scale(9), Scale(24));
-  end;
-  FMetrics.ChipsHeight := mUIHeight + Scale(12);
+  // Wie eine Zeile des Hover-Tooltips bzw. der Code-Insight-Liste: UI-Schrift + cRowPad.
+  FMetrics.RowHeight := mUIHeight + Scale(cRowPad);
+  FMetrics.SyntaxHeight := mUIHeight + Scale(12);
   FMetrics.FooterHeight := mUIHeight + Scale(10);
   FMetrics.PPI := PPI;
   FMetrics.Valid := True;

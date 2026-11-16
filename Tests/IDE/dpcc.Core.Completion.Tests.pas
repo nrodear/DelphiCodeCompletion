@@ -941,7 +941,7 @@ end;
 
 procedure TDpccPlainRowTests.KindWordsLikeIdeList;
 begin
-  // Methoden nach dem Anfang der Signatur, ohne Signatur wie das Badge „fn“.
+  // Methoden nach dem Anfang der Signatur, ohne Signatur als function.
   Assert.AreEqual('procedure', TDpccItemPresentation.KindWord(PlainItem('Add', TDpccItemKind.Method,
     'procedure Add(const S: string)')));
   Assert.AreEqual('procedure', TDpccItemPresentation.KindWord(PlainItem('Run', TDpccItemKind.Method,

@@ -68,11 +68,9 @@ type
     class function CountText(const AList: TDpccCompletionList): string; static;
     /// <summary>Links in der Fußzeile: Hinweis, ausgeblendete Einträge, Tasten oder Ziel (#476).</summary>
     class function FooterLeftText(const AList: TDpccCompletionList): string; static;
-    /// <summary>Beide Texte der Fußzeile je nach Modus (Menge, Absichern, SQL, Typargumente).</summary>
+    /// <summary>Beide Texte der Fußzeile je nach Modus (Menge, Absichern, SQL, Typargumente). Schlicht (S6):
+    /// rechts keine Zählung; nur Mengenmodus, „eingeschränkt“ und „Keine Treffer“ bleiben.</summary>
     class function Footer(const AList: TDpccCompletionList): TDpccCompletionFooter; static;
-    /// <summary>Fußzeile der schlichten Liste (S6): links wie Footer (Tasten, Hinweise), rechts keine Zählung;
-    /// nur Mengenmodus, „eingeschränkt“ und „Keine Treffer“ bleiben.</summary>
-    class function PlainFooter(const AList: TDpccCompletionList): TDpccCompletionFooter; static;
     /// <summary>Text der Warnleiste (#457) vor der Zeilenangabe.</summary>
     class function SyntaxLead(ATrust: TDpccSyntaxTrust): string; static;
     /// <summary>Zeilenangabe der Warnleiste; ALine 0-basiert.</summary>
@@ -462,11 +460,7 @@ begin
     // Tasten, oder das aktive Ziel bei Einträgen mit Bedingung (#476).
     Result.Left := FooterLeftText(AList);
   end;
-end;
-
-class function TDpccCompletionTexts.PlainFooter(const AList: TDpccCompletionList): TDpccCompletionFooter;
-begin
-  Result := Footer(AList);
+  // Schlicht (S6): Die Zählung „n von m“ steht nicht mehr in der Fußzeile.
   if not TDpccCompletionSets.Active(AList.Items) and not AList.Limited and not TDpccRanking.OnlyTypos(AList.Order)
     and (AList.RestFrom <> 0) then
   begin

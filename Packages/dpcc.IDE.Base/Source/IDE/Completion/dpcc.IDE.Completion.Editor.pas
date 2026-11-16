@@ -12,8 +12,8 @@
 //     Tastatur-Hook (dpcc.IDE.Foundation.KeyHook) ↑ ↓ Bild↑ Bild↓ Pos1 Ende Enter Tab Esc
 //     ohne Umschalt/Strg/Alt entgegen; sonst gehen alle Tasten an den Editor.
 //   - Übernahme: ein Undo-Schritt (CreateUndoableWriter) für Name und uses-Ergänzung.
-//   - Detailpanel (#424): 80 ms nach einem Wechsel der Auswahl fragt die Quelle die
-//     Details nach (completionItem/resolve); das Panel ist Teil des Popups (rechts der Liste).
+//   - Das Detailpanel (#424) mit Überladungen (Alt+Pfeil, #425) und XMLDoc gibt es seit S7a nicht mehr; die
+//     schlichte Liste (S6) fragt keine Details beim Server nach. Strg+Q und Strg+C gehören wieder dem Editor.
 //   - Commit-Zeichen (#429): Wird hinter dem Wort "(", ";" oder "." getippt und trifft
 //     der gewählte Eintrag klar, wird er übernommen und das Zeichen bleibt stehen;
 //     sonst bleibt nur das Zeichen und das Popup schließt. Erkannt nach dem Tippen im
@@ -23,11 +23,11 @@
 //     (dpcc.IDE.Completion.Placeholders). Eigene Code-Vorlagen gibt es seit S2 nicht mehr.
 //   - Diagnosemodus (#479): Invoke nimmt nur bei eingeschalteter Messung beim Aufruf einen Zeitstempel
 //     (TDpccContext.Started); der Kontext reicht von dort bis zur Anfrage.
-//   - Favoriten (#458, Einstellung Favorites): Strg+D im offenen Popup bzw. Klick auf den Stern heftet den
-//     Eintrag an oder löst ihn (TDpccIdeFavorites, sofort gespeichert); Ergebnis bzw. „Schon 5 Favoriten …“
-//     als Hinweis in der Fußzeile. Strg+D gehört bei offener Liste immer dem Popup, nie dem Editor.
-// Aufgeteilt in eine Kette von Stufen (dpcc.IDE.Completion.EditorState …EditorCommit); hier Tasten, Weitertippen,
-// Detailpanel und Vorschau.
+//   - Favoriten (#458, Einstellung Favorites): Strg+D im offenen Popup heftet den gewählten Eintrag an oder löst
+//     ihn (TDpccIdeFavorites, sofort gespeichert); Ergebnis bzw. „Schon 5 Favoriten …“ als Hinweis in der
+//     Fußzeile. Strg+D gehört bei offener Liste immer dem Popup, nie dem Editor.
+// Aufgeteilt in eine Kette von Stufen (dpcc.IDE.Completion.EditorState …EditorCommit); hier Tasten, Weitertippen
+// und Vorschau.
 
 interface
 
@@ -59,18 +59,14 @@ type
     /// <summary>Neues Präfix: lokal weiterfiltern, bei Bedarf im Hintergrund neu fragen.</summary>
     procedure Refilter(const ALineText: string; ALine, ACharacter: Integer);
     procedure TimerTick(Sender: TObject);
-    procedure UpdateDetails;
-    /// <summary>Details zu AItem beim Server nachfragen und zeigen; AKey: Schlüssel des Eintrags.</summary>
-    procedure ResolveDetails(const AItem: TDpccCompletionItem; const AKey: string);
-    procedure ChangeOverload(ADelta: Integer);
     procedure UpdatePreview;
     /// <summary>Rest des gewählten Namens hinter dem Cursor (#434); '' ohne Vorschau.</summary>
     function PreviewText: string;
     /// <summary>Gehört die Taste gerade dem Popup?</summary>
     function WantsKey(AKey: TDpccNavigationKey): Boolean;
-    /// <summary>Favorit (#458) an APosition anheften bzw. lösen; APosition &lt; 0 = gewählter Eintrag (Strg+D).
-    /// Speichert und zeigt das Ergebnis in der Fußzeile.</summary>
-    procedure ToggleFavorite(APosition: Integer);
+    /// <summary>Gewählten Eintrag als Favorit (#458) anheften bzw. lösen (Strg+D). Speichert und zeigt das Ergebnis
+    /// in der Fußzeile.</summary>
+    procedure ToggleFavorite;
     /// <summary>Gleich nach der Benachrichtigung automatisch öffnen; AFromGuard: nach dem Enter hinter einem
     /// Konstruktor (#489), sonst nach "(" hinter einem Namen (#472).</summary>
     procedure QueueInvoke(const AView: IOTAEditView; AFromGuard: Boolean);
@@ -87,8 +83,7 @@ type
     destructor Destroy; override;
     /// <summary>Taste aus dem Tastatur-Hook; True, wenn verbraucht.</summary>
     function HandleKey(AKey: TDpccNavigationKey): Boolean;
-    /// <summary>Befehle im offenen Popup: Strg+Q Panel ein/aus (#428), Alt+1 … Alt+6 Chips (#422), Strg+D
-    /// Favorit (#458).</summary>
+    /// <summary>Befehl im offenen Popup: Strg+D Favorit (#458).</summary>
     function WantsCommand(AKey: Word; AShift: TShiftState): Boolean;
     procedure HandleCommand(AKey: Word; AShift: TShiftState);
     /// <summary>Editortext wurde geändert.</summary>
@@ -100,38 +95,18 @@ implementation
 uses
   Winapi.Windows,
   System.SysUtils,
-  Vcl.Clipbrd,
   DockForm,
   dpcc.Core.Diagnostics.MainThread,
   dpcc.Core.Diagnostics.Guard,
-  dpcc.Core.Documentation.Contract,
   dpcc.Core.Completion.Parentheses,
   dpcc.Core.Completion.Preview,
   dpcc.Core.Completion.Favorites,
-  dpcc.Core.Completion.Presentation,
   dpcc.IDE.Foundation.KeyHook,
   dpcc.IDE.Foundation.Settings,
   dpcc.IDE.Foundation.EditorBuffer,
   dpcc.IDE.Completion.History,
   dpcc.IDE.Completion.Favorites,
-  dpcc.IDE.Signature.Editor,
   dpcc.UI.Completion.Strings;
-
-const
-  /// <summary>Ruhe nach einem Wechsel der Auswahl, bevor die Details nachgefragt werden (#424).</summary>
-  cDetailDelayMs = 80;
-
-/// <summary>Anzeige der XMLDoc im Panel (#654): hints aus settings.json meldet der Server, sonst die
-/// Optionen.</summary>
-function WithDisplay(const ADetails: TDpccItemDetails): TDpccItemDetails;
-begin
-  Result := ADetails;
-  if not Result.Display.Known then
-  begin
-    Result.Display := TDpccDocDisplay.Create(TDpccDocDisplay.ExpandOf(TDpccIdeSettings.Current.XmlDocExpand),
-      TDpccIdeSettings.Current.XmlDocMaxLines);
-  end;
-end;
 
 type
   TDpccEditNotifier = class(TNotifierObject, INTAEditServicesNotifier)
@@ -284,24 +259,11 @@ begin
   FController.OnCommit :=
     procedure(const AItem: TDpccCompletionItem)
     begin
-      // Die zuletzt gezeigte Überladung gilt auch im Parameter-Hint (#425, #437).
-      TDpccEditorSignature.PreferOverload(AItem.Name, FDetails.OverloadIndex);
       Commit(AItem);
       if FController.Usage <> nil then
       begin
         TDpccIdeHistory.Committed;
       end;
-    end;
-  FPopup.OnOverload :=
-    procedure(ADelta: Integer)
-    begin
-      ChangeOverload(ADelta);
-    end;
-  // Stern einer Zeile (#458).
-  FPopup.OnFavorite :=
-    procedure(APosition: Integer)
-    begin
-      ToggleFavorite(APosition);
     end;
   FKeys := TCompletionKeys.Create(Self);
   FTimer.OnTimer := TimerTick;
@@ -347,60 +309,25 @@ begin
 end;
 
 function TDpccEditorCompletion.WantsCommand(AKey: Word; AShift: TShiftState): Boolean;
-var
-  mItem: TDpccCompletionItem;
 begin
-  // Strg+Q Panel (#428), Alt+1 … Alt+6 Chips (#422), Strg+C mit markierter Doku im Panel (#654), Strg+D Favorit
-  // (#458; bei offener Liste nie an den Editor).
-  Result := FController.Visible and (((AKey = Ord('Q')) and (AShift = [ssCtrl])) or
-    ((AKey = Ord('D')) and (AShift = [ssCtrl]) and (FController.Favorites <> nil)) or
-    ((AKey = Ord('C')) and (AShift = [ssCtrl]) and (FPopup.SelectedDocText <> '')) or
-    (((AKey = VK_UP) or (AKey = VK_DOWN)) and (AShift = [ssAlt]) and FController.SelectedItem(mItem) and
-      (mItem.OverloadCount > 1)) or
-    (FController.ChipsEnabled and (AKey >= Ord('1')) and (AKey <= Ord('6')) and (AShift = [ssAlt])));
+  // Strg+D Favorit (#458; bei offener Liste nie an den Editor).
+  Result := FController.Visible and (AKey = Ord('D')) and (AShift = [ssCtrl]) and (FController.Favorites <> nil);
 end;
 
 procedure TDpccEditorCompletion.HandleCommand(AKey: Word; AShift: TShiftState);
 begin
-  if (AKey = Ord('Q')) and (AShift = [ssCtrl]) then
+  if (AKey = Ord('D')) and (AShift = [ssCtrl]) then
   begin
-    FPopup.TogglePanel;
-  end
-  else if (AKey = Ord('C')) and (AShift = [ssCtrl]) then
-  begin
-    Clipboard.AsText := FPopup.SelectedDocText;
-  end
-  else if (AKey = Ord('D')) and (AShift = [ssCtrl]) then
-  begin
-    ToggleFavorite(-1);
-  end
-  else if (AKey = VK_UP) and (AShift = [ssAlt]) then
-  begin
-    ChangeOverload(-1);
-  end
-  else if (AKey = VK_DOWN) and (AShift = [ssAlt]) then
-  begin
-    ChangeOverload(1);
-  end
-  else if (AKey >= Ord('1')) and (AKey <= Ord('6')) then
-  begin
-    FController.SelectChipAt(AKey - Ord('1'));
+    ToggleFavorite;
   end;
 end;
 
-procedure TDpccEditorCompletion.ToggleFavorite(APosition: Integer);
+procedure TDpccEditorCompletion.ToggleFavorite;
 var
   mItem: TDpccCompletionItem;
   mOutcome: TDpccFavoriteToggle;
 begin
-  if APosition < 0 then
-  begin
-    mOutcome := FController.ToggleSelectedFavorite(mItem);
-  end
-  else
-  begin
-    mOutcome := FController.ToggleFavorite(APosition, mItem);
-  end;
+  mOutcome := FController.ToggleSelectedFavorite(mItem);
   case mOutcome of
     TDpccFavoriteToggle.Added:
       begin
@@ -530,118 +457,6 @@ begin
   end;
 end;
 
-procedure TDpccEditorCompletion.UpdateDetails;
-var
-  mItem: TDpccCompletionItem;
-  mKey: string;
-begin
-  if not FController.Visible or not FController.SelectedItem(mItem) then
-  begin
-    HideDetails;
-    Exit;
-  end;
-  mKey := mItem.Name + #0 + mItem.ResolveData;
-  if mKey <> FDetails.Key then
-  begin
-    // Erst nach 80 ms Ruhe nachfragen, damit schnelles Scrollen nicht flackert (#424).
-    FDetails.Key := mKey;
-    FDetails.OverloadIndex := 0;
-    FPopup.SetOverload(0, mItem.OverloadCount);
-    FDetails.Due := TThread.GetTickCount64 + cDetailDelayMs;
-    FDetails.Requested := False;
-    Exit;
-  end;
-  if FDetails.Requested or (TThread.GetTickCount64 < FDetails.Due) then
-  begin
-    Exit;
-  end;
-  FDetails.Requested := True;
-  // Überladung (#425): deren Position statt der ersten nachfragen.
-  if (FDetails.OverloadIndex > 0) and (FDetails.OverloadIndex <= Length(mItem.OverloadData)) then
-  begin
-    mItem.ResolveData := mItem.OverloadData[FDetails.OverloadIndex - 1];
-  end;
-  // Unit im uses-Abschnitt (#469): alles Nötige liefert schon die Liste.
-  if mItem.UsesGroup <> '' then
-  begin
-    FPopup.ShowDetails(TDpccItemPresentation.UsesDetails(mItem));
-  end
-  else
-  begin
-    ResolveDetails(mItem, mKey);
-  end;
-end;
-
-procedure TDpccEditorCompletion.ResolveDetails(const AItem: TDpccCompletionItem; const AKey: string);
-var
-  mItem: TDpccCompletionItem;
-  mKey, mAvailability, mAddsUnit: string;
-  mResolver: IDpccCompletionResolver;
-  mDetails: TDpccItemDetails;
-begin
-  mItem := AItem;
-  mKey := AKey;
-  // Helper aus nicht eingebundener Unit (#456): Hinweis, dass Enter die uses ergänzt.
-  mAddsUnit := '';
-  if mItem.IsHelper and TDpccIdeSettings.Current.AutoUses then
-  begin
-    mAddsUnit := TDpccItemPresentation.MissingUnit(mItem);
-  end;
-  // Im aktiven Ziel nicht deklariert (#476): Hinweis im Panel, auch ohne Details vom Server.
-  mAvailability := '';
-  if mItem.Unavailable and (mItem.Condition <> '') and not SameText(mItem.Condition, 'platform') then
-  begin
-    mAvailability := TDpccCompletionStrings.Fmt(TDpccCompletionTextId.UnavailableHint, [mItem.Condition,
-      FPopup.Target]);
-  end;
-  if Supports(FSources.Server, IDpccCompletionResolver, mResolver) and mResolver.Resolve(mItem,
-    procedure(const ADetails: TDpccItemDetails)
-    var
-      mShown: TDpccItemDetails;
-    begin
-      // Nur zeigen, wenn noch derselbe Eintrag gewählt und die Liste offen ist.
-      if (FDetails.Key = mKey) and FController.Visible then
-      begin
-        mShown := WithDisplay(ADetails);
-        mShown.Availability := mAvailability;
-        mShown.AddsUnit := mAddsUnit;
-        // Gleichnamige Bezeichner (#475): alles Nötige liefert die Liste.
-        TDpccItemPresentation.AddSameName(mItem, mShown);
-        FPopup.ShowDetails(mShown);
-      end;
-    end) then
-  begin
-    Exit;
-  end;
-  if (mAvailability <> '') or (Length(mItem.SameNameUnits) > 0) then
-  begin
-    mDetails := Default(TDpccItemDetails);
-    mDetails.Availability := mAvailability;
-    TDpccItemPresentation.AddSameName(mItem, mDetails);
-    FPopup.ShowDetails(mDetails);
-  end
-  else
-  begin
-    FPopup.ClearDetails;
-  end;
-end;
-
-procedure TDpccEditorCompletion.ChangeOverload(ADelta: Integer);
-var
-  mItem: TDpccCompletionItem;
-begin
-  if not FController.SelectedItem(mItem) or (mItem.OverloadCount < 2) then
-  begin
-    Exit;
-  end;
-  FDetails.OverloadIndex := (FDetails.OverloadIndex + ADelta + mItem.OverloadCount) mod mItem.OverloadCount;
-  FPopup.SetOverload(FDetails.OverloadIndex, mItem.OverloadCount);
-  // Sofort nachfragen, ohne die 80 ms Ruhe beim Blättern in der Liste.
-  FDetails.Requested := False;
-  FDetails.Due := 0;
-  UpdateDetails;
-end;
-
 function TDpccEditorCompletion.PreviewText: string;
 var
   mItem: TDpccCompletionItem;
@@ -686,7 +501,6 @@ procedure TDpccEditorCompletion.TimerTick(Sender: TObject);
 begin
   try
     Recheck;
-    UpdateDetails;
     UpdatePreview;
   except
     on E: Exception do

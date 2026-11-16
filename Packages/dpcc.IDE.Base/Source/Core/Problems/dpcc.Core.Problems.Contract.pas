@@ -4,8 +4,8 @@
 // Compilermeldungen mit source "dcc") als Datensatz des Plugins. Positionen
 // sind 0-basiert in UTF-16-Einheiten wie im LSP.
 // TDpccIdeError (#1819): ein Fehler aus Error Insight der IDE, roh wie in
-// TOTAError; das Modul Prüfregeln liefert ihn über IDpccIdeErrors
-// (dpcc.IDE.Contracts.Rules), umgerechnet wird in dpcc.Core.Problems.IdeErrors.
+// TOTAError (früher vom Modul Prüfregeln geliefert; die Umrechnung ist seit S7a
+// mit den übrigen Teilen der Prüfung entfernt).
 
 interface
 

@@ -8,8 +8,8 @@
 //   Detailpanel (hints.xmlDoc*). Pfad und Betriebsart eines eigenen Server-Prozesses entfallen seit S1, die Seite
 //   „Robustheit“ und die Extras des Hovers seit S3, die Seite „Index“ seit S4 (Umfang, Verwendungen und
 //   Speichergrenze fest; „Index neu aufbauen“ steht als Knopf auf „Allgemein“). Seit S6 ist die Liste schlicht
-//   wie die Code-Insight-Liste der IDE: Filter-Chips, eingeklapptes Detailpanel und Auswahlmarke wirken nicht
-//   mehr und stehen deshalb nicht mehr auf der Seite (cPlainListKeys).
+//   wie die Code-Insight-Liste der IDE; seit S7a gibt es Filter-Chips, Detailpanel und Auswahlmarke auch als
+//   Einstellung nicht mehr, ebenso die gelernten Vorschläge (suggestions.*).
 // - Einstellungen des Servers (settings.json, dpcc.json) zeigt dpcc seit S2 nicht mehr: Die Seite „dpcc › Server“
 //   mit dem Dialog für globale und Projekt-Einstellungen ist weg; der Server im IDE-Prozess liest beide Dateien
 //   weiter selbst.
@@ -55,9 +55,6 @@ const
   cPluginPages: array[0..2] of string = ('Vervollständigung', 'Einfügen', 'Hints'); // german-ok x-page
   /// <summary>Einzelne Plugin-Einstellungen (x-key) anderer Seiten.</summary>
   cPluginKeys: array[0..0] of string = ('completion.enabled');
-  /// <summary>Schalter des früheren Aussehens der Liste (S6): ohne Wirkung in der schlichten Liste.</summary>
-  cPlainListKeys: array[0..2] of string = ('completion.filterChips', 'completion.panelCollapsed',
-    'completion.selectionMarker');
   /// <summary>Tasten (x-key) auf der Seite „Tastenkonflikte“.</summary>
   cKeyKeys: array[0..3] of string = ('keys.completion', 'keys.completionPriority', 'keys.signature',
     'keys.signaturePriority');
@@ -78,7 +75,7 @@ begin
   begin
     Exit(spKeys);
   end;
-  if SameText(AEntry.Page, cKeysPage) or MatchText(AEntry.Key, cPlainListKeys) then
+  if SameText(AEntry.Page, cKeysPage) then
   begin
     Exit(spHidden);
   end;

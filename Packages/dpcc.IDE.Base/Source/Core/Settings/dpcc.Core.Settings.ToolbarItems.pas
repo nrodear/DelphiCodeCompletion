@@ -2,7 +2,7 @@
 
 // dpcc-Editorleiste (#1101), Belegung ohne VCL und OTA. Gehört zu den
 // Einstellungen, weil der Parser (dpcc.Core.Settings.Plugin) die Liste
-// bereinigt; die Symbole je Befehl stehen in dpcc.Core.EditorToolbar.Icons.
+// bereinigt (die Editorleiste selbst und ihre Symbole sind seit S7a entfernt).
 // - editor.toolbar.items ist eine Liste von Befehlskennungen der Befehlspalette
 //   (#600), durch Komma getrennt; „|“ ist ein Trennstrich. Das Format ist so
 //   angelegt, dass eigene Werkzeugleisten (#633) es wiederverwenden.

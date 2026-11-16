@@ -7,7 +7,6 @@
 //     je Vorfahr eine Gruppe mit Überschrift (in der Reihenfolge ein -1 vor dem
 //     ersten Eintrag der Gruppe). Mit Präfix keine Überschriften; bei gleicher
 //     Güte steht der eigene Member vor dem geerbten.
-//   - Chips: Einschränkung auf eine Art (Methoden, Eigenschaften, ...).
 //   - Erwarteter Typ (#417, #444): passende Einträge oben, darunter die
 //     übrigen, je mit Überschrift, auch mit Präfix. Innerhalb der Gruppe wie
 //     oben. Aktionen („Neue Methode …“) passen immer und stehen zuletzt.
@@ -36,6 +35,8 @@
 //     des Kontexts ohne Überschrift hinter die Treffer, Rest unter der Überschrift RestHeader („Weitere
 //     Einträge“, gedämpft). Beide in Rang- und Namensfolge, ohne Aktionen, Hinweise und Tippfehler-Treffer,
 //     vor der Gruppe des unbekannten Namens.
+// Die Filter-Chips (Einschränkung auf eine Art, #422) gibt es seit S7a nicht mehr: Die schlichte Liste (S6) zeigt
+// sie nicht.
 
 interface
 
@@ -46,10 +47,6 @@ uses
 {$SCOPEDENUMS ON}
 
 type
-  TDpccChip = (All, Methods, Properties, Events, Types, Snippets);
-
-  TDpccChipCounts = array[TDpccChip] of Integer;
-
   /// <summary>Was mit Präfix außer den Treffern sichtbar bleibt (#497).</summary>
   TDpccListMode = (Filter, All, Rest);
 
@@ -73,7 +70,6 @@ type
 
   TDpccRankOptions = record
     GroupInherited: Boolean;
-    Chip: TDpccChip;
     Boost: TDpccBoostFunc;
     /// <summary>Übrige Einträge mit Präfix (#497); Filter = nur Treffer.</summary>
     ListMode: TDpccListMode;
@@ -94,9 +90,6 @@ type
     cMaxTypos = 5;
     cMinRegular = 3;
   public
-    /// <summary>Art des Eintrags für die Chips; nie All.</summary>
-    class function ChipOf(const AItem: TDpccCompletionItem): TDpccChip; static;
-    class function Matches(const AItem: TDpccCompletionItem; AChip: TDpccChip): Boolean; static;
     /// <summary>Ähnliche Namen zu APattern als TypoHeader + Indizes (#485); leer ohne.</summary>
     class function Typos(const AItems: TDpccCompletionItems; const APattern: string;
       const AOptions: TDpccRankOptions; const AScores, ABoosts: TArray<Integer>): TArray<Integer>; static;
@@ -106,8 +99,6 @@ type
     /// <summary>Wie oben; ARestStart ist die Position des ersten Eintrags ohne Treffer (#497), -1 ohne.</summary>
     class function Order(const AItems: TDpccCompletionItems; const APattern: string;
       const AOptions: TDpccRankOptions; out ARestStart: Integer): TArray<Integer>; overload; static;
-    /// <summary>Treffer je Chip für APattern (unabhängig vom gewählten Chip).</summary>
-    class function ChipCounts(const AItems: TDpccCompletionItems; const APattern: string): TDpccChipCounts; static;
     /// <summary>Einträge ohne Überschriften.</summary>
     class function ItemCount(const AOrder: TArray<Integer>): Integer; static;
     /// <summary>Überschrift statt Eintrag (Header, TypoHeader)?</summary>
@@ -130,7 +121,6 @@ uses
 class function TDpccRankOptions.Defaults: TDpccRankOptions;
 begin
   Result.GroupInherited := False;
-  Result.Chip := TDpccChip.All;
   Result.Boost := nil;
   Result.ListMode := TDpccListMode.Filter;
 end;
@@ -166,32 +156,6 @@ begin
 end;
 
 { TDpccRanking }
-
-class function TDpccRanking.ChipOf(const AItem: TDpccCompletionItem): TDpccChip;
-begin
-  case AItem.Kind of
-    TDpccItemKind.Method, TDpccItemKind.Function_, TDpccItemKind.Procedure_, TDpccItemKind.Constructor_,
-    TDpccItemKind.Destructor_:
-      Result := TDpccChip.Methods;
-    TDpccItemKind.Property_, TDpccItemKind.Field:
-      Result := TDpccChip.Properties;
-    TDpccItemKind.Event:
-      Result := TDpccChip.Events;
-    TDpccItemKind.Type_, TDpccItemKind.Class_, TDpccItemKind.Interface_, TDpccItemKind.Record_,
-    TDpccItemKind.Enum:
-      Result := TDpccChip.Types;
-    TDpccItemKind.Snippet:
-      Result := TDpccChip.Snippets;
-  else
-    // Variablen, Konstanten, Units, Schlüsselwörter: nur unter "Alle".
-    Result := TDpccChip.All;
-  end;
-end;
-
-class function TDpccRanking.Matches(const AItem: TDpccCompletionItem; AChip: TDpccChip): Boolean;
-begin
-  Result := (AChip = TDpccChip.All) or (ChipOf(AItem) = AChip);
-end;
 
 function NameOf(const AItem: TDpccCompletionItem): string;
 begin
@@ -362,16 +326,15 @@ begin
 end;
 
 /// <summary>Gehört AItem ohne Treffer (AScore) in den Rest der Liste (#497)?</summary>
-function IsRestCandidate(const AItem: TDpccCompletionItem; AChip: TDpccChip; AScore: Integer): Boolean;
+function IsRestCandidate(const AItem: TDpccCompletionItem; AScore: Integer): Boolean;
 begin
-  Result := (AScore = TDpccCompletionMatcher.cNoMatch) and TDpccRanking.Matches(AItem, AChip) and
-    not AItem.IsAction and (AItem.Conversion = '') and IsPlainItem(AItem);
+  Result := (AScore = TDpccCompletionMatcher.cNoMatch) and not AItem.IsAction and (AItem.Conversion = '') and
+    IsPlainItem(AItem);
 end;
 
-/// <summary>Einträge ohne Treffer für den Rest der Liste (#497): passend zum Chip, keine Aktionen, Hinweise oder
-/// angehefteten Einträge, nicht schon in AShown; in Rang- und Namensfolge.</summary>
-function RestOf(const AItems: TDpccCompletionItems; const AOptions: TDpccRankOptions;
-  const AScores, AShown: TArray<Integer>): TArray<Integer>;
+/// <summary>Einträge ohne Treffer für den Rest der Liste (#497): keine Aktionen, Hinweise oder angehefteten
+/// Einträge, nicht schon in AShown; in Rang- und Namensfolge.</summary>
+function RestOf(const AItems: TDpccCompletionItems; const AScores, AShown: TArray<Integer>): TArray<Integer>;
 var
   mItems: TDpccCompletionItems;
   mShown: TArray<Boolean>;
@@ -391,7 +354,7 @@ begin
   try
     for mIndex := 0 to High(mItems) do
     begin
-      if not mShown[mIndex] and IsRestCandidate(mItems[mIndex], AOptions.Chip, AScores[mIndex]) then
+      if not mShown[mIndex] and IsRestCandidate(mItems[mIndex], AScores[mIndex]) then
       begin
         mRest.Add(mIndex);
       end;
@@ -420,8 +383,7 @@ begin
 end;
 
 /// <summary>Umwandlungseinträge (#490) je direkt vor ihr Original in AOrder; jeder höchstens einmal.</summary>
-function WithConversions(const AItems: TDpccCompletionItems; const AOrder: TArray<Integer>;
-  const AOptions: TDpccRankOptions): TArray<Integer>;
+function WithConversions(const AItems: TDpccCompletionItems; const AOrder: TArray<Integer>): TArray<Integer>;
 var
   mPlaced: TArray<Boolean>;
   mIndex, mConversion: Integer;
@@ -448,8 +410,7 @@ begin
       for mConversion := 0 to High(AItems) do
       begin
         if not mPlaced[mConversion] and (AItems[mConversion].Conversion <> '') and
-          SameText(AItems[mConversion].ConvertFrom, AItems[mIndex].Name) and
-          TDpccRanking.Matches(AItems[mConversion], AOptions.Chip) then
+          SameText(AItems[mConversion].ConvertFrom, AItems[mIndex].Name) then
         begin
           mPlaced[mConversion] := True;
           Result := Result + [mConversion];
@@ -559,7 +520,7 @@ begin
   begin
     FScores[mIndex] := TDpccCompletionMatcher.cNoMatch;
     // Umwandlungen (#490) setzt WithConversions vor ihr Original.
-    if not TDpccRanking.Matches(FItems[mIndex], FOptions.Chip) or (FItems[mIndex].Conversion <> '') then
+    if FItems[mIndex].Conversion <> '' then
     begin
       Continue;
     end;
@@ -870,7 +831,7 @@ begin
   ARestStart := -1;
   mRanker := TRanker.Create(AItems, APattern, AOptions);
   try
-    Result := WithConversions(AItems, mRanker.Order(APattern), AOptions);
+    Result := WithConversions(AItems, mRanker.Order(APattern));
     // Tippfehler (#485): wenig reguläre Treffer, dann bis zu MaxTypos ähnliche Namen unter „Meintest du“, vor
     // der Gruppe des unbekannten Namens (#471), die nicht als Treffer zählt.
     mUnknown := UnknownStart(Result);
@@ -882,7 +843,7 @@ begin
     // Rest der Liste (#497): hinter Treffern und Tippfehlern, vor dem unbekannten Namen.
     if (AOptions.ListMode <> TDpccListMode.Filter) and (APattern <> '') then
     begin
-      Result := WithRest(Result, RestOf(AItems, AOptions, mRanker.Scores, Result), AOptions.ListMode, ARestStart);
+      Result := WithRest(Result, RestOf(AItems, mRanker.Scores, Result), AOptions.ListMode, ARestStart);
     end;
   finally
     mRanker.Free;
@@ -908,7 +869,7 @@ begin
     for mIndex := 0 to High(mItems) do
     begin
       // Nur, was nicht schon regulär passt; keine Aktionen.
-      if mItems[mIndex].IsAction or not Matches(mItems[mIndex], AOptions.Chip) or (mItems[mIndex].Conversion <> '') or
+      if mItems[mIndex].IsAction or (mItems[mIndex].Conversion <> '') or
         (AScores[mIndex] <> TDpccCompletionMatcher.cNoMatch) then
       begin
         Continue;
@@ -943,31 +904,6 @@ begin
     end;
   finally
     mCandidates.Free;
-  end;
-end;
-
-class function TDpccRanking.ChipCounts(const AItems: TDpccCompletionItems;
-  const APattern: string): TDpccChipCounts;
-var
-  mChip: TDpccChip;
-  mItem: TDpccCompletionItem;
-begin
-  for mChip := Low(TDpccChip) to High(TDpccChip) do
-  begin
-    Result[mChip] := 0;
-  end;
-  // Umwandlungen (#490) zählen nicht doppelt.
-  for mItem in AItems do
-  begin
-    if (mItem.Conversion = '') and (TDpccCompletionMatcher.Score(APattern, NameOf(mItem)) <>
-      TDpccCompletionMatcher.cNoMatch) then
-    begin
-      Inc(Result[TDpccChip.All]);
-      if ChipOf(mItem) <> TDpccChip.All then
-      begin
-        Inc(Result[ChipOf(mItem)]);
-      end;
-    end;
   end;
 end;
 

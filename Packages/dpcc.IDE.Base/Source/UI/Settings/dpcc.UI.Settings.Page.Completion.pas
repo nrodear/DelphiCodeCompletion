@@ -1,7 +1,8 @@
 ﻿unit dpcc.UI.Settings.Page.Completion;
 
-// Reiter „Vervollständigung“: Zeilen, Breite, Listenmodus, Verlauf, angeheftete Favoriten (#458) und gelernte
-// Vorschläge (#1890).
+// Reiter „Vervollständigung“: Zeilen, Breite, Listenmodus, Verlauf und angeheftete Favoriten (#458). Die gelernten
+// Vorschläge (#1890) und die Schalter der früheren Liste (Detailpanel, Auswahlmarke, Filter-Chips) gibt es seit
+// S7a nicht mehr.
 
 interface
 
@@ -30,8 +31,8 @@ type
     // Favoriten (#458): Schalter, Liste und Schlüssel je Zeile.
     FFavorites: TCheckBox;
     FResetWidths: TButton;
-    /// <summary>Breiten der Vervollständigungsliste (gezogen bzw. zurückgesetzt), gespeichert mit OK.</summary>
-    FListWidth, FPanelWidth: Integer;
+    /// <summary>Breite der Vervollständigungsliste (gezogen bzw. zurückgesetzt), gespeichert mit OK.</summary>
+    FListWidth: Integer;
     FOnResetHistory: TProc;
     procedure ResetHistoryClick(Sender: TObject);
     procedure ResetWidthsClick(Sender: TObject);
@@ -89,7 +90,6 @@ uses
   Vcl.Controls,
   dpcc.UI.Settings.Page.Sheets,
   dpcc.UI.Strings,
-  dpcc.UI.Editor.LearnedSuggestions,
   dpcc.UI.Settings.Strings,
   dpcc.Core.Completion.Ranking;
 
@@ -121,12 +121,6 @@ begin
   FAutoWidth := AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsAutoWidth));
   FAutoWidth.OnClick := AutoWidthClick;
   BindText('OpenDelayMs', AddNumber(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsOpenDelay)));
-  // Schlichte Liste (S6): Detailpanel, Auswahlmarke und Filter-Chips gibt es nicht mehr; die Haken sind
-  // ausgeblendet (TDpccCompletionView.cPlainListKeys), die gespeicherten Werte bleiben unangetastet.
-  // BindCheck('PanelCollapsed', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsPanelCollapsed)));
-  // BindCheck('SelectionMarker', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsSelectionMarker)));
-  // BindCheck('FilterChips', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsChips)));
-
   BindCheck('Learning', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsLearning)));
   FFavorites := BindCheck('Favorites', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsFavorites)));
   BindCheck('GroupInherited', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsGroupInherited)));
@@ -141,12 +135,6 @@ begin
     [TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsListScopeMembers),
     TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsListScopeEverywhere)]);
   BindCheck('Preview', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsPreview)));
-  // Gelernte Vorschläge (#1890): Schattentext nach Enter aus dem eigenen Code.
-  BindCheck('SuggestionsLearned', AddCheck(TDpccLearnedTexts.Text(TDpccLearnedText.SettingLearned)));
-  BindText('SuggestionsDelayMs', AddNumber(TDpccLearnedTexts.Text(TDpccLearnedText.SettingDelay)));
-  BindText('SuggestionsMinShare', AddNumber(TDpccLearnedTexts.Text(TDpccLearnedText.SettingMinShare)));
-  BindText('SuggestionsMinCount', AddNumber(TDpccLearnedTexts.Text(TDpccLearnedText.SettingMinCount)));
-  BindCheck('SuggestionsLearnFromUsage', AddCheck(TDpccLearnedTexts.Text(TDpccLearnedText.SettingLearnFromUsage)));
   mPanel := AddPanel(32);
   FResetHistory := TButton.Create(FPage);
   FResetHistory.Parent := mPanel;
@@ -178,7 +166,6 @@ end;
 procedure TDpccSettingsCompletionPart.Load(const ASettings: TDpccPluginSettings);
 begin
   FListWidth := ASettings.ListWidth;
-  FPanelWidth := ASettings.PanelWidth;
   FRowsUpDown.Position := ASettings.VisibleRows;
   FAutoWidth.OnClick := nil;
   FAutoWidth.Checked := ASettings.ListWidth = 0;
@@ -190,7 +177,6 @@ end;
 procedure TDpccSettingsCompletionPart.Save(var ASettings: TDpccPluginSettings);
 begin
   ASettings.ListWidth := FListWidth;
-  ASettings.PanelWidth := FPanelWidth;
   ASettings.VisibleRows := FRowsUpDown.Position;
   if (FListMode.Choice >= Ord(Low(TDpccListMode))) and (FListMode.Choice <= Ord(High(TDpccListMode))) then
   begin
@@ -227,7 +213,6 @@ end;
 procedure TDpccSettingsCompletionPart.ResetWidthsClick(Sender: TObject);
 begin
   FListWidth := TDpccPluginSettings.Defaults.ListWidth;
-  FPanelWidth := TDpccPluginSettings.Defaults.PanelWidth;
   FAutoWidth.OnClick := nil;
   FAutoWidth.Checked := FListWidth = 0;
   FAutoWidth.OnClick := AutoWidthClick;

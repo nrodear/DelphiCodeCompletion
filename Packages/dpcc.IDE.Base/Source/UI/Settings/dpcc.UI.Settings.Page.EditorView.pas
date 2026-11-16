@@ -1,7 +1,7 @@
 ﻿unit dpcc.UI.Settings.Page.EditorView;
 
-// Reiter „Editor“, erster Teil: Anzeige im Editor (Editorleiste #1101, Statusleiste #1155, Kopf, Minimap,
-// Änderungsmarken, gleiche Stellen).
+// Reiter „Editor“, erster Teil: Anzeige im Editor (Statusleiste #1155, Kopf, Minimap, Änderungsmarken, gleiche
+// Stellen). Die Editorleiste (#1101) mit „Leiste anpassen …“ gibt es seit S7a nicht mehr.
 
 interface
 
@@ -10,12 +10,11 @@ uses
   Vcl.StdCtrls,
   dpcc.Core.Settings.Plugin,
   dpcc.UI.Settings.ChoiceBox,
-  dpcc.UI.EditorToolbar.Customize,
   dpcc.UI.Settings.Page.Host;
 
 type
-  /// <summary>Reiter „Editor“, erster Teil: Anzeige im Editor (Editorleiste #1101, Statusleiste #1155, Kopf,
-  /// Minimap, Änderungsmarken, gleiche Stellen).</summary>
+  /// <summary>Reiter „Editor“, erster Teil: Anzeige im Editor (Statusleiste #1155, Kopf, Minimap,
+  /// Änderungsmarken, gleiche Stellen).</summary>
   TDpccSettingsEditorViewPart = class(TDpccSettingsPagePart)
   private
     FXmlDocExpand: TDpccChoiceBox;
@@ -24,16 +23,10 @@ type
     FMinimapRender: TDpccChoiceBox;
     FMinimapSide: TDpccChoiceBox;
     FMinimapShowSlider: TDpccChoiceBox;
-    FEditorToolbarPosition: TDpccChoiceBox;
-    FEditorToolbarItems: TEdit;
-    FEditorToolbarLabels: TCheckBox;
-    FEditorToolbarCustomize: TButton;
     FEditorStatusBarItems: TEdit;
-    FOnToolbarCommands: TFunc<TArray<TDpccToolbarCommandInfo>>;
     FGitGutter: TCheckBox;
     FSelectionMatchesMinLength: TEdit;
     FSelectionMatchesMaxMatches: TEdit;
-    procedure EditorToolbarCustomizeClick(Sender: TObject);
     procedure BuildBreadcrumbs;
   public
     procedure Build;
@@ -46,16 +39,9 @@ type
     property MinimapRender: TDpccChoiceBox read FMinimapRender;
     /// <summary>Zum Testen: Färbung lokaler Routinen (#1788).</summary>
     property NestedRoutines: TDpccChoiceBox read FNestedRoutines;
-    /// <summary>Zum Testen: Editorleiste (#1101).</summary>
-    property EditorToolbarItemsEdit: TEdit read FEditorToolbarItems;
-    property EditorToolbarPositionBox: TDpccChoiceBox read FEditorToolbarPosition;
-    property EditorToolbarCustomizeButton: TButton read FEditorToolbarCustomize;
     property EditorStatusBarItemsEdit: TEdit read FEditorStatusBarItems;
     property SelectionMatchesMinLength: TEdit read FSelectionMatchesMinLength;
     property SelectionMatchesMaxMatches: TEdit read FSelectionMatchesMaxMatches;
-    /// <summary>Befehle für „Leiste anpassen …“ der Editorleiste (#1101): dpcc-Befehle der Palette.</summary>
-    property OnToolbarCommands: TFunc<TArray<TDpccToolbarCommandInfo>> read FOnToolbarCommands
-      write FOnToolbarCommands;
     property GitGutter: TCheckBox read FGitGutter;
   end;
 
@@ -69,7 +55,6 @@ uses
   dpcc.UI.Settings.Strings,
   dpcc.Core.Documentation.Contract,
   dpcc.Core.Editor.RoutineNesting,
-  dpcc.Core.Settings.ToolbarItems,
   dpcc.Core.Settings.StatusBarItems;
 
 { TDpccSettingsEditorViewPart }
@@ -128,8 +113,6 @@ begin
 end;
 
 procedure TDpccSettingsEditorViewPart.Build;
-var
-  mPanel: TWinControl;
 begin
   AddSheet(TDpccTextId.SettingsTabEditor);
   // Schlichter Tooltip (S3, S3b mit vollem Inhalt): an/aus. Inhalte zeigt er wie früher vorgegeben; nur die Werte
@@ -173,25 +156,6 @@ begin
   BindCheck('DimUnusedUses', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsDimUnusedUses)));
   BuildBreadcrumbs;
   BindCheck('MouseNavButtons', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsMouseNavButtons)));
-  // dpcc-Editorleiste (#1101).
-  BindCheck('EditorToolbar', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsEditorToolbar)));
-  FEditorToolbarPosition := AddChoice(TDpccStrings.Text(TDpccTextId.EditorToolbarPosition),
-    [TDpccStrings.Text(TDpccTextId.EditorToolbarPositionBelow),
-    TDpccStrings.Text(TDpccTextId.EditorToolbarPositionAbove),
-    TDpccStrings.Text(TDpccTextId.EditorToolbarPositionInline)]);
-  FEditorToolbarItems := AddTextLine(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsEditorToolbarItems));
-  mPanel := AddPanel(32);
-  FEditorToolbarCustomize := TButton.Create(FPage);
-  FEditorToolbarCustomize.Parent := mPanel;
-  FEditorToolbarCustomize.Caption := TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsEditorToolbarCustomize);
-  FEditorToolbarCustomize.Left := 0;
-  FEditorToolbarCustomize.Top := FEditorToolbarCustomize.ScaleValue(3);
-  FEditorToolbarCustomize.Width := FEditorToolbarCustomize.ScaleValue(180);
-  FEditorToolbarCustomize.OnClick := EditorToolbarCustomizeClick;
-  Attach(mPanel, FEditorToolbarItems);
-  BindCheck('EditorToolbarReturnButton',
-    AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsEditorToolbarReturnButton)));
-  FEditorToolbarLabels := BindCheck('EditorToolbarLabels', AddCheck(TDpccStrings.Text(TDpccTextId.EditorToolbarLabels)));
 end;
 
 procedure TDpccSettingsEditorViewPart.Build2;
@@ -270,8 +234,6 @@ procedure TDpccSettingsEditorViewPart.BindMarks;
 begin
   // Aus SaveTo: Element und die Einstellungen, die es schreibt. Listen aus mehreren Haken zeigen keinen Punkt
   // (der gälte für jeden Haken), lassen sich aber zurücksetzen.
-  FPage.Marks.Bind(FEditorToolbarPosition, ['EditorToolbarPosition']);
-  FPage.Marks.Bind(FEditorToolbarItems, ['EditorToolbarItems']);
   FPage.Marks.Bind(FEditorStatusBarItems, ['EditorStatusBarItems']);
   FPage.Marks.Bind(FStickyScrollBlockMinLines, ['StickyScrollBlockMinLines']);
   FPage.Marks.Bind(FMinimapRender, ['MinimapRender']);
@@ -285,8 +247,6 @@ end;
 
 procedure TDpccSettingsEditorViewPart.Load(const ASettings: TDpccPluginSettings);
 begin
-  FEditorToolbarPosition.Choice := Max(0, IndexText(ASettings.EditorToolbarPosition, cDpccToolbarPositions));
-  FEditorToolbarItems.Text := ASettings.EditorToolbarItems;
   FEditorStatusBarItems.Text := ASettings.EditorStatusBarItems;
   FStickyScrollBlockMinLines.Text := IntToStr(ASettings.StickyScrollBlockMinLines);
   FMinimapRender.Choice := Max(0, IndexText(ASettings.MinimapRender, ['blocks', 'characters']));
@@ -300,9 +260,6 @@ end;
 
 procedure TDpccSettingsEditorViewPart.Save(var ASettings: TDpccPluginSettings);
 begin
-  ASettings.EditorToolbarPosition := cDpccToolbarPositions[EnsureRange(FEditorToolbarPosition.Choice, 0,
-    High(cDpccToolbarPositions))];
-  ASettings.EditorToolbarItems := TDpccToolbarItems.Normalize(FEditorToolbarItems.Text);
   ASettings.EditorStatusBarItems := TDpccStatusBarItems.Normalize(FEditorStatusBarItems.Text);
   ASettings.StickyScrollBlockMinLines := StrToIntDef(FStickyScrollBlockMinLines.Text,
     ASettings.StickyScrollBlockMinLines);
@@ -328,31 +285,6 @@ begin
   ASettings.XmlDocExpand := TDpccDocDisplay.ExpandName(TDpccDocExpand(EnsureRange(FXmlDocExpand.Choice, 0, 2)));
   ASettings.NestedRoutines := TDpccRoutineNesting.cStyleNames[TDpccNestedRoutineStyle(EnsureRange(
     FNestedRoutines.Choice, Ord(Low(TDpccNestedRoutineStyle)), Ord(High(TDpccNestedRoutineStyle))))];
-end;
-
-/// <summary>„Leiste anpassen …“ (#1101): Dialog auf den Werten der Seite; übernommen wird erst mit OK der Optionen.
-/// </summary>
-procedure TDpccSettingsEditorViewPart.EditorToolbarCustomizeClick(Sender: TObject);
-var
-  mCommands: TArray<TDpccToolbarCommandInfo>;
-  mConfig: TDpccToolbarConfig;
-begin
-  mCommands := nil;
-  if Assigned(FOnToolbarCommands) then
-  begin
-    mCommands := FOnToolbarCommands();
-  end;
-  mConfig.Items := TDpccToolbarItems.Parse(FEditorToolbarItems.Text);
-  mConfig.Labels := FEditorToolbarLabels.Checked;
-  mConfig.Position := cDpccToolbarPositions[EnsureRange(FEditorToolbarPosition.Choice, 0,
-    High(cDpccToolbarPositions))];
-  if not TDpccToolbarCustomizeDialog.Execute(mCommands, mConfig) then
-  begin
-    Exit;
-  end;
-  FEditorToolbarItems.Text := TDpccToolbarItems.Format(mConfig.Items);
-  FEditorToolbarLabels.Checked := mConfig.Labels;
-  FEditorToolbarPosition.Choice := Max(0, IndexText(mConfig.Position, cDpccToolbarPositions));
 end;
 
 end.
