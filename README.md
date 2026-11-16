@@ -35,8 +35,10 @@ Reihenfolge ergibt sich aus den Abhängigkeiten der Gruppe:
 3. `dpcc.Common`
 4. `dpcc.Windows`
 5. `dpcc.Server`
-6. `dpcc.IDE.Base` (das Plugin)
-7. `dpcc.Completion.Tests` (Testprogramm)
+6. `dpcc.Core` (Logik des Plugins, ohne VCL und ToolsAPI)
+7. `dpcc.UI` (VCL-Oberfläche des Plugins)
+8. `dpcc.IDE.Base` (das Plugin: Anbindung an die IDE)
+9. `dpcc.Completion.Tests` (Testprogramm)
 
 Die Ausgabe landet unter `Output\Win32\Debug` (BPLs in `Bpl`, das Testprogramm in `Bin`).
 
@@ -44,7 +46,9 @@ Die Ausgabe landet unter `Output\Win32\Debug` (BPLs in `Bpl`, das Testprogramm i
 
 1. In der IDE über **Komponenten › Packages installieren** die Datei
    `Output\Win32\Debug\Bpl\dpcc.IDE.Base370.bpl` hinzufügen.
-2. `dpcc.IDE.Base370.bpl` braucht zur Laufzeit die übrigen dpcc-BPLs. Der Ordner `Output\Win32\Debug\Bpl`
+2. `dpcc.IDE.Base370.bpl` braucht zur Laufzeit die sieben Laufzeit-BPLs `dpcc.Text`, `dpcc.WinBase`,
+   `dpcc.Common`, `dpcc.Windows`, `dpcc.Server`, `dpcc.Core` und `dpcc.UI` (je `.bpl`, ohne Versionsendung).
+   Installiert wird nur `dpcc.IDE.Base370.bpl`; die übrigen lädt die IDE mit. Der Ordner `Output\Win32\Debug\Bpl`
    muss deshalb im PATH der IDE stehen. Das Skript `Tools\IdePath.ps1` prüft und setzt den Eintrag in den
    Umgebungsvariablen der IDE:
 

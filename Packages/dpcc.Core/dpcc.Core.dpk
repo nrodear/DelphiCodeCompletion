@@ -1,0 +1,203 @@
+﻿package dpcc.Core;
+
+{$IFDEF IMPLICITBUILDING This IFDEF should not be used by users}
+{$ALIGN 8}
+{$ASSERTIONS ON}
+{$BOOLEVAL OFF}
+{$DEBUGINFO OFF}
+{$EXTENDEDSYNTAX ON}
+{$IMPORTEDDATA ON}
+{$IOCHECKS ON}
+{$LOCALSYMBOLS ON}
+{$LONGSTRINGS ON}
+{$OPENSTRINGS ON}
+{$OPTIMIZATION OFF}
+{$OVERFLOWCHECKS OFF}
+{$RANGECHECKS OFF}
+{$REFERENCEINFO ON}
+{$SAFEDIVIDE OFF}
+{$STACKFRAMES ON}
+{$TYPEDADDRESS OFF}
+{$VARSTRINGCHECKS ON}
+{$WRITEABLECONST OFF}
+{$MINENUMSIZE 1}
+{$IMAGEBASE $400000}
+{$DEFINE DEBUG}
+{$ENDIF IMPLICITBUILDING}
+{$DESCRIPTION 'dpcc Core (Logik des Plugins, ohne VCL und ToolsAPI)'}
+{$RUNONLY}
+{$IMPLICITBUILD ON}
+
+// Laufzeit-Package mit der Logik des Plugins (seit S7b, vorher Teil von dpcc.IDE.Base): LSP-Sitzung,
+// Completion-, Hover- und Signatur-Logik, Einstellungen, Sicherung und Diagnose. Erlaubt sind die RTL
+// (System.*, Winapi.*) und die dpcc-Laufzeit-Packages; kein VCL, kein ToolsAPI, kein DesignIntf.
+// Die Oberfläche liegt in dpcc.UI, die Anbindung an die IDE in dpcc.IDE.Base.
+
+requires
+  rtl,
+  dpcc.Text,
+  dpcc.WinBase,
+  dpcc.Common,
+  dpcc.Windows,
+  dpcc.Server;
+
+contains
+  dpcc.Core.Localization.Language in 'Source\Localization\dpcc.Core.Localization.Language.pas',
+  dpcc.Core.Lsp.Progress in 'Source\Lsp\dpcc.Core.Lsp.Progress.pas',
+  dpcc.Core.Lsp.Crashes in 'Source\Lsp\dpcc.Core.Lsp.Crashes.pas',
+  dpcc.Core.Lsp.CrashCases in 'Source\Lsp\dpcc.Core.Lsp.CrashCases.pas',
+  dpcc.Core.Lsp.Client in 'Source\Lsp\dpcc.Core.Lsp.Client.pas',
+  dpcc.Core.Lsp.Contract in 'Source\Lsp\dpcc.Core.Lsp.Contract.pas',
+  dpcc.Core.Lsp.Session.Json in 'Source\Lsp\dpcc.Core.Lsp.Session.Json.pas',
+  dpcc.Core.Lsp.Session.Base in 'Source\Lsp\dpcc.Core.Lsp.Session.Base.pas',
+  dpcc.Core.Lsp.IdeTypes in 'Source\Lsp\dpcc.Core.Lsp.IdeTypes.pas',
+  dpcc.Core.Lsp.IdeMembers in 'Source\Lsp\dpcc.Core.Lsp.IdeMembers.pas',
+  dpcc.Core.Lsp.Session.Requests in 'Source\Lsp\dpcc.Core.Lsp.Session.Requests.pas',
+  dpcc.Core.Lsp.Session in 'Source\Lsp\dpcc.Core.Lsp.Session.pas',
+  dpcc.Core.Lsp.TextChanges in 'Source\Lsp\dpcc.Core.Lsp.TextChanges.pas',
+  dpcc.Core.Lsp.Uris in 'Source\Lsp\dpcc.Core.Lsp.Uris.pas',
+  dpcc.Core.Lsp.WorkspaceEdits in 'Source\Lsp\dpcc.Core.Lsp.WorkspaceEdits.pas',
+  dpcc.Core.Lsp.Adapters.InProcess in 'Source\Lsp\dpcc.Core.Lsp.Adapters.InProcess.pas',
+  dpcc.Core.Completion.Contract in 'Source\Completion\dpcc.Core.Completion.Contract.pas',
+  dpcc.Core.Completion.Internals.Async in 'Source\Completion\Internals\dpcc.Core.Completion.Internals.Async.pas',
+  dpcc.Core.Completion.Composite in 'Source\Completion\dpcc.Core.Completion.Composite.pas',
+  dpcc.Core.Completion.Providers.Server in 'Source\Completion\Providers\dpcc.Core.Completion.Providers.Server.pas',
+  dpcc.Core.Completion.Matching in 'Source\Completion\dpcc.Core.Completion.Matching.pas',
+  dpcc.Core.Completion.Controller in 'Source\Completion\dpcc.Core.Completion.Controller.pas',
+  dpcc.Core.Signature.Contract in 'Source\Signature\dpcc.Core.Signature.Contract.pas',
+  dpcc.Core.Hover.Contract in 'Source\Hover\dpcc.Core.Hover.Contract.pas',
+  dpcc.Core.Hover.Plain in 'Source\Hover\dpcc.Core.Hover.Plain.pas',
+  dpcc.Core.Hover.DebugValue in 'Source\Hover\dpcc.Core.Hover.DebugValue.pas',
+  dpcc.Core.Hover.Texts in 'Source\Hover\dpcc.Core.Hover.Texts.pas',
+  dpcc.Core.Documentation.Contract in 'Source\Documentation\dpcc.Core.Documentation.Contract.pas',
+  dpcc.Core.Documentation.Layout in 'Source\Documentation\dpcc.Core.Documentation.Layout.pas',
+  dpcc.Core.Documentation.Typeset in 'Source\Documentation\dpcc.Core.Documentation.Typeset.pas',
+  dpcc.Core.Signature.CallScanner in 'Source\Signature\dpcc.Core.Signature.CallScanner.pas',
+  dpcc.Core.Signature.Controller in 'Source\Signature\dpcc.Core.Signature.Controller.pas',
+  dpcc.Core.Signature.Format in 'Source\Signature\dpcc.Core.Signature.Format.pas',
+  dpcc.Core.Signature.Providers.Server in 'Source\Signature\dpcc.Core.Signature.Providers.Server.pas',
+  dpcc.Core.Style.Color in 'Source\Style\dpcc.Core.Style.Color.pas',
+  dpcc.Core.Style.Signal in 'Source\Style\dpcc.Core.Style.Signal.pas',
+  dpcc.Core.Style.Palette in 'Source\Style\dpcc.Core.Style.Palette.pas',
+  dpcc.Core.Style.Syntax in 'Source\Style\dpcc.Core.Style.Syntax.pas',
+  dpcc.Core.Style.Wrap in 'Source\Style\dpcc.Core.Style.Wrap.pas',
+  dpcc.Core.Style.Scaling in 'Source\Style\dpcc.Core.Style.Scaling.pas',
+  dpcc.Core.Completion.Presentation in 'Source\Completion\dpcc.Core.Completion.Presentation.pas',
+  dpcc.Core.Completion.Word in 'Source\Completion\dpcc.Core.Completion.Word.pas',
+  dpcc.Core.Projects.PathCheck in 'Source\Projects\dpcc.Core.Projects.PathCheck.pas',
+  dpcc.Core.Projects.PathCheck.Scan in 'Source\Projects\dpcc.Core.Projects.PathCheck.Scan.pas',
+  dpcc.Core.Generate.Contract in 'Source\Generate\dpcc.Core.Generate.Contract.pas',
+  dpcc.Core.Settings.OverviewKinds in 'Source\Settings\dpcc.Core.Settings.OverviewKinds.pas',
+  dpcc.Core.Settings.ContextMenuGroups in 'Source\Settings\dpcc.Core.Settings.ContextMenuGroups.pas',
+  dpcc.Core.Settings.Plugin in 'Source\Settings\dpcc.Core.Settings.Plugin.pas',
+  dpcc.Core.Settings.Plugin.Store in 'Source\Settings\dpcc.Core.Settings.Plugin.Store.pas',
+  dpcc.Core.Settings.Plugin.Bookmarks in 'Source\Settings\dpcc.Core.Settings.Plugin.Bookmarks.pas',
+  dpcc.Core.Settings.Plugin.Build in 'Source\Settings\dpcc.Core.Settings.Plugin.Build.pas',
+  dpcc.Core.Settings.Plugin.CodeActions in 'Source\Settings\dpcc.Core.Settings.Plugin.CodeActions.pas',
+  dpcc.Core.Settings.Plugin.Completion in 'Source\Settings\dpcc.Core.Settings.Plugin.Completion.pas',
+  dpcc.Core.Settings.Plugin.Debug in 'Source\Settings\dpcc.Core.Settings.Plugin.Debug.pas',
+  dpcc.Core.Settings.Plugin.Editor in 'Source\Settings\dpcc.Core.Settings.Plugin.Editor.pas',
+  dpcc.Core.Settings.Plugin.General in 'Source\Settings\dpcc.Core.Settings.Plugin.General.pas',
+  dpcc.Core.Settings.Plugin.Highlighting in 'Source\Settings\dpcc.Core.Settings.Plugin.Highlighting.pas',
+  dpcc.Core.Settings.Plugin.Issues in 'Source\Settings\dpcc.Core.Settings.Plugin.Issues.pas',
+  dpcc.Core.Settings.Plugin.Keys in 'Source\Settings\dpcc.Core.Settings.Plugin.Keys.pas',
+  dpcc.Core.Settings.Plugin.Rules in 'Source\Settings\dpcc.Core.Settings.Plugin.Rules.pas',
+  dpcc.Core.Settings.Plugin.VersionControl in 'Source\Settings\dpcc.Core.Settings.Plugin.VersionControl.pas',
+  dpcc.Core.Settings.Plugin.Welcome in 'Source\Settings\dpcc.Core.Settings.Plugin.Welcome.pas',
+  dpcc.Core.Settings.ProblemsUpdate in 'Source\Settings\dpcc.Core.Settings.ProblemsUpdate.pas',
+  dpcc.Core.Settings.JsonText in 'Source\Settings\dpcc.Core.Settings.JsonText.pas',
+  dpcc.Core.Settings.Schema in 'Source\Settings\dpcc.Core.Settings.Schema.pas',
+  dpcc.Core.Settings.Scopes in 'Source\Settings\dpcc.Core.Settings.Scopes.pas',
+  dpcc.Core.Settings.SchemaData in 'Source\Settings\dpcc.Core.Settings.SchemaData.pas',
+  dpcc.Core.Settings.PluginSchemaData in 'Source\Settings\dpcc.Core.Settings.PluginSchemaData.pas',
+  dpcc.Core.Settings.Catalog in 'Source\Settings\dpcc.Core.Settings.Catalog.pas',
+  dpcc.Core.Settings.CompletionView in 'Source\Settings\dpcc.Core.Settings.CompletionView.pas',
+  dpcc.Core.Settings.MasterSwitch in 'Source\Settings\dpcc.Core.Settings.MasterSwitch.pas',
+  dpcc.Core.Settings.Transfer in 'Source\Settings\dpcc.Core.Settings.Transfer.pas',
+  dpcc.Core.Settings.Experimental in 'Source\Settings\dpcc.Core.Settings.Experimental.pas',
+  dpcc.Core.Settings.ModuleSwitches in 'Source\Settings\dpcc.Core.Settings.ModuleSwitches.pas',
+  dpcc.Core.Settings.Groups in 'Source\Settings\dpcc.Core.Settings.Groups.pas',
+  dpcc.Core.Settings.Layers in 'Source\Settings\dpcc.Core.Settings.Layers.pas',
+  dpcc.Core.Settings.SchemaCheck in 'Source\Settings\dpcc.Core.Settings.SchemaCheck.pas',
+  dpcc.Core.Commands.KeyConflicts in 'Source\Commands\dpcc.Core.Commands.KeyConflicts.pas',
+  dpcc.Core.Commands.KeyMap in 'Source\Commands\dpcc.Core.Commands.KeyMap.pas',
+  dpcc.Core.Commands.Usage in 'Source\Commands\dpcc.Core.Commands.Usage.pas',
+  dpcc.Core.Commands.ShortcutTips in 'Source\Commands\dpcc.Core.Commands.ShortcutTips.pas',
+  dpcc.Core.Completion.Ranking in 'Source\Completion\dpcc.Core.Completion.Ranking.pas',
+  dpcc.Core.Completion.Sets in 'Source\Completion\dpcc.Core.Completion.Sets.pas',
+  dpcc.Core.Completion.Width in 'Source\Completion\dpcc.Core.Completion.Width.pas',
+  dpcc.Core.Completion.Usage in 'Source\Completion\dpcc.Core.Completion.Usage.pas',
+  dpcc.Core.Completion.Favorites in 'Source\Completion\dpcc.Core.Completion.Favorites.pas',
+  dpcc.Core.Completion.Providers.XmlDoc in 'Source\Completion\Providers\dpcc.Core.Completion.Providers.XmlDoc.pas',
+  dpcc.Core.Completion.Placeholders in 'Source\Completion\dpcc.Core.Completion.Placeholders.pas',
+  dpcc.Core.Completion.Parentheses in 'Source\Completion\dpcc.Core.Completion.Parentheses.pas',
+  dpcc.Core.Completion.Preview in 'Source\Completion\dpcc.Core.Completion.Preview.pas',
+  dpcc.Core.Build.Events in 'Source\Build\dpcc.Core.Build.Events.pas',
+  dpcc.Core.Diagnostics.LogRedaction in 'Source\Diagnostics\dpcc.Core.Diagnostics.LogRedaction.pas',
+  dpcc.Core.Diagnostics.Guard in 'Source\Diagnostics\dpcc.Core.Diagnostics.Guard.pas',
+  dpcc.Core.Diagnostics.MainThread in 'Source\Diagnostics\dpcc.Core.Diagnostics.MainThread.pas',
+  dpcc.Core.Diagnostics.Shutdown in 'Source\Diagnostics\dpcc.Core.Diagnostics.Shutdown.pas',
+  dpcc.Core.Diagnostics.TimeLimit in 'Source\Diagnostics\dpcc.Core.Diagnostics.TimeLimit.pas',
+  dpcc.Core.Diagnostics.Deadline in 'Source\Diagnostics\dpcc.Core.Diagnostics.Deadline.pas',
+  dpcc.Core.Diagnostics.UnloadSafety in 'Source\Diagnostics\dpcc.Core.Diagnostics.UnloadSafety.pas',
+  dpcc.Core.Diagnostics.PluginModules in 'Source\Diagnostics\dpcc.Core.Diagnostics.PluginModules.pas',
+  dpcc.Core.Diagnostics.WorkerSlot in 'Source\Diagnostics\dpcc.Core.Diagnostics.WorkerSlot.pas',
+  dpcc.Core.Product.Version in 'Source\Product\dpcc.Core.Product.Version.pas',
+  dpcc.Core.Diagnostics.StartTimes in 'Source\Diagnostics\dpcc.Core.Diagnostics.StartTimes.pas',
+  dpcc.Core.Diagnostics.Hangs in 'Source\Diagnostics\dpcc.Core.Diagnostics.Hangs.pas',
+  dpcc.Core.Commands.Palette in 'Source\Commands\dpcc.Core.Commands.Palette.pas',
+  dpcc.Core.Editor.Pairs in 'Source\Editor\dpcc.Core.Editor.Pairs.pas',
+  dpcc.Core.Editor.SnapshotPolicy in 'Source\Editor\dpcc.Core.Editor.SnapshotPolicy.pas',
+  dpcc.Core.Editor.CloseRules in 'Source\Editor\dpcc.Core.Editor.CloseRules.pas',
+  dpcc.Core.Editor.Guides in 'Source\Editor\dpcc.Core.Editor.Guides.pas',
+  dpcc.Core.Editor.RoutineNesting in 'Source\Editor\dpcc.Core.Editor.RoutineNesting.pas',
+  dpcc.Core.Editor.CodeInsightKeys in 'Source\Editor\dpcc.Core.Editor.CodeInsightKeys.pas',
+  dpcc.Core.Problems.Contract in 'Source\Problems\dpcc.Core.Problems.Contract.pas',
+  dpcc.Core.Problems.InlineHints in 'Source\Problems\dpcc.Core.Problems.InlineHints.pas',
+  dpcc.Core.Editor.SelectionMatches in 'Source\Editor\dpcc.Core.Editor.SelectionMatches.pas',
+  dpcc.Core.Settings.Reassigned in 'Source\Settings\dpcc.Core.Settings.Reassigned.pas',
+  dpcc.Core.Status.Contract in 'Source\Status\dpcc.Core.Status.Contract.pas',
+  dpcc.Core.Files.Format in 'Source\Files\dpcc.Core.Files.Format.pas',
+  dpcc.Core.Status.Lines in 'Source\Status\dpcc.Core.Status.Lines.pas',
+  dpcc.Core.Settings.QuickToggles in 'Source\Settings\dpcc.Core.Settings.QuickToggles.pas',
+  dpcc.Core.Settings.NodeScope in 'Source\Settings\dpcc.Core.Settings.NodeScope.pas',
+  dpcc.Core.Settings.Search in 'Source\Settings\dpcc.Core.Settings.Search.pas',
+  dpcc.Core.Settings.History in 'Source\Settings\dpcc.Core.Settings.History.pas',
+  dpcc.Core.Settings.Renames in 'Source\Settings\dpcc.Core.Settings.Renames.pas',
+  dpcc.Core.Settings.QueryMigration in 'Source\Settings\dpcc.Core.Settings.QueryMigration.pas',
+  dpcc.Core.Settings.TeamFile in 'Source\Settings\dpcc.Core.Settings.TeamFile.pas',
+  dpcc.Core.Modules.Contract in 'Source\Modules\dpcc.Core.Modules.Contract.pas',
+  dpcc.Core.Modules.Registration in 'Source\Modules\dpcc.Core.Modules.Registration.pas',
+  dpcc.Core.Modules.Answer in 'Source\Modules\dpcc.Core.Modules.Answer.pas',
+  dpcc.Core.Diagnostics.Teardown in 'Source\Diagnostics\dpcc.Core.Diagnostics.Teardown.pas',
+  dpcc.Core.Diagnostics.ExitWatch in 'Source\Diagnostics\dpcc.Core.Diagnostics.ExitWatch.pas',
+  dpcc.Core.Diagnostics.ThreadList in 'Source\Diagnostics\dpcc.Core.Diagnostics.ThreadList.pas',
+  dpcc.Core.Diagnostics.Timing in 'Source\Diagnostics\dpcc.Core.Diagnostics.Timing.pas',
+  dpcc.Core.Diagnostics.PluginTimings in 'Source\Diagnostics\dpcc.Core.Diagnostics.PluginTimings.pas',
+  dpcc.Core.Files.WatchedChanges in 'Source\Files\dpcc.Core.Files.WatchedChanges.pas',
+  dpcc.Core.Files.Contract in 'Source\Files\dpcc.Core.Files.Contract.pas',
+  dpcc.Core.Files.TextFile in 'Source\Files\dpcc.Core.Files.TextFile.pas',
+  dpcc.Core.Files.DataFile in 'Source\Files\dpcc.Core.Files.DataFile.pas',
+  dpcc.Core.Files.EncodingDefault in 'Source\Files\dpcc.Core.Files.EncodingDefault.pas',
+  dpcc.Core.Projects.Contract in 'Source\Projects\dpcc.Core.Projects.Contract.pas',
+  dpcc.Core.Forms.Text in 'Source\Forms\dpcc.Core.Forms.Text.pas',
+  dpcc.Core.Forms.Changes in 'Source\Forms\dpcc.Core.Forms.Changes.pas',
+  dpcc.Core.Files.Adapters.FolderWatcher in 'Source\Files\dpcc.Core.Files.Adapters.FolderWatcher.pas',
+  dpcc.Core.Build.Messages in 'Source\Build\dpcc.Core.Build.Messages.pas',
+  dpcc.Core.Build.Verdict in 'Source\Build\dpcc.Core.Build.Verdict.pas',
+  dpcc.Core.Build.OpenBuildSettings in 'Source\Build\dpcc.Core.Build.OpenBuildSettings.pas',
+  dpcc.Core.Build.PipelineSettings in 'Source\Build\dpcc.Core.Build.PipelineSettings.pas',
+  dpcc.Core.Versions.Project in 'Source\Versions\dpcc.Core.Versions.Project.pas',
+  dpcc.Core.Editor.LineTracking in 'Source\Editor\dpcc.Core.Editor.LineTracking.pas',
+  dpcc.Core.Settings.HiddenPlaces in 'Source\Settings\dpcc.Core.Settings.HiddenPlaces.pas',
+  dpcc.Core.Notifications.Contract in 'Source\Notifications\dpcc.Core.Notifications.Contract.pas',
+  dpcc.Core.Notifications.Sources in 'Source\Notifications\dpcc.Core.Notifications.Sources.pas',
+  dpcc.Core.Notifications.Center in 'Source\Notifications\dpcc.Core.Notifications.Center.pas',
+  dpcc.Core.Settings.ToolbarItems in 'Source\Settings\dpcc.Core.Settings.ToolbarItems.pas',
+  dpcc.Core.Settings.StatusBarItems in 'Source\Settings\dpcc.Core.Settings.StatusBarItems.pas',
+  dpcc.Core.Lsp.DataFlow in 'Source\Lsp\dpcc.Core.Lsp.DataFlow.pas',
+  dpcc.Core.Lsp.AccessChains in 'Source\Lsp\dpcc.Core.Lsp.AccessChains.pas',
+  dpcc.Core.Settings.VisualizerKinds in 'Source\Settings\dpcc.Core.Settings.VisualizerKinds.pas',
+  dpcc.Core.Settings.EventBreakNames in 'Source\Settings\dpcc.Core.Settings.EventBreakNames.pas';
+
+end.

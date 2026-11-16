@@ -88,7 +88,9 @@ implementation
 uses
   System.Diagnostics,
   dpcc.Core.Diagnostics.Guard,
+  dpcc.Core.Diagnostics.PluginModules,
   dpcc.Core.Diagnostics.Shutdown,
+  dpcc.Core.Diagnostics.WorkerSlot,
   dpcc.Core.Localization.Language;
 
 {$SCOPEDENUMS ON}
@@ -421,11 +423,11 @@ begin
     end
     else
     begin
-      TDpccGuard.Log('Zeitlimit: Arbeiter hängt weiter; er gibt sich bei Rückkehr selbst frei');
-      // Letzter Ausweg: Ohne FreeOnTerminate bliebe das Objekt liegen, und der Thread kehrte trotzdem in diesen
-      // Code zurück. Liest der Thread FreeOnTerminate vor dem Setzen, bleibt im ungünstigsten Fall ein Leck,
-      // nie eine Doppelfreigabe.
-      mWorker.FreeOnTerminate := True;
+      TDpccGuard.Log('Zeitlimit: Arbeiter hängt weiter; er wird bei Rückkehr freigegeben');
+      // An TDpccOverdueThreads (S7b): gibt ihn frei, sobald er endet, und hält beim Entladen alle dpcc-Packages
+      // fest, solange er läuft. Sein Auftrag stammt meist aus dpcc.IDE.Base, diese Unit liegt in dpcc.Core; früher
+      // gab er sich nur selbst frei (FreeOnTerminate), und nichts hielt den Code fest, in den er zurückkehrt.
+      TDpccOverdueThreads.Adopt(mWorker, TDpccPluginModules.All);
     end;
   end;
   // WaitIdle nicht länger warten lassen: Die Arbeiter gehören nicht mehr zum Vorrat.

@@ -1,0 +1,82 @@
+﻿package dpcc.UI;
+
+{$IFDEF IMPLICITBUILDING This IFDEF should not be used by users}
+{$ALIGN 8}
+{$ASSERTIONS ON}
+{$BOOLEVAL OFF}
+{$DEBUGINFO OFF}
+{$EXTENDEDSYNTAX ON}
+{$IMPORTEDDATA ON}
+{$IOCHECKS ON}
+{$LOCALSYMBOLS ON}
+{$LONGSTRINGS ON}
+{$OPENSTRINGS ON}
+{$OPTIMIZATION OFF}
+{$OVERFLOWCHECKS OFF}
+{$RANGECHECKS OFF}
+{$REFERENCEINFO ON}
+{$SAFEDIVIDE OFF}
+{$STACKFRAMES ON}
+{$TYPEDADDRESS OFF}
+{$VARSTRINGCHECKS ON}
+{$WRITEABLECONST OFF}
+{$MINENUMSIZE 1}
+{$IMAGEBASE $400000}
+{$DEFINE DEBUG}
+{$ENDIF IMPLICITBUILDING}
+{$DESCRIPTION 'dpcc UI (VCL-Oberfläche des Plugins, ohne ToolsAPI)'}
+{$RUNONLY}
+{$IMPLICITBUILD ON}
+
+// Laufzeit-Package mit der VCL-Oberfläche des Plugins (seit S7b, vorher Teil von dpcc.IDE.Base):
+// Completion-Liste, Hover- und Signatur-Hinweise, Optionsseite, Texte der Oberfläche. Erlaubt sind RTL,
+// VCL und dpcc.Core; kein ToolsAPI, kein DesignIntf. Die Farben der IDE setzt dpcc.IDE.Base.
+
+requires
+  rtl,
+  vcl,
+  dpcc.Text,
+  dpcc.WinBase,
+  dpcc.Common,
+  dpcc.Windows,
+  dpcc.Server,
+  dpcc.Core;
+
+contains
+  dpcc.UI.Signature.Hint in 'Source\Signature\dpcc.UI.Signature.Hint.pas',
+  dpcc.UI.Popup.Window in 'Source\Popup\dpcc.UI.Popup.Window.pas',
+  dpcc.UI.Popup.Draw in 'Source\Popup\dpcc.UI.Popup.Draw.pas',
+  dpcc.UI.Popup.Accessibility in 'Source\Popup\dpcc.UI.Popup.Accessibility.pas',
+  dpcc.UI.Completion.Popup in 'Source\Completion\dpcc.UI.Completion.Popup.pas',
+  dpcc.UI.Completion.PopupState in 'Source\Completion\dpcc.UI.Completion.PopupState.pas',
+  dpcc.UI.Completion.PopupLayout in 'Source\Completion\dpcc.UI.Completion.PopupLayout.pas',
+  dpcc.UI.Completion.PopupPainter in 'Source\Completion\dpcc.UI.Completion.PopupPainter.pas',
+  dpcc.UI.Completion.PopupTexts in 'Source\Completion\dpcc.UI.Completion.PopupTexts.pas',
+  dpcc.UI.Popup.Styled in 'Source\Popup\dpcc.UI.Popup.Styled.pas',
+  dpcc.UI.Popup.Tip in 'Source\Popup\dpcc.UI.Popup.Tip.pas',
+  dpcc.UI.Settings.Page in 'Source\Settings\dpcc.UI.Settings.Page.pas' {DpccSettingsPage: TFrame},
+  dpcc.UI.Settings.ChoiceBox in 'Source\Settings\dpcc.UI.Settings.ChoiceBox.pas',
+  dpcc.UI.Settings.Bindings in 'Source\Settings\dpcc.UI.Settings.Bindings.pas',
+  dpcc.UI.Settings.Page.Sheets in 'Source\Settings\dpcc.UI.Settings.Page.Sheets.pas',
+  dpcc.UI.Settings.Page.Host in 'Source\Settings\dpcc.UI.Settings.Page.Host.pas',
+  dpcc.UI.Settings.Page.General in 'Source\Settings\dpcc.UI.Settings.Page.General.pas',
+  dpcc.UI.Settings.Page.Completion in 'Source\Settings\dpcc.UI.Settings.Page.Completion.pas',
+  dpcc.UI.Settings.Page.TeamFile in 'Source\Settings\dpcc.UI.Settings.Page.TeamFile.pas',
+  dpcc.UI.Settings.Page.EditorView in 'Source\Settings\dpcc.UI.Settings.Page.EditorView.pas',
+  dpcc.UI.Settings.Page.Parts in 'Source\Settings\dpcc.UI.Settings.Page.Parts.pas',
+  dpcc.UI.Settings.Page.Nodes in 'Source\Settings\dpcc.UI.Settings.Page.Nodes.pas',
+  dpcc.UI.Settings.Page.Tree in 'Source\Settings\dpcc.UI.Settings.Page.Tree.pas',
+  dpcc.UI.Settings.Marks in 'Source\Settings\dpcc.UI.Settings.Marks.pas',
+  dpcc.UI.Settings.Group in 'Source\Settings\dpcc.UI.Settings.Group.pas',
+  dpcc.UI.Strings in 'Source\dpcc.UI.Strings.pas',
+  dpcc.UI.CodeInsight.Strings in 'Source\CodeInsight\dpcc.UI.CodeInsight.Strings.pas',
+  dpcc.UI.Completion.Strings in 'Source\Completion\dpcc.UI.Completion.Strings.pas',
+  dpcc.UI.Foundation.Strings in 'Source\Foundation\dpcc.UI.Foundation.Strings.pas',
+  dpcc.UI.Foundation.Module in 'Source\Foundation\dpcc.UI.Foundation.Module.pas',
+  dpcc.UI.Hover.Strings in 'Source\Hover\dpcc.UI.Hover.Strings.pas',
+  dpcc.UI.Settings.Strings in 'Source\Settings\dpcc.UI.Settings.Strings.pas',
+  dpcc.UI.Hover.Tip in 'Source\Hover\dpcc.UI.Hover.Tip.pas',
+  dpcc.UI.Documentation.View in 'Source\Documentation\dpcc.UI.Documentation.View.pas',
+  dpcc.UI.Settings.Page.Search in 'Source\Settings\dpcc.UI.Settings.Page.Search.pas';
+
+end.

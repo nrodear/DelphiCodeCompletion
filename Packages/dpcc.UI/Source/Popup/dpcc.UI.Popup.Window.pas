@@ -134,6 +134,8 @@ implementation
 
 uses
   dpcc.UI.Popup.Draw,
+  // Meldet dpcc.UI bei TDpccPluginModules an (S7b, Reste beim Entladen).
+  dpcc.UI.Foundation.Module,
   Winapi.DwmApi,
   System.Math,
   Vcl.Forms,

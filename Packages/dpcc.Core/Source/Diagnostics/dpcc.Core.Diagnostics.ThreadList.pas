@@ -41,6 +41,7 @@ type
 implementation
 
 uses
+  dpcc.Core.Diagnostics.PluginModules,
   dpcc.Core.Diagnostics.Shutdown,
   dpcc.Core.Diagnostics.WorkerSlot;
 
@@ -136,9 +137,10 @@ begin
     end
     else
     begin
-      // Gibt der Thread nach seinem Ende frei; läuft er beim Entladen noch, bleibt Base im Speicher,
-      // damit sein Code nicht ins Leere läuft.
-      TDpccOverdueThreads.Adopt(mThread, HInstance);
+      // Gibt der Thread nach seinem Ende frei; läuft er beim Entladen noch, bleiben die dpcc-Packages im
+      // Speicher, damit sein Code nicht ins Leere läuft. Alle, nicht HInstance (S7b): Diese Unit liegt in
+      // dpcc.Core, die Prozedur des Threads stammt meist aus dpcc.IDE.Base.
+      TDpccOverdueThreads.Adopt(mThread, TDpccPluginModules.All);
     end;
   end;
 end;

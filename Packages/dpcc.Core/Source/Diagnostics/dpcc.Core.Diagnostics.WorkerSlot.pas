@@ -15,6 +15,15 @@
 //   geladen), wartet es auf dessen überfällige Threads noch bis
 //   cUnloadGraceMs; läuft dann noch einer, hält TDpccUnloadSafety das
 //   Package im Speicher und bittet um einen Neustart.
+// Seit S7b (dpcc.Core, dpcc.UI, dpcc.IDE.Base getrennt) gehört ein Eintrag zu
+// einer Menge von Modulen: Ein Thread aus TDpccThreadList (Core) führt Code von
+// IDE.Base aus, HInstance von Core allein hielte das falsche Package fest. Wer
+// den Code eines Threads nicht kennt, übergibt TDpccPluginModules.All.
+// Dass ein dpcc-Package selbst entladen wird, sieht AddModuleUnloadProc nicht
+// sicher: FinalizePackage beendet die Units (auch diese, samt
+// RemoveModuleUnloadProc), bevor Windows das Package freigibt. Deshalb wartet
+// auch der Klassen-Destruktor noch bis cUnloadGraceMs und hält danach alle
+// Module der noch laufenden Threads fest.
 // Gewartet wird auf Finished wie in TDpccShutdown.WaitForThreads.
 
 interface
@@ -33,7 +42,8 @@ type
   private type
     TEntry = record
       Thread: TThread;
-      Module: HMODULE;
+      /// <summary>Packages, deren Code der Thread ausführen kann.</summary>
+      Modules: TArray<HMODULE>;
     end;
   private class var
     FLock: TCriticalSection;
@@ -41,16 +51,26 @@ type
     /// <summary>Beendete Threads (nur von AModule, 0 = alle) aus der Liste nehmen und freigeben.</summary>
     class procedure Prune(AModule: HMODULE); static;
     class function ThreadsOf(AModule: HMODULE): TArray<TThread>; static;
+    /// <summary>Module aller Einträge von AModule (0 = aller Einträge), deren Thread noch läuft; AModule zuerst.
+    /// </summary>
+    class function RunningModules(AModule: HMODULE): TArray<HMODULE>; static;
+    /// <summary>Jedes Modul aus AModules als unsicher kennzeichnen (TDpccUnloadSafety) mit ACount im Grund.
+    /// </summary>
+    class procedure MarkUnsafe(const AModules: TArray<HMODULE>; ACount: Integer); static;
   public
     class constructor Create;
     class destructor Destroy;
     /// <summary>AThread (FreeOnTerminate aus) hat seine Zeitgrenze überschritten; sein Code liegt in AModule.
     /// Die Liste gibt ihn frei, sobald er endet.</summary>
-    class procedure Adopt(AThread: TThread; AModule: HMODULE); static;
+    class procedure Adopt(AThread: TThread; AModule: HMODULE); overload; static;
+    /// <summary>Wie oben; der Code des Threads kann in jedem Modul aus AModules liegen (etwa
+    /// TDpccPluginModules.All). Entladen eines dieser Module wartet auf den Thread bzw. hält alle fest.</summary>
+    class procedure Adopt(AThread: TThread; const AModules: TArray<HMODULE>); overload; static;
     /// <summary>Überfällige Threads von AModule, die noch laufen.</summary>
     class function Pending(AModule: HMODULE): Integer; static;
     /// <summary>Bis AMs auf die überfälligen Threads von AModule warten und beendete freigeben; True, wenn keiner
-    /// mehr läuft. Sonst ist AModule als unsicher gekennzeichnet (TDpccUnloadSafety).</summary>
+    /// mehr läuft. Sonst sind AModule und alle übrigen Module der noch laufenden Threads als unsicher
+    /// gekennzeichnet (TDpccUnloadSafety).</summary>
     class function Settle(AModule: HMODULE; AMs: Cardinal): Boolean; static;
   end;
 
@@ -124,6 +144,21 @@ begin
   end;
 end;
 
+/// <summary>Steht AModule in AModules?</summary>
+function HasModule(const AModules: TArray<HMODULE>; AModule: HMODULE): Boolean;
+var
+  mModule: HMODULE;
+begin
+  for mModule in AModules do
+  begin
+    if mModule = AModule then
+    begin
+      Exit(True);
+    end;
+  end;
+  Result := False;
+end;
+
 { TDpccOverdueThreads }
 
 class constructor TDpccOverdueThreads.Create;
@@ -137,16 +172,37 @@ begin
 end;
 
 class destructor TDpccOverdueThreads.Destroy;
+var
+  mModules: TArray<HMODULE>;
 begin
   RemoveModuleUnloadProc(DpccOverdueModuleUnload);
   Prune(0);
-  // Was jetzt noch läuft, hat beim Entladen von Base DpccOverdueModuleUnload schon festgehalten; die Objekte
-  // bleiben bewusst liegen (ein Freigeben beendet den Thread nicht).
+  // Das Package dieser Unit wird beendet. Gehörte sie zu einem dpcc-Package, das gerade entladen wird, hat
+  // DpccOverdueModuleUnload davon nichts gesehen (FinalizePackage läuft vor dem Freigeben): Noch bis
+  // cUnloadGraceMs warten, dann alle Module der noch laufenden Threads festhalten (S7b: auch IDE.Base, wenn der
+  // Thread aus dpcc.Core stammt, seinen Code aber aus IDE.Base hat).
+  if ThreadsOf(0) <> nil then
+  begin
+    TDpccShutdown.WaitForThreads(ThreadsOf(0), cUnloadGraceMs);
+    Prune(0);
+    mModules := RunningModules(0);
+    if mModules <> nil then
+    begin
+      MarkUnsafe(mModules, Length(ThreadsOf(0)));
+    end;
+  end;
+  // Was jetzt noch läuft, bleibt bewusst liegen (ein Freigeben beendet den Thread nicht); seine Packages sind
+  // festgehalten.
   FreeAndNil(FEntries);
   FreeAndNil(FLock);
 end;
 
 class procedure TDpccOverdueThreads.Adopt(AThread: TThread; AModule: HMODULE);
+begin
+  Adopt(AThread, TArray<HMODULE>.Create(AModule));
+end;
+
+class procedure TDpccOverdueThreads.Adopt(AThread: TThread; const AModules: TArray<HMODULE>);
 var
   mEntry: TEntry;
 begin
@@ -161,7 +217,7 @@ begin
     Exit;
   end;
   mEntry.Thread := AThread;
-  mEntry.Module := AModule;
+  mEntry.Modules := Copy(AModules);
   FLock.Enter;
   try
     FEntries.Add(mEntry);
@@ -188,7 +244,7 @@ begin
   try
     for mIndex := FEntries.Count - 1 downto 0 do
     begin
-      if ((AModule = 0) or (FEntries[mIndex].Module = AModule)) and FEntries[mIndex].Thread.Finished then
+      if ((AModule = 0) or HasModule(FEntries[mIndex].Modules, AModule)) and FEntries[mIndex].Thread.Finished then
       begin
         mDone := mDone + [FEntries[mIndex].Thread];
         FEntries.Delete(mIndex);
@@ -216,13 +272,66 @@ begin
   try
     for mEntry in FEntries do
     begin
-      if mEntry.Module = AModule then
+      if (AModule = 0) or HasModule(mEntry.Modules, AModule) then
       begin
         Result := Result + [mEntry.Thread];
       end;
     end;
   finally
     FLock.Leave;
+  end;
+end;
+
+class function TDpccOverdueThreads.RunningModules(AModule: HMODULE): TArray<HMODULE>;
+var
+  mEntry: TEntry;
+  mModule: HMODULE;
+  mFound: Boolean;
+begin
+  Result := nil;
+  if FLock = nil then
+  begin
+    Exit;
+  end;
+  if AModule <> 0 then
+  begin
+    Result := [AModule];
+  end;
+  mFound := False;
+  FLock.Enter;
+  try
+    for mEntry in FEntries do
+    begin
+      if ((AModule = 0) or HasModule(mEntry.Modules, AModule)) and not mEntry.Thread.Finished then
+      begin
+        mFound := True;
+        for mModule in mEntry.Modules do
+        begin
+          if (mModule <> 0) and not HasModule(Result, mModule) then
+          begin
+            Result := Result + [mModule];
+          end;
+        end;
+      end;
+    end;
+  finally
+    FLock.Leave;
+  end;
+  if not mFound then
+  begin
+    Result := nil;
+  end;
+end;
+
+class procedure TDpccOverdueThreads.MarkUnsafe(const AModules: TArray<HMODULE>; ACount: Integer);
+var
+  mReason: string;
+  mModule: HMODULE;
+begin
+  mReason := Format(UiText(TWorkerSlotText.OverdueThreads), [ACount]);
+  for mModule in AModules do
+  begin
+    TDpccUnloadSafety.MarkUnsafe(mModule, mReason);
   end;
 end;
 
@@ -234,15 +343,20 @@ end;
 
 class function TDpccOverdueThreads.Settle(AModule: HMODULE; AMs: Cardinal): Boolean;
 var
-  mThreads: TArray<TThread>;
+  mModules: TArray<HMODULE>;
 begin
-  mThreads := ThreadsOf(AModule);
-  Result := TDpccShutdown.WaitForThreads(mThreads, AMs);
+  Result := TDpccShutdown.WaitForThreads(ThreadsOf(AModule), AMs);
   Prune(AModule);
   if not Result then
   begin
-    TDpccUnloadSafety.MarkUnsafe(AModule, Format(UiText(TWorkerSlotText.OverdueThreads),
-      [Length(ThreadsOf(AModule))]));
+    // Nicht nur AModule: Die übrigen Module der noch laufenden Threads (etwa IDE.Base zu einem Thread aus Core)
+    // dürfen ebenso nicht aus dem Speicher.
+    mModules := RunningModules(AModule);
+    Result := mModules = nil;
+    if not Result then
+    begin
+      MarkUnsafe(mModules, Length(ThreadsOf(AModule)));
+    end;
   end;
 end;
 

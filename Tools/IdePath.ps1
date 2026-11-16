@@ -4,8 +4,8 @@
   (Tools > Optionen > IDE > Umgebungsvariablen > Benutzerdefinierte Ueberschreibungen).
 
 .DESCRIPTION
-  dpcc.IDE.Base<Suffix>.bpl braucht zur Laufzeit dpcc.Text, dpcc.WinBase, dpcc.Common, dpcc.Windows und
-  dpcc.Server.bpl. Windows sucht abhaengige BPLs nicht im Ordner der Plugin-BPL, sondern ueber PATH. Dieses
+  dpcc.IDE.Base<Suffix>.bpl braucht zur Laufzeit dpcc.Text, dpcc.WinBase, dpcc.Common, dpcc.Windows,
+  dpcc.Server, dpcc.Core und dpcc.UI.bpl. Windows sucht abhaengige BPLs nicht im Ordner der Plugin-BPL, sondern ueber PATH. Dieses
   Skript traegt den BPL-Ausgabeordner in die PATH-Ueberschreibung der IDE ein
   (HKCU\Software\Embarcadero\BDS\<Version>\Environment Variables, Wert PATH) und zeigt den Zustand an.
 
@@ -42,7 +42,7 @@ $KnownKey = "HKCU:\Software\Embarcadero\BDS\$BdsVersion\Known Packages"
 $DpccKey = 'HKCU:\Software\dpcc\IdePlugin'
 $Suffix = ($BdsVersion -replace '\.', '')    # 37.0 -> 370
 $Required = @('dpcc.Text.bpl', 'dpcc.WinBase.bpl', 'dpcc.Common.bpl', 'dpcc.Windows.bpl', 'dpcc.Server.bpl',
-  "dpcc.IDE.Base$Suffix.bpl")
+  'dpcc.Core.bpl', 'dpcc.UI.bpl', "dpcc.IDE.Base$Suffix.bpl")
 
 function Get-PathOverride {
   if (-not (Test-Path $EnvKey)) { return $null }

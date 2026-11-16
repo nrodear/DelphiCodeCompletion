@@ -119,6 +119,8 @@ implementation
 
 uses
   dpcc.Core.Settings.Transfer,
+  // Meldet dpcc.UI bei TDpccPluginModules an (S7b, Reste beim Entladen).
+  dpcc.UI.Foundation.Module,
   dpcc.Core.Settings.Experimental,
   dpcc.Core.Settings.History,
   dpcc.Core.Settings.Groups,

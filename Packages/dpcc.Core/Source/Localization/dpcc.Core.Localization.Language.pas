@@ -68,6 +68,9 @@ implementation
 uses
   System.SysUtils;
 
+/// <summary>Eigene Kopien der Texte. Seit S7b melden auch Units anderer Packages (dpcc.IDE.Base) Tabellen an; ihre
+/// Texte sind Literale im Speicher jenes Packages. Eine bloße Zuweisung behielte den Verweis dorthin, und wäre jenes
+/// Package vor diesem entladen, griffe das Freigeben der Tabellen ins Leere.</summary>
 function Copied(const ATexts: array of string): TArray<string>;
 var
   mIndex: Integer;
@@ -76,6 +79,7 @@ begin
   for mIndex := 0 to High(ATexts) do
   begin
     Result[mIndex] := ATexts[mIndex];
+    UniqueString(Result[mIndex]);
   end;
 end;
 
@@ -91,6 +95,7 @@ var
   mTable: TDpccTextTableEntry;
 begin
   mTable.Name := AName;
+  UniqueString(mTable.Name);
   mTable.German := Copied(AGerman);
   mTable.English := Copied(AEnglish);
   FTables := FTables + [mTable];
