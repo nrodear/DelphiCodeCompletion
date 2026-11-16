@@ -1,0 +1,122 @@
+Deutsch | [English](../en/development.md) | [Français](../fr/development.md)
+
+# Entwicklung
+
+[Übersicht](index.md) › Entwicklung
+
+## Voraussetzungen
+
+- Delphi 13 / RAD Studio 37.0, Plattform Win32.
+- DUnitX für die Tests; es gehört zu RAD Studio.
+
+## Bauen
+
+`dpcc_d13.groupproj` enthält neun Projekte:
+
+1. `Packages\dpcc.Text\dpcc.Text.dproj`
+2. `Packages\dpcc.WinBase\dpcc.WinBase.dproj`
+3. `Packages\dpcc.Common\dpcc.Common.dproj`
+4. `Packages\dpcc.Windows\dpcc.Windows.dproj`
+5. `Packages\dpcc.Server\dpcc.Server.dproj` (Quellen in `Application\Source\Shell`)
+6. `Packages\dpcc.Core\dpcc.Core.dproj`
+7. `Packages\dpcc.UI\dpcc.UI.dproj`
+8. `Packages\dpcc.IDE.Base\dpcc.IDE.Base.dproj`
+9. `Tests\dpcc.Completion.Tests.dproj`
+
+Die Gruppe in der IDE öffnen, Win32 und Debug wählen und alle Projekte bauen. Die Abhängigkeiten der Gruppe legen
+die Reihenfolge fest.
+
+| Ausgabe | Ordner |
+|---|---|
+| BPLs | `Output\Win32\Debug\Bpl` |
+| DCPs | `Output\Win32\Debug\Dcp` |
+| DCUs | `Output\Win32\Debug\Dcu\<Projekt>` |
+| Testprogramm | `Output\Win32\Debug\Bin` |
+
+**Kommandozeile:** Der Kommandozeilen-Compiler (`dcc32`, MSBuild) ist in den Editionen Community und Starter von
+Delphi gesperrt. Mit diesen Editionen die Gruppe in der IDE bauen.
+
+Ist dpcc in derselben IDE installiert, entlädt die IDE das Plugin beim Bauen. Nach dem Bauen die IDE neu starten.
+
+Build-Ausgaben gehören nicht ins Repository (`.gitignore`: `Output/`, `*.dcu`, `*.bpl`, `*.exe` …).
+
+## Testen
+
+`Tests\dpcc.Completion.Tests.dproj` ist ein DUnitX-Konsolenprogramm. Nach dem Bauen:
+
+```
+Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --exclude:Benchmark --exitbehavior:Continue
+```
+
+| Option | Bedeutung |
+|---|---|
+| `--exclude:Benchmark` | lässt die Messungen der Kategorie `Benchmark` aus |
+| `--exitbehavior:Continue` | wartet am Ende nicht auf Enter |
+
+- Exit-Code 0, wenn alle Tests bestehen. Ein Speicherleck zählt als Fehlschlag.
+- Ausgabe auf der Konsole und als NUnit-XML.
+- Das Protokoll der Sicherung schreiben die Tests nach `%TEMP%\dpccCompletionTests\Logs`, nicht in das `dpcc.log`
+  der installierten Version. Die Tests lösen absichtlich Fehler aus.
+- Mit dem Symbol `TESTINSIGHT` läuft das Programm unter TestInsight statt als Konsole.
+
+| Ordner | Inhalt |
+|---|---|
+| `Tests\Common\Lsp` | Server-Seite: Vervollständigung, Hover, Parameterhilfe |
+| `Tests\IDE` | Plugin-Seite ohne ToolsAPI: Ablauf der Liste, Rangfolge, Favoriten, Mengenmodus, Platzhalter, Einstellungen, Texte |
+| `Tests\Application\Shell` | Hülle des Servers |
+| `Tests\Support` | Hilfen: feste Datenquelle, Leck-Überwachung |
+
+Die Tests linken die DCUs der Packages statisch. Teile mit ToolsAPI (`dpcc.IDE.Base`) lassen sich nur in der IDE
+prüfen.
+
+## Konventionen
+
+Aus dem bestehenden Code:
+
+- **Unit-Namen**: `dpcc.<Package>.<Bereich>.<Name>`, etwa `dpcc.Core.Completion.Controller`. Die Units des Servers
+  heißen `Shell.*`.
+- **Namen**: Felder `F…`, Parameter `A…`, lokale Variablen `m…`. Typen im Plugin `TDpcc…`, Schnittstellen
+  `IDpcc…`; in `dpcc.Common` auch nach Bereich (`TLsp…`, `TIndex…`).
+- **Blöcke**: `begin`/`end` auch bei einzelnen Anweisungen.
+- **Kommentare** auf Deutsch. Jede Unit beginnt mit einem Kommentar zu ihrem Zweck; öffentliche Elemente tragen
+  XMLDoc (`/// <summary>`).
+- **Schichten**: siehe [Architektur](architecture.md#regeln-der-schichten). Kein VCL und keine ToolsAPI in
+  `dpcc.Core`, keine ToolsAPI in `dpcc.UI`.
+- **IDE-Einstiege**: Jeder Aufruf aus der IDE (Timer, Notifier, Zeichnen, Tasten) läuft über `TDpccGuard.Run`.
+  Der Hauptthread wartet nie auf den Server; Ergebnisse kommen über `TDpccMainThread` zurück.
+- **Texte**: Jeder Benutzertext steht deutsch und englisch in einer Tabelle
+  `cTexts: array[TDpccLanguage, …]`. In `dpcc.UI` hat jedes Feature eine eigene Strings-Unit. Ein Test prüft alle
+  Tabellen: kein leerer Text, gleiche Platzhalter in beiden Sprachen.
+- **Zeilenenden**: CRLF für `.pas`, `.dpr`, `.dpk`, `.inc`, `.dfm`, `.dproj`, `.groupproj`, `.ps1`
+  (`.gitattributes`).
+
+### Eine Option hinzufügen
+
+Nach dem Muster der vorhandenen Optionen:
+
+1. Feld, Vorgabe, Grenzen und Lesen/Schreiben im passenden Record, etwa `dpcc.Core.Settings.Plugin.Completion`
+   (`Defaults`, `Normalize`, `Exchange`), und die Eigenschaft in `TDpccPluginSettings`
+   (`dpcc.Core.Settings.Plugin`).
+2. Eintrag im Katalog `dpcc.Core.Settings.PluginSchemaData` mit `x-key`, `x-area` und `x-page`. Die Datei wird von
+   Hand gepflegt.
+3. Sichtbarkeit: `dpcc.Core.Settings.CompletionView` zeigt die Seiten (`x-page`) „Vervollständigung“, „Einfügen“
+   und „Hints“ ganz. Von anderen Seiten zeigt es nur einzelne Schlüssel: den Hauptschalter `completion.enabled`
+   (Bereich „Allgemein“, `cPluginKeys`) und alle Schlüssel `hints.*`. Den Knopf „Index neu aufbauen“ im Bereich
+   „Allgemein“ setzt die Seite selbst. Eine neue Option auf einer anderen Seite muss in `cPluginKeys` stehen.
+4. Bedienelement im Teil der Seite, etwa `dpcc.UI.Settings.Page.Completion`, mit `BindCheck('<Registry-Name>', …)`.
+5. Beschriftung deutsch und englisch in `dpcc.UI.Settings.Strings`.
+6. Test.
+
+## Beitragen
+
+Das Repository liegt unter <https://github.com/nrodear/DelphiCodeCompletion>. Fehler und Vorschläge als Issue,
+Änderungen als Pull Request.
+
+Vor einem Pull Request:
+
+- die ganze Gruppe baut ohne Fehler;
+- die Tests laufen grün (`--exclude:Benchmark`);
+- neue Benutzertexte stehen deutsch und englisch da;
+- die Dokumentation unter `docs` ist angepasst, wenn sich Bedienung oder Optionen ändern.
+
+Lizenz: MIT, siehe [LICENSE](../../LICENSE).

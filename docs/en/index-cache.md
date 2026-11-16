@@ -1,0 +1,109 @@
+[Deutsch](../de/index-cache.md) | English | [Français](../fr/index-cache.md)
+
+# Index and cache
+
+[Overview](index.md) › Index and cache
+
+Completion, hover, parameter hint and the “+” display with the name of a missing unit (for example
+“+ System.SysUtils”) read from a symbol index. The dpcc server builds it inside the IDE process. It is
+independent of the DelphiLSP index.
+
+## What the index contains
+
+The scope is fixed:
+
+- all projects of the open project group, the active one first;
+- all units in the search paths of the projects;
+- the library and search paths of the installation (RTL, VCL, components).
+
+In addition:
+
+- configuration, platform, conditional symbols, search paths and unit namespaces of the active configuration, including
+  unsaved changes. dpcc expands macros such as `$(BDS)` in paths the same way as the IDE.
+- the types of the packages loaded in the IDE, even without source code. dpcc reports them to the server at the start
+  of every session.
+
+The index contains declarations, not usages. Its memory limit is fixed (768 MB).
+
+## When the index is built
+
+- The server starts with the first request, for example Ctrl+Space, or when the master switch is turned on.
+- It then builds the index. This runs in the background; the IDE does not wait for it.
+- While the build is running, the list shows “limited (index is being built)” and may be incomplete.
+- On large installations the first build can take a few minutes because it reads the library. After that, most of it
+  comes from the cache.
+
+## Changes
+
+- dpcc checks for changes in the project group at most every two seconds, for changes to configuration and options at
+  most once per second.
+- dpcc reports saved files to the server.
+- Changes outside the IDE: dpcc watches the project folders (the Git working directory, otherwise the project folder).
+  Collected changes go to the server with the next request.
+- Open forms go to the server with their current state from the designer, not from disk.
+
+## Cache
+
+The cache is located under `%LOCALAPPDATA%\dpcc\Index`:
+
+| Path | Contents |
+|---|---|
+| `Index\<IDE version>\<hash>\index-<format>.dpccidx` | cache of a project |
+| `Index\<IDE version>\Bibliothek\<hash>\index-<format>.dpccidx` | cache of the library, separate from the project |
+| `…\<cache>.lock` | lock; only the first instance writes the cache, further instances only read it |
+| `…\projekt.txt` | project file the cache belongs to |
+| `…\benutzt.stamp` | time of last use |
+
+The format version is part of the file name. This way, different versions of dpcc do not interfere with each other.
+
+### Cleanup
+
+The server cleans up the cache folder itself:
+
+| Rule | Default | Key in `settings.json` |
+|---|---|---|
+| Delete caches of deleted projects | on | `index.removeOrphans` (`true`/`false`) |
+| Delete caches not used for this many days | 14 | `index.cacheMaxAgeDays` (0 to 3650; 0 = off) |
+| Maximum size of the cache folder in MB, oldest first | 1024 | `index.cacheMaxMb` (0 = no limit) |
+
+If the origin of a cache is on a drive that is currently missing (USB, network), the cache is kept.
+
+## Rebuilding the index
+
+**Tools › Options › Third Party › dpcc › General › Rebuild index**:
+
+1. dpcc asks: “Delete all index caches and rebuild the index? The first build can take a few minutes.”
+2. It stops a running session, deletes all index caches that are not locked, and restarts the session.
+3. The page reports the result:
+   - “n index caches deleted; the index is being rebuilt.” – the session was running and has been restarted;
+   - “n index caches deleted; the index is rebuilt the next time code completion starts.” – no session was running;
+     the button does not start a server;
+   - “Index cache could not be deleted: …” – error.
+
+You can also delete the cache by hand: close the IDE and delete `%LOCALAPPDATA%\dpcc\Index`.
+
+## Excluding units from the index
+
+In `dpcc.json` in the project folder, `index.exclude` excludes files. The patterns apply to the full path: `*`
+without separators, `**` across folders, `?` one character, case-insensitive.
+
+```json
+{
+  "index": {
+    "exclude": ["**/Demos/**", "**/Generated/*.pas"]
+  }
+}
+```
+
+## Server settings files
+
+| File | Location | Applies to |
+|---|---|---|
+| `settings.json` | `%APPDATA%\dpcc` | all projects (personal, per machine) |
+| `dpcc.json` | project folder | this project (for the team, belongs in the repository) |
+
+Each key has exactly one location. A key in the wrong location has no effect. In `dpcc.json` the server ignores
+credentials and absolute paths. It watches both files itself; changes take effect without a restart.
+
+The server still reads the index keys `index.projectGroup`, `index.searchPaths`, `index.libraryPaths`, `index.usages`
+and `memoryBudgetMb`, so that older files load without a warning. They no longer have any effect; the scope is fixed.

@@ -1,0 +1,309 @@
+Deutsch | [English](../en/usage.md) | [Français](../fr/usage.md)
+
+# Bedienung
+
+[Übersicht](index.md) › Bedienung
+
+## Tasten im Editor
+
+| Taste | Wirkung |
+|---|---|
+| Strg+Leertaste | Vervollständigung von dpcc öffnen |
+| Strg+Umschalt+Leertaste | Parameterhilfe von dpcc öffnen |
+
+dpcc belegt diese zwei Tasten mit einer eigenen Tastenbindung („dpcc Code Completion“). Es nimmt sie nur, wenn es
+die Datei bedient: Endung `.pas`, `.dpr`, `.dpk` oder `.inc`, Hauptschalter an und die Funktion nicht von der
+Sicherung abgeschaltet (siehe [Fehlersuche](troubleshooting.md)). Sonst gehen die Tasten an die IDE.
+
+Weitere Tasten belegt dpcc nicht dauerhaft. Pfeile, Enter, Tab und Esc nimmt es nur, solange eines seiner Fenster
+offen ist und die Taste braucht.
+
+## Zusammenspiel mit DelphiLSP
+
+Delphi 13 leitet automatische Auslöser (Tippen von „.“, „(“, „,“) nur an den Code-Insight-Anbieter weiter, der in
+den Optionen der IDE für Delphi gewählt ist. Die Vorgabe ist DelphiLSP. Daraus folgt:
+
+- Die Liste, die nach „.“ von selbst aufgeht, kommt von DelphiLSP.
+- Strg+Leertaste und Strg+Umschalt+Leertaste kommen von dpcc.
+- Einstellungen, die nur beim automatischen Öffnen wirken, haben mit dieser Vorgabe keine Wirkung. Sie sind unter
+  [Einstellungen](settings.md) gekennzeichnet.
+
+Welcher Anbieter gewählt ist, schreibt dpcc beim Start ins Protokoll (Zeile „Code Insight für Delphi-Dateien:
+gewählt …“).
+
+## Die Liste
+
+Strg+Leertaste öffnet die Liste am Cursor. Das Wort vor dem Cursor gilt als Anfang des Gesuchten.
+
+Aufbau einer Zeile:
+
+- links die Art als Wort, gedämpft (`procedure`, `function`, `type`, `property` …);
+- der Name fett, die getippten Zeichen unterstrichen;
+- dahinter die Signatur oder gedämpft ein Detail;
+- rechts gedämpft „+“ und der Name der Unit (etwa „+ System.SysUtils“), wenn die Unit noch nicht in `uses` steht,
+  und Warnungen als Text.
+
+Die Fußzeile nennt die Tasten oder einen Hinweis.
+
+### Tasten in der offenen Liste
+
+| Taste | Wirkung |
+|---|---|
+| ↑ / ↓ | Auswahl bewegen |
+| Bild↑ / Bild↓ | seitenweise bewegen |
+| Pos1 / Ende | erster / letzter Eintrag |
+| Enter oder Tab | gewählten Eintrag übernehmen |
+| Esc | Liste schließen |
+| weitertippen | Liste filtern |
+| Rücktaste | Filter lockern; ist das Wort kürzer als bei der Anfrage, fragt dpcc neu |
+| „(“, „;“, „.“ | übernehmen, wenn der gewählte Eintrag eindeutig trifft; das Zeichen bleibt stehen (Commit-Zeichen, abschaltbar) |
+| Strg+D | gewählten Eintrag als Favorit anheften oder lösen |
+| Leertaste | nur im Mengenmodus: Wert anhaken oder abhaken |
+
+Die Liste schließt auch, wenn der Cursor das Wort oder die Zeile verlässt, der Editor den Fokus verliert, die IDE
+inaktiv wird, der Editor scrollt oder die Ansicht wechselt.
+
+Nach dem Schließen mit Esc öffnet ein automatischer Start im selben Wort die Liste nicht wieder. Strg+Leertaste
+öffnet sie und hebt diese Sperre auf.
+
+### Filtern und Reihenfolge
+
+Beim Weitertippen filtert dpcc die vorhandene Liste selbst, ohne neue Anfrage. Reihenfolge der Treffer:
+
+1. genauer Name,
+2. Anfang mit gleicher Schreibweise,
+3. Anfang,
+4. Wortanfänge (`TSL` findet `TStringList`),
+5. Teilstring,
+6. Teilfolge.
+
+Dazu kommen, je nach Einstellung:
+
+- **Favoriten** stehen vor allen anderen, wenn sie zum Getippten passen.
+- **Häufig und zuletzt gewählte Einträge** bekommen einen Zuschlag. Ein besserer Treffer bleibt trotzdem vorn.
+- **Erwarteter Typ**: Passende Einträge stehen oben unter der Überschrift „Passt zu …“, darunter die übrigen.
+- **Geerbte Member**: Ohne getippten Anfang stehen die eigenen Member zuerst, dann je Vorfahr eine Gruppe
+  „Geerbt von …“.
+- **Listenmodus**: Wahlweise bleiben beim Tippen auch Einträge ohne Treffer sichtbar. Steht dann kein Treffer oben,
+  ist nichts gewählt; Enter gehört dem Editor, eine Pfeiltaste wählt den ersten Eintrag.
+
+Übernimmt man mitten in einem Wort, ersetzt dpcc das ganze Wort.
+
+### Breite und Höhe
+
+- Die Zahl der sichtbaren Zeilen ist einstellbar (5 bis 20).
+- Den rechten Rand kann man mit der Maus ziehen. Doppelklick unten rechts stellt die automatische Breite wieder her.
+- Ohne gezogene Breite wächst die Liste mit dem breitesten Eintrag. Während einer Sitzung schrumpft sie nicht, damit
+  sie beim Filtern nicht springt.
+- Gekürzte Zeilen zeigen den vollen Text, wenn die Maus 600 ms darauf verweilt.
+
+### Hinweise in der Liste
+
+| Anzeige | Bedeutung |
+|---|---|
+| „Keine Treffer für „…““ | Nichts passt. Nur Esc gehört der Liste; Pfeile und Enter gehen an den Editor. |
+| „Keine Vorschläge an dieser Stelle“ | An dieser Stelle gibt es nichts anzubieten. |
+| „eingeschränkt (Index wird aufgebaut)“ | Der Index ist noch nicht fertig; die Liste kann unvollständig sein. |
+| Leiste „Ergebnisse möglicherweise unvollständig · Syntaxfehler in Zeile n“ | Vor dem Cursor steht in der aktuellen Routine oder Klasse ein Syntaxfehler. |
+| Leiste „Kontext unklar · Syntaxfehler in Zeile n“ | wie oben, und es gibt keine Einträge. |
+
+### Vorschau
+
+Mit der Einstellung „Vorschau des gewählten Eintrags im Editor“ steht der noch fehlende Teil des gewählten Namens
+kursiv und gedämpft hinter dem Cursor. Nur gezeichnet; Datei und Undo-Liste bleiben unberührt. Die Vorschau
+erscheint nur, wenn der Name mit dem Getippten beginnt und hinter dem Cursor nichts mehr steht. Vorgabe: aus.
+
+## Was die Liste anbietet
+
+Was erscheint, hängt von der Stelle ab. Der Server prüft die Fälle in fester Reihenfolge; der erste passende
+antwortet.
+
+| Stelle | Angebot |
+|---|---|
+| nach `Ausdruck.` | Mitglieder des Typs samt geerbter; bei Units deren interface-Symbole |
+| nach `Ausdruck.` mit bekanntem Typ | zusätzlich Postfix-Vorlagen (siehe unten) |
+| sonst | alle sichtbaren Namen: lokal, eigene Klasse, eigene Unit, Units aus `uses` |
+| ab zwei getippten Zeichen | auch Symbole aus Units, die noch nicht in `uses` stehen, mit „+“ und dem Namen der Unit; Projekt-Units vor Bibliotheken |
+| im `uses`-Abschnitt | bekannte Units in Gruppen: Projekt, RTL/VCL, Drittanbieter; Hinweis, wenn eine Unit schon im anderen Abschnitt steht; Kennzeichen „Zirkelbezug“ |
+| nach `inherited ` | Methoden der Vorfahren; die gleichnamige Methode zuerst, mit Argumenten aus den eigenen Parametern |
+| nach `class(`, `is`, `as`, nach `:` in Deklarationen | nur Typen |
+| nach `<` eines generischen Typs | Typargumente, gefiltert nach den Constraints |
+| in `[…]` vor einer Deklaration | Attributklassen, ohne die Endung `Attribute` |
+| nach `raise ` und `on E: ` | Exception-Klassen; nach `on E:` zuerst die, die der try-Block laut XMLDoc auslösen kann |
+| Vergleich, `case`-Zweig, Zuweisung mit Aufzählungstyp | Werte der Aufzählung zuerst |
+| in einem Mengenkonstruktor `[…]` | Mengenmodus (siehe unten) |
+| auf einer leeren Zeile einer Klasse mit Interface | fehlende Methoden des Interface zum Anhaken |
+| in einer Klassendeklaration nach `procedure ` bzw. `function ` | überschreibbare Methoden |
+| nach `property … read` / `write` | passende Felder und Methoden |
+| nach `Objekt.Ereignis := ` | passende Methoden und „Neue Methode …“ |
+| wo ein Methodenreferenztyp erwartet wird | Gerüst einer anonymen Methode mit passender Signatur |
+| an der Namensposition einer Deklaration | Namensvorschläge |
+| nach `{$`, `{$IFDEF ` usw. | Compilerdirektiven und bedingte Symbole |
+| in einem `///`-Kommentar, dessen Parameter nicht mehr passen | „Parameter abgleichen“ |
+| in der Unit eines Formulars | Komponenten des Formulars als eigene Gruppe „Formular …“ |
+| `Sender.` in einem Ereignisbehandler | Mitglieder des gemeinsamen Typs der Komponenten, denen die Methode im Formular zugewiesen ist |
+| in `FieldByName('…')`, `FindField('…')`, `ParamByName('…')` | Feld- bzw. Parameternamen der Datenmenge |
+| Name in mehreren Units deklariert | die Variante, die der Compiler wählt, zuerst mit „aktiv“, die übrigen mit ihrer Unit |
+
+### „+ Unit“
+
+Steht ein Bezeichner in einer Unit, die noch nicht in `uses` steht, zeigt die Zeile rechts „+“ und den Namen dieser
+Unit, etwa „+ System.SysUtils“ bei `FreeAndNil`. „+ Unit“ ist also kein fester Text; „Unit“ steht in dieser Doku für
+den Namen. Beim Übernehmen trägt dpcc die Unit in `uses` ein (Einstellung „Unit beim Übernehmen automatisch in uses
+eintragen“). Name und `uses`-Eintrag sind ein einziger Undo-Schritt.
+
+### FieldByName und Formulare
+
+dpcc liest dafür die Formulardatei (DFM) der Unit. Bei offenen Formularen nimmt es den aktuellen Stand aus dem
+Designer, auch ungespeichert; Änderungen im Designer gehen nach 500 ms an den Server.
+
+Quellen für Feldnamen, in dieser Reihenfolge:
+
+1. persistente Felder der Datenmenge,
+2. Spalten der SQL-Anweisung aus `SQL.Strings` bzw. `CommandText` (Aliasnamen gelten; bei `*` keine Spalten),
+3. für `ParamByName`: die `:Platzhalter` der Anweisung und die Einträge der Params-Sammlung.
+
+Ohne Formulardatei oder ohne die Datenmenge darin gibt es keine Namen. Für Datenmengen anderer Datenmodule
+(`DM.qryOrders`) sucht dpcc die globale Variable im Index und liest die Formulardatei ihrer Unit.
+
+### Postfix-Vorlagen
+
+Hinter `Ausdruck.` bietet die Liste nach den Mitgliedern Kürzel an, die den Ausdruck umformen. Angeboten wird nur,
+was zum Typ passt. Anweisungen gibt es nur, wenn der Ausdruck die Zeile beginnt.
+
+| Kürzel | Ergebnis | Typ |
+|---|---|---|
+| `for`, `forin` | `for var Item in Liste do` | aufzählbar |
+| `tryf` | `try … finally Obj.Free; end;` | Klasse |
+| `ifa`, `notnil` | `if Assigned(X) then` | Klasse, Interface, Zeiger |
+| `nil` | `if not Assigned(X) then` | Klasse, Interface, Zeiger |
+| `not` | `not B` | Boolean |
+| `if` | `if B then` | Boolean |
+| `fmt` | `Format(S, [])` | String |
+| `free` | `FreeAndNil(Obj);` | Klasse |
+| `try` | `var Foo := TFoo.Create; try … finally Foo.Free; end;` | Konstruktoraufruf |
+| `var` | `var Name := X;` | bekannter Typ |
+| `exit` | `Exit(X);` | in einer Funktion |
+
+## Platzhalter
+
+Manche Einträge setzen Text mit Platzhaltern ein, etwa Postfix-Vorlagen oder das Gerüst einer anonymen Methode.
+dpcc führt die Platzhalter selbst:
+
+| Taste | Wirkung |
+|---|---|
+| tippen | ersetzt die Vorgabe des aktuellen Platzhalters |
+| Tab | nächster Platzhalter; nach dem letzten an die Endposition |
+| Umschalt+Tab | vorheriger Platzhalter |
+| Enter | beenden und an die Endposition springen |
+| Esc | an Ort und Stelle beenden |
+
+Der aktuelle Platzhalter ist durchgezogen umrahmt, verknüpfte gestrichelt, die übrigen gepunktet. Hinter der Zeile
+steht „Platzhalter 1 / 3 · Tab weiter · Esc fertig“. Verknüpfte Platzhalter mit derselben Nummer gleicht dpcc an.
+Eine Änderung außerhalb oder ein Wechsel der Ansicht beendet den Modus.
+
+Endet der Modus regulär (Esc, Enter, Tab nach dem letzten), macht ein Strg+Z das ganze Einsetzen in einem Schritt
+rückgängig.
+
+## Mengenmodus
+
+In einem Mengenkonstruktor (`Anchors := [akLeft, |`) zeigt die Liste alle Werte des Elementtyps mit
+Kontrollkästchen. Werte, die schon in der Klammer stehen, sind angehakt. Die Überschrift lautet etwa
+„TAnchors · Menge von TAnchorKind“.
+
+| Taste | Wirkung |
+|---|---|
+| Leertaste | gewählten Wert anhaken oder abhaken |
+| Enter oder Tab, nachdem in dieser Liste die Leertaste gedrückt wurde | ganze Klammer neu schreiben: genau die angehakten Werte in Deklarationsreihenfolge, ohne Haken `[]`; bei `{$SCOPEDENUMS ON}` mit Typpräfix |
+| Enter oder Tab, ohne dass in dieser Liste die Leertaste gedrückt wurde | den gewählten Wert zusätzlich anhaken und die Klammer wie oben neu schreiben: die vorhandenen Werte und der gewählte |
+| Esc | verwerfen |
+
+Die Fußzeile zeigt „Leertaste wählen · Enter einfügen · Esc verwerfen“ und die Zahl der gewählten Werte.
+
+Dieselbe Liste dient für „Interface implementieren“: fehlende Methoden, alle angehakt; Enter fügt die angehakten ein.
+
+## Favoriten
+
+Mit der Einstellung „Favoriten anheften“ (Vorgabe: an) heftet Strg+D in der offenen Liste den gewählten Eintrag an
+oder löst ihn.
+
+- Ein Favorit gilt für ein Paar aus Typ und Member. Der Typ ist die deklarierende Klasse, auf Unit-Ebene die Unit.
+  Ein Favorit `TDataSet.Open` gilt damit für jede Datenmenge.
+- Höchstens 5 Favoriten je Typ. Ein weiterer ersetzt keinen; die Fußzeile meldet „Schon 5 Favoriten bei …“.
+- Angeheftete Einträge stehen oben, wenn sie zum Getippten passen.
+- dpcc speichert sofort in `%APPDATA%\dpcc\favorites.json`.
+- Die Liste der Favoriten mit „Entfernen“ und „Alle entfernen“ steht unter
+  [Einstellungen](settings.md#vervollständigung).
+
+## Übernehmen
+
+Was beim Übernehmen passiert, ist einstellbar (Bereich „Einfügen“, siehe [Einstellungen](settings.md#einfügen)):
+
+- **Klammern**: Bei Methoden ergänzt dpcc die Klammern. Tippt man direkt vor der automatisch eingefügten
+  schließenden Klammer ein „)“, überspringt dpcc die automatische, statt „))“ zu erzeugen.
+- **Schreibweise**: `showmessage` wird zu `ShowMessage`.
+- **Unit in uses**: siehe „+ Unit“.
+- **Commit-Zeichen**: „(“, „;“ und „.“ übernehmen.
+
+## Parameterhilfe
+
+Strg+Umschalt+Leertaste in einem Aufruf zeigt die Signaturen der aufgerufenen Routine an der öffnenden Klammer.
+
+- Alle Überladungen stehen untereinander. In der gewählten ist der aktive Parameter fett und unterstrichen.
+  Überladungen mit zu wenigen Parametern sind gedämpft.
+- Vorgewählt ist die erste Überladung, zu der die bisherigen Argumente passen.
+- Ein Klick wählt eine Überladung; Alt+↑ / Alt+↓ wechselt sie.
+- Bei verschachtelten Aufrufen zeigt eine Pfadzeile oben die äußeren Aufrufe, etwa „ShowMessage › Format“.
+- Darunter stehen Name und Beschreibung des aktiven Parameters aus der XMLDoc (ohne `<param>`: „nicht
+  dokumentiert“), Standardwerte („optional, Standard …“) und die Beschreibung der Methode.
+- Erlaubt keine Überladung so viele Argumente, steht dort „Keine Überladung mit n Parametern.“
+- Ist die Vervollständigungsliste offen oder unten kein Platz, steht die Parameterhilfe über der Zeile.
+- Esc schließt. Sie schließt auch, wenn der Cursor den Aufruf verlässt (auch durch „)“), bei Fokusverlust, Scrollen
+  oder Wechsel des Reiters.
+- Wird die schließende Klammer entfernt und steht der Cursor danach in einem Aufruf, erscheint die Hilfe erneut;
+  nicht für einen Aufruf, dessen Hilfe mit Esc geschlossen wurde.
+
+### Platzhalter von Format
+
+Bei `Format` und anderen Formatroutinen nennt eine Zeile den Platzhalter zum Argument am Cursor, etwa „Platzhalter 2
+von 2 erwartet ganzzahlig“. Sie warnt bei überzähligen Argumenten, ungültigen Platzhaltern und Typkonflikten mit
+Literalen. Platzhalter und Argument bekommen im Editor dieselbe Hintergrundfarbe, solange die Parameterhilfe offen
+ist. Abschaltbar mit „Platzhalter von Format im Parameter-Hint zuordnen und einfärben“.
+
+## Hover
+
+Verweilt die Maus 500 ms über einem Bezeichner, zeigt dpcc darunter einen Tooltip. Die IDE wartet dabei nie auf
+den Server.
+
+Inhalt, von oben nach unten (leere Abschnitte entfallen):
+
+| Abschnitt | Inhalt |
+|---|---|
+| Wert im Debugger | Ausdruck und Wert bei angehaltenem Programm, bis zur Antwort „wird ausgewertet …“ |
+| Kopfzeile | Art und Signatur |
+| Herkunft, Fundort | Art in Worten, Bibliothek, Herkunft; Datei und Zeile |
+| Wert, Veraltung | Wert einer Konstante; `deprecated`, `platform`, `experimental` |
+| XMLDoc | Zusammenfassung, Parameter, Rückgabe, Ausnahmen, Hinweise, Beispiel, Siehe auch; `<inheritdoc/>` wird aufgelöst |
+| published-Mitglieder | bei Komponentenklassen Properties und Ereignisse samt geerbter |
+| Vererbung | Vererbungskette bzw. Zieltyp einer Klassenreferenz |
+
+Ist der Tooltip höher als der Platz oder als die eingestellte Zeilenzahl, scrollt die XMLDoc mit dem Mausrad.
+
+Der Tooltip schließt 300 ms nachdem die Maus Bezeichner und Tooltip verlassen hat, sofort bei Esc und jeder anderen
+Taste (außer Umschalt, Strg, Alt allein), bei Mausklick, Scrollen, Größenänderung und wenn die IDE inaktiv wird.
+Ist eine Vervollständigungsliste, eine Parameterhilfe oder ein Menü offen, erscheint kein Tooltip.
+
+### Werte beim Debuggen
+
+Ist das Programm angehalten und die Einstellung „Werte im Hover beim Debuggen“ an, wertet dpcc den Ausdruck unter
+der Maus über den Debugger der IDE aus. Die Auswertung ruft nichts im Programm auf. Der Wert steht ganz oben.
+
+### Help Insight
+
+Solange der Tooltip von dpcc an ist, schaltet dpcc Help Insight der IDE ab, damit nicht zwei Tooltips erscheinen.
+Details unter [Einstellungen](settings.md#was-dpcc-an-der-ide-umstellt).
+
+## Sprache
+
+Die Texte von dpcc sind deutsch, wenn die IDE deutsch ist, sonst englisch. Bezeichner, Signaturen und XMLDoc werden
+nie übersetzt.
