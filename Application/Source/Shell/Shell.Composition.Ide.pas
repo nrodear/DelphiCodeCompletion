@@ -6,6 +6,9 @@
 // wird zu Ersatz-Units für Hover, Vervollständigung und Parameterhilfe. Build-Nachrichten der IDE
 // (dpcc/compileStarted, dpcc/compileFinished, dpcc/compilerMessages) meldet der Server nicht mehr an; der
 // Verteiler verwirft sie still (R1, K8).
+// L2: Die IDE meldet auch die Typen der Installation ohne Quelltext (DUnitX, FireDAC …). Mitglieder fragt der Server
+// nur für Units, die eine geladene Unit des Index in ihren uses nennt (bei Bedarf); die Namen aller Typen kennt er
+// über dpcc/ideTypes sofort.
 
 interface
 
@@ -195,8 +198,48 @@ begin
   end;
 end;
 
+/// <summary>Unit-Namen (groß) aus den uses der gepinnten Units von AIndex (Projekte und ihre Hülle, L2).</summary>
+function UsedNames(const AIndex: ISymbolIndex): TDictionary<string, Boolean>;
+var
+  mStored: TIndexStoredUnit;
+  mName: string;
+begin
+  Result := TDictionary<string, Boolean>.Create;
+  if AIndex = nil then
+  begin
+    Exit;
+  end;
+  for mStored in AIndex.StoredUnits do
+  begin
+    if not mStored.Pinned then
+    begin
+      Continue;
+    end;
+    for mName in mStored.Unit_.InterfaceUses + mStored.Unit_.ImplementationUses do
+    begin
+      Result.AddOrSetValue(UpperCase(mName), True);
+    end;
+  end;
+end;
+
+/// <summary>Die Units aus ACandidates, die AUsed nennt.</summary>
+function UsedOnly(const ACandidates: TArray<string>; AUsed: TDictionary<string, Boolean>): TArray<string>;
+var
+  mUnit: string;
+begin
+  Result := nil;
+  for mUnit in ACandidates do
+  begin
+    if AUsed.ContainsKey(UpperCase(mUnit)) then
+    begin
+      Result := Result + [mUnit];
+    end;
+  end;
+end;
+
 procedure TShellIde.RequestMembers;
 var
+  mUsed: TDictionary<string, Boolean>;
   mWanted: TArray<string>;
   mParams: TJSONObject;
   mUnits: TJSONArray;
@@ -206,7 +249,13 @@ begin
   begin
     Exit;
   end;
-  mWanted := FServices.IdeUnits.Wanted(UnitsOf(FTypes.Catalog.Entries), FServices.Index);
+  // L2: nur Units, die die Projekte nennen; die übrigen kennt "+ Unit" über ihre Typnamen.
+  mUsed := UsedNames(FServices.Index);
+  try
+    mWanted := FServices.IdeUnits.Wanted(UsedOnly(UnitsOf(FTypes.Catalog.Entries), mUsed), FServices.Index);
+  finally
+    mUsed.Free;
+  end;
   if mWanted = nil then
   begin
     Exit;

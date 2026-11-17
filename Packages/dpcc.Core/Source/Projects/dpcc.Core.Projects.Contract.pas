@@ -56,6 +56,12 @@ type
     SearchPaths: TArray<string>;
     Namespaces: TArray<string>;
     LibraryPaths: TArray<string>;
+    /// <summary>Browsing Path der laufenden IDE für die Plattform (L2); Win64x ohne eigenen nimmt den von Win64.
+    /// </summary>
+    BrowsingPaths: TArray<string>;
+    /// <summary>Registry-Schlüssel der laufenden IDE (L2, auch mit Profil -r); der Server liest dort Variablen und
+    /// Pfade.</summary>
+    RegistryKey: string;
     /// <summary>Präfix-Vorgaben der Projektdatei (#452); nur mit HasNaming gesetzt, '' = ohne Präfix.</summary>
     Naming: array[TDpccProjectNamingKind] of string;
     HasNaming: array[TDpccProjectNamingKind] of Boolean;
@@ -155,9 +161,10 @@ begin
   begin
     mOrigin := 'keine Optionen';
   end;
-  Result := Format('%s %s/%s (%s, BDS %s): Defines %s; %d Suchpfade, %d Namespaces, %d Bibliothekspfade',
+  Result := Format('%s %s/%s (%s, BDS %s): Defines %s; %d Suchpfade, %d Namespaces, %d Bibliothekspfade, ' +
+    '%d Browsing-Pfade',
     [ExtractFileName(Project), Configuration, Platform, mOrigin, BdsVersion, string.Join(';', Defines),
-    Length(SearchPaths), Length(Namespaces), Length(LibraryPaths)]);
+    Length(SearchPaths), Length(Namespaces), Length(LibraryPaths), Length(BrowsingPaths)]);
   if Active then
   begin
     Result := Result + ', aktiv';
@@ -171,7 +178,8 @@ var
 begin
   Result := AnsiUpperCase(Project) + '|' + Configuration + '|' + Platform + '|' + BdsVersion + '|' +
     string.Join(';', Defines) + '|' + string.Join(';', SearchPaths) + '|' + string.Join(';', Namespaces) + '|' +
-    string.Join(';', LibraryPaths) + '|' + BoolToStr(Active, True);
+    string.Join(';', LibraryPaths) + '|' + string.Join(';', BrowsingPaths) + '|' + AnsiUpperCase(RegistryKey) + '|' +
+    BoolToStr(Active, True);
   for mKind := Low(TDpccProjectNamingKind) to High(TDpccProjectNamingKind) do
   begin
     if HasNaming[mKind] then
@@ -206,6 +214,14 @@ begin
   if Length(LibraryPaths) > 0 then
   begin
     Result.AddPair('libraryPaths', JsonList(LibraryPaths));
+  end;
+  if Length(BrowsingPaths) > 0 then
+  begin
+    Result.AddPair('browsingPaths', JsonList(BrowsingPaths));
+  end;
+  if RegistryKey <> '' then
+  begin
+    Result.AddPair('registryKey', RegistryKey);
   end;
   Result.AddPair('active', TJSONBool.Create(Active));
   mPrefixes := nil;

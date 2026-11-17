@@ -19,6 +19,7 @@ uses
   dpcc.Common.Index.Builder,
   dpcc.Common.Index.Service,
   dpcc.Common.Index.Scheduler,
+  dpcc.Common.Index.ProjectFiles,
   Shell.Workspace.Setup,
   Shell.Workspace.State,
   Shell.Workspace.Cache,
@@ -50,12 +51,19 @@ type
     FSignature: string;
     /// <summary>Beim nächsten Aufbau den Cache verwerfen (#49).</summary>
     FDiscardCache: Boolean;
-    /// <summary>index.officeAndWinRt des letzten Aufbaus (c1).</summary>
-    FOfficeAndWinRt: Boolean;
-    /// <summary>Nimmt die Bibliotheks-Units unter TShellIndexRequests.RarelyUsedRoots aus dem Index, wenn
-    /// index.officeAndWinRt eben ausgeschaltet wurde (c1): Sonst schlüge „+ Unit“ sie bis zum Neustart weiter vor.
-    /// Über uses erreichte liest der Aufbau gleich wieder ein.</summary>
-    procedure DropRarelyUsed(const ALoaded: TShellLoadedProject);
+    /// <summary>Unit-Suche des letzten Aufbaus (L2: gleichnamige Units); nur unter FResolveLock.</summary>
+    FResolveUnit: TUnitFileResolver;
+    FResolveLock: TObject;
+    /// <summary>Halter des Resolvers (L2: bei neuen Dateien leeren); nur unter FResolveLock.</summary>
+    FResolveHold: IInterface;
+    /// <summary>Ordner der Suchpfade bzw. der Bibliothek samt Zusatzordnern des letzten Aufbaus und der
+    /// Projektordner (L2: neue Dateien, Prüfung außerhalb der beobachteten Ordner); nur unter FResolveLock.</summary>
+    FSearchFolders: TArray<string>;
+    FLibraryFolders: TArray<string>;
+    FProjectFolder: string;
+    FExcluded: TIndexExcluded;
+    /// <summary>Neue Dateien aus AChanges, deren Ordner in den Pfaden liegt, in ihre Stufe (L2).</summary>
+    function AddCreated(const AChanges: TArray<TFileChange>): Integer;
     procedure Attach;
     procedure ProjectReady(const AResult: TIndexBuildResult; AElapsedMs: Int64);
     procedure Finished(const AResult: TIndexBuildResult; AElapsedMs: Int64);
@@ -67,8 +75,11 @@ type
     /// <summary>Package-Locator und Unit-Suche des Projekts in den Zustand (#46, #1016).</summary>
     function PublishLookups(const ALoaded: TShellLoadedProject): TPackageLocator;
     /// <summary>Resolver des neuen Aufbaus; er lebt, solange Auftrag und Builder ihn über den Rückruf halten (a3).
-    /// </summary>
-    function NewResolver(const ALoaded: TShellLoadedProject): TUnitFileResolver;
+    /// AExtraFolders (L2): zusätzliche Quellordner samt Unterordnern, nach den Bibliothekspfaden.</summary>
+    function NewResolver(const ALoaded: TShellLoadedProject; const AExtraFolders: TArray<string>;
+      out AFrom: TUnitFileResolverFrom): TUnitFileResolver;
+    /// <summary>Eine Datei ließ sich nicht lesen oder parsen (L2): Protokoll und Diagnoselog.</summary>
+    procedure Unreadable(const AFileName, AError: string);
     /// <summary>Sperre, Warten auf den Schreiber (#62) und Verwerfen (#49) des Caches.</summary>
     procedure PrepareCache(const ALoaded: TShellLoadedProject; const ASettings: TServerSettings;
       var ARequest: TIndexRequest);
@@ -85,6 +96,11 @@ type
     procedure DiscardNext;
     procedure Stop;
     function EnsureUnit(const AUnitName: string): Boolean;
+    /// <summary>Unit-Suche des letzten Aufbaus; nil ohne. Threadsicher.</summary>
+    function UnitFileResolver: TUnitFileResolver;
+    /// <summary>Ordner der Suchpfade, der Bibliothek und der Zusatzordner außerhalb des Projektordners (L2): Sie
+    /// liegen meist nicht unter den beobachteten Ordnern; ihre Stände prüft der Server selbst. Threadsicher.</summary>
+    function ScanFolders: TArray<string>;
     function ApplyChanges(const AChanges: TArray<TFileChange>): Integer;
     function ApplyText(const AFileName, AText: string): Boolean;
     /// <summary>Fortschritt des laufenden Aufbaus in Prozent; -1, wenn keiner läuft (#647).</summary>
@@ -105,7 +121,6 @@ uses
   dpcc.Common.Index.Adapters.DiskFileSystem,
   dpcc.Common.Index.Adapters.CacheDirectory,
   dpcc.Common.Index.Processes,
-  dpcc.Common.Index.ProjectFiles,
   dpcc.Common.Projects.UnitAliases,
   Shell.Platform,
   Shell.Diagnostics,
@@ -164,6 +179,11 @@ begin
   else if Pos(PathDelim + TIndexCacheDirectory.cSearchFolder + PathDelim, AFileName) > 0 then
   begin
     Result := ASearch;
+  end
+  else if Pos(PathDelim + TIndexCacheDirectory.cExtraFolder + PathDelim, AFileName) > 0 then
+  begin
+    // Zusätzliche Quellordner (L2) zählen wie die Bibliothek.
+    Result := ALibrary;
   end;
 end;
 
@@ -213,6 +233,16 @@ begin
     end;
 end;
 
+/// <summary>Rückruf für TIndexRequest.ResolveUnitFrom (L2); fängt nur den Halter ein.</summary>
+function ResolveUnitFromOf(const AHold: IUnitResolverHold): TUnitFileResolverFrom;
+begin
+  Result :=
+    function(const AUnitName, AFromDirectory: string): string
+    begin
+      Result := AHold.Resolver.Resolve(AUnitName, AFromDirectory);
+    end;
+end;
+
 /// <summary>Rückruf für TIndexRequest.CacheBusy; fängt nur die Datei ein.</summary>
 function CacheBusyOf(const ACacheFile: string): TFunc<Boolean>;
 begin
@@ -229,6 +259,7 @@ constructor TShellWorkspaceIndexing.Create(const AParts: TShellIndexingParts);
 begin
   inherited Create;
   FParts := AParts;
+  FResolveLock := TObject.Create;
   FEncodings := TShellEncodingReport.Create(AParts.Name, AParts.Root, AParts.Logger, AParts.Transport, AParts.Index);
   // Eine Platte für alle Arbeitsbereiche (b1): Nur so teilen sie den gelesenen Bibliotheks-Cache und seinen Stand.
   FService := TIndexService.Create(AParts.Index, TDiskIndexFileSystem.Shared);
@@ -241,6 +272,10 @@ begin
   FService.Free;
   FProgress.Free;
   FEncodings.Free;
+  FResolveUnit := nil;
+  FResolveHold := nil;
+  FExcluded := nil;
+  FResolveLock.Free;
   FParts := Default(TShellIndexingParts);
   inherited;
 end;
@@ -285,6 +320,21 @@ begin
     begin
       Failed(AError);
     end;
+  FService.OnUnreadable :=
+    procedure(const AFileName, AError: string)
+    begin
+      Unreadable(AFileName, AError);
+    end;
+end;
+
+procedure TShellWorkspaceIndexing.Unreadable(const AFileName, AError: string);
+begin
+  // L2: Die Datei fehlt im Index, der Aufbau läuft weiter. Pfad und Fehlertext ins Protokoll (anonymisiert wie
+  // jeder Pfad), die Zeile im Diagnoselog ohne Pfad.
+  FParts.Logger.Warning(Format('Datei nicht lesbar, im Index übergangen: %s (%s)', [TLogMarks.Path(AFileName),
+    TLogMarks.Text(AError)]));
+  IndexEvent(Format('index project#%d unreadable %s', [FParts.Setup.Priority,
+    Copy(AError, 1, Pos(':', AError + ':') - 1)]));
 end;
 
 procedure TShellWorkspaceIndexing.IndexEvent(const AText: string);
@@ -311,6 +361,17 @@ begin
   IndexEvent(Format('index project#%d done %d ms parsed %d cached %d missing %d units %d resolve %d ms parse %d ms%s',
     [FParts.Setup.Priority, AElapsedMs, AResult.Parsed, AResult.FromCache, AResult.Missing, FParts.Index.UnitCount,
      AResult.ResolveMs, AResult.ParseMs, IfThen(AResult.Cancelled, ' cancelled', '')]) + MissText(AResult));
+  // L2: übergangene Dateien und erschöpfter Speicher nicht still.
+  if AResult.Unreadable > 0 then
+  begin
+    FParts.Logger.Warning(Format('Symbolindex für %s: %d Dateien nicht lesbar und übergangen (Einzelheiten oben)',
+      [TLogMarks.Name(FParts.Name), AResult.Unreadable]));
+  end;
+  if AResult.OutOfMemory then
+  begin
+    FParts.Logger.Error(Format('Symbolindex für %s: Speicher erschöpft; der Aufbau hat danach keine Dateien mehr ' +
+      'gelesen, der Stand bis dahin bleibt', [TLogMarks.Name(FParts.Name)]));
+  end;
   FParts.Logger.Info(Format('Symbolindex für %s fertig in %d ms: %d Units, %d Symbole (%d neu eingelesen, %d aus dem Cache, %d fehlen)%s; Speicher: %s',
     [TLogMarks.Name(FParts.Name), AElapsedMs, FParts.Index.UnitCount, FParts.Index.SymbolCount, AResult.Parsed,
      AResult.FromCache, AResult.Missing, IfThen(AResult.Cancelled, ', abgebrochen', ''),
@@ -410,15 +471,27 @@ begin
   FParts.State.SetLookups(mSource.Packages, TShellPackageLookups.UnitLookupFor(mSource));
 end;
 
-function TShellWorkspaceIndexing.NewResolver(const ALoaded: TShellLoadedProject): TUnitFileResolver;
+function TShellWorkspaceIndexing.NewResolver(const ALoaded: TShellLoadedProject;
+  const AExtraFolders: TArray<string>; out AFrom: TUnitFileResolverFrom): TUnitFileResolver;
 var
   mResolver: TUnitResolver;
+  mHold: IUnitResolverHold;
 begin
-  mResolver := TUnitResolver.Create(ALoaded.Project, ALoaded.LibraryPaths, TShellFileAccess.ExistsFunc());
+  // Zusätzliche Quellordner (L2) zuletzt: Sie ergänzen, was es sonst nur als .dcu gibt.
+  mResolver := TUnitResolver.Create(ALoaded.Project, ALoaded.LibraryPaths + AExtraFolders,
+    TShellFileAccess.ExistsFunc());
   // Ordner einmal auflisten, über alle Projekte geteilt (CPU beim Start).
   mResolver.ListUnits := TSharedUnitListings.ListFunc();
   // Anfragen können den alten Builder noch nutzen (EnsureUnit ohne Sperre, #647): Er hält seinen Resolver selbst.
-  Result := ResolveUnitOf(TUnitResolverHold.Create(mResolver));
+  mHold := TUnitResolverHold.Create(mResolver);
+  Result := ResolveUnitOf(mHold);
+  AFrom := ResolveUnitFromOf(mHold);
+  TMonitor.Enter(FResolveLock);
+  try
+    FResolveHold := mHold;
+  finally
+    TMonitor.Exit(FResolveLock);
+  end;
 end;
 
 procedure TShellWorkspaceIndexing.PrepareCache(const ALoaded: TShellLoadedProject; const ASettings: TServerSettings;
@@ -427,6 +500,7 @@ var
   mFiles: TShellCacheFiles;
 begin
   mFiles := TShellCacheFiles.Create(ARequest.CacheFile, ARequest.LibraryCacheFile, ARequest.SearchCacheFile);
+  mFiles.ExtraFile := ARequest.ExtraCacheFile;
   ARequest.ReadOnlyCache := not FParts.Cache.Lock(mFiles, TShellIndexRequests.CacheOriginOf(ALoaded.Project,
     FParts.Root), ASettings);
   if ARequest.ReadOnlyCache then
@@ -468,7 +542,7 @@ var
   mRequest: TIndexRequest;
   mKey: string;
 begin
-  mFiles := TShellIndexRequests.FilesOf(ALoaded, ASettings);
+  mFiles := TShellIndexRequests.FilesOf(ALoaded, ASettings, FParts.Logger);
   TShellIndexRequests.AddPackageFiles(ALoaded.Project, PublishLookups(ALoaded), mFiles, FParts.Logger, FParts.Name);
   mKey := mFiles.Key(TIndexProjectFiles.Signature(ALoaded.Project, ALoaded.Version));
   Result := mKey <> FSignature;
@@ -477,17 +551,21 @@ begin
     Exit;
   end;
   FSignature := mKey;
-  if FOfficeAndWinRt and not ASettings.IndexOfficeAndWinRt then
-  begin
-    DropRarelyUsed(ALoaded);
-  end;
-  FOfficeAndWinRt := ASettings.IndexOfficeAndWinRt;
   mTarget.CacheRoot := FParts.Setup.CacheRoot;
   mTarget.Priority := FParts.Setup.Priority;
   mTarget.Usages := ASettings.IndexUsages;
-  mTarget.OfficeAndWinRt := ASettings.IndexOfficeAndWinRt;
   mRequest := TShellIndexRequests.RequestOf(ALoaded, mFiles, mTarget);
-  mRequest.ResolveUnit := NewResolver(ALoaded);
+  mRequest.ResolveUnit := NewResolver(ALoaded, mFiles.ExtraFolders, mRequest.ResolveUnitFrom);
+  TMonitor.Enter(FResolveLock);
+  try
+    FResolveUnit := mRequest.ResolveUnit;
+    FSearchFolders := ALoaded.Project.SearchPaths;
+    FLibraryFolders := ALoaded.LibraryPaths + mFiles.ExtraFolders;
+    FProjectFolder := ExtractFileDir(ALoaded.ProjectFile);
+    FExcluded := TShellIndexRequests.ExcludedOf(ASettings.IndexExclude);
+  finally
+    TMonitor.Exit(FResolveLock);
+  end;
   FService.Scheduler := FParts.Setup.Scheduler;
   PrepareCache(ALoaded, ASettings, mRequest);
   Publish(ALoaded, mRequest);
@@ -501,34 +579,6 @@ begin
      IfThen(mRequest.ReadOnlyCache, 'readOnly', 'write')]));
   FParts.State.ProjectPending := True;
   FService.Start(mRequest);
-end;
-
-procedure TShellWorkspaceIndexing.DropRarelyUsed(const ALoaded: TShellLoadedProject);
-var
-  mRoots: TArray<string>;
-  mUnit: TCatalogUnit;
-  mDropped: Integer;
-begin
-  mRoots := TShellIndexRequests.RarelyUsedRoots(ALoaded);
-  if Length(mRoots) = 0 then
-  begin
-    Exit;
-  end;
-  mDropped := 0;
-  // Katalog: auch Units, die nicht geladen sind (Speicher-Optimierung Phase 3).
-  for mUnit in FParts.Index.CatalogUnits do
-  begin
-    if mUnit.Library_ and TShellIndexRequests.IsRarelyUsed(mUnit.FileName, mRoots) then
-    begin
-      FParts.Index.RemoveFile(mUnit.FileName);
-      Inc(mDropped);
-    end;
-  end;
-  if mDropped > 0 then
-  begin
-    FParts.Logger.Info(Format('%s: index.officeAndWinRt aus, %d Units aus OCX\Servers und WinRT aus dem Index genommen',
-      [TLogMarks.Name(FParts.Name), mDropped]));
-  end;
 end;
 
 procedure TShellWorkspaceIndexing.Forget;
@@ -551,9 +601,107 @@ begin
   Result := FService.EnsureUnit(AUnitName);
 end;
 
+function TShellWorkspaceIndexing.UnitFileResolver: TUnitFileResolver;
+begin
+  TMonitor.Enter(FResolveLock);
+  try
+    Result := FResolveUnit;
+  finally
+    TMonitor.Exit(FResolveLock);
+  end;
+end;
+
+/// <summary>Liegt AFolder (ohne Trenner) in AFolders?</summary>
+function FolderListed(const AFolder: string; const AFolders: TArray<string>): Boolean;
+var
+  mFolder: string;
+begin
+  for mFolder in AFolders do
+  begin
+    if SameText(ExcludeTrailingPathDelimiter(mFolder), AFolder) then
+    begin
+      Exit(True);
+    end;
+  end;
+  Result := False;
+end;
+
+function TShellWorkspaceIndexing.ScanFolders: TArray<string>;
+var
+  mFolder: string;
+begin
+  Result := nil;
+  TMonitor.Enter(FResolveLock);
+  try
+    for mFolder in FSearchFolders + FLibraryFolders do
+    begin
+      // Unter dem Projektordner meldet der Beobachter der IDE die Änderungen.
+      if (FProjectFolder = '') or not TIndexFileDefines.IsUnder(mFolder + PathDelim, [FProjectFolder]) then
+      begin
+        Result := Result + [ExcludeTrailingPathDelimiter(mFolder)];
+      end;
+    end;
+  finally
+    TMonitor.Exit(FResolveLock);
+  end;
+end;
+
+function TShellWorkspaceIndexing.AddCreated(const AChanges: TArray<TFileChange>): Integer;
+var
+  mChange: TFileChange;
+  mSearch, mLibrary, mSearchFolders, mLibraryFolders: TArray<string>;
+  mHold: IInterface;
+  mExcluded: TIndexExcluded;
+  mFolder: string;
+begin
+  TMonitor.Enter(FResolveLock);
+  try
+    mHold := FResolveHold;
+    mSearchFolders := FSearchFolders;
+    mLibraryFolders := FLibraryFolders;
+    mExcluded := FExcluded;
+  finally
+    TMonitor.Exit(FResolveLock);
+  end;
+  mSearch := nil;
+  mLibrary := nil;
+  for mChange in AChanges do
+  begin
+    if (mChange.Kind <> TFileChangeKind.Created) or not SameText(ExtractFileExt(mChange.FileName), '.pas') then
+    begin
+      Continue;
+    end;
+    // Die Unit-Suche merkt sich Ordnerlisten und „nicht gefunden“; sie muss die neue Datei sehen.
+    if mHold <> nil then
+    begin
+      (mHold as IUnitResolverHold).Resolver.Invalidate;
+    end;
+    if Assigned(mExcluded) and mExcluded(mChange.FileName) then
+    begin
+      Continue;
+    end;
+    mFolder := ExtractFileDir(mChange.FileName);
+    if FolderListed(mFolder, mSearchFolders) then
+    begin
+      mSearch := mSearch + [mChange.FileName];
+    end
+    else if FolderListed(mFolder, mLibraryFolders) then
+    begin
+      mLibrary := mLibrary + [mChange.FileName];
+    end;
+  end;
+  Result := FService.AddFiles(mSearch, False) + FService.AddFiles(mLibrary, True);
+  if Result > 0 then
+  begin
+    IndexEvent(Format('index project#%d added %d', [FParts.Setup.Priority, Result]));
+  end;
+end;
+
 function TShellWorkspaceIndexing.ApplyChanges(const AChanges: TArray<TFileChange>): Integer;
 begin
   Result := FService.ApplyChanges(AChanges);
+  // L2: Eine neue Datei im Suchpfad oder in der Bibliothek kommt gleich in den Index (vorher erst über uses).
+  Inc(Result, AddCreated(AChanges));
   if Result > 0 then
   begin
     FParts.State.Touch;

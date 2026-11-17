@@ -32,6 +32,9 @@
 //   Vervollständigungen auf zufällige Units der Bibliothek in einer anderen Unit, die wieder verdrängen. Die Zeile
 //   "[frequent]" nennt Nachladen, Verdrängen, die Antwortzeiten der Suche und die größten verdrängbaren Units nach ihr
 //   (Speicher-Optimierung Phase 5).
+// - DPCC_MEMBENCH_IMPORTS (L2): kommagetrennte Namen oberster Ebene (etwa aus Word2010, WinRT, DUnitX). Je Name eine
+//   Vervollständigung auf den Namen in einer Projekt-Unit, die ihn nicht kennt; die Zeile "[import]" nennt, ob die
+//   Liste ihn anbietet (mit "+ Unit"), die Antwortzeit und den Eintrag.
 // Je Messpunkt eine Zeile "[lazy]" mit geladenen, gepinnten, verdrängbaren und verdrängten Units, Katalog und
 // Dauer des Nachladens (Median, Höchstwert, größte Unit).
 // Der Cache gehört nicht dem Benutzer: Der Aufrufer setzt LOCALAPPDATA bzw. DPCC_CACHE_ROOT auf einen eigenen Ordner
@@ -183,6 +186,8 @@ type
     procedure FrequentName(ARounds: Integer);
     /// <summary>Zustand des Nachladens nach einer Anfrage auf AFile.</summary>
     function LazyNow(const AFile: string): TIndexLazyStats;
+    /// <summary>"+ Unit" für die Namen aus DPCC_MEMBENCH_IMPORTS (L2).</summary>
+    procedure ImportProbe(const ANames: TArray<string>);
     /// <summary>Die ausgewählten Dateien unter Packages (Units der Projekte).</summary>
     function PackageFiles: TArray<string>;
   public
@@ -1166,6 +1171,61 @@ begin
   OneRequest;
 end;
 
+procedure TBench.ImportProbe(const ANames: TArray<string>);
+var
+  mFile, mOwn, mName, mText, mJson, mItem: string;
+  mWatch: TStopwatch;
+  mResponse: TJSONValue;
+  mAt, mEnd: Integer;
+  mState: string;
+begin
+  mFile := FFiles[0];
+  mOwn := ChangeFileExt(ExtractFileName(mFile), '');
+  EnsureOpen(mFile);
+  for mName in ANames do
+  begin
+    mText := Format('unit %s;'#13#10'interface'#13#10'implementation'#13#10'procedure BenchProbe;'#13#10'begin'#13#10 +
+      '  %s'#13#10'end;'#13#10'end.'#13#10, [mOwn, Trim(mName)]);
+    try
+      FSession.Sync(mFile, mText);
+      mWatch := TStopwatch.StartNew;
+      mResponse := FSession.Completion(mFile, 5, Length(Trim(mName)) + 2, cRequestTimeoutMs);
+      try
+        mJson := mResponse.ToJSON;
+      finally
+        mResponse.Free;
+      end;
+      Inc(FRequests);
+      // Der Eintrag mit genau diesem Namen.
+      mItem := '';
+      mAt := Pos('"label":"' + Trim(mName) + '"', mJson);
+      if mAt > 0 then
+      begin
+        mEnd := Pos('"label":', mJson, mAt + 8);
+        if mEnd = 0 then
+        begin
+          mEnd := mAt + 400;
+        end;
+        mItem := Copy(mJson, mAt, Min(mEnd - mAt, 400));
+      end;
+      mState := 'nicht angeboten';
+      if mItem <> '' then
+      begin
+        mState := 'angeboten';
+      end;
+      System.Writeln(Format('[import] %s: %s, %s ms, %s', [Trim(mName), mState,
+        FormatFloat('0.0', mWatch.Elapsed.TotalMilliseconds, TFormatSettings.Invariant), mItem]));
+    except
+      on E: Exception do
+      begin
+        Inc(FFailures);
+        System.Writeln(Format('[import] %s: Fehler %s', [Trim(mName), E.ClassName]));
+      end;
+    end;
+  end;
+  FSession.Sync(mFile, FTexts[mFile]);
+end;
+
 procedure TBench.Run(ARequests, ARebuilds, ARestarts, ABetween: Integer);
 var
   mIndex: Integer;
@@ -1176,6 +1236,12 @@ begin
   StartServer;
   WaitForIndex('index');
   Point('indexed');
+  if Trim(GetEnvironmentVariable('DPCC_MEMBENCH_IMPORTS')) <> '' then
+  begin
+    FSampler.SetPhase('imports');
+    ImportProbe(Trim(GetEnvironmentVariable('DPCC_MEMBENCH_IMPORTS')).Split([','], TStringSplitOptions.ExcludeEmpty));
+    Point('imports');
+  end;
   FSampler.SetPhase('requests');
   Requests(ARequests);
   Point(Format('requests %d', [ARequests]));

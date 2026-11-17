@@ -530,7 +530,7 @@ begin
     mBuilder.LibraryRoots := ['C:\Lib'];
     if ARarely then
     begin
-      mBuilder.RarelyUsedRoots := ['C:\Lib\OCX\Servers\'];
+      mBuilder.OnDemandRoots := ['C:\Lib\OCX\Servers\'];
     end;
     mBuilder.Build(['C:\P\P.dpr'], nil, nil);
   finally
@@ -550,7 +550,7 @@ begin
   RunRarelyScenario('program P;'#10'uses W;'#10'begin end.', True, mHasA, mHasW);
   Assert.IsTrue(mHasW, 'nennt das Projekt sie selbst, kommt sie in den Index');
   RunRarelyScenario('program P;'#10'uses A;'#10'begin end.', False, mHasA, mHasW);
-  Assert.IsTrue(mHasW, 'ohne Ausnahme (index.officeAndWinRt) wie bisher');
+  Assert.IsTrue(mHasW, 'ohne Ausnahme (OnDemandRoots leer) wie bisher');
 end;
 
 procedure TDpccMemoryPhase2Tests.DerivedWorkspaceGoesWithLastDocument;

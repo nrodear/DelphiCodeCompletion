@@ -78,9 +78,10 @@ type
     /// <summary>Protokoll dpcc.log mit Klarnamen (#1478, diagnostics.log.names); Vorgabe aus: Namen, Pfade und
     /// Meldungen stehen als name#N, datei#N, text#N.</summary>
     LogNames: Boolean;
-    /// <summary>Office-Typbibliotheken (OCX\Servers, mit MSHTML) und WinRT vorab indizieren (index.officeAndWinRt in
-    /// settings.json, Speicher-Optimierung c1); Vorgabe aus. Der Server liest denselben Wert.</summary>
-    IndexOfficeAndWinRt: Boolean;
+    /// <summary>Zusätzliche Quellordner (index.extraSourceFolders in settings.json, L2), durch ";" getrennt; Vorgabe
+    /// leer. Der Server liest denselben Wert. Ersetzt den Schalter index.officeAndWinRt (Speicher-Optimierung c1):
+    /// Office-Typbibliotheken und WinRT stehen seit L2 immer im Katalog.</summary>
+    IndexExtraSourceFolders: string;
     /// <summary>Modul-Schalter analysis.enabled (#1454): Analysefenster (Architektur, Unit-Beziehungen, Symbolpfad,
     /// Hotspots); aus = die wirksamen Werte aller Einstellungen des Moduls sind
     /// „aus“ (TDpccModuleSwitches), gespeichert bleiben sie.</summary>
@@ -199,7 +200,7 @@ begin
   Result.LogNames := False;
   Result.AnalysisEnabled := True;
   // Wie die Vorgabe des Servers (TServerSettings, SetServerDefaults).
-  Result.IndexOfficeAndWinRt := False;
+  Result.IndexExtraSourceFolders := '';
 end;
 
 procedure TDpccPluginGeneralServerSettings.Normalize;
@@ -236,7 +237,7 @@ begin
   AIo.Flag('BugReportAnonymize', BugReportAnonymize);
   AIo.Flag('LogNames', LogNames);
   AIo.Flag('AnalysisEnabled', AnalysisEnabled);
-  AIo.Flag('IndexOfficeAndWinRt', IndexOfficeAndWinRt);
+  AIo.Text('IndexExtraSourceFolders', IndexExtraSourceFolders);
 end;
 
 { TDpccPluginGeneralSettings }

@@ -591,6 +591,12 @@ begin
     procedure(const AFiles: TArray<string>)
     begin
     end;
+  // L2: Ordner außerhalb der beobachteten Wurzeln; Ergebnisse in der Nachrichtenschleife.
+  Result.Queue :=
+    function(AWork: TProc): Boolean
+    begin
+      Result := Queue(AWork);
+    end;
 end;
 
 procedure TShellCompletionServerParts.CreateIde;

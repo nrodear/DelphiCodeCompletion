@@ -63,7 +63,22 @@ This is expected. The list that opens by itself after “.” comes from DelphiL
   reference closes the list and puts the cursor at the error.
 - A unit is missing: If it is in no project, no search path and no library path, dpcc does not know it. See
   [Index and cache](index-cache.md#what-the-index-contains).
+- A unit is missing although its file is in the search path: search `dpcc.log` for “Datei nicht lesbar” (file not
+  readable). The index skips a file that cannot be read or parsed.
 - The index seems outdated: **Rebuild index** on the **General** page.
+
+## There are no suggestions for DUnitX
+
+DUnitX, DUnit and FireDAC come with the installation only as `.dcu`. Without source code dpcc knows their types from
+the packages the IDE has loaded, and their members only once a project names the unit in its `uses`. Constants and
+routines outside of types are then missing.
+
+- If the source code is available (for example a clone of DUnitX), enter its folder on the **General** page under
+  “Additional source folders”. After that “+ Unit” suggests for example `TestFixtureAttribute` and `Assert`. See
+  [Index and cache](index-cache.md#additional-source-folders).
+- A reference such as `$(DUnitX)` in a search path only works if the variable is among the environment variables of
+  the IDE or the system. Otherwise `dpcc.log` names the path (“… mit unaufgelöstem Verweis übergangen”, skipped with
+  unresolved reference).
 
 ## Two tooltips appear
 
@@ -165,8 +180,8 @@ every 10 minutes, as soon as a request ends. Example:
 - The “mem” lines of the server diagnostic log show how much of it is due to the index (see above).
 - Of the library, the index keeps only the units the projects reach or often need permanently in memory; it loads the
   others on demand and releases them again. See [Index and cache](index-cache.md#library-on-demand).
-- Without the switch “Pre-index Office type libraries and WinRT”, the Office type libraries and WinRT are not in the
-  index. See [Index and cache](index-cache.md#office-type-libraries-and-winrt).
+- The Office type libraries and WinRT stay in memory only with their catalog; dpcc loads their symbols on demand. See
+  [Index and cache](index-cache.md#office-type-libraries-and-winrt).
 - Only the 16 most recently used files keep their syntax tree in the server; for older ones it builds the tree again on
   the next access. When the IDE closes a file, dpcc releases it in the server.
 - A file outside the project group gets a workspace of its own. It goes away again when the last of its files is

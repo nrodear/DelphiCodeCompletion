@@ -24,6 +24,9 @@
 // Aktives Projekt (#46): "active": true markiert das aktive Projekt der Gruppe. Gehört
 // eine Datei zu mehreren Projekten, gilt es vor der Reihenfolge der Gruppe; ein
 // Wechsel lädt nichts neu und löst kein OnChanged aus.
+// L2: "browsingPaths" (Browsing Path der laufenden IDE) und "registryKey" (Registry-Schlüssel der IDE, auch mit
+// eigenem Profil -r) gehören zum Schlüssel: Eine Änderung nur am Browsing Path baut neu auf. Pfade mit einem
+// Verweis $(…), den weder die IDE noch der Server auflösen, nennt ApplyTo in ADropped (fürs Protokoll).
 
 interface
 
@@ -52,6 +55,11 @@ type
     Namespaces: TArray<string>;
     /// <summary>Bibliothekspfade der IDE für die Plattform; leer = aus der Registry der Installation.</summary>
     LibraryPaths: TArray<string>;
+    /// <summary>Browsing Path der IDE für die Plattform (L2); leer = aus der Registry der Installation.</summary>
+    BrowsingPaths: TArray<string>;
+    /// <summary>Registry-Schlüssel der laufenden IDE unter HKCU (L2), z. B. Software\Embarcadero\BDS\37.0 oder ein
+    /// Profil; '' = Standardprofil der Version.</summary>
+    RegistryKey: string;
     /// <summary>Präfix-Vorgaben der Projektdatei (#452); nur mit HasNaming, '' = ohne Präfix.</summary>
     Naming: array[TNamingKind] of string;
     HasNaming: array[TNamingKind] of Boolean;
@@ -75,10 +83,19 @@ type
     function RuleNaming: TRuleNaming;
     /// <summary>Übernimmt Symbole, Suchpfade und Namespaces in AProject ($(Name) mit AVariables,
     /// Pfade ab dem Projektordner, ohne Doppelte).</summary>
-    procedure ApplyTo(var AProject: TProjectInfo; const AVariables: TArray<TPair<string, string>>);
+    procedure ApplyTo(var AProject: TProjectInfo; const AVariables: TArray<TPair<string, string>>); overload;
+    /// <summary>Wie oben; ADropped: Suchpfade mit unaufgelöstem Verweis, die wegfielen (L2).</summary>
+    procedure ApplyTo(var AProject: TProjectInfo; const AVariables: TArray<TPair<string, string>>;
+      out ADropped: TArray<string>); overload;
     /// <summary>Bibliothekspfade mit aufgelösten Variablen ($(Platform) aus AProject), ohne Doppelte.</summary>
     function ExpandedLibraryPaths(const AProject: TProjectInfo;
-      const AVariables: TArray<TPair<string, string>>): TArray<string>;
+      const AVariables: TArray<TPair<string, string>>): TArray<string>; overload;
+    /// <summary>Wie oben; ADropped: Pfade mit unaufgelöstem Verweis (L2).</summary>
+    function ExpandedLibraryPaths(const AProject: TProjectInfo; const AVariables: TArray<TPair<string, string>>;
+      out ADropped: TArray<string>): TArray<string>; overload;
+    /// <summary>Browsing Path der IDE mit aufgelösten Variablen (L2), ohne Doppelte; ADropped wie oben.</summary>
+    function ExpandedBrowsingPaths(const AProject: TProjectInfo; const AVariables: TArray<TPair<string, string>>;
+      out ADropped: TArray<string>): TArray<string>;
   end;
 
   TIdeProjectChangedEvent = reference to procedure(const AContext: TIdeProjectContext);
@@ -155,20 +172,23 @@ begin
 end;
 
 function UniquePaths(const ABase: string; const AItems: TArray<string>;
-  const AVariables: TArray<TPair<string, string>>): TArray<string>;
+  const AVariables: TArray<TPair<string, string>>; out ADropped: TArray<string>): TArray<string>;
 var
   mKnown: TList<string>;
   mItem, mPath: string;
 begin
   Result := nil;
+  ADropped := nil;
   mKnown := TList<string>.Create;
   try
     for mItem in AItems do
     begin
       mPath := TProjectPaths.ExpandVariables(mItem, AVariables);
-      // Verweis auf den geerbten Wert, den die IDE nicht aufgelöst hat: kein Pfad.
+      // Verweis auf den geerbten Wert, den die IDE nicht aufgelöst hat: kein Pfad. L2: nicht mehr still, der
+      // Aufrufer nennt ihn im Protokoll.
       if Pos('$(', mPath) > 0 then
       begin
+        ADropped := ADropped + [mItem];
         Continue;
       end;
       mPath := TProjectPaths.Combine(ABase, mPath);
@@ -260,6 +280,8 @@ begin
   Result.Namespaces := StringsOf(mItem, 'namespaces', mHasNamespaces);
   Result.HasOptions := mHasDefines or mHasPaths or mHasNamespaces;
   Result.LibraryPaths := StringsOf(mItem, 'libraryPaths', mIgnored);
+  Result.BrowsingPaths := StringsOf(mItem, 'browsingPaths', mIgnored);
+  Result.RegistryKey := Trim(mItem.GetValue<string>('registryKey', ''));
   Result.HasActive := mItem.GetValue('active') is TJSONBool;
   if Result.HasActive then
   begin
@@ -319,15 +341,25 @@ function TIdeProjectContext.Key: string;
 begin
   Result := AnsiUpperCase(Project) + '|' + Configuration + '|' + Platform + '|' + BdsVersion + '|' +
     BoolToStr(HasOptions, True) + '|' + string.Join(';', Defines) + '|' + string.Join(';', SearchPaths) + '|' +
-    string.Join(';', Namespaces) + '|' + string.Join(';', LibraryPaths);
+    string.Join(';', Namespaces) + '|' + string.Join(';', LibraryPaths) + '|' + string.Join(';', BrowsingPaths) + '|' +
+    AnsiUpperCase(RegistryKey);
 end;
 
 procedure TIdeProjectContext.ApplyTo(var AProject: TProjectInfo; const AVariables: TArray<TPair<string, string>>);
+var
+  mDropped: TArray<string>;
+begin
+  ApplyTo(AProject, AVariables, mDropped);
+end;
+
+procedure TIdeProjectContext.ApplyTo(var AProject: TProjectInfo; const AVariables: TArray<TPair<string, string>>;
+  out ADropped: TArray<string>);
 var
   mVariables: TArray<TPair<string, string>>;
   mDefine, mUpper: string;
   mNamespace: string;
 begin
+  ADropped := nil;
   if not HasOptions then
   begin
     Exit;
@@ -344,7 +376,8 @@ begin
     end;
     AProject.Defines := AProject.Defines + [mUpper];
   end;
-  AProject.SearchPaths := UniquePaths(TProjectPaths.DirectoryOf(AProject.FileName), SearchPaths, mVariables);
+  AProject.SearchPaths := UniquePaths(TProjectPaths.DirectoryOf(AProject.FileName), SearchPaths, mVariables,
+    ADropped);
   AProject.Namespaces := nil;
   for mNamespace in Namespaces do
   begin
@@ -357,8 +390,22 @@ end;
 
 function TIdeProjectContext.ExpandedLibraryPaths(const AProject: TProjectInfo;
   const AVariables: TArray<TPair<string, string>>): TArray<string>;
+var
+  mDropped: TArray<string>;
 begin
-  Result := UniquePaths('', LibraryPaths, WithTarget(AVariables, AProject));
+  Result := ExpandedLibraryPaths(AProject, AVariables, mDropped);
+end;
+
+function TIdeProjectContext.ExpandedLibraryPaths(const AProject: TProjectInfo;
+  const AVariables: TArray<TPair<string, string>>; out ADropped: TArray<string>): TArray<string>;
+begin
+  Result := UniquePaths('', LibraryPaths, WithTarget(AVariables, AProject), ADropped);
+end;
+
+function TIdeProjectContext.ExpandedBrowsingPaths(const AProject: TProjectInfo;
+  const AVariables: TArray<TPair<string, string>>; out ADropped: TArray<string>): TArray<string>;
+begin
+  Result := UniquePaths('', BrowsingPaths, WithTarget(AVariables, AProject), ADropped);
 end;
 
 { TLspIdeProject }

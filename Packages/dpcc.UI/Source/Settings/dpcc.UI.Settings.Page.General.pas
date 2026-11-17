@@ -1,7 +1,8 @@
 ﻿unit dpcc.UI.Settings.Page.General;
 
-// Reiter „Allgemein“: Hauptschalter, „Index neu aufbauen“, „Office-Typbibliotheken und WinRT vorab indizieren“
-// (index.officeAndWinRt, Speicher-Optimierung c1) und der Hauptschalter der experimentellen Funktionen. Den
+// Reiter „Allgemein“: Hauptschalter, „Index neu aufbauen“, „Zusätzliche Quellordner“ (index.extraSourceFolders, L2;
+// ersetzt den Schalter „Office-Typbibliotheken und WinRT vorab indizieren“, index.officeAndWinRt) und der
+// Hauptschalter der experimentellen Funktionen. Den
 // Teil „Benachrichtigungen“ gibt es seit S7a nicht mehr (es gibt keine Benachrichtigungszentrale); Statusfeld,
 // Diagnosemodus, Tastenkürzel-Tipps, „Extern geänderte Dateien neu laden“ und „Änderungen an nicht geöffneten
 // Dateien“ seit S8 (sie waren versteckt und wirkten nicht).
@@ -64,8 +65,10 @@ begin
   AddSheet(TDpccTextId.SettingsTabGeneral);
   BindCheck('Enabled', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsEnabled)));
   AddRebuildRow;
-  // c1: OCX\Servers und WinRT vorab indizieren (settings.json, der Server liest denselben Wert); Vorgabe aus.
-  BindCheck('IndexOfficeAndWinRt', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsIndexOfficeWinRt)));
+  // L2: zusätzliche Quellordner (settings.json, der Server liest denselben Wert); Vorgabe leer. Office-Typbibliotheken
+  // und WinRT stehen immer im Katalog, ihr früherer Schalter ist entfallen.
+  BindText('IndexExtraSourceFolders',
+    AddTextLine(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsIndexExtraSourceFolders)));
   // Hauptschalter der experimentellen Funktionen (#834).
   FExperimentalEnabled := BindCheck('ExperimentalEnabled',
     AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsExperimentalEnabled)));

@@ -36,6 +36,9 @@ type
     class function Read(const AFileName, AText: string; const AOptions: TDprojOptions): TProjectInfo; static;
     /// <summary>Liest die Datei von der Platte (Kodierung wird erkannt) und wertet sie aus.</summary>
     class function Load(const AFileName: string; const AOptions: TDprojOptions): TProjectInfo; static;
+    /// <summary>AProject samt den Units aus "uses X in 'pfad'" der Hauptdatei (Text AMainText), die keine
+    /// DCCReference haben (L2); Pfade ab dem Ordner der Hauptdatei.</summary>
+    class function WithInPaths(const AProject: TProjectInfo; const AMainText: string): TProjectInfo; static;
     /// <summary>'' wenn AConfig und APlatform ('' = unverändert) im Projekt vorkommen, sonst der Grund (#46).</summary>
     class function CheckTarget(const AProject: TProjectInfo; const AConfig, APlatform: string): string; static;
   end;
@@ -46,6 +49,7 @@ uses
   System.StrUtils,
   dpcc.Common.Documents.FileEncoding,
   dpcc.Common.Projects.Paths,
+  dpcc.Common.Projects.PackageReader,
   dpcc.Common.Projects.Internals.Xml,
   dpcc.Common.Projects.Internals.MSBuild,
   dpcc.Common.Localization.Texts;
@@ -368,11 +372,54 @@ begin
   end;
 end;
 
+class function TDprojReader.WithInPaths(const AProject: TProjectInfo; const AMainText: string): TProjectInfo;
+var
+  mEntry: TPackageEntry;
+  mUnit: TProjectUnit;
+  mKnown: Boolean;
+  mExisting: TProjectUnit;
+begin
+  Result := AProject;
+  for mEntry in TPackageReader.ProgramUses(AMainText) do
+  begin
+    if (mEntry.Path = '') or not SameText(TProjectPaths.Extension(mEntry.Path), '.pas') then
+    begin
+      Continue;
+    end;
+    mKnown := False;
+    for mExisting in Result.Units do
+    begin
+      mKnown := mKnown or SameText(mExisting.Name, mEntry.Name);
+    end;
+    if mKnown then
+    begin
+      Continue;
+    end;
+    // Wie der Compiler: der Pfad gilt ab dem Ordner der Hauptdatei.
+    mUnit.Name := mEntry.Name;
+    mUnit.FileName := TProjectPaths.Combine(TProjectPaths.DirectoryOf(AProject.MainSource), mEntry.Path);
+    Result.Units := Result.Units + [mUnit];
+  end;
+end;
+
 class function TDprojReader.Load(const AFileName: string; const AOptions: TDprojOptions): TProjectInfo;
 var
   mFileFormat: TFileFormat;
+  mMainText: string;
 begin
   Result := Read(AFileName, TFileEncoding.LoadFromFile(AFileName, mFileFormat), AOptions);
+  // L2: uses X in 'pfad' in der .dpr ohne DCCReference (von Hand gepflegt) gehört ebenso zum Projekt.
+  if SameText(TProjectPaths.Extension(Result.MainSource), '.dpr') and FileExists(Result.MainSource) then
+  begin
+    try
+      mMainText := TFileEncoding.LoadFromFile(Result.MainSource, mFileFormat);
+      Result := WithInPaths(Result, mMainText);
+    except
+      // Hauptdatei nicht lesbar: es bleibt bei den DCCReference-Einträgen.
+      on Exception do
+        ;
+    end;
+  end;
 end;
 
 class function TDprojReader.CheckTarget(const AProject: TProjectInfo; const AConfig, APlatform: string): string;

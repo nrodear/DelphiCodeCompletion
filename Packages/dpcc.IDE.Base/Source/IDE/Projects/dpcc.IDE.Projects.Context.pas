@@ -5,7 +5,8 @@
 // Optionen der aktiven Konfiguration für die aktive Plattform (mit geerbten
 // Werten, auch ungespeicherte Änderungen), Bibliothekspfade aus den
 // Bibliotheksoptionen der laufenden IDE (auch mit eigenem Profil -r) und ihre
-// Version. Nur im Hauptthread aufrufen.
+// Version. Nur im Hauptthread aufrufen. Seit L2 auch der Browsing Path (Win64x ohne
+// eigenen: der von Win64) und der Registry-Schlüssel des Profils.
 //
 // Ob GetValue(…, True) die geerbten Werte wirklich einsetzt, ist nur in der
 // IDE prüfbar. Deshalb: Steht danach noch $(DCC_Define) im Wert, setzt das
@@ -185,7 +186,8 @@ begin
   AContext.Source := TDpccProjectContext.cSourceOptions;
 end;
 
-function LibraryPaths(const ABaseKey, APlatform: string): TArray<string>;
+/// <summary>Liste AValueName ("Search Path", "Browsing Path") der Bibliotheksoptionen unter ABaseKey.</summary>
+function RegistryPaths(const ABaseKey, APlatform, AValueName: string): TArray<string>;
 var
   mRegistry: TRegistry;
 begin
@@ -197,12 +199,27 @@ begin
   mRegistry := TRegistry.Create(KEY_READ);
   try
     mRegistry.RootKey := HKEY_CURRENT_USER;
-    if mRegistry.OpenKeyReadOnly(ABaseKey + '\Library\' + APlatform) and mRegistry.ValueExists('Search Path') then
+    if mRegistry.OpenKeyReadOnly(ABaseKey + '\Library\' + APlatform) and mRegistry.ValueExists(AValueName) then
     begin
-      Result := TDpccProjectContext.List(mRegistry.ReadString('Search Path'));
+      Result := TDpccProjectContext.List(mRegistry.ReadString(AValueName));
     end;
   finally
     mRegistry.Free;
+  end;
+end;
+
+function LibraryPaths(const ABaseKey, APlatform: string): TArray<string>;
+begin
+  Result := RegistryPaths(ABaseKey, APlatform, 'Search Path');
+end;
+
+/// <summary>Browsing Path (L2); Win64x hat keinen eigenen und nimmt den von Win64.</summary>
+function BrowsingPaths(const ABaseKey, APlatform: string): TArray<string>;
+begin
+  Result := RegistryPaths(ABaseKey, APlatform, 'Browsing Path');
+  if (Length(Result) = 0) and SameText(APlatform, 'Win64x') then
+  begin
+    Result := RegistryPaths(ABaseKey, 'Win64', 'Browsing Path');
   end;
 end;
 
@@ -268,6 +285,9 @@ begin
   Result.BdsVersion := TDpccProjectContext.VersionOfRegistryKey(mBaseKey);
   ReadOptions(AProject, Result);
   Result.LibraryPaths := LibraryPaths(mBaseKey, Result.Platform);
+  // L2: Browsing Path und Schlüssel des Profils; eine Änderung am Browsing Path ändert so den Kontext.
+  Result.BrowsingPaths := BrowsingPaths(mBaseKey, Result.Platform);
+  Result.RegistryKey := mBaseKey;
 end;
 
 class function TDpccIdeProjectContext.Macros(const AContext: TDpccProjectContext): TDpccPathMacros;

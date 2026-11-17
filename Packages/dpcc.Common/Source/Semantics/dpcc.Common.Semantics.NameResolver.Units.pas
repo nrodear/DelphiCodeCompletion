@@ -3,6 +3,9 @@
 // Units der Namensauflösung: findet Units im Index (samt Namespaces des Projekts und Nachladen über die
 // Suchpfade), merkt sich die Antworten, kennt die uses-Reihenfolge der aktuellen Unit und die Helfer-Typen
 // jeder Unit.
+// Gleichnamige Units (L2): Kennt der Index mehrere Dateien eines Namens, wählt das Projekt der Ausgangsdatei (die
+// erste Unit, nach der der Resolver gefragt wurde) in der Reihenfolge des Compilers (IIndexUnitScopes); seine
+// Unit-Scope-Namen gelten statt der aller Projekte.
 
 interface
 
@@ -48,6 +51,11 @@ type
     FUnitHolders: TObjectList<TUnitHolder>;
     // Zeit im Nachladen (EnsureUnit) für das Diagnoselog (#647).
     FEnsureMs: Int64;
+    // L2: Datei, von der die Auflösung ausgeht (erste aktuelle Unit), und die Unit-Scope-Namen ihres Projekts.
+    FOrigin: string;
+    FOriginKnown: Boolean;
+    FOriginNamespaces: TArray<string>;
+    FHasOriginNamespaces: Boolean;
     // Letztes Ergebnis von ScopeUnits; gilt, solange die uses-Arrays dieselben sind.
     FScopeInterfaceUses: TArray<string>;
     FScopeImplementationUses: TArray<string>;
@@ -63,6 +71,10 @@ type
     function HoldUnit(const AUnit: TUnitIndex): TUnitHolder;
     /// <summary>AName bzw. Namespace.AName im Index, ohne Nachladen.</summary>
     function SearchIndex(const AName: string; out AUnit: TUnitIndex): Boolean;
+    /// <summary>Unit AName im Index; bei mehreren Dateien die des Projekts der Ausgangsdatei (L2).</summary>
+    function FindChosen(const AName: string; out AUnit: TUnitIndex): Boolean;
+    /// <summary>Merkt sich beim ersten Aufruf die Ausgangsdatei und die Unit-Scope-Namen ihres Projekts.</summary>
+    procedure KnowOrigin;
     /// <summary>Lädt AName über die Suchpfade nach und sucht dann im Index; misst die Zeit (#647).</summary>
     function EnsureAndSearch(const AName: string; out AUnit: TUnitIndex): Boolean;
     /// <summary>FindUnit ohne gemerkte Antworten (außer der eigenen Unit).</summary>
@@ -235,18 +247,63 @@ begin
   end;
 end;
 
+procedure TResolverUnits.KnowOrigin;
+var
+  mScopes: IIndexUnitScopes;
+begin
+  if FOriginKnown then
+  begin
+    Exit;
+  end;
+  FOriginKnown := True;
+  FOrigin := FPlace.Current.FileName;
+  mScopes := FPlace.Index.UnitScopes;
+  FHasOriginNamespaces := (mScopes <> nil) and (FOrigin <> '') and mScopes.NamespacesOf(FOrigin, FOriginNamespaces) and
+    (Length(FOriginNamespaces) > 0);
+end;
+
+function TResolverUnits.FindChosen(const AName: string; out AUnit: TUnitIndex): Boolean;
+var
+  mScopes: IIndexUnitScopes;
+  mFiles: TArray<string>;
+  mChosen: string;
+begin
+  mScopes := FPlace.Index.UnitScopes;
+  if (mScopes <> nil) and (FOrigin <> '') then
+  begin
+    mFiles := FPlace.Index.UnitFiles(AName);
+    if Length(mFiles) > 1 then
+    begin
+      mChosen := mScopes.ChooseUnit(FOrigin, AName, mFiles);
+      if (mChosen <> '') and FPlace.Index.FindFile(mChosen, AUnit) then
+      begin
+        Exit(True);
+      end;
+    end;
+  end;
+  Result := FPlace.Index.FindUnit(AName, AUnit);
+end;
+
 function TResolverUnits.SearchIndex(const AName: string; out AUnit: TUnitIndex): Boolean;
 var
   mNamespace: string;
+  mNamespaces: TArray<string>;
 begin
   AUnit := Default(TUnitIndex);
-  if FPlace.Index.FindUnit(AName, AUnit) then
+  KnowOrigin;
+  if FindChosen(AName, AUnit) then
   begin
     Exit(True);
   end;
-  for mNamespace in FNamespaces do
+  // L2: die Unit-Scope-Namen des eigenen Projekts statt der aller Projekte.
+  mNamespaces := FNamespaces;
+  if FHasOriginNamespaces then
   begin
-    if FPlace.Index.FindUnit(mNamespace + '.' + AName, AUnit) then
+    mNamespaces := FOriginNamespaces;
+  end;
+  for mNamespace in mNamespaces do
+  begin
+    if FindChosen(mNamespace + '.' + AName, AUnit) then
     begin
       Exit(True);
     end;

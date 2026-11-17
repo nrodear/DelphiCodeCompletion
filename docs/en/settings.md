@@ -32,7 +32,7 @@ uses in hints and in `settings.json`. “–” under “Registry value”: the 
 |---|---|---|---|---|
 | Code Insight by dpcc (off: built-in Code Insight of the IDE) | `Enabled` | `completion.enabled` | on | Master switch. Off: dpcc closes its list, parameter hint and tooltip; Ctrl+Space and Ctrl+Shift+Space go to the IDE. On: dpcc starts the session and the server if they are not running. Takes effect without restarting the IDE. The server keeps running when switched off. |
 | Button “Rebuild index” | – | – | – | Asks for confirmation, deletes all index caches and rebuilds the index. See [Index and cache](index-cache.md#rebuilding-the-index). |
-| Pre-index Office type libraries and WinRT (more memory; “+ Unit” suggests their symbols) | – | `index.officeAndWinRt` | off | On: the index also reads the units under `$(BDS)\OCX\Servers` (Excel, Word, Outlook, Access, MSHTML) and `$(BDS)\source\rtl\win\winrt` in advance; “+ Unit” then suggests their symbols as well. This costs about 140 MB in the index. Off: the units remain reachable through existing `uses`; only “+ Unit” does not know them. Stored in `settings.json`, not in the registry; the server rebuilds the index without a restart. See [Index and cache](index-cache.md#office-type-libraries-and-winrt). |
+| Additional source folders (separated by “;”, including subfolders; e.g. DUnitX sources) | – | `index.extraSourceFolders` | empty | Folders with the source code of libraries that otherwise only exist as `.dcu` (DUnitX, DUnit, FireDAC, components). Subfolders count too (without `.git`, `__history`, `__recovery`); `$(Name)` and `%Name%` are resolved. “+ Unit” suggests their units; they are loaded on demand and have a cache of their own. Stored in `settings.json` (in the file also as a list), not in the registry; the server rebuilds the index without a restart. Replaces the former switch `index.officeAndWinRt`: the Office type libraries and WinRT are always in the catalog. See [Index and cache](index-cache.md#additional-source-folders). |
 
 ## Completion
 
@@ -87,7 +87,7 @@ The favorites are stored in `%APPDATA%\dpcc\favorites.json`.
 | Location | Contents |
 |---|---|
 | `HKCU\Software\dpcc\IdePlugin` | all options except `hints.*`. Switches and numbers as DWORD (switches 0/1), choices as text (`filter`, `members` …). Also the markers for the IDE switches (below) and `PathOverrideBackup` from `Tools\IdePath.ps1`. |
-| `%APPDATA%\dpcc\settings.json` | `hints.xmlDocExpand`, `hints.xmlDocMaxLines`, `index.officeAndWinRt`. The in-process server reads the file itself and watches it. Registry values `XmlDocExpand` and `XmlDocMaxLines` from an older version are taken over once, as long as the file does not have the keys yet; after that only `settings.json` applies. |
+| `%APPDATA%\dpcc\settings.json` | `hints.xmlDocExpand`, `hints.xmlDocMaxLines`, `index.extraSourceFolders`. The in-process server reads the file itself and watches it. Registry values `XmlDocExpand` and `XmlDocMaxLines` from an older version are taken over once, as long as the file does not have the keys yet; after that only `settings.json` applies. |
 | `%APPDATA%\dpcc\settings-history.json` | earlier states of the settings; before every saved change, dpcc stores the old state there |
 | `%APPDATA%\dpcc\usage.json` | history of the learned ranking |
 | `%APPDATA%\dpcc\favorites.json` | pinned favorites |

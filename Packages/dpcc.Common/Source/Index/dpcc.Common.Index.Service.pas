@@ -124,6 +124,9 @@ type
     LibraryRoots: TArray<string>;
     LibraryDefines: TArray<string>;
     ResolveUnit: TUnitFileResolver;
+    /// <summary>Optional (L2): Unit-Suche ab dem Ordner der nennenden Unit; siehe TIndexBuilder.ResolveUnitFrom.
+    /// </summary>
+    ResolveUnitFrom: TUnitFileResolverFrom;
     /// <summary>Suchpfade für $I-Dateien (#264).</summary>
     IncludePaths: TArray<string>;
     /// <summary>Cache-Datei; '' = ohne Cache.</summary>
@@ -146,8 +149,14 @@ type
     /// <summary>Optional: läuft im Index-Thread, wenn der vorige Aufbau geendet hat, vor dem Lesen der Caches,
     /// z. B. um sie zu löschen (#874: Start wartet nicht mehr auf den alten Aufbau).</summary>
     Prepare: TProc;
-    /// <summary>Ordner selten genutzter Bibliotheken (c1); siehe TIndexBuilder.RarelyUsedRoots.</summary>
-    RarelyUsedRoots: TArray<string>;
+    /// <summary>Ordner der Bibliothek nur als Katalog und bei Bedarf (L2: Office-Typbibliotheken, WinRT); siehe
+    /// TIndexBuilder.OnDemandRoots.</summary>
+    OnDemandRoots: TArray<string>;
+    /// <summary>Zusätzliche Quellordner samt Unterordnern (L2, index.extraSourceFolders): Ihre Units stehen am Ende
+    /// von LibraryFiles, werden wie die Bibliothek gelesen (LibraryDefines) und kommen in ExtraCacheFile.</summary>
+    ExtraRoots: TArray<string>;
+    /// <summary>Gemeinsamer Cache der Units unter ExtraRoots; '' = sie stehen im Projekt-Cache.</summary>
+    ExtraCacheFile: string;
     /// <summary>Bibliotheksstufe nur mit Kopf und Katalog (Speicher-Optimierung Phase 3); siehe
     /// TIndexBuilder.LazyLibrary.</summary>
     LazyLibrary: Boolean;
@@ -189,8 +198,10 @@ type
     FCached: TArray<TIndexCacheEntry>;
     FLibraryCached: TArray<TIndexCacheEntry>;
     FSearchCached: TArray<TIndexCacheEntry>;
+    FExtraCached: TArray<TIndexCacheEntry>;
     FLibraryHold: IInterface;
     FSearchHold: IInterface;
+    FExtraHold: IInterface;
     /// <summary>Bis zum letzten Schreiben neu gelesene Units.</summary>
     FWrittenParsed: Integer;
     /// <summary>Bibliotheks-Units außerhalb der Installation, die der Projekt-Cache zuletzt enthielt (Phase 5): Kommen
@@ -298,9 +309,29 @@ type
     class function FileFor(const ALibraryCacheFile: string): string; static;
   end;
 
+  TIndexService = class;
+
+  /// <summary>Prüfung kalter Units beim Nachladen (L2) für den Index; hält den Dienst nur, bis er sich abmeldet
+  /// (Detach wartet auf eine laufende Prüfung).</summary>
+  TIndexStaleGuard = class(TInterfacedObject, IIndexStaleCheck)
+  private
+    FLock: TObject;
+    FService: TIndexService;
+  public
+    constructor Create(AService: TIndexService);
+    destructor Destroy; override;
+    function Refresh(const AHeader: TUnitIndex): Boolean;
+    procedure Detach;
+  end;
+
   TIndexService = class
   private
     FIndex: ISymbolIndex;
+    /// <summary>Prüfung kalter Units beim Nachladen (L2); im Index angemeldet, sobald ein Builder bereitsteht.
+    /// </summary>
+    FStaleGuard: TIndexStaleGuard;
+    FStaleCheck: IIndexStaleCheck;
+    FOnUnreadable: TIndexUnreadableEvent;
     FFileSystem: IIndexFileSystem;
     /// <summary>Jüngster Index-Thread (TIndexThread); hält den abgebrochenen Vorgänger, bis der endet.</summary>
     FThread: TThread;
@@ -367,6 +398,9 @@ type
     function EnsureUnit(const AUnitName: string): Boolean;
     /// <summary>Übernimmt Dateiänderungen im aufrufenden Thread; 0 ohne laufenden Builder.</summary>
     function ApplyChanges(const AChanges: TArray<TFileChange>): Integer;
+    /// <summary>Nimmt neu angelegte Dateien in die Stufe auf (L2: Suchpfade mit ALibrary = False, Bibliothek und
+    /// zusätzliche Quellordner mit True); Zahl der aufgenommenen. 0 ohne laufenden Builder.</summary>
+    function AddFiles(const AFiles: TArray<string>; ALibrary: Boolean): Integer;
     /// <summary>Ungespeicherter Text einer Unit nach der Tipp-Pause (#492).</summary>
     function ApplyText(const AFileName, AText: string): Boolean;
     /// <summary>Verwendungen der Bezeichner in AFileName (#492): aus dem Speicher, bei ausgelagerten aus dem
@@ -397,6 +431,10 @@ type
     /// Suchpfade und Bibliothek folgen. Im Index-Thread, nicht bei Abbruch.</summary>
     property OnProjectReady: TIndexFinishedEvent read FOnProjectReady write FOnProjectReady;
     property OnError: TIndexErrorEvent read FOnError write FOnError;
+    /// <summary>Eine Datei ließ sich nicht lesen oder parsen (L2); im Thread des Aufbaus bzw. der Anfrage.</summary>
+    property OnUnreadable: TIndexUnreadableEvent read FOnUnreadable write FOnUnreadable;
+    /// <summary>Für TIndexStaleGuard: Liest die Unit neu ein, wenn ihre Datei geändert ist (L2).</summary>
+    function RefreshStale(const AHeader: TUnitIndex): Boolean;
     /// <summary>Gemeinsam für alle Projekte (#648); gehört dem Aufrufer, nil = ohne Reihenfolge.</summary>
     property Scheduler: TIndexScheduler read FScheduler write FScheduler;
   end;
@@ -972,10 +1010,19 @@ begin
   FApplyLock := TObject.Create;
   FStages := TIndexStageWatch.Create;
   FSharedFiles := TList<string>.Create;
+  FStaleGuard := TIndexStaleGuard.Create(Self);
+  FStaleCheck := FStaleGuard;
 end;
 
 destructor TIndexService.Destroy;
 begin
+  // L2: Der Index ruft die Prüfung nicht mehr; eine laufende endet vorher.
+  if FIndex.StaleCheck = FStaleCheck then
+  begin
+    FIndex.SetStaleCheck(nil);
+  end;
+  FStaleGuard.Detach;
+  FStaleCheck := nil;
   Stop;
   SaveStatistics(True);
   ReplaceBuilder(nil);
@@ -1002,6 +1049,12 @@ function InSharedCache(const ARequest: TIndexRequest; const AFileName: string): 
 begin
   // Ohne Installationsordner wie bisher: alle nachgeladenen Units in den gemeinsamen Cache.
   Result := (Length(ARequest.LibraryRoots) = 0) or TIndexFileDefines.IsUnder(AFileName, ARequest.LibraryRoots);
+end;
+
+/// <summary>Gehört AFileName in den Cache der zusätzlichen Quellordner (L2)?</summary>
+function InExtraCache(const ARequest: TIndexRequest; const AFileName: string): Boolean;
+begin
+  Result := (ARequest.ExtraCacheFile <> '') and TIndexFileDefines.IsUnder(AFileName, ARequest.ExtraRoots);
 end;
 
 /// <summary>Fehlt eine Unit aus AUnits in AEntries oder steht sie dort mit anderem Stand?</summary>
@@ -1158,10 +1211,10 @@ begin
   end;
 end;
 
-/// <summary>Verteilt AUnits auf die Caches: Bibliothek, Suchpfade, Projekt. Der Index ist mit anderen Projekten
-/// geteilt: in den Projekt-Cache nur die eigenen Units.</summary>
+/// <summary>Verteilt AUnits auf die Caches: zusätzliche Quellordner (L2), Bibliothek, Suchpfade, Projekt. Der Index
+/// ist mit anderen Projekten geteilt: in den Projekt-Cache nur die eigenen Units.</summary>
 procedure SortUnits(const ARequest: TIndexRequest; const AUnits: TArray<TIndexStoredUnit>;
-  AProject, ASearch, ALibrary: TList<TIndexCacheItem>);
+  AProject, ASearch, ALibrary, AExtra: TList<TIndexCacheItem>);
 var
   mOwn, mSearched: TDictionary<string, Boolean>;
   mStored: TIndexStoredUnit;
@@ -1177,7 +1230,11 @@ begin
     begin
       mUnit := mStored.Unit_;
       mKey := AnsiUpperCase(mUnit.FileName);
-      if mUnit.Library_ and InSharedCache(ARequest, mUnit.FileName) then
+      if mUnit.Library_ and InExtraCache(ARequest, mUnit.FileName) then
+      begin
+        AExtra.Add(ItemOf(mStored));
+      end
+      else if mUnit.Library_ and InSharedCache(ARequest, mUnit.FileName) then
       begin
         ALibrary.Add(ItemOf(mStored));
       end
@@ -1562,10 +1619,13 @@ begin
   FLibraryCached := LoadShared(FRequest.LibraryCacheFile, AKept, FLibraryHold);
   // Suchpfade ebenso: Die Projekte einer Gruppe teilen meist dieselben (Speicher, Rückmeldung 01.11.2026).
   FSearchCached := LoadShared(FRequest.SearchCacheFile, AKept, FSearchHold);
+  // Zusätzliche Quellordner (L2): eigener gemeinsamer Cache, wie die Bibliothek nur als Katalog übernommen.
+  FExtraCached := LoadShared(FRequest.ExtraCacheFile, AKept, FExtraHold);
   // Phase 3: Units, die nur im Katalog stehen, lesen ab jetzt aus dieser Fassung der Datei (hat ein anderer Prozess
   // sie ersetzt, lasen sie bisher aus der alten über deren offenes Handle).
   Bind(FLibraryCached);
-  Result := FLibraryCached + FSearchCached + FCached;
+  Bind(FExtraCached);
+  Result := FLibraryCached + FExtraCached + FSearchCached + FCached;
 end;
 
 procedure TIndexCacheWriter.Bind(const AEntries: TArray<TIndexCacheEntry>);
@@ -1593,6 +1653,7 @@ begin
   FCached := nil;
   FLibraryCached := nil;
   FSearchCached := nil;
+  FExtraCached := nil;
 end;
 
 const
@@ -1899,17 +1960,18 @@ end;
 
 procedure TIndexCacheWriter.WriteSplit(AParsed: Integer);
 var
-  mProject, mSearch, mLibrary: TList<TIndexCacheItem>;
+  mProject, mSearch, mLibrary, mExtra: TList<TIndexCacheItem>;
   mStored: TArray<TIndexStoredUnit>;
 begin
   // Listen statt Array-Anhängen: das kopierte bei jeder Unit das ganze Array.
   mProject := TList<TIndexCacheItem>.Create;
   mSearch := TList<TIndexCacheItem>.Create;
   mLibrary := TList<TIndexCacheItem>.Create;
+  mExtra := TList<TIndexCacheItem>.Create;
   try
     // Alle Units, auch die nur im Katalog (Phase 3).
     mStored := FIndex.StoredUnits;
-    SortUnits(FRequest, mStored, mProject, mSearch, mLibrary);
+    SortUnits(FRequest, mStored, mProject, mSearch, mLibrary, mExtra);
     if not ((AParsed > 0) or (Length(FCached) <> mProject.Count)) or
       WriteCache(False, FRequest.CacheFile, mProject.ToArray) then
     begin
@@ -1920,7 +1982,12 @@ begin
       WriteSharedCache(FRequest.SearchCacheFile, FSearchCached, mSearch, False, False);
     end;
     WriteSharedCache(FRequest.LibraryCacheFile, FLibraryCached, mLibrary, HasUnbound(mStored), False);
+    if FRequest.ExtraCacheFile <> '' then
+    begin
+      WriteSharedCache(FRequest.ExtraCacheFile, FExtraCached, mExtra, HasUnbound(mStored), False);
+    end;
   finally
+    mExtra.Free;
     mLibrary.Free;
     mSearch.Free;
     mProject.Free;
@@ -1957,7 +2024,7 @@ end;
 
 procedure TIndexCacheWriter.FlushLibrary;
 var
-  mProject, mSearch, mLibrary: TList<TIndexCacheItem>;
+  mProject, mSearch, mLibrary, mExtra: TList<TIndexCacheItem>;
   mStored: TArray<TIndexStoredUnit>;
   mOutside: Integer;
 begin
@@ -1973,10 +2040,16 @@ begin
     mProject := TList<TIndexCacheItem>.Create;
     mSearch := TList<TIndexCacheItem>.Create;
     mLibrary := TList<TIndexCacheItem>.Create;
+    mExtra := TList<TIndexCacheItem>.Create;
     try
       mStored := FIndex.StoredUnits;
-      SortUnits(FRequest, mStored, mProject, mSearch, mLibrary);
+      SortUnits(FRequest, mStored, mProject, mSearch, mLibrary, mExtra);
       WriteSharedCache(FRequest.LibraryCacheFile, FLibraryCached, mLibrary, HasUnbound(mStored), True);
+      // Zusätzliche Quellordner (L2) ebenso: Ihre neu gelesenen Units dürfen danach verdrängt werden.
+      if FRequest.ExtraCacheFile <> '' then
+      begin
+        WriteSharedCache(FRequest.ExtraCacheFile, FExtraCached, mExtra, HasUnbound(mStored), True);
+      end;
       // Bibliotheks-Units außerhalb der Installation (Drittanbieter-Quellen) stehen im Projekt-Cache (SortUnits, #647):
       // Kamen seit seinem letzten Schreiben welche hinzu, ihn jetzt schreiben, sonst gingen sie bei einem Abbruch des
       // ersten Aufbaus verloren. Ohne neue bleibt es beim Schreiben am Ende (die Spitze des ersten Aufbaus).
@@ -1986,6 +2059,7 @@ begin
         FProjectLibraryWritten := mOutside;
       end;
     finally
+      mExtra.Free;
       mLibrary.Free;
       mSearch.Free;
       mProject.Free;
@@ -2056,8 +2130,11 @@ begin
     Result.LibraryRoots := ARequest.LibraryRoots;
     Result.LibraryDefines := ARequest.LibraryDefines;
     Result.Usages := ARequest.Usages;
-    Result.RarelyUsedRoots := ARequest.RarelyUsedRoots;
+    Result.OnDemandRoots := ARequest.OnDemandRoots;
+    Result.ExtraRoots := ARequest.ExtraRoots;
     Result.LazyLibrary := ARequest.LazyLibrary;
+    Result.ResolveUnitFrom := ARequest.ResolveUnitFrom;
+    Result.OnUnreadable := FOnUnreadable;
     UseStatistics(ARequest);
     Result.Usage := FIndex.Usage;
     if Assigned(ARequest.Prepare) then
@@ -2327,7 +2404,8 @@ var
 begin
   TMonitor.Enter(FLock);
   try
-    for mFileName in TArray<string>.Create(ARequest.LibraryCacheFile, ARequest.SearchCacheFile) do
+    for mFileName in TArray<string>.Create(ARequest.LibraryCacheFile, ARequest.SearchCacheFile,
+      ARequest.ExtraCacheFile) do
     begin
       if (mFileName <> '') and (FSharedFiles.IndexOf(AnsiUpperCase(mFileName)) < 0) then
       begin
@@ -2409,6 +2487,57 @@ begin
   end;
 end;
 
+{ TIndexStaleGuard }
+
+constructor TIndexStaleGuard.Create(AService: TIndexService);
+begin
+  inherited Create;
+  FLock := TObject.Create;
+  FService := AService;
+end;
+
+destructor TIndexStaleGuard.Destroy;
+begin
+  FLock.Free;
+  inherited;
+end;
+
+function TIndexStaleGuard.Refresh(const AHeader: TUnitIndex): Boolean;
+begin
+  TMonitor.Enter(FLock);
+  try
+    Result := (FService <> nil) and FService.RefreshStale(AHeader);
+  finally
+    TMonitor.Exit(FLock);
+  end;
+end;
+
+procedure TIndexStaleGuard.Detach;
+begin
+  TMonitor.Enter(FLock);
+  try
+    FService := nil;
+  finally
+    TMonitor.Exit(FLock);
+  end;
+end;
+
+function TIndexService.RefreshStale(const AHeader: TUnitIndex): Boolean;
+var
+  mBuilder: TIndexBuilder;
+begin
+  mBuilder := AcquireBuilder;
+  if mBuilder = nil then
+  begin
+    Exit(False);
+  end;
+  try
+    Result := mBuilder.RefreshStale(AHeader);
+  finally
+    ReleaseBuilder;
+  end;
+end;
+
 procedure TIndexService.ReplaceBuilder(ABuilder: TIndexBuilder);
 var
   mOld: TIndexBuilder;
@@ -2427,6 +2556,11 @@ begin
     TMonitor.Exit(FLock);
   end;
   mOld.Free;
+  // L2: Kalte Units prüfen beim Nachladen ihren Stand über den Builder dieses Dienstes.
+  if (ABuilder <> nil) and (FStaleCheck <> nil) then
+  begin
+    FIndex.SetStaleCheck(FStaleCheck);
+  end;
 end;
 
 function TIndexService.EnsureUnit(const AUnitName: string): Boolean;
@@ -2510,6 +2644,39 @@ begin
   end;
   try
     Result := mBuilder.ReadUsages(AFileName, AUsages);
+  finally
+    ReleaseBuilder;
+  end;
+end;
+
+function TIndexService.AddFiles(const AFiles: TArray<string>; ALibrary: Boolean): Integer;
+var
+  mBuilder: TIndexBuilder;
+  mFileName: string;
+begin
+  Result := 0;
+  if Length(AFiles) = 0 then
+  begin
+    Exit;
+  end;
+  mBuilder := AcquireBuilder;
+  if mBuilder = nil then
+  begin
+    Exit;
+  end;
+  try
+    TMonitor.Enter(FApplyLock);
+    try
+      for mFileName in AFiles do
+      begin
+        if mBuilder.AddFile(mFileName, ALibrary) then
+        begin
+          Inc(Result);
+        end;
+      end;
+    finally
+      TMonitor.Exit(FApplyLock);
+    end;
   finally
     ReleaseBuilder;
   end;

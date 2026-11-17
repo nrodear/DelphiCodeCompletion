@@ -29,6 +29,11 @@
 // Zweigen. Das Einordnen der Zeichenketten in den Pool läuft außerhalb der Index-Sperre unter einer
 // eigenen, damit Leser nicht auf das Einlesen großer Units warten.
 //
+// Gleichnamige Units (L2): Je Unit-Name stehen alle Dateien in FUnitFiles, nach Rang (IIndexUnitScopes.RankOf,
+// ohne: Projekt vor Bibliothek) und bei gleichem Rang in der Reihenfolge, in der der Index die Datei zum ersten Mal
+// sah. FindUnit nimmt die erste; welche für eine Datei gilt, entscheidet die Namensauflösung über UnitFiles und
+// UnitScopes. Entfernen einer Datei lässt die anderen gleichen Namens stehen (vorher verlor der Name den Eintrag).
+//
 // Unit-Aliase: FindUnit führt einen Alias (WinTypes → Winapi.Windows) auf seine
 // Unit, wenn es keine Unit dieses Namens gibt. Die Vorgaben von Delphi gelten
 // immer, AddUnitAliases ergänzt die Aliase der geladenen Projekte.
@@ -298,8 +303,15 @@ type
     FUnavailable: TDictionary<string, Boolean>;
     // Dateiname (groß) → Eintrag
     FFiles: TObjectDictionary<string, TIndexEntry>;
-    // Unit-Name (groß) → Dateiname (groß)
-    FUnitFiles: TDictionary<string, string>;
+    // Unit-Name (groß) → Dateinamen (groß), beste zuerst (L2: gleichnamige Units).
+    FUnitFiles: TDictionary<string, TArray<string>>;
+    // Dateiname (groß) → Nummer, mit der der Index ihn zuerst sah; Rang je Datei (L2). Unter FLock.
+    FFileOrder: TDictionary<string, Int64>;
+    FFileRank: TDictionary<string, Integer>;
+    FFileOrderSerial: Int64;
+    FUnitScopes: IIndexUnitScopes;
+    // L2: Prüfung beim Nachladen kalter Units, ob die Datei neuer ist als der Block. Unter FLock gelesen.
+    FStaleCheck: IIndexStaleCheck;
     // Zählerstände und Speicherschätzung aller geladenen Units.
     FTotals: TSymbolIndexTotals;
     FPool: TStringPool;
@@ -369,6 +381,10 @@ type
     /// Projekt-Units auslagern, 2 Projekt-Units kompakt halten.</summary>
     procedure ShrinkUnitLocked(APass: Integer; const AKey: string);
     procedure RemoveFileLocked(const AFileKey: string);
+    /// <summary>Trägt AKey unter dem Unit-Namen AUnitName an seinem Rang ein (L2).</summary>
+    procedure LinkUnitFileLocked(const AUnitName, AKey: string; ALibrary: Boolean);
+    /// <summary>Nimmt AKey aus den Dateien von AUnitName; die anderen bleiben (L2).</summary>
+    procedure UnlinkUnitFileLocked(const AUnitName, AKey: string);
     /// <summary>Baut die Tabellen neu, wenn die toten Verweise überwiegen.</summary>
     procedure CleanRefsLocked;
     /// <summary>Dateischlüssel zum Unit-Namen (auch über Aliase); '' wenn unbekannt.</summary>
@@ -380,7 +396,9 @@ type
     /// (BindSources nach dem Schreiben des Caches), also noch einmal (Phase 5).</summary>
     function LoadKeyOnce(const AKey: string; out AUnit: TUnitIndex; out ARetry: Boolean): Boolean;
     /// <summary>Verdrängt, bis die verdrängbaren Units wieder ins Budget passen; AKeep bleibt.</summary>
-    procedure EvictLocked(AKeep: TIndexEntry);
+    procedure EvictLocked(AKeep: TIndexEntry); overload;
+    /// <summary>Wie oben bis ABudget (L2: TrimEvictable mit 0).</summary>
+    procedure EvictLocked(AKeep: TIndexEntry; ABudget: Int64); overload;
     procedure UnloadLocked(const AKey: string; AEntry: TIndexEntry);
     /// <summary>Einträge, deren Katalog vielleicht ein Symbol AName hat (gleicher Hash), über das Namensverzeichnis;
     /// AMembership ist der Stand der Mitgliedschaft, für den es gilt. Ohne Sperre.</summary>
@@ -433,6 +451,12 @@ type
     function LazyStats: TIndexLazyStats;
     procedure SetUsage(const AUsage: IIndexUsage);
     function Usage: IIndexUsage;
+    function UnitFiles(const AUnitName: string): TArray<string>;
+    procedure SetUnitScopes(const AScopes: IIndexUnitScopes);
+    function UnitScopes: IIndexUnitScopes;
+    procedure SetStaleCheck(const ACheck: IIndexStaleCheck);
+    function StaleCheck: IIndexStaleCheck;
+    procedure TrimEvictable;
     /// <summary>So oft wurde das Namensverzeichnis der kalten Units gebaut (Tests, Phase 4).</summary>
     function NameLookupBuilds: Integer;
     /// <summary>So oft suchte der Index Units zum Verdrängen (Tests, Phase 4).</summary>
@@ -530,7 +554,9 @@ begin
   FPoolLock := TCriticalSection.Create;
   FUnavailable := TDictionary<string, Boolean>.Create;
   FFiles := TObjectDictionary<string, TIndexEntry>.Create([doOwnsValues]);
-  FUnitFiles := TDictionary<string, string>.Create;
+  FUnitFiles := TDictionary<string, TArray<string>>.Create;
+  FFileOrder := TDictionary<string, Int64>.Create;
+  FFileRank := TDictionary<string, Integer>.Create;
   FPool := TStringPool.Create;
   FRefs := TSymbolRefTables.Create;
   FShrinkable := TDictionary<string, Boolean>.Create;
@@ -548,6 +574,8 @@ begin
   FShrinkable.Free;
   FRefs.Free;
   FPool.Free;
+  FFileRank.Free;
+  FFileOrder.Free;
   FUnitFiles.Free;
   FFiles.Free;
   FUnavailable.Free;
@@ -677,10 +705,96 @@ begin
   Result := False;
 end;
 
+procedure TSymbolIndex.LinkUnitFileLocked(const AUnitName, AKey: string; ALibrary: Boolean);
+var
+  mFiles: TArray<string>;
+  mOrder, mOther: Int64;
+  mRank, mOtherRank, mIndex, mAt: Integer;
+begin
+  if not FFileOrder.TryGetValue(AKey, mOrder) then
+  begin
+    Inc(FFileOrderSerial);
+    mOrder := FFileOrderSerial;
+    FFileOrder.Add(AKey, mOrder);
+  end;
+  if FUnitScopes <> nil then
+  begin
+    mRank := FUnitScopes.RankOf(AKey, ALibrary);
+  end
+  else
+  begin
+    mRank := Ord(ALibrary);
+  end;
+  FFileRank.AddOrSetValue(AKey, mRank);
+  if not FUnitFiles.TryGetValue(AUnitName, mFiles) then
+  begin
+    FUnitFiles.Add(AUnitName, TArray<string>.Create(AKey));
+    Exit;
+  end;
+  // Schon eingetragen (neue Fassung derselben Datei): herausnehmen und am Rang neu einordnen.
+  mAt := -1;
+  for mIndex := 0 to High(mFiles) do
+  begin
+    if mFiles[mIndex] = AKey then
+    begin
+      mAt := mIndex;
+      Break;
+    end;
+  end;
+  if mAt >= 0 then
+  begin
+    Delete(mFiles, mAt, 1);
+  end;
+  mAt := Length(mFiles);
+  for mIndex := 0 to High(mFiles) do
+  begin
+    if not FFileRank.TryGetValue(mFiles[mIndex], mOtherRank) then
+    begin
+      mOtherRank := MaxInt;
+    end;
+    if not FFileOrder.TryGetValue(mFiles[mIndex], mOther) then
+    begin
+      mOther := High(Int64);
+    end;
+    if (mRank < mOtherRank) or ((mRank = mOtherRank) and (mOrder < mOther)) then
+    begin
+      mAt := mIndex;
+      Break;
+    end;
+  end;
+  Insert(AKey, mFiles, mAt);
+  FUnitFiles.AddOrSetValue(AUnitName, mFiles);
+end;
+
+procedure TSymbolIndex.UnlinkUnitFileLocked(const AUnitName, AKey: string);
+var
+  mFiles: TArray<string>;
+  mIndex: Integer;
+begin
+  if not FUnitFiles.TryGetValue(AUnitName, mFiles) then
+  begin
+    Exit;
+  end;
+  for mIndex := High(mFiles) downto 0 do
+  begin
+    if mFiles[mIndex] = AKey then
+    begin
+      Delete(mFiles, mIndex, 1);
+    end;
+  end;
+  if Length(mFiles) = 0 then
+  begin
+    FUnitFiles.Remove(AUnitName);
+  end
+  else
+  begin
+    FUnitFiles.AddOrSetValue(AUnitName, mFiles);
+  end;
+end;
+
 procedure TSymbolIndex.RemoveFileLocked(const AFileKey: string);
 var
   mExisting: TIndexEntry;
-  mUnitFile: string;
 begin
   if not FFiles.TryGetValue(AFileKey, mExisting) then
   begin
@@ -707,10 +821,8 @@ begin
   FUnavailable.Remove(AFileKey);
   FShrinkable.Remove(AFileKey);
   Inc(FGeneration);
-  if FUnitFiles.TryGetValue(UpperCase(mExisting.Unit_.UnitName), mUnitFile) and (mUnitFile = AFileKey) then
-  begin
-    FUnitFiles.Remove(UpperCase(mExisting.Unit_.UnitName));
-  end;
+  // L2: Nur diese Datei fällt weg; gleichnamige Units anderer Dateien bleiben unter dem Namen.
+  UnlinkUnitFileLocked(UpperCase(mExisting.Unit_.UnitName), AFileKey);
   FFiles.Remove(AFileKey);
 end;
 
@@ -769,7 +881,7 @@ begin
   begin
     Inc(FNameMembership);
   end;
-  FUnitFiles.AddOrSetValue(UpperCase(AUnit.UnitName), AKey);
+  LinkUnitFileLocked(UpperCase(AUnit.UnitName), AKey, AUnit.Library_);
   InstallLocked(AKey, mEntry, ABytes, AUsageBytes);
 end;
 
@@ -1630,6 +1742,21 @@ begin
 end;
 
 procedure TSymbolIndex.EvictLocked(AKeep: TIndexEntry);
+begin
+  EvictLocked(AKeep, cEvictableBudget);
+end;
+
+procedure TSymbolIndex.TrimEvictable;
+begin
+  FLock.Enter;
+  try
+    EvictLocked(nil, 0);
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure TSymbolIndex.EvictLocked(AKeep: TIndexEntry; ABudget: Int64);
 var
   mPair: TPair<string, TIndexEntry>;
   mCandidates: TList<TEvictCandidate>;
@@ -1637,7 +1764,7 @@ var
 begin
   // Ohne Überschreitung nichts zu tun. Die Summe aller verdrängbaren begrenzt die der nicht geschützten nach oben;
   // erst darüber lohnt das Prüfen.
-  if FEvictableBytes <= cEvictableBudget then
+  if FEvictableBytes <= ABudget then
   begin
     Exit;
   end;
@@ -1645,7 +1772,7 @@ begin
   begin
     RefreshGuardsLocked;
   end;
-  if FCandidateBytes <= cEvictableBudget then
+  if FCandidateBytes <= ABudget then
   begin
     Exit;
   end;
@@ -1677,7 +1804,7 @@ begin
       end));
     for mCandidate in mCandidates do
     begin
-      if FCandidateBytes <= cEvictableBudget then
+      if FCandidateBytes <= ABudget then
       begin
         Break;
       end;
@@ -1692,7 +1819,27 @@ function TSymbolIndex.LoadKey(const AKey: string; out AUnit: TUnitIndex): Boolea
 var
   mAttempt: Integer;
   mRetry: Boolean;
+  mCheck: IIndexStaleCheck;
+  mEntry: TIndexEntry;
+  mHeader: TUnitIndex;
 begin
+  // L2: Ist die Datei seit dem Block geändert (Quellen außerhalb der beobachteten Ordner), liest die Prüfung sie neu
+  // ein; danach steht der neue Stand im Index. Eine Abfrage des Zeitstempels je Nachladen.
+  mCheck := nil;
+  FLock.Enter;
+  try
+    if (FStaleCheck <> nil) and FFiles.TryGetValue(AKey, mEntry) and not mEntry.Loaded and (mEntry.Loading = nil) then
+    begin
+      mCheck := FStaleCheck;
+      mHeader := mEntry.Unit_;
+    end;
+  finally
+    FLock.Leave;
+  end;
+  if mCheck <> nil then
+  begin
+    mCheck.Refresh(mHeader);
+  end;
   // Höchstens drei Versuche: Ein neuer Block kommt nur nach dem Schreiben des Caches.
   mAttempt := 0;
   repeat
@@ -2189,7 +2336,7 @@ begin
     begin
       Inc(FNameMembership);
     end;
-    FUnitFiles.AddOrSetValue(UpperCase(AHeader.UnitName), mKey);
+    LinkUnitFileLocked(UpperCase(AHeader.UnitName), mKey, AHeader.Library_);
     CleanRefsLocked;
   finally
     FLock.Leave;
@@ -2277,16 +2424,76 @@ end;
 function TSymbolIndex.UnitKeyLocked(const AUnitName: string): string;
 var
   mTarget: string;
+  mFiles: TArray<string>;
 begin
-  if FUnitFiles.TryGetValue(UpperCase(AUnitName), Result) then
+  // L2: Mehrere Dateien gleichen Namens: die beste (Rang, dann Reihenfolge).
+  if FUnitFiles.TryGetValue(UpperCase(AUnitName), mFiles) then
   begin
-    Exit;
+    Exit(mFiles[0]);
   end;
   // Wie dcc: uses WinTypes lädt Winapi.Windows. Eine Unit, die selbst so heißt, geht vor.
   Result := '';
-  if TUnitAliases.Target(FAliases, AUnitName, mTarget) and not FUnitFiles.TryGetValue(UpperCase(mTarget), Result) then
+  if TUnitAliases.Target(FAliases, AUnitName, mTarget) and FUnitFiles.TryGetValue(UpperCase(mTarget), mFiles) then
   begin
-    Result := '';
+    Result := mFiles[0];
+  end;
+end;
+
+function TSymbolIndex.UnitFiles(const AUnitName: string): TArray<string>;
+begin
+  FLock.Enter;
+  try
+    if FUnitFiles.TryGetValue(UpperCase(AUnitName), Result) then
+    begin
+      // Kopie: Das Array im Index ändert sich mit jedem Eintragen.
+      Result := Copy(Result);
+    end
+    else
+    begin
+      Result := nil;
+    end;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure TSymbolIndex.SetUnitScopes(const AScopes: IIndexUnitScopes);
+begin
+  FLock.Enter;
+  try
+    FUnitScopes := AScopes;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function TSymbolIndex.UnitScopes: IIndexUnitScopes;
+begin
+  FLock.Enter;
+  try
+    Result := FUnitScopes;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure TSymbolIndex.SetStaleCheck(const ACheck: IIndexStaleCheck);
+begin
+  FLock.Enter;
+  try
+    FStaleCheck := ACheck;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function TSymbolIndex.StaleCheck: IIndexStaleCheck;
+begin
+  FLock.Enter;
+  try
+    Result := FStaleCheck;
+  finally
+    FLock.Leave;
   end;
 end;
 

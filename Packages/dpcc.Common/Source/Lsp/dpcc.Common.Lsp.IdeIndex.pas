@@ -54,6 +54,12 @@ type
     function LazyStats: TIndexLazyStats;
     procedure SetUsage(const AUsage: IIndexUsage);
     function Usage: IIndexUsage;
+    function UnitFiles(const AUnitName: string): TArray<string>;
+    procedure SetUnitScopes(const AScopes: IIndexUnitScopes);
+    function UnitScopes: IIndexUnitScopes;
+    procedure SetStaleCheck(const ACheck: IIndexStaleCheck);
+    function StaleCheck: IIndexStaleCheck;
+    procedure TrimEvictable;
   end;
 
 implementation
@@ -281,6 +287,37 @@ end;
 function TIdeIndex.Usage: IIndexUsage;
 begin
   Result := FInner.Usage;
+end;
+
+function TIdeIndex.UnitFiles(const AUnitName: string): TArray<string>;
+begin
+  // Ersatz-Units zählen nur ohne Quelltext; gleichnamige gibt es nur im gemeinsamen Index.
+  Result := FInner.UnitFiles(AUnitName);
+end;
+
+procedure TIdeIndex.SetUnitScopes(const AScopes: IIndexUnitScopes);
+begin
+  FInner.SetUnitScopes(AScopes);
+end;
+
+function TIdeIndex.UnitScopes: IIndexUnitScopes;
+begin
+  Result := FInner.UnitScopes;
+end;
+
+procedure TIdeIndex.SetStaleCheck(const ACheck: IIndexStaleCheck);
+begin
+  FInner.SetStaleCheck(ACheck);
+end;
+
+function TIdeIndex.StaleCheck: IIndexStaleCheck;
+begin
+  Result := FInner.StaleCheck;
+end;
+
+procedure TIdeIndex.TrimEvictable;
+begin
+  FInner.TrimEvictable;
 end;
 
 end.

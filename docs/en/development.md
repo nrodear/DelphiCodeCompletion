@@ -67,6 +67,7 @@ Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --exclude:Benchmark --exitbehav
 | `Tests\IDE` | plugin side without ToolsAPI: flow of the list, ranking, favorites, set mode, placeholders, settings, texts |
 | `Tests\Application\Shell` | shell of the server |
 | `Tests\Common` | memory: self-measurement, names of the `.dcp`, shared cache, Office type libraries and WinRT, release after the server ends, documents, name and reference tables, signatures in the cache, cache format 34, catalog, loading on demand and eviction, usage statistics, search across units not loaded, protected units, reuse of the reference tables, concurrent loading, appending to the cache, compacting the cache, releasing the shared states after a stop, writing the usage statistics |
+| `Tests\Common` (`dpcc.Common.Sources.Tests`) | sources and freshness: additional source folders, Office and WinRT on demand, units with the same name, new and changed files, errors per file, `uses … in`, macros and browsing path, types of the installation without source code |
 | `Tests\Memory` | memory benchmark (category `Benchmark`) |
 | `Tests\Support` | helpers: fixed data source, leak monitoring |
 

@@ -16,6 +16,8 @@
 // Seit S9 von Hand ohne highlight.pairColors und highlight.pairGuides (dpcc fasst die Strukturhervorhebung der IDE
 // nicht mehr an) und ohne den Unterpunkt editor.pairs; die Farben highlight.pairColorsLight/-Dark und
 // highlight.nestedRoutineColorLight/-Dark haben keinen Hauptschalter mehr (x-parent leer).
+// Seit L2 von Hand: IndexOfficeAndWinRt (index.officeAndWinRt) entfällt, neu ist IndexExtraSourceFolders
+// (index.extraSourceFolders, Text mit ";" zwischen den Ordnern).
 
 interface
 
@@ -103,10 +105,10 @@ const
       '    "ExperimentalEnabled": {' + #10 + '      "type": "boolean",' + #10 + '      "default": false,' + #10 + '      "x-key": "experimental.enabled",' + #10 + '      "x-area": "general",' + #10 + '      "x-page": "Allgemein",' + #10 + '      "x-quickToggle": true,' + #10 + '      "x-caption": "Experimentelle Funktionen erlauben",' + #10 + '      "x-captionEn": "Allow experimental features",' +
       #10 + '      "x-issue": "#834",' + #10,
     '      "x-keywords": [' + #10 + '        "Beta",' + #10 + '        "Vorschau",' + #10 + '        "Preview"' + #10 + '      ]' + #10 + '    },' + #10,
-    '    "IndexOfficeAndWinRt": {' + #10 + '      "type": "boolean",' + #10 + '      "default": false,' + #10 +
-      '      "description": "Office-Typbibliotheken (OCX\\Servers, mit MSHTML) und WinRT der Installation vorab indizieren. Aus: weniger Speicher; über uses bleiben sie erreichbar, nur „+ Unit“ schlägt ihre Symbole nicht vor.",' + #10 +
-      '      "x-key": "index.officeAndWinRt",' + #10 + '      "x-area": "general",' + #10 + '      "x-page": "Allgemein",' + #10 + '      "x-keywords": [' + #10 + '        "Office",' + #10 + '        "WinRT",' + #10 +
-      '        "MSHTML",' + #10 + '        "Speicher",' + #10 + '        "Memory"' + #10 + '      ]' + #10 + '    },' + #10,
+    '    "IndexExtraSourceFolders": {' + #10 + '      "type": "string",' + #10 + '      "default": "",' + #10 +
+      '      "description": "Zusätzliche Quellordner (durch \";\" getrennt, samt Unterordnern), z. B. die Quellen von DUnitX' + ' oder einer Komponente, die sonst nur als .dcu vorliegen. Ihre Units schlägt „+ Unit“ vor; geladen werden sie bei Bedarf.",' + #10 +
+      '      "x-key": "index.extraSourceFolders",' + #10 + '      "x-area": "general",' + #10 + '      "x-page": "Allgemein",' + #10 + '      "x-keywords": [' + #10 + '        "DUnitX",' + #10 + '        "Quellordner",' + #10 +
+      '        "Source folders",' + #10 + '        "dcu",' + #10 + '        "Bibliothek",' + #10 + '        "Library"' + #10 + '      ]' + #10 + '    },' + #10,
     '    "RecursionMarkers": {' + #10 + '      "type": "boolean",' + #10 + '      "default": true,' + #10 + '      "x-key": "editor.recursionMarkers",' + #10,
     '      "x-area": "editor",' + #10 + '      "x-feature": "RecursionMarkers",' + #10 + '      "x-page": "Editor",' + #10 + '      "x-quickToggle": true,' + #10 + '      "x-drawing": true,' + #10 + '      "x-caption": "Rekursionssymbole",' + #10 + '      "x-captionEn": "Recursion markers",' + #10 + '      "x-issue": "#623"' + #10 + '    },' + #10 + '    "RecursionMarkersDepth": {' + #10 +
       '      "type": "integer",' + #10 + '      "default": 4,' + #10 + '      "description": "Höchstens so viele Methoden auf einem Kreis über andere Methoden derselben Unit (1 bis 16; 1 = nur direkte Rekursion).",' + #10 + '      "x-key": "editor.recursionMarkers.depth",' + #10 + '      "x-area": "editor",' + #10 + '      "x-page": "Editor",' + #10 + '      "x-issue": "#623"' + #10 + '    },' +

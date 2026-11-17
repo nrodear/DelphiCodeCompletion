@@ -124,8 +124,9 @@ begin
     Setting('CodeLensMetrics', 'codeLens.metrics', True),
     Setting('Metrics', 'metrics', True),
     Setting('ExperimentalEnabled', 'experimental.enabled', True),
-    // Speicher-Optimierung c1: Office-Typbibliotheken und WinRT vorab indizieren; der Server liest denselben Wert.
-    Setting('IndexOfficeAndWinRt', 'index.officeAndWinRt', True),
+    // L2: zusätzliche Quellordner (Text mit ";"); der Server liest denselben Wert. Der Schalter index.officeAndWinRt
+    // (Speicher-Optimierung c1) ist entfallen: Office-Typbibliotheken und WinRT stehen immer im Katalog.
+    TextSetting('IndexExtraSourceFolders', 'index.extraSourceFolders'),
     Setting('CompileOnSave', 'compiler.onSave', True),
     // Architekturübersicht (#1118): Server (Fenster, Bericht, get_architecture) und Plugin lesen denselben Wert.
     Setting('ArchitectureEnabled', 'architecture.enabled', True),

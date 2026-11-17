@@ -20,6 +20,8 @@ type
     ProjectFile: string;
     LibraryFile: string;
     SearchFile: string;
+    /// <summary>Gemeinsamer Cache der zusätzlichen Quellordner (L2); '' ohne.</summary>
+    ExtraFile: string;
     class function Create(const AProject, ALibrary, ASearch: string): TShellCacheFiles; static;
   end;
 
@@ -97,6 +99,7 @@ begin
   Result.ProjectFile := AProject;
   Result.LibraryFile := ALibrary;
   Result.SearchFile := ASearch;
+  Result.ExtraFile := '';
 end;
 
 { TShellWorkspaceCache }
@@ -253,9 +256,11 @@ begin
     TIndexCacheDirectory.TouchUse(AFiles.ProjectFile);
     TIndexCacheDirectory.TouchUse(AFiles.LibraryFile);
     TIndexCacheDirectory.TouchUse(AFiles.SearchFile);
+    TIndexCacheDirectory.TouchUse(AFiles.ExtraFile);
     // Der gemeinsame Bibliotheks-Cache ist nicht gesperrt; ohne ihn hier zu nennen, löschte das Aufräumen
     // ihn bei jedem Start, sobald der Ordner über der Höchstgröße lag (#616: "0 aus dem Cache").
-    Housekeep(TArray<string>.Create(AFiles.ProjectFile, AFiles.LibraryFile, AFiles.SearchFile), ASettings);
+    Housekeep(TArray<string>.Create(AFiles.ProjectFile, AFiles.LibraryFile, AFiles.SearchFile, AFiles.ExtraFile),
+      ASettings);
   except
     on E: Exception do
       FLogger.Warning(Format('Aufräumen des Cache-Ordners fehlgeschlagen: %s', [TLogMarks.Text(E.Message)]));
@@ -315,6 +320,7 @@ begin
     TFile.Delete(AFiles.ProjectFile);
     DeleteIfExists(AFiles.LibraryFile);
     DeleteIfExists(AFiles.SearchFile);
+    DeleteIfExists(AFiles.ExtraFile);
     ALogger.Info('Index-Cache verworfen: ' + TLogMarks.Path(ExtractFileName(AFiles.ProjectFile)));
   except
     on E: Exception do

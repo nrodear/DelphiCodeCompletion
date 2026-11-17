@@ -26,8 +26,9 @@ type
     SettingsDpccNoHits, SettingsSearchPrompt, SettingsSearchOtherNode, SettingsSearchHint,
     // Werte im Hover beim Debuggen (#891, seit S3b auf der Seite „Hints“).
     SettingsDebugHoverValues,
-    // Speicher-Optimierung c1 (index.officeAndWinRt) auf der Seite „Allgemein“.
-    SettingsIndexOfficeWinRt);
+    // L2: zusätzliche Quellordner (index.extraSourceFolders) auf der Seite „Allgemein“; ersetzt den Schalter
+    // index.officeAndWinRt (Speicher-Optimierung c1).
+    SettingsIndexExtraSourceFolders);
 
   TDpccSettingsStrings = class
   public
@@ -103,7 +104,7 @@ const
      'in %s',
      'Enter springt zum ersten Treffer, Pfeil runter in die Liste.',
      'Werte im Hover beim Debuggen (schaltet dafür den Wert-Tooltip der IDE ab)',
-     'Office-Typbibliotheken und WinRT vorab indizieren (mehr Speicher; „+ Unit“ schlägt ihre Symbole vor)'),
+     'Zusätzliche Quellordner (mit „;“ getrennt, samt Unterordnern; z. B. DUnitX-Quellen):'),
     ('Completion, parameter hint and tooltip by dpcc',
      'Code Insight by dpcc (off: built-in Code Insight of the IDE)',
      'Visible rows of the list:',
@@ -164,7 +165,7 @@ const
      'in %s',
      'Enter jumps to the first hit, arrow down moves into the list.',
      'Values in the hover while debugging (turns off the IDE''s value tooltip)',
-     'Pre-index Office type libraries and WinRT (more memory; “+ Unit” suggests their symbols)'));
+     'Additional source folders (separated by “;”, including subfolders; e.g. DUnitX sources):'));
 
 { TDpccSettingsStrings }
 

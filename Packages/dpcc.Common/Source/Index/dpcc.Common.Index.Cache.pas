@@ -412,9 +412,18 @@ begin
   begin
     mCapacity := 1024;
   end;
+  // Bis 4 MB verdoppeln, darüber um ein Viertel (L2): Beim Umkopieren liegen alter und neuer Puffer zugleich im
+  // Speicher; bei Blöcken großer Units (Office-Typbibliotheken, bis rund 16 MB) waren das bis zum Dreifachen.
   while mCapacity < mNeeded do
   begin
-    mCapacity := mCapacity * 2;
+    if mCapacity < 4 * 1024 * 1024 then
+    begin
+      mCapacity := mCapacity * 2;
+    end
+    else
+    begin
+      mCapacity := mCapacity + mCapacity div 4;
+    end;
   end;
   SetLength(FData, mCapacity);
 end;

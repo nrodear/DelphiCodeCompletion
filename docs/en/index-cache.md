@@ -14,15 +14,28 @@ The scope is fixed:
 
 - all projects of the open project group, the active one first;
 - all units in the search paths of the projects;
-- the library and search paths of the installation (RTL, VCL, components), without the Office type libraries and
-  WinRT (see [below](#office-type-libraries-and-winrt)).
+- the library and search paths of the installation (RTL, VCL, components) including the Office type libraries and
+  WinRT (see [below](#office-type-libraries-and-winrt));
+- the additional source folders (see [below](#additional-source-folders)).
 
 In addition:
 
 - configuration, platform, conditional symbols, search paths and unit namespaces of the active configuration, including
-  unsaved changes. dpcc expands macros such as `$(BDS)` in paths the same way as the IDE.
+  unsaved changes. dpcc expands macros such as `$(BDS)` in paths the same way as the IDE: first the environment
+  variables of the IDE options, then the folders of the installation, last all environment variables of the process. A
+  path with a reference dpcc cannot resolve is left out and named in `dpcc.log` (“… skipped with unresolved
+  reference”, logged in German).
+- library path and browsing path of the running IDE, also with its own profile (`bds -r`). Win64x has no browsing path
+  of its own in the registry; there the one of Win64 applies.
 - the types of the packages loaded in the IDE, even without source code. dpcc reports them to the server at the start
-  of every session.
+  of every session. From the packages of the installation only units without source code count (such as DUnitX, DUnit,
+  FireDAC); whatever lies as `.pas` under `$(BDS)\source` or `$(BDS)\OCX` comes from the source code. The server fetches
+  the members of these types only for units that a project names in its `uses`.
+- units from `uses X in 'path'` in the `.dpr`, even without an entry in the `.dproj`. Like the compiler, dpcc looks for
+  the `uses` of a unit in the unit's own folder first.
+- A file outside the project group gets the project from its folder or a folder above. If there are several `.dproj`,
+  the one that names the file applies, otherwise the first in alphabetical order. Without a project the folder of the
+  file counts as a search path; dpcc loads its units on demand.
 
 The index contains declarations, not usages. Its memory limit is fixed (768 MB).
 
@@ -93,18 +106,43 @@ writes never run at the same time. If they are lost, they start over; the index 
 
 ### Office type libraries and WinRT
 
-dpcc does not read `$(BDS)\OCX\Servers` (type libraries of Excel, Word, Outlook and Access, plus MSHTML) and
-`$(BDS)\source\rtl\win\winrt` in advance. Together they are a good 40 % of the library's symbols and about 140 MB
-in the index, and they are rarely needed.
+`$(BDS)\OCX\Servers` (type libraries of Excel, Word, Outlook and Access) and `$(BDS)\source\rtl\win\winrt` belong
+to the library like every other unit of the installation: they are in the library cache and in the catalog, and
+“+ Unit” suggests their symbols. Only their catalog stays in memory; dpcc loads the symbols of a unit when completion,
+hover or parameter help need them.
 
-- The units remain reachable through `uses`: if a unit outside the installation uses them, the build reads them at
-  once. If only a unit of the installation uses them, dpcc loads them when completion, hover or parameter help need
-  them.
-- “+ Unit” does not suggest their symbols.
-- The switch “Pre-index Office type libraries and WinRT” on the **General** page (`index.officeAndWinRt` in
-  `settings.json`) brings them back. See [Settings](settings.md#general).
-- Each position has its own library cache. The first time you switch, dpcc reads the library once more; after that it
-  comes from the respective cache. When switched off, the server removes the units from the index immediately.
+- If a unit outside the installation names them in its `uses`, they stay loaded. They do not come in through the
+  `uses` of other units of the installation.
+- The former switch “Pre-index Office type libraries and WinRT” (`index.officeAndWinRt`) no longer exists. A value in
+  `settings.json` has no effect and produces no message.
+- The first start after the update reads these units once. The library cache grows by about 41 MB, the
+  catalog in memory by about 7 MB. dpcc removes the previous library cache without them after
+  `index.cacheMaxAgeDays` days without use.
+
+### Additional source folders
+
+dpcc knows units that the installation only ships as `.dcu` (DUnitX, DUnit, FireDAC …) from the IDE only with their
+types (see [above](#what-the-index-contains)). If their source code is on disk, name its folder on the **General** page
+under “Additional source folders” (`index.extraSourceFolders` in `settings.json`, see [Settings](settings.md#general)):
+
+- several folders separated by `;`, in `settings.json` also as a list;
+- subfolders count too, except `.git`, `__history` and `__recovery`; at most 2000 folders; `index.exclude` applies;
+- `$(Name)` (variables of the IDE and the environment) and `%Name%` (environment) are resolved; a relative path applies
+  from the project folder;
+- their units enter the index like the library: in the catalog (“+ Unit”), loaded on demand, read with the symbols of
+  platform and version, not those of the project. They have a cache of their own (see [Cache](#cache)), so another
+  folder does not read the whole library again.
+
+Example: the sources of DUnitX, `…\DUnitX\Source`. That is 64 units with about 2600 symbols; the first build reads them
+in less than a second, their cache has 0.3 MB, the catalog grows by about 0.1 MB.
+
+### Units with the same name
+
+If a unit exists more than once, for example an adapted copy of a library unit in the project or `Unit1` in two
+projects of the group, the index keeps all files. Which one applies is decided by the project of the file you are
+working in, in the order of the compiler: units of the project, project folder, search paths, library, additional
+source folders. Without a project the order is: project before search path before library before additional folders.
+The unit namespaces (`DCC_Namespace`) also apply per project.
 
 ## When the index is built
 
@@ -121,6 +159,18 @@ in the index, and they are rarely needed.
 - dpcc reports saved files to the server.
 - Changes outside the IDE: dpcc watches the project folders (the Git working directory, otherwise the project folder).
   Collected changes go to the server with the next request.
+- Folders outside of these (search paths in other repositories, components in the library path, additional source
+  folders, `$(BDS)`) are checked by the server itself: while you work in the editor, at most every 10 seconds, in a
+  thread of its own. It takes over new, changed and deleted units.
+- A new unit in a search path, library folder or additional source folder enters the index at once, not only when a
+  unit names it.
+- Before dpcc loads a library unit on demand, it checks the state of its file; if it differs from the cache, dpcc reads
+  the file again.
+- A file counts as changed if its time stamp differs, or if the time stamp is the same and the size differs.
+- A change to the browsing path of the IDE alone rebuilds the index.
+- A file that cannot be read or parsed (for example because of its encoding) is missing from the index; the build
+  continues. `dpcc.log` names it with path and error (“Datei nicht lesbar, im Index übergangen”), the diagnostic log
+  counts it (“index project#n unreadable”). If memory runs out, the build reads no more files and keeps what it has.
 - Open forms go to the server with their current state from the designer, not from disk.
 
 ## Cache
@@ -132,6 +182,7 @@ The cache is located under `%LOCALAPPDATA%\dpcc\Index`:
 | `Index\<IDE version>\<hash>\index-<format>.dpccidx` | cache of a project |
 | `Index\<IDE version>\Bibliothek\<hash>\index-<format>.dpccidx` | cache of the library, separate from the project |
 | `Index\<IDE version>\Bibliothek\<hash>\usage.dat` | usage statistics of the library (see [above](#usage-statistics)) |
+| `Index\<IDE version>\Zusatzordner\<hash>\index-<format>.dpccidx` | cache of the additional source folders, per platform, version and folders |
 | `…\<cache>.lock` | lock; only the first instance writes the cache, further instances only read it |
 | `…\projekt.txt` | project file the cache belongs to |
 | `…\benutzt.stamp` | time of last use |
@@ -219,4 +270,6 @@ credentials and absolute paths. It watches both files itself; changes take effec
 
 The server still reads the index keys `index.projectGroup`, `index.searchPaths`, `index.libraryPaths`, `index.usages`
 and `memoryBudgetMb`, so that older files load without a warning. They no longer have any effect; the scope is fixed.
-Only `index.officeAndWinRt` takes effect (see [above](#office-type-libraries-and-winrt)).
+The same applies to `index.officeAndWinRt`: the Office type libraries and WinRT are always in the catalog (see
+[above](#office-type-libraries-and-winrt)). `index.extraSourceFolders` takes effect (see
+[above](#additional-source-folders)).

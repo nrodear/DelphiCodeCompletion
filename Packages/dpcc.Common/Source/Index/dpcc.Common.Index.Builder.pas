@@ -49,6 +49,21 @@
 //   Index darf diese Units verdrängen.
 //   Entscheidungen über den Stand einer Unit (AlreadyIndexed, Stufen) laden
 //   nichts nach (FindHeader).
+// - Katalog und bei Bedarf (L2): Units unter OnDemandRoots (Office-Typbibliotheken,
+//   WinRT) stehen immer im Katalog der Bibliothek, kommen aber nie über die uses
+//   einer Bibliotheks-Unit in die gepinnte Hülle der Projekte; nur eine Unit
+//   außerhalb der Installation, die sie selbst nennt, pinnt sie. Units unter
+//   ExtraRoots (zusätzliche Quellordner) liest der Builder wie die Bibliothek mit
+//   LibraryDefines.
+// - Fehler je Datei (L2): Eine Ausnahme beim Lesen oder Parsen einer Datei bricht
+//   den Aufbau nicht mehr ab; die Datei kommt über OnUnreadable ins Diagnoselog.
+//   EOutOfMemory beendet das Einlesen weiterer Dateien (OutOfMemory), der Stand
+//   bis dahin bleibt und kommt in den Cache.
+// - Stand einer Quelldatei (L2): Zeitstempel und, wo das Dateisystem sie kennt
+//   (IIndexFileSize), Größe; eine Datei mit gleichem Zeitstempel und anderer Größe
+//   gilt als geändert.
+// - uses mit Ausgangsordner (L2): Eine Unit außerhalb der Installation sucht ihre
+//   uses zuerst in ihrem eigenen Ordner (ResolveUnitFrom).
 
 interface
 
@@ -76,17 +91,22 @@ type
     ResolveMs: Int64;
     ParseMs: Int64;
     Cancelled: Boolean;
+    /// <summary>Dateien, die eine Ausnahme beim Lesen oder Parsen übergehen ließ (L2).</summary>
+    Unreadable: Integer;
+    /// <summary>Speicher erschöpft (L2): Der Aufbau las danach keine Dateien mehr.</summary>
+    OutOfMemory: Boolean;
   end;
 
   /// <summary>Eine Stufe des Aufbaus ist fertig; APartial ist der Stand bis dahin.</summary>
   TIndexStageDone = reference to procedure(const APartial: TIndexBuildResult);
 
-  /// <summary>Defines je Datei (#647): Dateien unter LibraryRoots (Delphi-Installation) mit LibraryDefines, alle
-  /// anderen mit denen des Projekts.</summary>
+  /// <summary>Defines je Datei (#647): Dateien unter LibraryRoots (Delphi-Installation) und ExtraRoots (zusätzliche
+  /// Quellordner, L2) mit LibraryDefines, alle anderen mit denen des Projekts.</summary>
   TIndexFileDefines = record
     Project: TArray<string>;
     LibraryDefines: TArray<string>;
     LibraryRoots: TArray<string>;
+    ExtraRoots: TArray<string>;
     function DefinesOf(const AFileName: string): TArray<string>;
     /// <summary>Schlüssel der Defines für AFileName (TUnitIndex.DefinesKey).</summary>
     function KeyOf(const AFileName: string): string;
@@ -143,10 +163,16 @@ type
     /// Phase 4 hängt ein Zwischenstand nur die neuen Blöcke an: halb so viel wie vorher (32 MB), das senkt die Spitze
     /// des ersten Aufbaus, ohne dass die Datei öfter ganz geschrieben wird.</summary>
     cFlushBytes = 16 * 1024 * 1024;
+    /// <summary>Ab dieser Größe der Quelldatei (L2: Office-Typbibliotheken, große WinRT-Units) schreibt die
+    /// Bibliotheksstufe beim ersten Aufbau vorher und nachher den Zwischenstand und verdrängt die verdrängbaren Units:
+    /// Einlesen und Schreiben einer solchen Unit belegen kurz ein Vielfaches ihrer Größe.</summary>
+    cBigSourceBytes = 512 * 1024;
   private
     FIndex: ISymbolIndex;
     FFileSystem: IIndexFileSystem;
     FResolveUnit: TUnitFileResolver;
+    FResolveUnitFrom: TUnitFileResolverFrom;
+    FOnUnreadable: TIndexUnreadableEvent;
     FCache: TIndexCacheEntries;
     // Von EnsureUnit aus Anfrage-Threads genutzt.
     FFailedUnits: TIndexKeySet;
@@ -156,7 +182,7 @@ type
     FDefines: TIndexFileDefines;
     FUsages: Boolean;
     FOnProjectDone: TIndexStageDone;
-    FRarelyUsedRoots: TArray<string>;
+    FOnDemandRoots: TArray<string>;
     FLazyLibrary: Boolean;
     FUsage: IIndexUsage;
     FOnLibraryFlush: TIndexStageDone;
@@ -189,9 +215,22 @@ type
     /// <summary>Holt die über uses genannte Unit AName in den Index, falls nötig; AUses sind die uses, denen der
     /// Aufbau weiter folgt, ALibrary sagt, ob AName eine Unit der Installation (LibraryRoots) ist. False, wenn es
     /// nichts zu folgen gibt. AFromLibrary: Eine Unit der Installation nennt AName; dann keine Unit unter
-    /// RarelyUsedRoots.</summary>
-    function NextReferenced(const AName: string; AFromLibrary: Boolean; var AResult: TIndexBuildResult;
-      const AProgress: TIndexProgressEvent; out AUses: TArray<string>; out ALibrary: Boolean): Boolean;
+    /// OnDemandRoots (L2).</summary>
+    function NextReferenced(const AName, AFromDirectory: string; AFromLibrary: Boolean;
+      var AResult: TIndexBuildResult; const AProgress: TIndexProgressEvent; out AUses: TArray<string>;
+      out ALibrary: Boolean; out ADirectory: string): Boolean;
+    /// <summary>Datei zu AName, ab AFromDirectory gesucht, wenn ResolveUnitFrom gesetzt ist (L2).</summary>
+    function ResolveFrom(const AName, AFromDirectory: string): string;
+    /// <summary>Stand der Quelldatei: Zeitstempel samt Größe (L2).</summary>
+    function SourceStamp(const AFileName: string; out AStamp: Int64): Boolean;
+    /// <summary>Meldet eine nicht lesbare Datei (L2).</summary>
+    procedure NoteUnreadable(const AFileName: string; AError: Exception);
+    /// <summary>Ist AFileName eine große Quelldatei (cBigSourceBytes)? False, wenn das Dateisystem keine Größe kennt.
+    /// </summary>
+    function IsBigSource(const AFileName: string): Boolean;
+    /// <summary>Zwischenstand schreiben (OnLibraryFlush), wenn neu gelesene Units ohne Block da sind; mit ATrim danach
+    /// alle verdrängbaren Units verdrängen (L2).</summary>
+    procedure FlushLibrary(var AResult: TIndexBuildResult; ATrim: Boolean);
     /// <summary>Eine Stufe (#648): AFiles einlesen, in der Projektstufe auch über uses erreichbare Units. Wartet über
     /// ARun.Turn auf ihre Reihe; False bei Abbruch (dann ist AResult.Cancelled gesetzt).</summary>
     function RunStage(AStage: TIndexStage; const AFiles: TArray<string>; const ALabel: string; ADone: Integer;
@@ -244,10 +283,14 @@ type
     /// <summary>Läuft nach der Projektstufe (Projektdateien und über uses erreichbare Units) mit dem Stand bis
     /// dahin, z. B. um den Projekt-Cache früh zu schreiben (#647).</summary>
     property OnProjectDone: TIndexStageDone read FOnProjectDone write FOnProjectDone;
-    /// <summary>Ordner selten genutzter Bibliotheken (c1: OCX\Servers, WinRT). Ihre Units liest die Projektstufe nur
-    /// ein, wenn eine Unit außerhalb der Installation (LibraryRoots) sie in den uses nennt, nicht über die uses der
-    /// Bibliothek; EnsureUnit lädt sie weiter bei Bedarf. Leer = keine Ausnahme.</summary>
-    property RarelyUsedRoots: TArray<string> read FRarelyUsedRoots write FRarelyUsedRoots;
+    /// <summary>Ordner der Bibliothek nur als Katalog und bei Bedarf (L2: OCX\Servers, WinRT; vorher c1 mit Schalter).
+    /// Die Bibliotheksstufe nimmt ihre Units wie alle anderen auf (kalt, mit Katalog); die Projektstufe pinnt sie nur,
+    /// wenn eine Unit außerhalb der Installation (LibraryRoots) sie in den uses nennt, nicht über die uses der
+    /// Bibliothek. EnsureUnit und FindUnit laden sie bei Bedarf. Leer = keine Ausnahme.</summary>
+    property OnDemandRoots: TArray<string> read FOnDemandRoots write FOnDemandRoots;
+    /// <summary>Zusätzliche Quellordner samt Unterordnern (L2): Ihre Units liest der Builder mit LibraryDefines.
+    /// </summary>
+    property ExtraRoots: TArray<string> read FDefines.ExtraRoots write FDefines.ExtraRoots;
     /// <summary>Bibliotheksstufe lädt nur Kopf und Katalog (Speicher-Optimierung Phase 3); Standard aus.</summary>
     property LazyLibrary: Boolean read FLazyLibrary write FLazyLibrary;
     /// <summary>Nutzungsstatistik: oft genutzte Units lädt auch die Bibliotheksstufe gleich; nil = keine.</summary>
@@ -255,6 +298,21 @@ type
     /// <summary>Läuft in der Bibliotheksstufe mit LazyLibrary, sobald neu gelesene Units ohne Block rund cFlushBytes
     /// belegen (Phase 3): z. B. den Bibliotheks-Cache schreiben, damit der Index sie verdrängen darf.</summary>
     property OnLibraryFlush: TIndexStageDone read FOnLibraryFlush write FOnLibraryFlush;
+    /// <summary>Optional (L2): Unit-Suche mit Ausgangsordner; ohne gilt der Rückruf des Konstruktors.</summary>
+    property ResolveUnitFrom: TUnitFileResolverFrom read FResolveUnitFrom write FResolveUnitFrom;
+    /// <summary>Eine Datei ließ sich nicht lesen oder parsen (L2); läuft im Thread des Aufbaus bzw. der Anfrage.
+    /// </summary>
+    property OnUnreadable: TIndexUnreadableEvent read FOnUnreadable write FOnUnreadable;
+    /// <summary>Liest AHeader neu ein, wenn seine Datei einen anderen Stand hat (L2, IIndexStaleCheck); True, wenn
+    /// neu eingelesen.</summary>
+    function RefreshStale(const AHeader: TUnitIndex): Boolean;
+    /// <summary>Nimmt eine neue Datei auf (L2: im Suchpfad oder in der Bibliothek angelegt); ALibrary wie die Stufe.
+    /// False, wenn sie nicht lesbar ist.</summary>
+    function AddFile(const AFileName: string; ALibrary: Boolean): Boolean;
+    /// <summary>Stand einer Quelldatei wie beim Aufbau (L2): Zeitstempel und, wo AFileSystem sie kennt, Größe.
+    /// </summary>
+    class function SourceStampOf(const AFileSystem: IIndexFileSystem; const AFileName: string;
+      out AStamp: Int64): Boolean; static;
   end;
 
 implementation
@@ -317,17 +375,27 @@ begin
   end;
 end;
 
-/// <summary>Über uses genannter Name samt Art der nennenden Unit (Bibliothek oder nicht).</summary>
+/// <summary>Über uses genannter Name samt Art und Ordner der nennenden Unit (Bibliothek oder nicht, L2: Ordner).
+/// </summary>
 type
-  TReferencedName = TPair<string, Boolean>;
+  TReferencedName = record
+    Key: string;
+    Value: Boolean;
+    Directory: string;
+  end;
 
-procedure EnqueueAll(APending: TQueue<TReferencedName>; const ANames: TArray<string>; AFromLibrary: Boolean);
+procedure EnqueueAll(APending: TQueue<TReferencedName>; const ANames: TArray<string>; AFromLibrary: Boolean;
+  const ADirectory: string);
 var
   mName: string;
+  mItem: TReferencedName;
 begin
   for mName in ANames do
   begin
-    APending.Enqueue(TReferencedName.Create(mName, AFromLibrary));
+    mItem.Key := mName;
+    mItem.Value := AFromLibrary;
+    mItem.Directory := ADirectory;
+    APending.Enqueue(mItem);
   end;
 end;
 
@@ -349,8 +417,8 @@ begin
     ASeen.AddOrSetValue(UpperCase(mStored.Unit_.UnitName), True);
     // Bibliothek heißt hier: Datei der Delphi-Installation (nicht: über uses nachgeladen).
     mFromLibrary := TIndexFileDefines.IsUnder(mStored.Unit_.FileName, ALibraryRoots);
-    EnqueueAll(APending, mStored.Unit_.InterfaceUses, mFromLibrary);
-    EnqueueAll(APending, mStored.Unit_.ImplementationUses, mFromLibrary);
+    EnqueueAll(APending, mStored.Unit_.InterfaceUses, mFromLibrary, ExtractFileDir(mStored.Unit_.FileName));
+    EnqueueAll(APending, mStored.Unit_.ImplementationUses, mFromLibrary, ExtractFileDir(mStored.Unit_.FileName));
   end;
 end;
 
@@ -403,8 +471,9 @@ end;
 
 function TIndexFileDefines.DefinesOf(const AFileName: string): TArray<string>;
 begin
-  // RTL, VCL und FMX einmal je Compiler und Plattform statt je Projekt-Defines (#647).
-  if IsUnder(AFileName, LibraryRoots) then
+  // RTL, VCL und FMX einmal je Compiler und Plattform statt je Projekt-Defines (#647); die zusätzlichen Quellordner
+  // (L2) ebenso: Sie stehen für fertige .dcu wie die Bibliothek.
+  if IsUnder(AFileName, LibraryRoots) or IsUnder(AFileName, ExtraRoots) then
   begin
     Result := LibraryDefines;
   end
@@ -753,9 +822,118 @@ begin
     Exit(True);
   end;
   try
-    Result := IndexFileNow(AFileName, ALibrary, AResult, ALazy);
+    // L2: Fehler je Datei. Vorher brach eine Ausnahme (Kodierung, Parser) den ganzen Aufbau ab.
+    try
+      Result := IndexFileNow(AFileName, ALibrary, AResult, ALazy);
+    except
+      on E: EOutOfMemory do
+      begin
+        // Nicht still: gemeldet, und der Aufbau liest keine weiteren Dateien; der Stand bis hier bleibt.
+        AResult.OutOfMemory := True;
+        Inc(AResult.Unreadable);
+        NoteUnreadable(AFileName, E);
+        Result := False;
+      end;
+      on E: Exception do
+      begin
+        Inc(AResult.Unreadable);
+        NoteUnreadable(AFileName, E);
+        Result := False;
+      end;
+    end;
   finally
     FInFlight.Remove(AFileName);
+  end;
+end;
+
+procedure TIndexBuilder.NoteUnreadable(const AFileName: string; AError: Exception);
+begin
+  if Assigned(FOnUnreadable) then
+  begin
+    try
+      FOnUnreadable(AFileName, AError.ClassName + ': ' + AError.Message);
+    except
+      // Die Meldung darf den Aufbau nicht beenden.
+      on Exception do
+        ;
+    end;
+  end;
+end;
+
+function TIndexBuilder.SourceStamp(const AFileName: string; out AStamp: Int64): Boolean;
+begin
+  Result := SourceStampOf(FFileSystem, AFileName, AStamp);
+end;
+
+function TIndexBuilder.AddFile(const AFileName: string; ALibrary: Boolean): Boolean;
+var
+  mIgnored: TIndexBuildResult;
+begin
+  mIgnored := Default(TIndexBuildResult);
+  Result := IndexFile(AFileName, ALibrary, mIgnored, ALibrary and FLazyLibrary);
+  // Eine neue Datei kann eine bisher fehlende Unit sein.
+  FFailedUnits.Clear;
+end;
+
+class function TIndexBuilder.SourceStampOf(const AFileSystem: IIndexFileSystem; const AFileName: string;
+  out AStamp: Int64): Boolean;
+var
+  mSizes: IIndexFileSize;
+  mSize: Int64;
+begin
+  Result := AFileSystem.FileStamp(AFileName, AStamp);
+  // Zeitstempel in ms seit 1899 brauchen 42 Bit; darüber 20 Bit der Größe: gleicher Zeitstempel, andere Größe
+  // ergibt einen anderen Stand (L2).
+  if Result and Supports(AFileSystem, IIndexFileSize, mSizes) and mSizes.FileSize(AFileName, mSize) then
+  begin
+    AStamp := AStamp + ((mSize and $FFFFF) shl 42);
+  end;
+end;
+
+function TIndexBuilder.IsBigSource(const AFileName: string): Boolean;
+var
+  mSizes: IIndexFileSize;
+  mSize: Int64;
+begin
+  Result := Supports(FFileSystem, IIndexFileSize, mSizes) and mSizes.FileSize(AFileName, mSize) and
+    (mSize >= cBigSourceBytes);
+end;
+
+procedure TIndexBuilder.FlushLibrary(var AResult: TIndexBuildResult; ATrim: Boolean);
+begin
+  if (FUnboundBytes > 0) and Assigned(FOnLibraryFlush) then
+  begin
+    FUnboundBytes := 0;
+    FOnLibraryFlush(AResult);
+  end;
+  if ATrim then
+  begin
+    FIndex.TrimEvictable;
+  end;
+end;
+
+function TIndexBuilder.ResolveFrom(const AName, AFromDirectory: string): string;
+begin
+  if Assigned(FResolveUnitFrom) and (AFromDirectory <> '') then
+  begin
+    Result := FResolveUnitFrom(AName, AFromDirectory);
+  end
+  else
+  begin
+    Result := FResolveUnit(AName);
+  end;
+end;
+
+function TIndexBuilder.RefreshStale(const AHeader: TUnitIndex): Boolean;
+var
+  mStamp: Int64;
+  mIgnored: TIndexBuildResult;
+begin
+  Result := (AHeader.FileName <> '') and SourceStamp(AHeader.FileName, mStamp) and (mStamp <> AHeader.Stamp);
+  if Result then
+  begin
+    mIgnored := Default(TIndexBuildResult);
+    Result := IndexFile(AHeader.FileName, AHeader.Library_, mIgnored, AHeader.Library_ and FLazyLibrary);
   end;
 end;
 
@@ -769,7 +947,7 @@ var
   mHasCache, mTaken, mCold: Boolean;
   mMiss: TIndexCacheMiss;
 begin
-  if not FFileSystem.FileStamp(AFileName, mStamp) then
+  if not SourceStamp(AFileName, mStamp) then
   begin
     Inc(AResult.Missing);
     Exit(False);
@@ -877,8 +1055,9 @@ begin
   Inc(AResult.Parsed);
 end;
 
-function TIndexBuilder.NextReferenced(const AName: string; AFromLibrary: Boolean; var AResult: TIndexBuildResult;
-  const AProgress: TIndexProgressEvent; out AUses: TArray<string>; out ALibrary: Boolean): Boolean;
+function TIndexBuilder.NextReferenced(const AName, AFromDirectory: string; AFromLibrary: Boolean;
+  var AResult: TIndexBuildResult; const AProgress: TIndexProgressEvent; out AUses: TArray<string>;
+  out ALibrary: Boolean; out ADirectory: string): Boolean;
 var
   mExisting: TUnitIndex;
   mFileName: string;
@@ -888,8 +1067,14 @@ var
 begin
   AUses := nil;
   ALibrary := True;
+  ADirectory := '';
   if FIndex.FindUnitHeader(AName, mExisting) then
   begin
+    // L2: Office-Typbibliotheken und WinRT über die uses der Bibliothek nicht in die Hülle (bleiben kalt).
+    if AFromLibrary and TIndexFileDefines.IsUnder(mExisting.FileName, FOnDemandRoots) then
+    begin
+      Exit(False);
+    end;
     // Phase 3: Steht sie nur im Katalog (Bibliotheksstufe), gehört sie jetzt zur Hülle: laden, pinnen und ihren uses
     // folgen. Sonst wie bisher nichts zu tun.
     if not FIndex.Pin(mExisting.FileName, mWasPinned) or mWasPinned then
@@ -898,25 +1083,34 @@ begin
     end;
     AUses := mExisting.InterfaceUses;
     ALibrary := TIndexFileDefines.IsUnder(mExisting.FileName, FDefines.LibraryRoots);
+    ADirectory := ExtractFileDir(mExisting.FileName);
     Exit(True);
   end;
   mWatch := TStopwatch.StartNew;
-  mFileName := FResolveUnit(AName);
+  // L2: Units außerhalb der Installation suchen ihre uses zuerst im eigenen Ordner (wie der Compiler).
+  if AFromLibrary then
+  begin
+    mFileName := FResolveUnit(AName);
+  end
+  else
+  begin
+    mFileName := ResolveFrom(AName, AFromDirectory);
+  end;
   Inc(AResult.ResolveMs, mWatch.ElapsedMilliseconds);
   if mFileName = '' then
   begin
     Exit(False);
   end;
-  // c1: Office-Typbibliotheken und WinRT nur, wenn das Projekt selbst sie nennt. Über die uses der Bibliothek
-  // hing es vorher vom Zufall der Reihenfolge ab, ob sie im Index landeten (bis 35 Units, rund 19 MB), und jeder
-  // Neuaufbau parste sie (Speicher-Optimierung Phase 2).
-  if AFromLibrary and (Length(FRarelyUsedRoots) > 0) and TIndexFileDefines.IsUnder(mFileName, FRarelyUsedRoots) then
+  // Office-Typbibliotheken und WinRT nur, wenn das Projekt selbst sie nennt (c1, seit L2 ohne Schalter). Über die
+  // uses der Bibliothek hing es vorher vom Zufall der Reihenfolge ab, ob sie gepinnt im Index landeten (bis 35 Units,
+  // rund 19 MB). Die Bibliotheksstufe nimmt sie kalt in den Katalog auf.
+  if AFromLibrary and (Length(FOnDemandRoots) > 0) and TIndexFileDefines.IsUnder(mFileName, FOnDemandRoots) then
   begin
     Exit(False);
   end;
   // Unter anderem Namen schon im Index, z. B. "Forms" als Vcl.Forms aus einem anderen Projekt
   // der Gruppe: nicht neu einlesen. Sonst las jedes Projekt dieselben Units erneut (#647).
-  if not (FIndex.FindHeader(mFileName, mExisting) and FFileSystem.FileStamp(mFileName, mStamp) and
+  if not (FIndex.FindHeader(mFileName, mExisting) and SourceStamp(mFileName, mStamp) and
     (mStamp = mExisting.Stamp)) then
   begin
     if Assigned(AProgress) then
@@ -933,6 +1127,7 @@ begin
   // Nur das interface ist von außen sichtbar; dessen uses reichen.
   AUses := mExisting.InterfaceUses;
   ALibrary := TIndexFileDefines.IsUnder(mExisting.FileName, FDefines.LibraryRoots);
+  ADirectory := ExtractFileDir(mExisting.FileName);
   Result := True;
 end;
 
@@ -943,6 +1138,7 @@ var
   mName: TReferencedName;
   mUses_: TArray<string>;
   mLibrary: Boolean;
+  mDirectory: string;
 begin
   if not Assigned(FResolveUnit) then
   begin
@@ -952,16 +1148,17 @@ begin
   mSeen := TDictionary<string, Boolean>.Create;
   try
     SeedReferenced(FIndex, mPending, mSeen, FDefines.LibraryRoots);
-    while (mPending.Count > 0) and not AResult.Cancelled do
+    while (mPending.Count > 0) and not AResult.Cancelled and not AResult.OutOfMemory do
     begin
       AResult.Cancelled := IsCancelled(ARun.Cancelled);
       mName := mPending.Dequeue;
       if not AResult.Cancelled and not mSeen.ContainsKey(UpperCase(mName.Key)) then
       begin
         mSeen.Add(UpperCase(mName.Key), True);
-        if NextReferenced(mName.Key, mName.Value, AResult, ARun.Progress, mUses_, mLibrary) then
+        if NextReferenced(mName.Key, mName.Directory, mName.Value, AResult, ARun.Progress, mUses_, mLibrary,
+          mDirectory) then
         begin
-          EnqueueAll(mPending, mUses_, mLibrary);
+          EnqueueAll(mPending, mUses_, mLibrary, mDirectory);
         end;
       end;
     end;
@@ -982,7 +1179,7 @@ function TIndexBuilder.RunStage(AStage: TIndexStage; const AFiles: TArray<string
 var
   mIndex: Integer;
   mExisting: TUnitIndex;
-  mProject: Boolean;
+  mProject, mBig: Boolean;
 begin
   mProject := AStage = TIndexStage.Project;
   // Ohne Dateien wartet nur die Projektstufe auf ihre Reihe: Sie folgt auch ohne Projektdateien den uses.
@@ -997,7 +1194,7 @@ begin
   end;
   try
     mIndex := 0;
-    while (mIndex < Length(AFiles)) and not AResult.Cancelled do
+    while (mIndex < Length(AFiles)) and not AResult.Cancelled and not AResult.OutOfMemory do
     begin
       AResult.Cancelled := IsCancelled(ARun.Cancelled);
       // Schon da (anderes Projekt der Gruppe, über uses erreicht): Suchpfade und Bibliothek nicht noch einmal
@@ -1008,19 +1205,26 @@ begin
         begin
           ARun.Progress(TIndexProgressKind.Report, ALabel + AFiles[mIndex], ((ADone + mIndex) * 100) div ARun.Total);
         end;
+        // L2: Vor einer großen Quelldatei (Office, WinRT) Platz schaffen: Zwischenstand schreiben und verdrängen.
+        mBig := (AStage = TIndexStage.Library_) and FLazyLibrary and Assigned(FOnLibraryFlush) and
+          IsBigSource(AFiles[mIndex]);
+        if mBig then
+        begin
+          FlushLibrary(AResult, True);
+        end;
         IndexFile(AFiles[mIndex], AStage = TIndexStage.Library_, AResult,
           (AStage = TIndexStage.Library_) and FLazyLibrary);
-        // Erster Start ohne Cache: zwischendurch schreiben lassen, damit die neu gelesenen Units gehen dürfen.
-        if (AStage = TIndexStage.Library_) and FLazyLibrary and (FUnboundBytes >= cFlushBytes) and
+        // Erster Start ohne Cache: zwischendurch schreiben lassen, damit die neu gelesenen Units gehen dürfen; nach einer
+        // großen Unit gleich (L2), damit sie den Speicher wieder verlassen darf.
+        if (AStage = TIndexStage.Library_) and FLazyLibrary and (mBig or (FUnboundBytes >= cFlushBytes)) and
           Assigned(FOnLibraryFlush) then
         begin
-          FUnboundBytes := 0;
-          FOnLibraryFlush(AResult);
+          FlushLibrary(AResult, mBig);
         end;
       end;
       Inc(mIndex);
     end;
-    if mProject and not AResult.Cancelled then
+    if mProject and not AResult.Cancelled and not AResult.OutOfMemory then
     begin
       IndexReferenced(AResult, ARun);
     end;

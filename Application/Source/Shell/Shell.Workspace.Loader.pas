@@ -35,6 +35,8 @@ type
     Project: TProjectInfo;
     /// <summary>Bibliothekspfade für den Compiler; aus der IDE, wenn sie welche meldet.</summary>
     CompilerLibraryPaths: TArray<string>;
+    /// <summary>Browsing Path aus der IDE (L2); leer = aus der Registry der Installation.</summary>
+    ContextBrowsingPaths: TArray<string>;
     /// <summary>Variablen der Installation ($(BDS) …); nil ohne Installation.</summary>
     function Variables: TArray<TPair<string, string>>;
     /// <summary>Bibliotheks- und Browsing-Pfade der Installation; nil ohne Installation.</summary>
@@ -62,6 +64,8 @@ type
     procedure SetTarget(const ASettings: TServerSettings; AWithChoice: Boolean; var ALoaded: TShellLoadedProject);
     function ReadProject(const ASettings: TServerSettings; var ALoaded: TShellLoadedProject): Boolean;
     procedure ApplyContext(var ALoaded: TShellLoadedProject);
+    /// <summary>Nennt Pfade mit unaufgelöstem Verweis im Protokoll (L2; vorher fielen sie still weg).</summary>
+    procedure LogDropped(const AKind: string; const ADropped: TArray<string>);
   public
     constructor Create(const AName, ARoot: string; const ALogger: ILogger; ASetup: TShellWorkspaceSetup;
       ABuild: TShellBuildChoice);
@@ -71,6 +75,9 @@ type
     /// <summary>Lädt AProjectFile; False, wenn die .dproj nicht lesbar ist.</summary>
     function Load(const AProjectFile: string; const ASettings: TServerSettings;
       out ALoaded: TShellLoadedProject): Boolean;
+    /// <summary>Ordner ohne Projekt (L2, lose Datei): Installation wie sonst, der Ordner als einziger Suchpfad, die
+    /// üblichen Unit-Scope-Namen; seine Units lädt der Index bei Bedarf.</summary>
+    function LoadLoose(const ASettings: TServerSettings; out ALoaded: TShellLoadedProject): Boolean;
   end;
 
 implementation
@@ -102,7 +109,15 @@ begin
   Result := nil;
   if Installation <> nil then
   begin
-    Result := CompilerLibraryPaths + Installation.BrowsingPaths(Project.Platform);
+    // L2: Meldet die IDE ihren Browsing Path, gilt er (auch ungespeichert und mit Profil -r).
+    if Length(ContextBrowsingPaths) > 0 then
+    begin
+      Result := CompilerLibraryPaths + ContextBrowsingPaths;
+    end
+    else
+    begin
+      Result := CompilerLibraryPaths + Installation.BrowsingPaths(Project.Platform);
+    end;
   end;
 end;
 
@@ -187,8 +202,11 @@ begin
   end
   else if Length(mCandidates) > 1 then
   begin
-    FLogger.Info(Format('%d Projektdateien in %s; "project" in %s wählt eine aus',
-      [Length(mCandidates), TLogMarks.Path(FRoot), cConfigurationFileName]));
+    // L2: die erste (alphabetisch) statt keiner; "project" in dpcc.json wählt eine andere.
+    TArray.Sort<string>(mCandidates);
+    Result := mCandidates[0];
+    FLogger.Info(Format('%d Projektdateien in %s; gewählt %s ("project" in %s wählt eine andere)',
+      [Length(mCandidates), TLogMarks.Path(FRoot), TLogMarks.Path(ExtractFileName(Result)), cConfigurationFileName]));
   end;
 end;
 
@@ -253,7 +271,15 @@ begin
         ALoaded.ProjectVersion]));
       Exit;
     end;
-    ALoaded.Installation := TDelphiInstallation.Create(ALoaded.Version);
+    // L2: Mit eigenem Profil (bds -r) liest die IDE ihre Pfade unter einem anderen Schlüssel; den meldet das Plugin.
+    if ALoaded.HasContext and SameText(ALoaded.Context.BdsVersion, ALoaded.Version) then
+    begin
+      ALoaded.Installation := TDelphiInstallation.Create(ALoaded.Version, ALoaded.Context.RegistryKey);
+    end
+    else
+    begin
+      ALoaded.Installation := TDelphiInstallation.Create(ALoaded.Version);
+    end;
     FLogger.Info(Format('%s: %s (BDS %s, ProjectVersion %s)',
       [TLogMarks.Name(FName), TDelphiVersions.ProductName(ALoaded.Version), ALoaded.Version,
         ALoaded.ProjectVersion]));
@@ -311,19 +337,42 @@ begin
   end;
 end;
 
+procedure TShellProjectLoader.LogDropped(const AKind: string; const ADropped: TArray<string>);
+var
+  mPath: string;
+begin
+  for mPath in ADropped do
+  begin
+    FLogger.Warning(Format('%s: %s mit unaufgelöstem Verweis übergangen: %s', [TLogMarks.Name(FName), AKind,
+      TLogMarks.Path(mPath)]));
+  end;
+end;
+
 procedure TShellProjectLoader.ApplyContext(var ALoaded: TShellLoadedProject);
+var
+  mDropped: TArray<string>;
 begin
   ALoaded.CompilerLibraryPaths := nil;
+  ALoaded.ContextBrowsingPaths := nil;
   if ALoaded.Installation <> nil then
   begin
     ALoaded.CompilerLibraryPaths := ALoaded.Installation.LibraryPaths(ALoaded.Project.Platform);
   end;
   if ALoaded.HasContext then
   begin
-    ALoaded.Context.ApplyTo(ALoaded.Project, ALoaded.Variables);
+    ALoaded.Context.ApplyTo(ALoaded.Project, ALoaded.Variables, mDropped);
+    LogDropped('Suchpfad', mDropped);
     if Length(ALoaded.Context.LibraryPaths) > 0 then
     begin
-      ALoaded.CompilerLibraryPaths := ALoaded.Context.ExpandedLibraryPaths(ALoaded.Project, ALoaded.Variables);
+      ALoaded.CompilerLibraryPaths := ALoaded.Context.ExpandedLibraryPaths(ALoaded.Project, ALoaded.Variables,
+        mDropped);
+      LogDropped('Bibliothekspfad', mDropped);
+    end;
+    if Length(ALoaded.Context.BrowsingPaths) > 0 then
+    begin
+      ALoaded.ContextBrowsingPaths := ALoaded.Context.ExpandedBrowsingPaths(ALoaded.Project, ALoaded.Variables,
+        mDropped);
+      LogDropped('Browsing-Pfad', mDropped);
     end;
     FLogger.Info(Format('%s: Projektkontext aus der IDE (%s, %s, %d Symbole, %d Suchpfade)',
       [TLogMarks.Name(FName), TLogMarks.Name(ALoaded.Project.Config),
@@ -332,6 +381,43 @@ begin
   end;
   // Symbole aus den Projektoptionen der IDE gelten vor denen der Datei (#615).
   FBuild.ApplyDefines(ALoaded.Project);
+end;
+
+function TShellProjectLoader.LoadLoose(const ASettings: TServerSettings; out ALoaded: TShellLoadedProject): Boolean;
+const
+  // Vorgaben einer neuen VCL-Anwendung (DCC_Namespace).
+  cNamespaces: array[0..8] of string = ('Winapi', 'System.Win', 'Data.Win', 'System', 'Xml', 'Data', 'Vcl',
+    'Vcl.Imaging', 'Vcl.Shell');
+var
+  mNamespace: string;
+begin
+  ALoaded := Default(TShellLoadedProject);
+  ALoaded.ProjectFile := '';
+  ChooseInstallation(ASettings, ALoaded);
+  ALoaded.Project.FileName := '';
+  ALoaded.Project.MainSource := '';
+  ALoaded.Project.Config := ASettings.Config;
+  if ALoaded.Project.Config = '' then
+  begin
+    ALoaded.Project.Config := 'Debug';
+  end;
+  ALoaded.Project.Platform := ASettings.Platform;
+  if ALoaded.Project.Platform = '' then
+  begin
+    ALoaded.Project.Platform := 'Win32';
+  end;
+  ALoaded.Project.SearchPaths := TArray<string>.Create(FRoot);
+  for mNamespace in cNamespaces do
+  begin
+    ALoaded.Project.Namespaces := ALoaded.Project.Namespaces + [mNamespace];
+  end;
+  ALoaded.CompilerLibraryPaths := nil;
+  if ALoaded.Installation <> nil then
+  begin
+    ALoaded.CompilerLibraryPaths := ALoaded.Installation.LibraryPaths(ALoaded.Project.Platform);
+  end;
+  FLogger.Info(Format('%s: ohne Projekt, der Ordner gilt als Suchpfad', [TLogMarks.Name(FName)]));
+  Result := True;
 end;
 
 function TShellProjectLoader.Load(const AProjectFile: string; const ASettings: TServerSettings;

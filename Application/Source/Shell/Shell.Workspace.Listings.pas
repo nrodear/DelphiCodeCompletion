@@ -8,6 +8,7 @@ interface
 uses
   System.SysUtils,
   System.Generics.Collections,
+  dpcc.Common.Index.Contract,
   dpcc.Common.Projects.UnitLookup,
   dpcc.Common.Index.ProjectFiles;
 
@@ -40,6 +41,27 @@ type
     class function ListUnitFilesFunc: TFunc<string, TArray<string>>; static;
   end;
 
+  /// <summary>Stände von Ordnern außerhalb der beobachteten Wurzeln (L2): Suchpfade in anderen Repositories,
+  /// Fremdquellen der Bibliothek, Zusatzordner und $(BDS) melden keine Ereignisse. Je Ordner merkt sich die Klasse
+  /// einen Fingerabdruck aus Namen, Zeit und Größe der .pas-Dateien; ändert er sich, vergleicht Changes die Dateien
+  /// mit dem Index. Nicht threadsicher (ein Prüflauf zur Zeit).</summary>
+  TShellFolderStamps = class
+  private
+    FPrints: TDictionary<string, string>;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    /// <summary>Fingerabdruck von AFolder ('' wenn er fehlt).</summary>
+    class function PrintOf(const AFolder: string): string; static;
+    /// <summary>Änderungen in AFolders seit dem letzten Aufruf gegen AIndex: neue, geänderte (anderer Stand, wie
+    /// TIndexBuilder.SourceStampOf über AFileSystem) und gelöschte .pas-Dateien. Beim ersten Mal je Ordner nur der
+    /// Fingerabdruck.</summary>
+    function Changes(const AFolders: TArray<string>; const AIndex: ISymbolIndex;
+      const AFileSystem: IIndexFileSystem): TArray<TFileChange>;
+    /// <summary>Gemerkte Ordner (Tests).</summary>
+    function Count: Integer;
+  end;
+
   /// <summary>Dateizugriffe als Rückrufe für Unit-Suche, Projektleser und Indexaufbau; nicht lesbare Ordner und
   /// Dateien tragen nichts bei.</summary>
   TShellFileAccess = class
@@ -63,7 +85,120 @@ implementation
 
 uses
   System.IOUtils,
+  System.Hash,
+  dpcc.Common.Index.Builder,
   dpcc.Common.Documents.FileEncoding;
+
+{ TShellFolderStamps }
+
+constructor TShellFolderStamps.Create;
+begin
+  inherited Create;
+  FPrints := TDictionary<string, string>.Create;
+end;
+
+destructor TShellFolderStamps.Destroy;
+begin
+  FPrints.Free;
+  inherited;
+end;
+
+function TShellFolderStamps.Count: Integer;
+begin
+  Result := FPrints.Count;
+end;
+
+class function TShellFolderStamps.PrintOf(const AFolder: string): string;
+var
+  mSearch: TSearchRec;
+  mText: TStringBuilder;
+  mCount: Integer;
+begin
+  Result := '';
+  mCount := 0;
+  mText := TStringBuilder.Create;
+  try
+    if FindFirst(IncludeTrailingPathDelimiter(AFolder) + '*.pas', faAnyFile, mSearch) = 0 then
+    try
+      repeat
+        mText.Append(LowerCase(mSearch.Name)).Append('|').Append(mSearch.TimeStamp).Append('|').Append(mSearch.Size)
+          .Append(';');
+        Inc(mCount);
+      until FindNext(mSearch) <> 0;
+    finally
+      FindClose(mSearch);
+    end;
+    if mCount > 0 then
+    begin
+      Result := IntToStr(mCount) + '#' + THashSHA1.GetHashString(mText.ToString);
+    end;
+  finally
+    mText.Free;
+  end;
+end;
+
+function TShellFolderStamps.Changes(const AFolders: TArray<string>; const AIndex: ISymbolIndex;
+  const AFileSystem: IIndexFileSystem): TArray<TFileChange>;
+var
+  mFolder, mKey, mPrint, mKnown, mFileName: string;
+  mStamp: Int64;
+  mUnit: TUnitIndex;
+  mCatalog: TCatalogUnit;
+  mChanged: TList<string>;
+  mList: TList<TFileChange>;
+begin
+  mChanged := TList<string>.Create;
+  mList := TList<TFileChange>.Create;
+  try
+    for mFolder in AFolders do
+    begin
+      mKey := AnsiUpperCase(ExcludeTrailingPathDelimiter(mFolder));
+      if mChanged.Contains(mKey) then
+      begin
+        Continue;
+      end;
+      mPrint := PrintOf(mFolder);
+      if not FPrints.TryGetValue(mKey, mKnown) then
+      begin
+        // Erster Blick: nur merken. Was vor dem Aufbau geändert war, hat der Aufbau gelesen.
+        FPrints.Add(mKey, mPrint);
+        Continue;
+      end;
+      if mKnown = mPrint then
+      begin
+        Continue;
+      end;
+      FPrints[mKey] := mPrint;
+      mChanged.Add(mKey);
+      for mFileName in TShellFileAccess.PasFiles(ExcludeTrailingPathDelimiter(mFolder)) do
+      begin
+        if not AIndex.FindHeader(mFileName, mUnit) then
+        begin
+          mList.Add(TFileChange.Create(mFileName, TFileChangeKind.Created));
+        end
+        else if TIndexBuilder.SourceStampOf(AFileSystem, mFileName, mStamp) and (mStamp <> mUnit.Stamp) then
+        begin
+          mList.Add(TFileChange.Create(mFileName, TFileChangeKind.Changed));
+        end;
+      end;
+    end;
+    // Gelöschte: Units des Index in einem geänderten Ordner, deren Datei fehlt.
+    if mChanged.Count > 0 then
+    begin
+      for mCatalog in AIndex.CatalogUnits do
+      begin
+        if mChanged.Contains(AnsiUpperCase(ExtractFileDir(mCatalog.FileName))) and not FileExists(mCatalog.FileName) then
+        begin
+          mList.Add(TFileChange.Create(mCatalog.FileName, TFileChangeKind.Deleted));
+        end;
+      end;
+    end;
+    Result := mList.ToArray;
+  finally
+    mList.Free;
+    mChanged.Free;
+  end;
+end;
 
 { TSharedUnitListings }
 

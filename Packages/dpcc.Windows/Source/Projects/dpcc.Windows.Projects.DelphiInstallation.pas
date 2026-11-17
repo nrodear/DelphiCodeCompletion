@@ -9,7 +9,10 @@
 //
 // Verweise wie $(BDSLIB) und $(Platform) werden aufgelöst. Variablen aus
 // "Environment Variables" haben Vorrang vor den eingebauten, die
-// Umgebungsvariablen des Prozesses gelten zuletzt.
+// Umgebungsvariablen des Prozesses gelten zuletzt (L2: alle, nicht nur fünf).
+// Mit eigenem Profil der IDE (bds -r) meldet das Plugin den Registry-Schlüssel;
+// dann gelten dessen Bibliothekspfade und Variablen (L2). Win64x hat in der
+// Registry keinen Browsing Path; dann gilt der von Win64 (L2).
 // Beispiele für Versionen: 23.0 = Delphi 12, 37.0 = Delphi 13.
 
 interface
@@ -24,6 +27,9 @@ type
   private
     FVersion: string;
     FRootDir: string;
+    /// <summary>Schlüssel der Einstellungen unter HKCU, z. B. Software\Embarcadero\BDS\37.0 (L2: auch ein Profil).
+    /// </summary>
+    FBaseKey: string;
     FVariables: TArray<TPair<string, string>>;
     function ReadPaths(const APlatform, AValueName: string): TArray<string>;
     function ExpandFor(const AText, APlatform: string): string;
@@ -37,13 +43,18 @@ type
     /// </summary>
     class function RootDirOf(const AVersion: string): string; static;
     /// <summary>EProjectError, wenn die Version nicht installiert ist.</summary>
-    constructor Create(const AVersion: string);
+    constructor Create(const AVersion: string); overload;
+    /// <summary>Wie oben; ABaseKey: Registry-Schlüssel der laufenden IDE (Profil -r), '' = Standardprofil.</summary>
+    constructor Create(const AVersion, ABaseKey: string); overload;
+    /// <summary>Werte aller Umgebungsvariablen des Prozesses (L2), Name=Wert.</summary>
+    class function ProcessEnvironment: TArray<TPair<string, string>>; static;
     { ILibraryPathProvider }
     function LibraryPaths(const APlatform: string): TArray<string>;
     function BrowsingPaths(const APlatform: string): TArray<string>;
     function Variables: TArray<TPair<string, string>>;
     property Version: string read FVersion;
     property RootDir: string read FRootDir;
+    property BaseKey: string read FBaseKey;
   end;
 
 implementation
@@ -60,7 +71,6 @@ const
   cBdsKey = 'Software\Embarcadero\BDS';
   // Die IDE ist eine 32-Bit-Anwendung; ihre HKLM-Einträge liegen je nach Version in einer der Ansichten.
   cRegistryViews: array[0..1] of LongWord = (KEY_READ, KEY_READ or KEY_WOW64_32KEY);
-  cEnvironmentNames: array[0..4] of string = ('PUBLIC', 'USERPROFILE', 'APPDATA', 'ProgramFiles', 'ProgramFiles(x86)');
 
 function OpenRead(ARoot: HKEY; const AKey: string; AAccess: LongWord): TRegistry; overload;
 begin
@@ -204,8 +214,18 @@ end;
 
 constructor TDelphiInstallation.Create(const AVersion: string);
 begin
+  Create(AVersion, '');
+end;
+
+constructor TDelphiInstallation.Create(const AVersion, ABaseKey: string);
+begin
   inherited Create;
   FVersion := AVersion;
+  FBaseKey := ExcludeTrailingPathDelimiter(Trim(ABaseKey));
+  if FBaseKey = '' then
+  begin
+    FBaseKey := cBdsKey + '\' + AVersion;
+  end;
   FRootDir := ReadRootDir(AVersion);
   if FRootDir = '' then
   begin
@@ -226,7 +246,7 @@ begin
   mNames := TStringList.Create;
   try
     // Benutzerdefinierte Variablen der IDE zuerst, damit sie Vorrang haben.
-    mRegistry := OpenRead(HKEY_CURRENT_USER, cBdsKey + '\' + FVersion + '\Environment Variables');
+    mRegistry := OpenRead(HKEY_CURRENT_USER, FBaseKey + '\Environment Variables');
     if mRegistry <> nil then
       try
         mRegistry.GetValueNames(mNames);
@@ -248,17 +268,45 @@ begin
       IncludeTrailingPathDelimiter(FolderPath(CSIDL_PERSONAL)) + mStudioFolder));
     mValues.Add(TPair<string, string>.Create('BDSCatalogRepository',
       IncludeTrailingPathDelimiter(FolderPath(CSIDL_PERSONAL)) + mStudioFolder + '\CatalogRepository'));
-    for mName in cEnvironmentNames do
-    begin
-      if GetEnvironmentVariable(mName) <> '' then
-      begin
-        mValues.Add(TPair<string, string>.Create(mName, GetEnvironmentVariable(mName)));
-      end;
-    end;
+    // L2: alle Umgebungsvariablen des Prozesses zuletzt (vorher nur fünf); wie TDpccPathMacros im Plugin.
+    mValues.AddRange(ProcessEnvironment);
     FVariables := mValues.ToArray;
   finally
     mNames.Free;
     mValues.Free;
+  end;
+end;
+
+class function TDelphiInstallation.ProcessEnvironment: TArray<TPair<string, string>>;
+var
+  mBlock, mEntry: PChar;
+  mText: string;
+  mEqual: Integer;
+  mList: TList<TPair<string, string>>;
+begin
+  mList := TList<TPair<string, string>>.Create;
+  try
+    mBlock := GetEnvironmentStrings;
+    if mBlock <> nil then
+    try
+      mEntry := mBlock;
+      while mEntry^ <> #0 do
+      begin
+        mText := mEntry;
+        Inc(mEntry, Length(mText) + 1);
+        // Einträge wie "=C:=C:\…" (Laufwerke der Konsole) haben keinen Namen.
+        mEqual := Pos('=', mText, 2);
+        if mEqual > 1 then
+        begin
+          mList.Add(TPair<string, string>.Create(Copy(mText, 1, mEqual - 1), Copy(mText, mEqual + 1, MaxInt)));
+        end;
+      end;
+    finally
+      FreeEnvironmentStrings(mBlock);
+    end;
+    Result := mList.ToArray;
+  finally
+    mList.Free;
   end;
 end;
 
@@ -285,7 +333,7 @@ var
   mItem: string;
 begin
   Result := nil;
-  mRegistry := OpenRead(HKEY_CURRENT_USER, cBdsKey + '\' + FVersion + '\Library\' + APlatform);
+  mRegistry := OpenRead(HKEY_CURRENT_USER, FBaseKey + '\Library\' + APlatform);
   if mRegistry = nil then
   begin
     Exit;
@@ -312,6 +360,11 @@ end;
 function TDelphiInstallation.BrowsingPaths(const APlatform: string): TArray<string>;
 begin
   Result := ReadPaths(APlatform, 'Browsing Path');
+  // L2: Win64x (modernes 64-Bit) hat in der Registry keinen Browsing Path; die Quellen sind die von Win64.
+  if (Length(Result) = 0) and SameText(APlatform, 'Win64x') then
+  begin
+    Result := ReadPaths('Win64', 'Browsing Path');
+  end;
 end;
 
 function TDelphiInstallation.Variables: TArray<TPair<string, string>>;

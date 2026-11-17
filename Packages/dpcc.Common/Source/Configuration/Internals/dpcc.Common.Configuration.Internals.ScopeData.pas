@@ -4,12 +4,14 @@
 // nicht von Hand ändern. Ort jedes Schlüssels: global = %APPDATA%\dpcc\settings.json,
 // Projekt = dpcc.json. Gemischte Objekte stehen je Glied als "objekt.glied" da.
 // Schlüssel mit x-scope "both" stehen in beiden Listen.
+// Seit L2 von Hand: index.extraSourceFolders (global); index.officeAndWinRt bleibt als früherer Schlüssel global
+// bekannt, damit ein alter Wert in settings.json ohne Meldung stehen bleiben darf (er wirkt nicht mehr).
 
 interface
 
 const
   /// <summary>Schlüssel für alle Projekte (settings.json).</summary>
-  cGlobalSettingPaths: array[0..71] of string = (
+  cGlobalSettingPaths: array[0..72] of string = (
     'delphiVersion',
     'language',
     'rules',
@@ -47,6 +49,7 @@ const
     'index.libraryPaths',
     'index.usages',
     'index.officeAndWinRt',
+    'index.extraSourceFolders',
     'index.removeOrphans',
     'index.cacheMaxAgeDays',
     'index.cacheMaxMb',

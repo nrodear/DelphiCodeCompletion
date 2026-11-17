@@ -67,6 +67,7 @@ Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --exclude:Benchmark --exitbehav
 | `Tests\IDE` | Plugin-Seite ohne ToolsAPI: Ablauf der Liste, Rangfolge, Favoriten, Mengenmodus, Platzhalter, Einstellungen, Texte |
 | `Tests\Application\Shell` | Hülle des Servers |
 | `Tests\Common` | Speicher: Selbstmessung, Namen der `.dcp`, gemeinsamer Cache, Office-Typbibliotheken und WinRT, Freigabe nach dem Ende des Servers, Dokumente, Namens- und Verweistabellen, Signaturen im Cache, Cache-Format 34, Katalog, Nachladen und Verdrängen, Nutzungsstatistik, Suche über nicht geladene Units, geschützte Units, Wiederverwendung der Verweistabellen, gleichzeitiges Nachladen, Anhängen an den Cache, Verdichten des Caches, Freigabe der gemeinsamen Stände nach dem Stopp, Schreiben der Nutzungsstatistik |
+| `Tests\Common` (`dpcc.Common.Sources.Tests`) | Quellen und Aktualität: zusätzliche Quellordner, Office und WinRT bei Bedarf, gleichnamige Units, neue und geänderte Dateien, Fehler je Datei, `uses … in`, Makros und Browsing Path, Typen der Installation ohne Quelltext |
 | `Tests\Memory` | Messprogramm für den Speicher (Kategorie `Benchmark`) |
 | `Tests\Support` | Hilfen: feste Datenquelle, Leck-Überwachung |
 

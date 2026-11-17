@@ -66,7 +66,22 @@ C'est le comportement attendu. La liste qui s'ouvre d'elle-même après « . �
   avant le curseur. Un clic sur l'indication de ligne soulignée ferme la liste et place le curseur sur l'erreur.
 - Une unité manque : si elle ne se trouve dans aucun projet, aucun chemin de recherche et aucun chemin de
   bibliothèque, dpcc ne la connaît pas. Voir [Index et cache](index-cache.md#contenu-de-lindex).
+- Une unité manque alors que son fichier se trouve dans le chemin de recherche : chercher « Datei nicht lesbar »
+  (fichier illisible) dans `dpcc.log`. L'index ignore un fichier qu'il ne peut ni lire ni analyser.
 - L'index semble périmé : **Rebuild index** (reconstruire l'index) sur la page **General**.
+
+## Aucune proposition pour DUnitX
+
+DUnitX, DUnit et FireDAC ne sont livrés avec l'installation qu'en `.dcu`. Sans code source, dpcc connaît leurs types
+par les paquets que l'IDE a chargés, et leurs membres seulement lorsqu'un projet cite l'unité dans ses `uses`. Les
+constantes et les routines hors des types manquent alors.
+
+- Si le code source est disponible (par exemple un clone de DUnitX), indiquer son dossier dans la page **General** sous
+  « Additional source folders » (dossiers source supplémentaires). « + Unit » propose ensuite par exemple
+  `TestFixtureAttribute` et `Assert`. Voir [Index et cache](index-cache.md#dossiers-source-supplémentaires).
+- Une référence comme `$(DUnitX)` dans un chemin de recherche n'agit que si la variable figure dans les variables
+  d'environnement de l'IDE ou du système. Sinon, `dpcc.log` cite le chemin (« … mit unaufgelöstem Verweis übergangen »,
+  ignoré avec une référence non résolue).
 
 ## Deux infobulles apparaissent
 
@@ -172,9 +187,8 @@ l'index et au moins toutes les 10 minutes, dès qu'une requête se termine. Exem
 - De la bibliothèque, l'index ne garde en permanence en mémoire que les unités que les projets atteignent ou utilisent
   souvent ; il charge les autres à la demande et les libère ensuite. Voir
   [Index et cache](index-cache.md#bibliothèque-à-la-demande).
-- Sans l'interrupteur « Pre-index Office type libraries and WinRT » (pré-indexer les bibliothèques de types Office et
-  WinRT), les bibliothèques de types Office et WinRT ne sont pas dans l'index. Voir
-  [Index et cache](index-cache.md#bibliothèques-de-types-office-et-winrt).
+- Les bibliothèques de types Office et WinRT ne restent en mémoire qu'avec leur catalogue ; dpcc charge leurs symboles à
+  la demande. Voir [Index et cache](index-cache.md#bibliothèques-de-types-office-et-winrt).
 - Seuls les 16 fichiers utilisés le plus récemment gardent leur arbre syntaxique dans le serveur ; pour les plus
   anciens, il le reconstruit au prochain accès. Quand l'IDE ferme un fichier, dpcc le libère dans le serveur.
 - Un fichier hors du groupe de projets reçoit son propre espace de travail. Celui-ci disparaît quand le dernier de ses

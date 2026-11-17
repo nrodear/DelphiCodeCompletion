@@ -5,6 +5,8 @@
 // .pas fehlt. Der Server nutzt sie, damit unresolved-type und unresolved-identifier für solche Typen schweigen,
 // die Schnellkorrektur die Unit vorschlägt und die Vervollständigung sie anbietet. Hier ohne Open Tools API und
 // RTTI: Aufteilen qualifizierter Namen und das JSON der Meldung; gesammelt wird in dpcc.IDE.CodeInsight.IdeTypes.
+// L2: Auch Packages der Installation zählen, aber nur mit Units ohne Quelltext (DUnitX, FireDAC, IoT …): Was als .pas
+// in der Installation liegt, steht im Index, und Quelltext gewinnt (KeepInstalled).
 
 interface
 
@@ -34,6 +36,13 @@ type
     class function ToJson(const ATypes: TArray<TDpccIdeType>): TJSONObject; static;
     /// <summary>Liegt AFileName unter einem der Ordner AFolders (ohne Groß-/Kleinschreibung)?</summary>
     class function InFolders(const AFileName: string; const AFolders: TArray<string>): Boolean; static;
+    /// <summary>Unit-Namen (groß) der Dateien AFiles, etwa aller .pas der Installation (L2). Der Aufrufer gibt das
+    /// Ergebnis frei.</summary>
+    class function UnitNames(const AFiles: TArray<string>): TDictionary<string, Boolean>; static;
+    /// <summary>Typ aus einem Package der Installation behalten (L2)? Nur, wenn seine Unit in ASourceUnits (groß)
+    /// fehlt: Units mit Quelltext stehen im Index.</summary>
+    class function KeepInstalled(const AType: TDpccIdeType; const ASourceUnits: TDictionary<string, Boolean>): Boolean;
+      static;
   end;
 
 implementation
@@ -117,6 +126,23 @@ begin
     mSeen.Free;
     mUnits.Free;
   end;
+end;
+
+class function TDpccIdeTypes.UnitNames(const AFiles: TArray<string>): TDictionary<string, Boolean>;
+var
+  mFileName: string;
+begin
+  Result := TDictionary<string, Boolean>.Create(Length(AFiles));
+  for mFileName in AFiles do
+  begin
+    Result.AddOrSetValue(UpperCase(ChangeFileExt(ExtractFileName(mFileName), '')), True);
+  end;
+end;
+
+class function TDpccIdeTypes.KeepInstalled(const AType: TDpccIdeType;
+  const ASourceUnits: TDictionary<string, Boolean>): Boolean;
+begin
+  Result := (ASourceUnits = nil) or not ASourceUnits.ContainsKey(UpperCase(AType.UnitName));
 end;
 
 class function TDpccIdeTypes.InFolders(const AFileName: string; const AFolders: TArray<string>): Boolean;

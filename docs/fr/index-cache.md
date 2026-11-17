@@ -14,16 +14,30 @@ Le périmètre est fixe :
 
 - tous les projets du groupe de projets ouvert, le projet actif en premier ;
 - toutes les unités des chemins de recherche des projets ;
-- les chemins de bibliothèque et de recherche de l'installation (RTL, VCL, composants), sans les bibliothèques de types
-  Office et WinRT (voir [plus bas](#bibliothèques-de-types-office-et-winrt)).
+- les chemins de bibliothèque et de recherche de l'installation (RTL, VCL, composants), y compris les bibliothèques
+  de types Office et WinRT (voir [plus bas](#bibliothèques-de-types-office-et-winrt)) ;
+- les dossiers source supplémentaires (voir [plus bas](#dossiers-source-supplémentaires)).
 
 S'y ajoutent :
 
 - la configuration, la plateforme, les symboles conditionnels, les chemins de recherche et les espaces de noms
   d'unités de la configuration active, y compris les modifications non enregistrées. dpcc remplace les macros comme
-  `$(BDS)` dans les chemins de la même façon que l'IDE.
+  `$(BDS)` dans les chemins de la même façon que l'IDE : d'abord les variables d'environnement des options de l'IDE,
+  puis les dossiers de l'installation, enfin toutes les variables d'environnement du processus. Un chemin contenant une
+  référence que dpcc ne sait pas résoudre est omis et cité dans `dpcc.log` (« … mit unaufgelöstem Verweis
+  übergangen », message en allemand).
+- le chemin de bibliothèque et le chemin de navigation (Browsing Path) de l'IDE en cours, y compris avec un profil
+  propre (`bds -r`). Win64x n'a pas de chemin de navigation propre dans le registre ; c'est alors celui de Win64 qui
+  s'applique.
 - les types des paquets chargés dans l'IDE, même sans code source. dpcc les communique au serveur au démarrage de
-  chaque session.
+  chaque session. Parmi les paquets de l'installation, seules comptent les unités sans code source (par exemple DUnitX,
+  DUnit, FireDAC) ; ce qui existe en `.pas` sous `$(BDS)\source` ou `$(BDS)\OCX` vient du code source. Le serveur ne
+  demande les membres de ces types que pour les unités qu'un projet cite dans ses `uses`.
+- les unités de `uses X in 'chemin'` du `.dpr`, même sans entrée dans le `.dproj`. Comme le compilateur, dpcc cherche
+  les `uses` d'une unité d'abord dans son propre dossier.
+- Un fichier hors du groupe de projets reçoit le projet de son dossier ou d'un dossier parent. S'il y a plusieurs
+  `.dproj`, c'est celui qui cite le fichier qui s'applique, sinon le premier dans l'ordre alphabétique. Sans projet, le
+  dossier du fichier sert de chemin de recherche ; dpcc charge ses unités à la demande.
 
 L'index contient des déclarations, pas des utilisations. Sa limite de mémoire est fixe (768 Mo).
 
@@ -103,19 +117,46 @@ elles sont perdues, elles repartent de zéro ; l'index ne s'en aperçoit pas.
 
 ### Bibliothèques de types Office et WinRT
 
-dpcc ne lit pas à l'avance `$(BDS)\OCX\Servers` (bibliothèques de types d'Excel, Word, Outlook et Access, plus
-MSHTML) ni `$(BDS)\source\rtl\win\winrt`. Ensemble, elles représentent un bon 40 % des symboles de la bibliothèque
-et environ 140 Mo dans l'index, et elles servent rarement.
+`$(BDS)\OCX\Servers` (bibliothèques de types d'Excel, Word, Outlook et Access) et `$(BDS)\source\rtl\win\winrt`
+font partie de la bibliothèque comme toute autre unité de l'installation : elles figurent dans le cache de la
+bibliothèque et dans le catalogue, et « + Unit » propose leurs symboles. Seul leur catalogue reste en mémoire ; dpcc
+charge les symboles d'une unité lorsque la complétion, le survol ou l'aide aux paramètres en ont besoin.
 
-- Les unités restent accessibles par les `uses` : si une unité hors de l'installation les inclut, la construction les lit
-  aussitôt. Si seule une unité de l'installation les inclut, dpcc les charge lorsque la complétion, le survol ou l'aide
-  aux paramètres en ont besoin.
-- « + Unit » ne propose pas leurs symboles.
-- L'interrupteur « Pre-index Office type libraries and WinRT » (pré-indexer les bibliothèques de types Office et
-  WinRT) de la page **General** (`index.officeAndWinRt` dans `settings.json`) les réintègre. Voir
-  [Réglages](settings.md#general).
-- Chaque position a son propre cache de bibliothèque. Au premier basculement, dpcc relit une fois la bibliothèque ;
-  ensuite, elle vient du cache correspondant. À la désactivation, le serveur retire aussitôt les unités de l'index.
+- Si une unité hors de l'installation les cite dans ses `uses`, elles restent chargées. Elles n'entrent pas par les
+  `uses` d'autres unités de l'installation.
+- L'ancien interrupteur « Pre-index Office type libraries and WinRT » (`index.officeAndWinRt`) n'existe plus. Une valeur
+  dans `settings.json` est sans effet et ne produit aucun message.
+- Le premier démarrage après la mise à jour lit ces unités une fois. Le cache de la bibliothèque grandit d'environ
+  41 Mo, le catalogue en mémoire d'environ 7 Mo. dpcc supprime l'ancien cache de bibliothèque
+  sans elles après `index.cacheMaxAgeDays` jours sans utilisation.
+
+### Dossiers source supplémentaires
+
+Les unités que l'installation ne livre qu'en `.dcu` (DUnitX, DUnit, FireDAC …) ne sont connues de dpcc, par l'IDE,
+qu'avec leurs types (voir [plus haut](#contenu-de-lindex)). Si leur code source se trouve sur le disque, indiquez son
+dossier dans la page **General** sous « Additional source folders » (dossiers source supplémentaires,
+`index.extraSourceFolders` dans `settings.json`, voir [Réglages](settings.md#general)) :
+
+- plusieurs dossiers séparés par `;`, dans `settings.json` aussi sous forme de liste ;
+- les sous-dossiers comptent aussi, sauf `.git`, `__history` et `__recovery` ; au plus 2000 dossiers ; `index.exclude`
+  s'applique ;
+- `$(Nom)` (variables de l'IDE et de l'environnement) et `%Nom%` (environnement) sont résolus ; un chemin relatif part du
+  dossier du projet ;
+- leurs unités entrent dans l'index comme la bibliothèque : dans le catalogue (« + Unit »), chargées à la demande, lues
+  avec les symboles de la plateforme et de la version, pas ceux du projet. Elles ont leur propre cache (voir
+  [Cache](#cache)) ; un autre dossier ne relit donc pas toute la bibliothèque.
+
+Exemple : les sources de DUnitX, `…\DUnitX\Source`. Cela fait 64 unités avec environ 2600 symboles ; la première
+construction les lit en moins d'une seconde, leur cache fait 0,3 Mo, le catalogue grandit d'environ 0,1 Mo.
+
+### Unités de même nom
+
+Si une unité existe plusieurs fois, par exemple une copie adaptée d'une unité de la bibliothèque dans le projet ou
+`Unit1` dans deux projets du groupe, l'index conserve tous les fichiers. Celui qui s'applique dépend du projet du
+fichier dans lequel on travaille, dans l'ordre du compilateur : unités du projet, dossier du projet, chemins de
+recherche, bibliothèque, dossiers source supplémentaires. Sans projet, l'ordre est : projet avant chemin de recherche
+avant bibliothèque avant dossiers supplémentaires. Les espaces de noms d'unités (`DCC_Namespace`) s'appliquent eux
+aussi par projet.
 
 ## Quand l'index est créé
 
@@ -133,6 +174,20 @@ et environ 140 Mo dans l'index, et elles servent rarement.
 - dpcc signale au serveur les fichiers enregistrés.
 - Modifications en dehors de l'IDE : dpcc surveille les dossiers des projets (le répertoire de travail Git, sinon le
   dossier du projet). Les modifications collectées partent vers le serveur avec la requête suivante.
+- Les dossiers situés en dehors (chemins de recherche dans d'autres dépôts, composants du chemin de bibliothèque,
+  dossiers source supplémentaires, `$(BDS)`) sont vérifiés par le serveur lui-même : pendant le travail dans l'éditeur,
+  au plus toutes les 10 secondes, dans un thread à part. Il reprend les unités nouvelles, modifiées et supprimées.
+- Une nouvelle unité dans un chemin de recherche, un dossier de bibliothèque ou un dossier source supplémentaire entre
+  aussitôt dans l'index, et non seulement lorsqu'une unité la cite.
+- Avant de charger à la demande une unité de la bibliothèque, dpcc vérifie l'état de son fichier ; s'il diffère du
+  cache, il relit le fichier.
+- Un fichier est considéré comme modifié si son horodatage diffère, ou si l'horodatage est identique et la taille
+  différente.
+- Une modification du seul chemin de navigation (Browsing Path) de l'IDE reconstruit l'index.
+- Un fichier illisible ou impossible à analyser (par exemple à cause de son encodage) manque dans l'index ; la
+  construction continue. `dpcc.log` le cite avec chemin et erreur (« Datei nicht lesbar, im Index übergangen »), le
+  journal de diagnostic le compte (« index project#n unreadable »). Si la mémoire est épuisée, la construction ne lit
+  plus de fichiers et garde ce qu'elle a.
 - Les fiches ouvertes partent vers le serveur avec leur état courant dans le concepteur, pas depuis le disque.
 
 ## Cache
@@ -144,6 +199,7 @@ Le cache se trouve sous `%LOCALAPPDATA%\dpcc\Index` :
 | `Index\<version-IDE>\<hash>\index-<format>.dpccidx` | cache d'un projet |
 | `Index\<version-IDE>\Bibliothek\<hash>\index-<format>.dpccidx` | cache de la bibliothèque, séparé du projet |
 | `…\<cache>.lock` | verrou ; seule la première instance écrit le cache, les suivantes ne font que le lire |
+| `Index\<version-IDE>\Zusatzordner\<hash>\index-<format>.dpccidx` | cache des dossiers source supplémentaires, par plateforme, version et dossiers |
 | `Index\<version de l'IDE>\Bibliothek\<hash>\usage.dat` | statistiques d'utilisation de la bibliothèque (voir [plus haut](#statistiques-dutilisation)) |
 | `…\projekt.txt` | fichier de projet auquel appartient le cache |
 | `…\benutzt.stamp` | date et heure de la dernière utilisation |
@@ -240,5 +296,6 @@ agissent sans redémarrage.
 
 Le serveur lit encore les clés d'index `index.projectGroup`, `index.searchPaths`, `index.libraryPaths`,
 `index.usages` et `memoryBudgetMb`, afin que les fichiers plus anciens se chargent sans avertissement. Elles n'ont
-plus d'effet ; le périmètre est fixe. Seule `index.officeAndWinRt` agit (voir
-[plus haut](#bibliothèques-de-types-office-et-winrt)).
+plus d'effet ; le périmètre est fixe. Il en va de même pour `index.officeAndWinRt` : les bibliothèques de types
+Office et WinRT figurent toujours dans le catalogue (voir [plus haut](#bibliothèques-de-types-office-et-winrt)).
+`index.extraSourceFolders` agit (voir [plus haut](#dossiers-source-supplémentaires)).

@@ -450,6 +450,30 @@ const
   cIndexHotScore = 24;
 
 type
+  /// <summary>Gleichnamige Units (L2): Der gemeinsame Index kennt je Unit-Namen alle Dateien. Welche für eine Datei
+  /// gilt, bestimmt ihr Projekt in der Reihenfolge des Compilers (Projektdateien, Projektordner, Suchpfade,
+  /// Bibliothek, zusätzliche Quellordner); ohne Projektbezug gilt der Rang. Threadsicher.</summary>
+  /// <summary>Prüft beim Nachladen einer kalten Unit, ob ihre Datei inzwischen anders ist als der Block im Cache
+  /// (L2: Quellen außerhalb der beobachteten Ordner). Threadsicher.</summary>
+  IIndexStaleCheck = interface
+    ['{9B2F6D13-4C8A-4E71-A5D0-3F1C8E7B2A95}']
+    /// <summary>True, wenn die Datei geändert war und die Unit neu eingelesen ist (dann gilt der neue Stand).
+    /// </summary>
+    function Refresh(const AHeader: TUnitIndex): Boolean;
+  end;
+
+  IIndexUnitScopes = interface
+    ['{5C0E2A71-93D4-4B8F-A6E2-1F7B30C9D842}']
+    /// <summary>Die Datei aus ACandidates (alle Dateien der Unit AUnitName, beste zuerst), die im Projekt von
+    /// AFromFile gilt; '' = keine Wahl (dann gilt die erste).</summary>
+    function ChooseUnit(const AFromFile, AUnitName: string; const ACandidates: TArray<string>): string;
+    /// <summary>Unit-Scope-Namen (DCC_Namespace) des Projekts von AFromFile; False ohne Projektbezug.</summary>
+    function NamespacesOf(const AFromFile: string; out ANamespaces: TArray<string>): Boolean;
+    /// <summary>Rang einer Datei ohne Projektbezug, kleiner = vorn: Projekt und Suchpfade 0, Bibliothek 1, zusätzliche
+    /// Quellordner 2. Läuft unter der Sperre des Index: ohne eigene Wartezeiten.</summary>
+    function RankOf(const AFileName: string; ALibrary: Boolean): Integer;
+  end;
+
 
   ISymbolIndex = interface
     ['{8E3A51C4-7B29-4D6E-A0F8-2C9D41E7B635}']
@@ -525,6 +549,19 @@ type
     /// <summary>Nutzungsstatistik der Bibliotheks-Units; nil = keine.</summary>
     procedure SetUsage(const AUsage: IIndexUsage);
     function Usage: IIndexUsage;
+    /// <summary>Alle Dateien (groß) mit dem Unit-Namen AUnitName, beste zuerst (L2): nach Rang (IIndexUnitScopes.RankOf,
+    /// ohne: Projekt vor Bibliothek), bei gleichem Rang die zuerst aufgenommene. Ohne Alias; leer, wenn unbekannt.
+    /// </summary>
+    function UnitFiles(const AUnitName: string): TArray<string>;
+    /// <summary>Projektbezug für gleichnamige Units (L2); nil = nur der Rang.</summary>
+    procedure SetUnitScopes(const AScopes: IIndexUnitScopes);
+    function UnitScopes: IIndexUnitScopes;
+    /// <summary>Verdrängt alle verdrängbaren, nicht geschützten Units (L2: vor dem Einlesen einer großen Unit beim ersten
+    /// Aufbau, damit die Spitze nicht um die Grenze der verdrängbaren Units höher liegt).</summary>
+    procedure TrimEvictable;
+    /// <summary>Prüfung beim Nachladen kalter Units (L2); nil = ohne.</summary>
+    procedure SetStaleCheck(const ACheck: IIndexStaleCheck);
+    function StaleCheck: IIndexStaleCheck;
   end;
 
   /// <summary>Antworten, die nur vom Index und einem Namen abhängen, über alle Units eines Arbeitsbereichs
@@ -556,6 +593,13 @@ type
     /// <summary>Wie WriteBytes, nur schreibt AWrite den Inhalt nach und nach in einen Strom (Index-Cache Format 34):
     /// Der ganze Cache liegt nie am Stück im Speicher. Ein Leser sieht nie einen halben Stand.</summary>
     function WriteStream(const AFileName: string; const AWrite: TIndexStreamWrite; out AError: string): Boolean;
+  end;
+
+  /// <summary>Optional neben IIndexFileSystem (L2): Größe einer Datei. Der Builder nimmt sie in den Stand einer
+  /// Quelldatei auf, damit eine Datei mit gleichem Zeitstempel, aber anderer Größe als geändert gilt.</summary>
+  IIndexFileSize = interface
+    ['{4E8B1C27-6A93-4F05-B2D1-7C3E9A0F5B64}']
+    function FileSize(const AFileName: string; out ASize: Int64): Boolean;
   end;
 
   /// <summary>Optional neben IIndexFileSystem (Speicher-Optimierung Phase 4): eine Datei an Ort und Stelle ergänzen
@@ -611,6 +655,11 @@ type
 
   /// <summary>Abbruch des Aufbaus abfragen.</summary>
   TIndexCancelled = reference to function: Boolean;
+  /// <summary>Datei der Unit AUnitName, gesucht ab AFromDirectory (Ordner der nennenden Unit, L2); '' = nicht
+  /// gefunden.</summary>
+  TUnitFileResolverFrom = reference to function(const AUnitName, AFromDirectory: string): string;
+  /// <summary>Eine Datei ließ sich nicht einlesen (L2); AError: Klasse und Meldung der Ausnahme.</summary>
+  TIndexUnreadableEvent = reference to procedure(const AFileName, AError: string);
 
   /// <summary>Lädt AUnitName bei Bedarf in den Index nach (Namensauflösung, #178); True, wenn sie danach
   /// vorliegt. Steht hier statt in dpcc.Common.Semantics.NameResolver, damit Contracts sie ohne fremdes

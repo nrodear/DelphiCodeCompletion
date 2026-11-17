@@ -75,6 +75,8 @@ type
     FPriority: Integer;
     /// <summary>Abgeleitete Ordner (Derive): Schlüssel → Eintrag; nur der Thread der Nachrichtenschleife.</summary>
     FDerived: TDictionary<string, TWorkspaceFolder>;
+    /// <summary>Ordner loser Dateien ohne Projekt (L2, groß); NewWorkspace setzt dafür Setup.LooseFolder.</summary>
+    FLooseRoots: TDictionary<string, Boolean>;
     /// <summary>Projekte zu einem Eintrag: die .dproj, die Projekte der .groupproj bzw. der einzigen im Ordner.
     /// </summary>
     function ProjectsOf(const AFolder: TWorkspaceFolder): TArray<string>;
@@ -187,10 +189,12 @@ begin
   FServices := AServices;
   FScheduler := TIndexScheduler.Create;
   FDerived := TDictionary<string, TWorkspaceFolder>.Create;
+  FLooseRoots := TDictionary<string, Boolean>.Create;
 end;
 
 destructor TShellFolders.Destroy;
 begin
+  FreeAndNil(FLooseRoots);
   FreeAndNil(FDerived);
   FreeAndNil(FScheduler);
   inherited Destroy;
@@ -291,6 +295,7 @@ begin
     Result.Setup.IdeTypes := FServices.IdeTypes();
   end;
   Result.Setup.Origin := AOrigin;
+  Result.Setup.LooseFolder := (AProjectFile = '') and FLooseRoots.ContainsKey(AnsiUpperCase(ARoot));
   Result.Setup.Selection := FServices.Selection();
   // Anmeldung am Index-Cache für „Prozesse am Projekt“ (#62).
   mIdentity := Default(TIndexProcessInfo);
@@ -393,15 +398,58 @@ begin
   end;
 end;
 
+/// <summary>Die .dproj in AFolder, die AFileName als Unit nennt (L2); bei mehreren ohne Treffer die erste
+/// (alphabetisch), bei einer '' (dann wählt der Arbeitsbereich sie selbst). AReason nennt den Weg fürs Protokoll.
+/// </summary>
+function ProjectContaining(const AFolder, AFileName: string; out AReason: string): string;
+var
+  mCandidates: TArray<string>;
+  mCandidate, mText, mNeedle: string;
+begin
+  Result := '';
+  AReason := '';
+  try
+    mCandidates := TDirectory.GetFiles(AFolder, '*.dproj');
+  except
+    on Exception do
+      mCandidates := nil;
+  end;
+  if Length(mCandidates) < 2 then
+  begin
+    Exit;
+  end;
+  TArray.Sort<string>(mCandidates);
+  // DCCReference Include="…\Datei.pas": der Dateiname genügt, Ordnerangaben sind relativ.
+  mNeedle := '\' + LowerCase(ExtractFileName(AFileName)) + '"';
+  for mCandidate in mCandidates do
+  begin
+    try
+      mText := LowerCase(TFile.ReadAllText(mCandidate)).Replace('"' + LowerCase(ExtractFileName(AFileName)) + '"',
+        '"\' + LowerCase(ExtractFileName(AFileName)) + '"');
+    except
+      on Exception do
+        mText := '';
+    end;
+    if Pos(mNeedle, mText) > 0 then
+    begin
+      AReason := 'enthält die Datei';
+      Exit(mCandidate);
+    end;
+  end;
+  AReason := 'keine enthält die Datei, die erste';
+  Result := mCandidates[0];
+end;
+
 procedure TShellFolders.Derive(const AFileName: string);
 var
-  mKnown: Boolean;
-  mFolder: string;
+  mKnown, mLibrary: Boolean;
+  mFolder, mProjectFile, mReason: string;
   mEntry: TWorkspaceFolder;
 begin
   System.TMonitor.Enter(FServices.Workspaces.Lock);
   try
     mKnown := FServices.Workspaces.WorkspaceOf(AFileName) <> nil;
+    mLibrary := FServices.Workspaces.IsLibrarySource(AFileName);
   finally
     System.TMonitor.Exit(FServices.Workspaces.Lock);
   end;
@@ -410,9 +458,28 @@ begin
     Exit;
   end;
   mFolder := TLspWorkspaceFolders.ProjectFolderFor(AFileName, HasProjectFile);
+  mProjectFile := '';
   if mFolder <> '' then
   begin
-    mEntry := TWorkspaceFolder.Create(mFolder, ExtractFileName(mFolder));
+    // L2: Mehrere .dproj im Ordner: die mit der Datei, sonst die erste (vorher indizierte der Ordner nichts).
+    mProjectFile := ProjectContaining(mFolder, AFileName, mReason);
+    if mProjectFile <> '' then
+    begin
+      FServices.Logger.Info(Format('Mehrere Projekte in %s; gewählt %s (%s)', [TLogMarks.Path(mFolder),
+        TLogMarks.Path(ExtractFileName(mProjectFile)), mReason]));
+    end;
+  end
+  else if not mLibrary then
+  begin
+    // L2: Lose Datei ohne Projekt darüber: ihr Ordner gilt als Suchpfad (bei Bedarf geladen). Quellen der
+    // Bibliothek (Gehe zu in die RTL) bekommen keinen eigenen Arbeitsbereich.
+    mFolder := ExtractFileDir(AFileName);
+    FLooseRoots.AddOrSetValue(AnsiUpperCase(mFolder), True);
+    FServices.Logger.Info('Datei ohne Projekt; ihr Ordner gilt als Suchpfad: ' + TLogMarks.Path(mFolder));
+  end;
+  if mFolder <> '' then
+  begin
+    mEntry := TWorkspaceFolder.Create(mFolder, ExtractFileName(mFolder), mProjectFile);
     Add(mEntry);
     FDerived.AddOrSetValue(mEntry.Key, mEntry);
   end;

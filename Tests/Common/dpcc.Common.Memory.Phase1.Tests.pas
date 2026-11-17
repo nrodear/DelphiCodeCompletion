@@ -2,7 +2,8 @@
 
 // Speicher-Optimierung Phase 1: Eine neue Syntaxbaum-Fassung ersetzt die früheren am Dokument (a6), der gemeinsame
 // Bibliotheks-Cache wird nicht noch einmal gelesen, wenn der Index seinen Stand schon hält (b1), und
-// Office-Typbibliotheken (OCX\Servers) und WinRT indiziert dpcc nur mit index.officeAndWinRt vorab (c1).
+// Office-Typbibliotheken (OCX\Servers) und WinRT stehen seit L2 immer im Katalog der Bibliothek (vorher c1 nur mit
+// index.officeAndWinRt); neu sind die zusätzlichen Quellordner (index.extraSourceFolders).
 
 interface
 
@@ -10,7 +11,8 @@ uses
   System.SysUtils,
   System.Generics.Collections,
   DUnitX.TestFramework,
-  dpcc.Common.Index.Contract;
+  dpcc.Common.Index.Contract,
+  dpcc.Common.Index.Service;
 
 type
   /// <summary>Dateisystem im Speicher; zählt ReadBytes und OpenBlocks je Datei (aus den früheren Index-Tests).
@@ -48,7 +50,8 @@ type
     /// <summary>Zwei Aufbauten mit frischem Index: Lesezugriffe auf den Bibliotheks-Cache je Aufbau, übersprungene
     /// Caches und die aus dem Cache übernommenen Units des ersten.</summary>
     procedure RunCacheScenario(out AFirstReads, ASecondReads, ASkipped, AFirstFromCache: Integer);
-    procedure RunFilesScenario(out AWithout, AWith: TArray<string>; out AWithoutCache, AWithCache: string);
+    procedure RunFilesScenario(out ALibrary: TArray<string>; out ARequest: TIndexRequest;
+      const AExtraFolders: TArray<string>);
   public
     /// <summary>Einmal-Belegungen (gemeinsamer Stand der Cache-Datei, Ordnerlisten) vor dem Leckmonitor.</summary>
     [SetupFixture]
@@ -63,14 +66,20 @@ type
     /// ein frischer Index liest ihn.</summary>
     [Test]
     procedure HeldLibraryCacheIsNotReadAgain;
-    /// <summary>c1: index.officeAndWinRt ist aus (Server und Plugin), wird nach settings.json umgeleitet und auf
-    /// der Seite „Allgemein“ gezeigt.</summary>
+    /// <summary>L2: index.officeAndWinRt gibt es nicht mehr (ein alter Wert bleibt ohne Meldung); an seiner Stelle
+    /// steht index.extraSourceFolders (Text mit ";" oder Liste), nach settings.json umgeleitet und auf „Allgemein“.
+    /// </summary>
     [Test]
-    procedure OfficeAndWinRtOffByDefault;
-    /// <summary>c1: Ohne den Schalter fehlen die Units unter OCX\Servers und source\rtl\win\winrt in der
-    /// Bibliothek, und der Bibliotheks-Cache hat einen eigenen Schlüssel.</summary>
+    procedure ExtraSourceFoldersReplaceOfficeSwitch;
+    /// <summary>L2: Die Units unter OCX\Servers und source\rtl\win\winrt gehören immer zur Bibliothek, mit dem
+    /// gemeinsamen Bibliotheks-Cache ohne eigenen Schlüssel; ihre Ordner kommen als OnDemandRoots in den Auftrag.
+    /// </summary>
     [Test]
-    procedure OfficeAndWinRtLeftOutOfLibrary;
+    procedure OfficeAndWinRtAlwaysInLibrary;
+    /// <summary>L2: Zusätzliche Quellordner samt Unterordnern ($(BDS) aufgelöst, ohne __history) folgen der
+    /// Bibliothek und haben einen eigenen Cache unter „Zusatzordner“.</summary>
+    [Test]
+    procedure ExtraSourceFoldersFollowLibrary;
   end;
 
 implementation
@@ -82,7 +91,6 @@ uses
   dpcc.Common.Documents.Contract,
   dpcc.Common.Documents.TextDocument,
   dpcc.Common.Index.SymbolIndex,
-  dpcc.Common.Index.Service,
   dpcc.Common.Index.Builder,
   dpcc.Common.Projects.Contract,
   dpcc.Common.Configuration.Contract,
@@ -91,6 +99,8 @@ uses
   dpcc.Core.Settings.Scopes,
   dpcc.Core.Settings.Catalog,
   dpcc.Core.Settings.CompletionView,
+  dpcc.Common.Index.ProjectFiles,
+  dpcc.Common.Index.Adapters.CacheDirectory,
   Shell.Workspace.Loader,
   Shell.Workspace.Requests;
 
@@ -330,13 +340,13 @@ end;
 procedure TDpccMemoryPhase1Tests.WarmUp;
 var
   mReads, mSecond, mSkipped, mFromCache: Integer;
-  mWithout, mWith: TArray<string>;
-  mWithoutCache, mWithCache: string;
+  mLibrary: TArray<string>;
+  mRequest: TIndexRequest;
   mIssues: TArray<TConfigurationIssue>;
 begin
   // Katalog und Leser der Einstellungen legen beim ersten Mal Tabellen an.
   TDpccSettingsCatalog.CreateDefault.Free;
-  TConfigurationParser.Parse('{"index": {"officeAndWinRt": true}}', mIssues);
+  TConfigurationParser.Parse('{"index": {"officeAndWinRt": true, "extraSourceFolders": ["a"]}}', mIssues);
   FFiles := TCountingIndexFileSystem.Create;
   FFileSystem := FFiles;
   FFiles.Put('C:\P\P.dpr', 'program P;'#10'uses B;'#10'begin end.', 1);
@@ -353,8 +363,15 @@ begin
   TFile.WriteAllText(TPath.Combine(FFolder, 'source\rtl\sys\System.Probe.pas'), 'unit System.Probe;');
   TFile.WriteAllText(TPath.Combine(FFolder, 'OCX\Servers\Word2099.pas'), 'unit Word2099;');
   TFile.WriteAllText(TPath.Combine(FFolder, 'source\rtl\win\winrt\WinAPI.Probe.pas'), 'unit WinAPI.Probe;');
+  ForceDirectories(TPath.Combine(FFolder, 'Extra\Src\Sub'));
+  ForceDirectories(TPath.Combine(FFolder, 'Extra\Src\__history'));
+  TFile.WriteAllText(TPath.Combine(FFolder, 'Extra\Src\Extra.Top.pas'), 'unit Extra.Top;');
+  TFile.WriteAllText(TPath.Combine(FFolder, 'Extra\Src\Sub\Extra.Deep.pas'), 'unit Extra.Deep;');
+  TFile.WriteAllText(TPath.Combine(FFolder, 'Extra\Src\__history\Extra.Old.pas'), 'unit Extra.Old;');
   // Ordnerlisten merkt sich der Server prozessweit.
-  RunFilesScenario(mWithout, mWith, mWithoutCache, mWithCache);
+  RunFilesScenario(mLibrary, mRequest, nil);
+  RunFilesScenario(mLibrary, mRequest, ['$(BDS)\Extra\Src']);
+  TShellIndexRequests.NoteExtraRoots(nil);
 end;
 
 procedure TDpccMemoryPhase1Tests.CleanUp;
@@ -427,8 +444,8 @@ begin
   AFirstFromCache := mFromCache;
 end;
 
-procedure TDpccMemoryPhase1Tests.RunFilesScenario(out AWithout, AWith: TArray<string>; out AWithoutCache,
-  AWithCache: string);
+procedure TDpccMemoryPhase1Tests.RunFilesScenario(out ALibrary: TArray<string>; out ARequest: TIndexRequest;
+  const AExtraFolders: TArray<string>);
 var
   mLoaded: TShellLoadedProject;
   mSettings: TServerSettings;
@@ -442,17 +459,13 @@ begin
   mLoaded.Installation := TFakeInstallation.Create(FFolder, [TPath.Combine(FFolder, 'source\rtl\sys'),
     TPath.Combine(FFolder, 'OCX\Servers'), TPath.Combine(FFolder, 'source\rtl\win\winrt')]);
   mSettings := TServerSettings.Default;
+  mSettings.IndexExtraSourceFolders := AExtraFolders;
   mTarget := Default(TShellRequestTarget);
   mTarget.CacheRoot := 'C:\Cache';
   mFiles := TShellIndexRequests.FilesOf(mLoaded, mSettings);
-  AWithout := mFiles.LibraryFiles;
-  mTarget.OfficeAndWinRt := mSettings.IndexOfficeAndWinRt;
-  AWithoutCache := TShellIndexRequests.RequestOf(mLoaded, mFiles, mTarget).LibraryCacheFile;
-  mSettings.IndexOfficeAndWinRt := True;
-  mFiles := TShellIndexRequests.FilesOf(mLoaded, mSettings);
-  AWith := mFiles.LibraryFiles;
-  mTarget.OfficeAndWinRt := True;
-  AWithCache := TShellIndexRequests.RequestOf(mLoaded, mFiles, mTarget).LibraryCacheFile;
+  ALibrary := mFiles.LibraryFiles;
+  ARequest := TShellIndexRequests.RequestOf(mLoaded, mFiles, mTarget);
+  // Der Auftrag hält keinen Resolver; die Rückrufe bleiben leer.
 end;
 
 procedure TDpccMemoryPhase1Tests.NewTreeVariantReplacesOlder;
@@ -493,44 +506,76 @@ begin
   Assert.AreEqual(1, mSkipped, 'OnCacheSkipped');
 end;
 
-procedure TDpccMemoryPhase1Tests.OfficeAndWinRtOffByDefault;
+procedure TDpccMemoryPhase1Tests.ExtraSourceFoldersReplaceOfficeSwitch;
 var
   mIssues: TArray<TConfigurationIssue>;
   mSettings: TServerSettings;
   mRouted: TDpccRoutedSetting;
   mCatalog: TDpccSettingsCatalog;
 begin
-  Assert.IsFalse(TServerSettings.Default.IndexOfficeAndWinRt, 'Server: Vorgabe aus');
-  mSettings := TConfigurationParser.Parse('{"index": {"officeAndWinRt": true}}', mIssues);
-  Assert.IsTrue(mSettings.IndexOfficeAndWinRt, 'index.officeAndWinRt aus settings.json');
-  Assert.AreEqual(0, Integer(Length(mIssues)), 'ohne Meldung');
-  Assert.IsFalse(TDpccPluginSettings.Defaults.IndexOfficeAndWinRt, 'Plugin: Vorgabe aus');
-  Assert.IsTrue(TDpccSettingsScopes.TryRouted('IndexOfficeAndWinRt', mRouted), 'umgeleitet');
-  Assert.AreEqual('index.officeAndWinRt', mRouted.Path, 'Schlüssel');
-  Assert.IsTrue(mRouted.Flag, 'Wahrheitswert');
+  Assert.AreEqual(0, Integer(Length(TServerSettings.Default.IndexExtraSourceFolders)), 'Server: Vorgabe leer');
+  // Ein alter Wert in settings.json bleibt ohne Wirkung und ohne Meldung.
+  mSettings := TConfigurationParser.Parse('{"index": {"officeAndWinRt": false}}', mIssues);
+  Assert.AreEqual(0, Integer(Length(mIssues)), 'index.officeAndWinRt ohne Meldung');
+  mSettings := TConfigurationParser.Parse('{"index": {"extraSourceFolders": "C:\\A; ;C:\\B"}}', mIssues);
+  Assert.AreEqual(0, Integer(Length(mIssues)), 'Text ohne Meldung');
+  Assert.AreEqual('C:\A|C:\B', string.Join('|', mSettings.IndexExtraSourceFolders), 'Text mit ";"');
+  mSettings := TConfigurationParser.Parse('{"index": {"extraSourceFolders": ["C:\\A", "$(BDS)\\X"]}}', mIssues);
+  Assert.AreEqual('C:\A|$(BDS)\X', string.Join('|', mSettings.IndexExtraSourceFolders), 'Liste');
+  TConfigurationParser.Parse('{"index": {"extraSourceFolders": 3}}', mIssues);
+  Assert.AreEqual(1, Integer(Length(mIssues)), 'weder Text noch Liste: Meldung');
+  Assert.AreEqual('', TDpccPluginSettings.Defaults.IndexExtraSourceFolders, 'Plugin: Vorgabe leer');
+  Assert.IsFalse(TDpccSettingsScopes.TryRouted('IndexOfficeAndWinRt', mRouted), 'alter Schalter entfallen');
+  Assert.IsTrue(TDpccSettingsScopes.TryRouted('IndexExtraSourceFolders', mRouted), 'umgeleitet');
+  Assert.AreEqual('index.extraSourceFolders', mRouted.Path, 'Schlüssel');
+  Assert.IsTrue(mRouted.Text, 'als Text');
   mCatalog := TDpccSettingsCatalog.CreateDefault;
   try
-    Assert.IsTrue(TDpccCompletionView.ShowsName(mCatalog, 'IndexOfficeAndWinRt'), 'auf der Optionsseite');
+    Assert.IsTrue(TDpccCompletionView.ShowsName(mCatalog, 'IndexExtraSourceFolders'), 'auf der Optionsseite');
+    Assert.IsFalse(TDpccCompletionView.ShowsName(mCatalog, 'IndexOfficeAndWinRt'), 'alter Schalter nicht mehr');
   finally
     mCatalog.Free;
   end;
 end;
 
-procedure TDpccMemoryPhase1Tests.OfficeAndWinRtLeftOutOfLibrary;
+procedure TDpccMemoryPhase1Tests.OfficeAndWinRtAlwaysInLibrary;
 var
-  mWithout, mWith: TArray<string>;
-  mWithoutCache, mWithCache: string;
+  mLibrary: TArray<string>;
+  mRequest: TIndexRequest;
+  mLoaded: TProjectInfo;
+begin
+  RunFilesScenario(mLibrary, mRequest, nil);
+  Assert.AreEqual(3, Integer(Length(mLibrary)), 'Bibliothek samt OCX\Servers und WinRT');
+  Assert.Contains(string.Join(';', mLibrary), 'Word2099', 'OCX\Servers');
+  Assert.Contains(string.Join(';', mLibrary), 'WinAPI.Probe', 'WinRT');
+  mLoaded := Default(TProjectInfo);
+  mLoaded.Platform := 'Win32';
+  Assert.AreEqual(TIndexCacheDirectory.LibraryFileFor('C:\Cache', '37.0',
+    TIndexProjectFiles.LibrarySignature(mLoaded, '37.0')), mRequest.LibraryCacheFile, 'ein Bibliotheks-Cache');
+  Assert.AreEqual(2, Integer(Length(mRequest.OnDemandRoots)), 'Office und WinRT bei Bedarf');
+  Assert.IsTrue(TIndexFileDefines.IsUnder(TPath.Combine(FFolder, 'ocx\servers\X.pas'), mRequest.OnDemandRoots),
+    'ohne Groß-/Kleinschreibung');
+  Assert.AreEqual('', mRequest.ExtraCacheFile, 'ohne Zusatzordner kein eigener Cache');
+end;
+
+procedure TDpccMemoryPhase1Tests.ExtraSourceFoldersFollowLibrary;
+var
+  mLibrary: TArray<string>;
+  mRequest: TIndexRequest;
   mJoined: string;
 begin
-  RunFilesScenario(mWithout, mWith, mWithoutCache, mWithCache);
-  mJoined := string.Join(';', mWithout);
-  Assert.Contains(mJoined, 'System.Probe.pas', 'übrige Bibliothek bleibt');
-  Assert.IsFalse(ContainsText(mJoined, 'Word2099'), 'OCX\Servers ohne Schalter');
-  Assert.IsFalse(ContainsText(mJoined, 'WinAPI.Probe'), 'WinRT ohne Schalter');
-  Assert.AreEqual(3, Integer(Length(mWith)), 'mit Schalter alles');
-  Assert.AreNotEqual(mWithoutCache, mWithCache, 'eigener Bibliotheks-Cache');
-  Assert.IsTrue(TShellIndexRequests.IsRarelyUsed(TPath.Combine(FFolder, 'ocx\servers\X.pas'),
-    [IncludeTrailingPathDelimiter(TPath.Combine(FFolder, 'OCX\Servers'))]), 'ohne Groß-/Kleinschreibung');
+  RunFilesScenario(mLibrary, mRequest, ['$(BDS)\Extra\Src']);
+  // Die Wurzeln merkt sich der Server prozessweit (Rang gleichnamiger Units); zurück auf den Stand ohne.
+  TShellIndexRequests.NoteExtraRoots(nil);
+  Assert.AreEqual(5, Integer(Length(mLibrary)), 'Bibliothek, dann zwei Units der Zusatzordner');
+  Assert.EndsWith('Extra.Top.pas', mLibrary[3], 'Wurzel vor den Unterordnern');
+  Assert.EndsWith('Extra.Deep.pas', mLibrary[4], 'Unterordner');
+  mJoined := string.Join(';', mLibrary);
+  Assert.IsFalse(ContainsText(mJoined, 'Extra.Old'), 'ohne __history');
+  Assert.AreEqual(1, Integer(Length(mRequest.ExtraRoots)), 'aufgelöste Wurzel');
+  Assert.IsTrue(SameText(TPath.Combine(FFolder, 'Extra\Src'), mRequest.ExtraRoots[0]), '$(BDS) aufgelöst');
+  Assert.Contains(mRequest.ExtraCacheFile, '\' + TIndexCacheDirectory.cExtraFolder + '\', 'eigener Cache');
+  Assert.AreNotEqual(mRequest.LibraryCacheFile, mRequest.ExtraCacheFile, 'nicht der Bibliotheks-Cache');
 end;
 
 initialization

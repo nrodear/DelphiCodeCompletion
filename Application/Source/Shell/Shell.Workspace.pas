@@ -61,6 +61,14 @@ type
     /// ihn entfernen kann; Rebuild sperrt ihn wieder.</summary>
     procedure ReleaseCache;
     function EnsureUnit(const AUnitName: string): Boolean;
+    /// <summary>Unit-Suche des Projekts (Reihenfolge des Compilers, L2) als Rückruf; nil ohne Aufbau. Threadsicher;
+    /// der Rückruf hält seinen Resolver selbst.</summary>
+    function UnitFileResolver: TUnitFileResolver;
+    /// <summary>Ordner außerhalb des Projektordners, deren Stände der Server selbst prüft (L2). Threadsicher.
+    /// </summary>
+    function ScanFolders: TArray<string>;
+    /// <summary>Der gemeinsame Symbolindex (L2: Prüfung der Ordner).</summary>
+    function IndexStatusIndex: ISymbolIndex;
     function ApplyChanges(const AChanges: TArray<TFileChange>): Integer;
     function ApplyText(const AFileName, AText: string): Boolean;
     /// <summary>Wechselt Konfiguration und/oder Plattform ('' = unverändert) und lädt das Projekt neu (#46).
@@ -218,9 +226,17 @@ begin
   try
     mProjectFile := mLoader.FindProjectFile(ASettings);
     // Ohne Projekt indiziert dieser Arbeitsbereich nichts; Prüfungen sollen dann nicht auf ihn warten. Sonst liefen
-    // die indexabhängigen Regeln in einem Ordner ohne Projekt nie (#1220).
-    FState.WithoutProject := mProjectFile = '';
-    mLoadedOk := not FState.WithoutProject and mLoader.Load(mProjectFile, ASettings, mLoaded);
+    // die indexabhängigen Regeln in einem Ordner ohne Projekt nie (#1220). L2: Der Ordner einer losen Datei gilt
+    // ohne Projekt als Suchpfad.
+    FState.WithoutProject := (mProjectFile = '') and not FSetup.LooseFolder;
+    if (mProjectFile = '') and FSetup.LooseFolder then
+    begin
+      mLoadedOk := mLoader.LoadLoose(ASettings, mLoaded);
+    end
+    else
+    begin
+      mLoadedOk := not FState.WithoutProject and mLoader.Load(mProjectFile, ASettings, mLoaded);
+    end;
   finally
     mLoader.Free;
   end;
@@ -278,6 +294,21 @@ end;
 function TShellWorkspace.EnsureUnit(const AUnitName: string): Boolean;
 begin
   Result := FIndexing.EnsureUnit(AUnitName);
+end;
+
+function TShellWorkspace.UnitFileResolver: TUnitFileResolver;
+begin
+  Result := FIndexing.UnitFileResolver();
+end;
+
+function TShellWorkspace.ScanFolders: TArray<string>;
+begin
+  Result := FIndexing.ScanFolders;
+end;
+
+function TShellWorkspace.IndexStatusIndex: ISymbolIndex;
+begin
+  Result := FIndexing.Index;
 end;
 
 function TShellWorkspace.ApplyText(const AFileName, AText: string): Boolean;

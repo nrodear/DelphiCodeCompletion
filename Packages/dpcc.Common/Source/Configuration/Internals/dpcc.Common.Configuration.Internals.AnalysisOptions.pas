@@ -30,7 +30,8 @@ type
     ArchitectureCentralUnitsMustBeA, ArchitectureExcludeMustBeA, ArchitectureFailOnMustBeA, TheNameOfAQuery,
     UnknownEntryInASaved, ASavedQueryMustBe, ASavedQueryNeedsName, QueriesMustBeAList, QueryAppearsTwiceTheFirst,
     HotspotsMonthsMustBeA, HotspotsCouplingMinCommitsMustBe, ArchitectureFailOnUnknownDeviationAllowed,
-    UnknownSeverityAllowedOffHint, QueryNeedsQuery, RangeResolution, RangeMaxShare, RangeMinCohesion);
+    UnknownSeverityAllowedOffHint, QueryNeedsQuery, RangeResolution, RangeMaxShare, RangeMinCohesion,
+    IndexExtraSourceFoldersMustBe);
 
 const
   cTexts: array[TAnalysisOptionsText] of TDpccText = (
@@ -72,7 +73,9 @@ const
     (De: 'Abfrage "%s" braucht "query"'; En: 'Query "%s" needs "query"'),
     (De: '0,2 bis 5,0'; En: '0.2 to 5.0'),
     (De: '0 bis 0,9'; En: '0 to 0.9'),
-    (De: '0 bis 1'; En: '0 to 1'));
+    (De: '0 bis 1'; En: '0 to 1'),
+    (De: '"index.extraSourceFolders" muss eine Liste von Ordnern oder ein durch ";" getrennter Text sein';
+     En: '"index.extraSourceFolders" must be a list of folders or a text separated by ";"'));
 
 {$SCOPEDENUMS OFF}
 
@@ -103,9 +106,44 @@ begin
   end;
 end;
 
+/// <summary>index.extraSourceFolders (L2): Liste von Ordnern oder ein Text mit ";" dazwischen (so schreibt ihn die
+/// Optionsseite); leere Einträge entfallen.</summary>
+procedure ReadExtraSourceFolders(AReader: TConfigurationReader; AValue: TJsonNode; const AKey: string;
+  var ASettings: TServerSettings);
+var
+  mItems: TArray<string>;
+  mItem: string;
+begin
+  if AValue.Kind = TJsonKind.String_ then
+  begin
+    mItems := AValue.Value.Split([';']);
+  end
+  else if not AReader.ExpectStrings(AValue, 'index.extraSourceFolders',
+    cTexts[TAnalysisOptionsText.IndexExtraSourceFoldersMustBe].Text, mItems) then
+  begin
+    Exit;
+  end;
+  ASettings.IndexExtraSourceFolders := nil;
+  for mItem in mItems do
+  begin
+    if Trim(mItem) <> '' then
+    begin
+      ASettings.IndexExtraSourceFolders := ASettings.IndexExtraSourceFolders + [Trim(mItem)];
+    end;
+  end;
+end;
+
+/// <summary>index.officeAndWinRt gibt es seit L2 nicht mehr (Office-Typbibliotheken und WinRT stehen immer im
+/// Katalog); ein vorhandener Wert bleibt ohne Wirkung und ohne Meldung.</summary>
+procedure IgnoreOfficeAndWinRt(AReader: TConfigurationReader; AValue: TJsonNode; const AKey: string;
+  var ASettings: TServerSettings);
+begin
+end;
+
 const
-  cIndexMembers: array[0..2] of TMemberOption = ((Key: 'cacheMaxAgeDays'; Read: ReadCacheMaxAge),
-    (Key: 'cacheMaxMb'; Read: ReadCacheMaxMb), (Key: 'exclude'; Read: ReadIndexExclude));
+  cIndexMembers: array[0..4] of TMemberOption = ((Key: 'cacheMaxAgeDays'; Read: ReadCacheMaxAge),
+    (Key: 'cacheMaxMb'; Read: ReadCacheMaxMb), (Key: 'exclude'; Read: ReadIndexExclude),
+    (Key: 'extraSourceFolders'; Read: ReadExtraSourceFolders), (Key: 'officeAndWinRt'; Read: IgnoreOfficeAndWinRt));
 
 procedure ReadIndex(AReader: TConfigurationReader; ANode: TJsonNode; var ASettings: TServerSettings);
 begin
@@ -113,7 +151,6 @@ begin
     TFlagOption.Create('searchPaths', ASettings.IndexSearchPaths),
     TFlagOption.Create('libraryPaths', ASettings.IndexLibraryPaths),
     TFlagOption.Create('usages', ASettings.IndexUsages),
-    TFlagOption.Create('officeAndWinRt', ASettings.IndexOfficeAndWinRt),
     TFlagOption.Create('removeOrphans', ASettings.IndexRemoveOrphans)], cIndexMembers, ASettings);
   // Umfang und Verwendungen sind seit S4 fest; die Schlüssel bleiben bis R8 bekannt, damit alte Dateien ohne
   // Warnung laden.
@@ -126,7 +163,7 @@ begin
   ATarget.IndexSearchPaths := ASource.IndexSearchPaths;
   ATarget.IndexLibraryPaths := ASource.IndexLibraryPaths;
   ATarget.IndexUsages := ASource.IndexUsages;
-  ATarget.IndexOfficeAndWinRt := ASource.IndexOfficeAndWinRt;
+  ATarget.IndexExtraSourceFolders := ASource.IndexExtraSourceFolders;
   ATarget.IndexExclude := ASource.IndexExclude;
   ATarget.IndexRemoveOrphans := ASource.IndexRemoveOrphans;
   ATarget.IndexCacheMaxAgeDays := ASource.IndexCacheMaxAgeDays;

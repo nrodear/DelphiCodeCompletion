@@ -4,8 +4,10 @@
 // - die RTTI jedes geladenen Packages (TRttiContext.GetPackages): alle öffentlichen Typen samt Unit, bei Klassen
 //   mit Vorfahr; so kennt die IDE auch Typen aus Packages, die nur als BPL/DCP/DCU installiert sind;
 // - die Komponenten der Palette (IOTAPackageServices, über RegisterComponents angemeldet) über GetClass.
-// Packages der Installation (RTL, VCL, FMX; ihr Quelltext liegt bei) und die von dpcc selbst bleiben außen vor:
-// Sie stehen schon im Index bzw. gehören nicht in fremde Projekte.
+// Die Packages von dpcc selbst bleiben außen vor (sie gehören nicht in fremde Projekte). Packages der Installation
+// zählen seit L2 mit, aber nur ihre Units ohne Quelltext (DUnitX, FireDAC, IoT …): Units, deren .pas unter
+// $(BDS)\source oder $(BDS)\OCX liegt, stehen im Index; Quelltext gewinnt. Die Liste dieser .pas entsteht einmal je
+// Sitzung der IDE.
 
 interface
 
@@ -20,9 +22,18 @@ type
     /// </summary>
     class function AddPackages(const ASkipped: TArray<string>; ATypes: TList<TDpccIdeType>): Integer; static;
     class procedure AddPalette(const ASkipped: TArray<string>; ATypes: TList<TDpccIdeType>); static;
+  private
+    class var FSourceUnits: TDictionary<string, Boolean>;
   public
-    /// <summary>Ordner, deren Packages nicht zählen: Installation und dpcc.</summary>
+    class destructor Destroy;
+    /// <summary>Ordner, deren Packages nicht zählen: dpcc (L2: die Installation zählt mit, siehe SourceUnits).
+    /// </summary>
     class function SkippedFolders: TArray<string>; static;
+    /// <summary>Ordner der Installation (bds.exe liegt in &lt;Installation&gt;\bin).</summary>
+    class function InstallationFolder: string; static;
+    /// <summary>Unit-Namen (groß) aller .pas unter $(BDS)\source und $(BDS)\OCX; einmal je Sitzung gelistet.
+    /// Gehört der Klasse.</summary>
+    class function SourceUnits: TDictionary<string, Boolean>; static;
     /// <summary>Typen der geladenen Packages außerhalb der Installation; nur im Hauptthread. AFailed: Packages,
     /// deren RTTI nicht lesbar war (sie fehlen im Ergebnis).</summary>
     class function Collect(out AFailed: Integer): TArray<TDpccIdeType>; static;
@@ -33,14 +44,51 @@ implementation
 uses
   System.SysUtils,
   System.Classes,
+  System.IOUtils,
   System.Rtti,
   ToolsAPI;
 
+class destructor TDpccIdeTypeCollector.Destroy;
+begin
+  FreeAndNil(FSourceUnits);
+end;
+
+class function TDpccIdeTypeCollector.InstallationFolder: string;
+begin
+  Result := ExtractFileDir(ExtractFileDir(ParamStr(0)));
+end;
+
 class function TDpccIdeTypeCollector.SkippedFolders: TArray<string>;
 begin
-  // bds.exe liegt in <Installation>\bin; Base und seine Module liegen im Ordner von Base.
-  Result := TArray<string>.Create(ExtractFileDir(ExtractFileDir(ParamStr(0))),
-    ExcludeTrailingPathDelimiter(ExtractFilePath(GetModuleName(HInstance))));
+  // Base und seine Module liegen im Ordner von Base. L2: Die Installation zählt mit (Units ohne Quelltext).
+  Result := TArray<string>.Create(ExcludeTrailingPathDelimiter(ExtractFilePath(GetModuleName(HInstance))));
+end;
+
+class function TDpccIdeTypeCollector.SourceUnits: TDictionary<string, Boolean>;
+var
+  mFiles: TArray<string>;
+  mFolder: string;
+begin
+  if FSourceUnits = nil then
+  begin
+    mFiles := nil;
+    for mFolder in TArray<string>.Create('source', 'OCX') do
+    begin
+      try
+        if TDirectory.Exists(TPath.Combine(InstallationFolder, mFolder)) then
+        begin
+          mFiles := mFiles + TDirectory.GetFiles(TPath.Combine(InstallationFolder, mFolder), '*.pas',
+            TSearchOption.soAllDirectories);
+        end;
+      except
+        // Nicht lesbar: dann zählen die Typen dieser Packages wie bisher nicht doppelt, sondern gar nicht.
+        on Exception do
+          ;
+      end;
+    end;
+    FSourceUnits := TDpccIdeTypes.UnitNames(mFiles);
+  end;
+  Result := FSourceUnits;
 end;
 
 /// <summary>Qualifizierter Name des Vorfahren einer Klasse; '' ohne.</summary>
@@ -53,15 +101,18 @@ begin
   end;
 end;
 
-/// <summary>Öffentliche Typen von APackage an ATypes anhängen.</summary>
-procedure AddPackageTypes(APackage: TRttiPackage; ATypes: TList<TDpccIdeType>);
+/// <summary>Öffentliche Typen von APackage an ATypes anhängen; ASourceUnits (nicht nil bei Packages der
+/// Installation, L2): Typen dieser Units entfallen, sie haben Quelltext.</summary>
+procedure AddPackageTypes(APackage: TRttiPackage; ATypes: TList<TDpccIdeType>;
+  const ASourceUnits: TDictionary<string, Boolean>);
 var
   mRttiType: TRttiType;
   mType: TDpccIdeType;
 begin
   for mRttiType in APackage.GetTypes do
   begin
-    if mRttiType.IsPublicType and TDpccIdeType.FromQualified(mRttiType.QualifiedName, ParentOf(mRttiType), mType) then
+    if mRttiType.IsPublicType and TDpccIdeType.FromQualified(mRttiType.QualifiedName, ParentOf(mRttiType), mType) and
+      TDpccIdeTypes.KeepInstalled(mType, ASourceUnits) then
     begin
       ATypes.Add(mType);
     end;
@@ -73,6 +124,7 @@ class function TDpccIdeTypeCollector.AddPackages(const ASkipped: TArray<string>;
 var
   mContext: TRttiContext;
   mPackage: TRttiPackage;
+  mSources: TDictionary<string, Boolean>;
 begin
   Result := 0;
   mContext := TRttiContext.Create;
@@ -83,9 +135,15 @@ begin
       begin
         Continue;
       end;
+      // L2: Packages der Installation nur mit ihren Units ohne Quelltext.
+      mSources := nil;
+      if TDpccIdeTypes.InFolders(mPackage.Name, [InstallationFolder]) then
+      begin
+        mSources := SourceUnits;
+      end;
       // Ein Package mit beschädigter RTTI darf die übrigen nicht verhindern.
       try
-        AddPackageTypes(mPackage, ATypes);
+        AddPackageTypes(mPackage, ATypes, mSources);
       except
         on Exception do
         begin
@@ -106,7 +164,10 @@ var
   mParent: string;
 begin
   mClass := GetClass(AName);
-  Result := (mClass <> nil) and not TDpccIdeTypes.InFolders(GetModuleName(FindClassHInstance(mClass)), ASkipped);
+  Result := (mClass <> nil) and not TDpccIdeTypes.InFolders(GetModuleName(FindClassHInstance(mClass)), ASkipped) and
+    (not TDpccIdeTypes.InFolders(GetModuleName(FindClassHInstance(mClass)),
+    [TDpccIdeTypeCollector.InstallationFolder]) or
+    not TDpccIdeTypeCollector.SourceUnits.ContainsKey(UpperCase(mClass.UnitName)));
   if not Result then
   begin
     Exit;

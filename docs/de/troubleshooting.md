@@ -60,7 +60,21 @@ Das ist erwartet. Die Liste, die nach „.“ von selbst aufgeht, kommt von Delp
   Zeilenangabe schließt die Liste und setzt den Cursor an den Fehler.
 - Eine Unit fehlt: Liegt sie in keinem Projekt, keinem Suchpfad und keinem Bibliothekspfad, kennt dpcc sie nicht.
   Siehe [Index und Cache](index-cache.md#was-im-index-steht).
+- Eine Unit fehlt, obwohl ihre Datei im Suchpfad liegt: In `dpcc.log` nach „Datei nicht lesbar“ suchen. Eine Datei,
+  die sich nicht lesen oder parsen lässt, übergeht der Index.
 - Der Index scheint veraltet: **Index neu aufbauen** auf der Seite **Allgemein**.
+
+## Für DUnitX gibt es keine Vorschläge
+
+DUnitX, DUnit und FireDAC liegen der Installation nur als `.dcu` bei. Ohne Quelltext kennt dpcc ihre Typen aus den
+Packages, die die IDE geladen hat, und ihre Mitglieder erst, wenn ein Projekt die Unit in den `uses` nennt. Konstanten
+und Routinen außerhalb von Typen fehlen dann.
+
+- Liegt der Quelltext vor (etwa ein Klon von DUnitX), seinen Ordner auf der Seite **Allgemein** unter „Zusätzliche
+  Quellordner“ eintragen. Danach schlägt „+ Unit“ etwa `TestFixtureAttribute` und `Assert` vor. Siehe
+  [Index und Cache](index-cache.md#zusätzliche-quellordner).
+- Ein Verweis wie `$(DUnitX)` in einem Suchpfad wirkt nur, wenn die Variable in den Umgebungsvariablen der IDE oder
+  des Systems steht. Sonst nennt `dpcc.log` den Pfad („… mit unaufgelöstem Verweis übergangen“).
 
 ## Zwei Tooltips erscheinen
 
@@ -164,8 +178,8 @@ Auch „run start … mem n MB“ und die Zeilen „index … mem n MB“ nennen
 - Das Diagnoselog des Servers zeigt in den Zeilen „mem“, wie viel davon auf den Index entfällt (siehe oben).
 - Von der Bibliothek hält der Index nur die Units ständig im Speicher, die die Projekte erreichen oder oft brauchen;
   die übrigen lädt er bei Bedarf und gibt sie wieder frei. Siehe [Index und Cache](index-cache.md#bibliothek-bei-bedarf).
-- Die Office-Typbibliotheken und WinRT sind ohne den Schalter „Office-Typbibliotheken und WinRT vorab indizieren“ nicht
-  im Index. Siehe [Index und Cache](index-cache.md#office-typbibliotheken-und-winrt).
+- Die Office-Typbibliotheken und WinRT liegen nur mit ihrem Katalog im Speicher; ihre Symbole lädt dpcc bei Bedarf.
+  Siehe [Index und Cache](index-cache.md#office-typbibliotheken-und-winrt).
 - Nur die 16 zuletzt benutzten Dateien behalten im Server ihren Syntaxbaum; für ältere baut er ihn beim nächsten Zugriff
   neu auf. Schließt die IDE eine Datei, gibt dpcc sie im Server frei.
 - Eine Datei außerhalb der Projektgruppe bekommt einen eigenen Arbeitsbereich. Er verschwindet wieder, wenn die letzte

@@ -1,5 +1,6 @@
 ﻿unit dpcc.Common.Projects.PackageReader;
 
+// Seit L2 auch die uses eines Programms oder einer Bibliothek (.dpr): "uses A in 'A.pas', B;" (ProgramUses).
 // Liest requires und contains einer Package-Datei (.dpk, #46). Die Listen sind
 // Teil des Quelltexts: "requires rtl, vcl;" und "contains A in 'A.pas', B;".
 // contains und requires sind am Anweisungsanfang gemeint; Kommentare und
@@ -41,6 +42,9 @@ type
   TPackageReader = class
   public
     class function Read(const AText: string): TPackageSource; static;
+    /// <summary>Einträge der uses-Liste einer Programm- oder Bibliotheksdatei (program/library, L2); leer für andere
+    /// Dateien. Path ist der Pfad aus in '…' wie in der Datei.</summary>
+    class function ProgramUses(const AText: string): TArray<TPackageEntry>; static;
     /// <summary>Text für einen neuen contains-Eintrag vor ContainsEnd: ", Zeilenende, zwei Leerzeichen,
     /// Name in 'Pfad'" (APath '' = ohne in).</summary>
     class function ContainsInsertion(const AName, APath, ALineBreak: string): string; static;
@@ -247,6 +251,30 @@ begin
     begin
       Inc(mIndex);
     end;
+  end;
+end;
+
+class function TPackageReader.ProgramUses(const AText: string): TArray<TPackageEntry>;
+var
+  mTokens: TArray<TPascalToken>;
+  mIndex: Integer;
+begin
+  Result := nil;
+  mTokens := TPascalLexer.Tokenize(AText);
+  mIndex := NextCode(mTokens, 0);
+  if (mIndex > High(mTokens)) or not (IsWord(mTokens[mIndex], 'program') or IsWord(mTokens[mIndex], 'library')) then
+  begin
+    Exit;
+  end;
+  // Kopf bis zum Semikolon, dann uses als nächste Anweisung.
+  while (mIndex <= High(mTokens)) and not mTokens[mIndex].IsSymbol(';') do
+  begin
+    Inc(mIndex);
+  end;
+  mIndex := NextCode(mTokens, mIndex + 1);
+  if (mIndex <= High(mTokens)) and IsWord(mTokens[mIndex], 'uses') then
+  begin
+    ReadList(mTokens, mIndex + 1, Result);
   end;
 end;
 

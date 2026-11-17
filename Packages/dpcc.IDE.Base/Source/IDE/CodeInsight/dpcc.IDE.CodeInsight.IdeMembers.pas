@@ -1,7 +1,8 @@
 ﻿unit dpcc.IDE.CodeInsight.IdeMembers;
 
 // Sammelt für dpcc/ideMembers die Mitglieder der Typen in Units ohne Quelltext (Hauptthread, auf Nachfrage des
-// Servers nach dem Index). Quelle ist die RTTI der geladenen Packages außerhalb der Installation: bei Klassen
+// Servers nach dem Index). Quelle ist die RTTI der geladenen Packages (seit L2 auch die der Installation; der Server
+// fragt nur nach Units ohne Quelltext): bei Klassen
 // Vorfahr, Interfaces, Felder, Properties (auch Array-Properties) und Methoden mit Parametern, sichtbar ab
 // protected; bei Interfaces und Records ebenso, bei Aufzählungen die Werte. Was die RTTI nicht kennt, fehlt:
 // Methoden ohne erweiterte RTTI ({$RTTI EXPLICIT METHODS([])}), Vorgabewerte von Parametern, private Mitglieder.

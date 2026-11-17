@@ -49,6 +49,8 @@ type
     cLibraryFolder = 'Bibliothek';
     /// <summary>Gemeinsame Caches der Suchpfad-Units (Speicher, Rückmeldung 01.11.2026).</summary>
     cSearchFolder = 'Suchpfade';
+    /// <summary>Gemeinsame Caches der zusätzlichen Quellordner (L2, index.extraSourceFolders).</summary>
+    cExtraFolder = 'Zusatzordner';
     /// <summary>Ordnername ohne bekannte Delphi-Version.</summary>
     cNoVersion = 'ohne-Delphi';
     cLockExtension = '.lock';
@@ -88,6 +90,9 @@ type
     /// <summary>Gemeinsamer Cache der Suchpfad-Units aller Projekte mit gleicher ASignature (Suchpfade, Defines,
     /// Include-Pfade), getrennt vom Projekt.</summary>
     class function SearchFileFor(const ARoot, AIdeVersion, ASignature: string): string; static;
+    /// <summary>Gemeinsamer Cache der zusätzlichen Quellordner (L2): &lt;Version&gt;\Zusatzordner\&lt;Hash&gt;\…
+    /// </summary>
+    class function ExtraFileFor(const ARoot, AIdeVersion, ASignature: string): string; static;
     /// <summary>Datei des letzten IDE-Builds für den Arbeitsordner AWorkspace (#556), gleich für LSP- und
     /// MCP-Prozess; bewusst kein Index-Cache, damit das Aufräumen sie nicht erfasst.</summary>
     class function BuildFileFor(const ARoot, AWorkspace: string): string; static;
@@ -280,6 +285,12 @@ end;
 class function TIndexCacheDirectory.SearchFileFor(const ARoot, AIdeVersion, ASignature: string): string;
 begin
   Result := TPath.Combine(TPath.Combine(TPath.Combine(VersionFolder(ARoot, AIdeVersion), cSearchFolder),
+    KeyHash(ASignature)), CacheFileName);
+end;
+
+class function TIndexCacheDirectory.ExtraFileFor(const ARoot, AIdeVersion, ASignature: string): string;
+begin
+  Result := TPath.Combine(TPath.Combine(TPath.Combine(VersionFolder(ARoot, AIdeVersion), cExtraFolder),
     KeyHash(ASignature)), CacheFileName);
 end;
 
@@ -526,10 +537,10 @@ var
   mFolder: string;
 begin
   // Gemeinsame Caches ohne Projekt als Herkunft: <Version>\Bibliothek\<Hash>\index-<Format>.dpccidx und
-  // <Version>\Suchpfade\<Hash>\… (mehrere Projekte teilen sie).
+  // <Version>\Suchpfade\<Hash>\… (mehrere Projekte teilen sie), seit L2 auch <Version>\Zusatzordner\<Hash>\….
   mFolder := ExtractFileName(ExtractFileDir(ExtractFileDir(AFileName)));
   Result := SameText(mFolder, TIndexCacheDirectory.cLibraryFolder) or
-    SameText(mFolder, TIndexCacheDirectory.cSearchFolder);
+    SameText(mFolder, TIndexCacheDirectory.cSearchFolder) or SameText(mFolder, TIndexCacheDirectory.cExtraFolder);
 end;
 
 /// <summary>Projekt-Units eines Caches ohne projekt.txt (Caches vor dieser Änderung).</summary>

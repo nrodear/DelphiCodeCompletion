@@ -3,6 +3,9 @@
 // Internals-Rolle Shell: Dateien und Indexauftrag eines geladenen Projekts. Projektdateien, alle Units der Such-
 // und Bibliothekspfade (#648), Packages aus contains und requires (#46), Symbole, Include-Pfade (#264) und die
 // Cache-Dateien je Projekt, Bibliothek und Suchpfaden (#492, #647).
+// L2: Office-Typbibliotheken und WinRT gehören immer zur Bibliothek (Katalog, bei Bedarf geladen; der Schalter
+// index.officeAndWinRt und der eigene Cache ohne sie sind entfallen). Zusätzliche Quellordner
+// (index.extraSourceFolders) kommen samt Unterordnern nach der Bibliothek, mit eigenem gemeinsamen Cache.
 
 interface
 
@@ -21,7 +24,12 @@ type
   TShellIndexFiles = record
     Files: TArray<string>;
     SearchFiles: TArray<string>;
+    /// <summary>Units der Bibliothek, am Ende die der zusätzlichen Quellordner (L2).</summary>
     LibraryFiles: TArray<string>;
+    /// <summary>Zusätzliche Quellordner samt Unterordnern, aufgelöst (L2); leer ohne.</summary>
+    ExtraFolders: TArray<string>;
+    /// <summary>Die aufgelösten Wurzeln der zusätzlichen Quellordner (L2).</summary>
+    ExtraRoots: TArray<string>;
     /// <summary>Neu indexieren, wenn sich ASignature oder die Unit-Listen ändern; der Cache hängt nur an
     /// ASignature.</summary>
     function Key(const ASignature: string): string;
@@ -32,20 +40,31 @@ type
     CacheRoot: string;
     Priority: Integer;
     Usages: Boolean;
-    /// <summary>index.officeAndWinRt (c1): Ohne OCX\Servers und WinRT hat die Bibliothek einen eigenen Cache.
-    /// </summary>
-    OfficeAndWinRt: Boolean;
   end;
 
   TShellIndexRequests = class
+  private
+    class var FExtraLock: TObject;
+    class var FExtraRoots: TArray<string>;
   public
+    class constructor Create;
+    class destructor Destroy;
+    /// <summary>Merkt sich die Wurzeln der zusätzlichen Quellordner (L2) für IsExtraSource; prozessweit, die
+    /// Einstellung ist global.</summary>
+    class procedure NoteExtraRoots(const ARoots: TArray<string>); static;
+    /// <summary>Liegt AFileName unter einem zusätzlichen Quellordner? Ohne Wartezeit (kurze eigene Sperre).</summary>
+    class function IsExtraSource(const AFileName: string): Boolean; static;
     /// <summary>Trifft ein Muster aus APatterns (index.exclude) den Dateinamen?</summary>
     class function ExcludedOf(const APatterns: TArray<string>): TIndexExcluded; static;
     /// <summary>Projektdateien; mit index.searchPaths die Units der Suchpfade, mit index.libraryPaths die der
-    /// Bibliothekspfade, jeweils alle, nicht nur die über uses erreichbaren (#648). Ohne index.officeAndWinRt (c1)
-    /// fehlen davon die Units unter RarelyUsedRoots.</summary>
-    class function FilesOf(const ALoaded: TShellLoadedProject; const ASettings: TServerSettings): TShellIndexFiles;
-      static;
+    /// Bibliothekspfade, jeweils alle, nicht nur die über uses erreichbaren (#648); dahinter die Units der
+    /// zusätzlichen Quellordner (L2). Meldet verworfene oder gekürzte Zusatzordner an ALogger (nil = still).</summary>
+    class function FilesOf(const ALoaded: TShellLoadedProject; const ASettings: TServerSettings;
+      const ALogger: ILogger = nil): TShellIndexFiles; static;
+    /// <summary>Die zusätzlichen Quellordner aus ASettings, aufgelöst ($(Name) mit den Variablen der Installation und
+    /// der Umgebung, %Name%); relative ab dem Projektordner. Nicht auflösbare meldet es an ALogger.</summary>
+    class function ExtraRootsOf(const ALoaded: TShellLoadedProject; const ASettings: TServerSettings;
+      const ALogger: ILogger): TArray<string>; static;
     /// <summary>Packages (#46): contains der .dpk gehört zum Projekt, auch ohne DCCReference; die Units der
     /// requires-Packages mit Quelltext kommen zu den Suchpfad-Units. Meldet die Anzahlen an ALogger.</summary>
     class procedure AddPackageFiles(const AProject: TProjectInfo; ALocator: TPackageLocator;
@@ -55,12 +74,10 @@ type
       const ATarget: TShellRequestTarget): TIndexRequest; static;
     /// <summary>Herkunft für das Aufräumen (#905): die Projektdatei, ohne sie ARoot.</summary>
     class function CacheOriginOf(const AProject: TProjectInfo; const ARoot: string): string; static;
-    /// <summary>Ordner der Installation, die ohne index.officeAndWinRt nicht vorab indiziert werden (c1):
-    /// $(BDS)\OCX\Servers (Office-Typbibliotheken, MSHTML) und $(BDS)\source\rtl\win\winrt; mit Trenner am
-    /// Ende, leer ohne Installation.</summary>
-    class function RarelyUsedRoots(const ALoaded: TShellLoadedProject): TArray<string>; static;
-    /// <summary>Liegt AFileName unter einem Ordner aus ARoots (ohne Groß-/Kleinschreibung)?</summary>
-    class function IsRarelyUsed(const AFileName: string; const ARoots: TArray<string>): Boolean; static;
+    /// <summary>Ordner der Installation, deren Units nur als Katalog und bei Bedarf im Index stehen (L2; vorher c1
+    /// „selten genutzt“ mit Schalter): $(BDS)\OCX\Servers (Office-Typbibliotheken) und
+    /// $(BDS)\source\rtl\win\winrt; mit Trenner am Ende, leer ohne Installation.</summary>
+    class function OnDemandRoots(const ALoaded: TShellLoadedProject): TArray<string>; static;
   end;
 
 implementation
@@ -69,6 +86,8 @@ uses
   System.Generics.Collections,
   System.StrUtils,
   System.IOUtils,
+  dpcc.Common.Projects.Paths,
+  dpcc.Common.Index.Builder,
   dpcc.Common.Compiler.CommandLine,
   dpcc.Common.Projects.PackageReader,
   dpcc.Common.Index.Adapters.CacheDirectory,
@@ -76,40 +95,54 @@ uses
   Shell.Workspace.Listings,
   dpcc.Text.LogMarks;
 
-/// <summary>AFiles ohne die Dateien unter ARoots (c1).</summary>
-function WithoutRarelyUsed(const AFiles, ARoots: TArray<string>): TArray<string>;
-var
-  mFiles: TList<string>;
-  mFileName: string;
-begin
-  if Length(ARoots) = 0 then
-  begin
-    Exit(AFiles);
-  end;
-  mFiles := TList<string>.Create;
-  try
-    for mFileName in AFiles do
-    begin
-      if not TShellIndexRequests.IsRarelyUsed(mFileName, ARoots) then
-      begin
-        mFiles.Add(mFileName);
-      end;
-    end;
-    Result := mFiles.ToArray;
-  finally
-    mFiles.Free;
-  end;
-end;
+const
+  /// <summary>Höchstens so viele Ordner durchsucht der Index unter den zusätzlichen Quellordnern (L2); ein zu weit
+  /// gefasster Ordner (ein ganzes Laufwerk) bremst sonst jeden Aufbau.</summary>
+  cMaxExtraFolders = 2000;
 
 { TShellIndexFiles }
 
 function TShellIndexFiles.Key(const ASignature: string): string;
 begin
   Result := ASignature + '#' + AnsiUpperCase(String.Join(';', Files)) + '#' +
-    AnsiUpperCase(String.Join(';', SearchFiles)) + '#' + AnsiUpperCase(String.Join(';', LibraryFiles));
+    AnsiUpperCase(String.Join(';', SearchFiles)) + '#' + AnsiUpperCase(String.Join(';', LibraryFiles)) + '#' +
+    AnsiUpperCase(String.Join(';', ExtraRoots));
 end;
 
 { TShellIndexRequests }
+
+class constructor TShellIndexRequests.Create;
+begin
+  FExtraLock := TObject.Create;
+end;
+
+class destructor TShellIndexRequests.Destroy;
+begin
+  FExtraLock.Free;
+end;
+
+class procedure TShellIndexRequests.NoteExtraRoots(const ARoots: TArray<string>);
+begin
+  TMonitor.Enter(FExtraLock);
+  try
+    FExtraRoots := ARoots;
+  finally
+    TMonitor.Exit(FExtraLock);
+  end;
+end;
+
+class function TShellIndexRequests.IsExtraSource(const AFileName: string): Boolean;
+var
+  mRoots: TArray<string>;
+begin
+  TMonitor.Enter(FExtraLock);
+  try
+    mRoots := FExtraRoots;
+  finally
+    TMonitor.Exit(FExtraLock);
+  end;
+  Result := TIndexFileDefines.IsUnder(AFileName, mRoots);
+end;
 
 class function TShellIndexRequests.ExcludedOf(const APatterns: TArray<string>): TIndexExcluded;
 var
@@ -129,15 +162,70 @@ begin
     end;
 end;
 
+/// <summary>Wert einer Umgebungsvariablen des Prozesses (L2: $(Name) und %Name% in zusätzlichen Quellordnern).
+/// </summary>
+function EnvironmentOf: TIndexEnvironment;
+begin
+  Result :=
+    function(const AName: string): string
+    begin
+      Result := GetEnvironmentVariable(AName);
+    end;
+end;
+
+/// <summary>Ordnerliste für FolderTree.</summary>
+function FoldersOf: TIndexListFolders;
+var
+  mFolders: TFunc<string, TArray<string>>;
+begin
+  mFolders := TShellFileAccess.FoldersFunc();
+  Result :=
+    function(const AFolder: string): TArray<string>
+    begin
+      Result := mFolders(AFolder);
+    end;
+end;
+
+class function TShellIndexRequests.ExtraRootsOf(const ALoaded: TShellLoadedProject; const ASettings: TServerSettings;
+  const ALogger: ILogger): TArray<string>;
+var
+  mFolder, mExpanded: string;
+  mVariables: TArray<TPair<string, string>>;
+begin
+  Result := nil;
+  mVariables := ALoaded.Variables + [TPair<string, string>.Create('Platform', ALoaded.Project.Platform),
+    TPair<string, string>.Create('Config', ALoaded.Project.Config)];
+  for mFolder in ASettings.IndexExtraSourceFolders do
+  begin
+    mExpanded := TIndexProjectFiles.ExpandFolder(mFolder, mVariables, EnvironmentOf());
+    if mExpanded = '' then
+    begin
+      if ALogger <> nil then
+      begin
+        ALogger.Warning(Format('index.extraSourceFolders: %s nicht auflösbar, übergangen', [TLogMarks.Path(mFolder)]));
+      end;
+      Continue;
+    end;
+    // Relativ: ab dem Projektordner (wie Suchpfade).
+    mExpanded := TProjectPaths.Combine(ExtractFileDir(ALoaded.ProjectFile), mExpanded);
+    if IndexText(mExpanded, Result) < 0 then
+    begin
+      Result := Result + [mExpanded];
+    end;
+  end;
+end;
+
 class function TShellIndexRequests.FilesOf(const ALoaded: TShellLoadedProject;
-  const ASettings: TServerSettings): TShellIndexFiles;
+  const ASettings: TServerSettings; const ALogger: ILogger): TShellIndexFiles;
 var
   mExcluded: TIndexExcluded;
+  mTruncated: Boolean;
 begin
   mExcluded := ExcludedOf(ASettings.IndexExclude);
   Result := Default(TShellIndexFiles);
   Result.Files := TIndexProjectFiles.Files(ALoaded.Project);
-  if ASettings.IndexSearchPaths then
+  // L2: Ohne Projekt (Ordner einer losen Datei) kommen seine Units nur bei Bedarf über die Unit-Suche.
+  if ASettings.IndexSearchPaths and (ALoaded.ProjectFile <> '') then
   begin
     Result.SearchFiles := TIndexProjectFiles.PathFiles(ALoaded.Project.SearchPaths, TShellFileAccess.PasFilesFunc(),
       mExcluded, Result.Files);
@@ -147,13 +235,24 @@ begin
     Result.LibraryFiles := TIndexProjectFiles.PathFiles(ALoaded.LibraryPaths, TShellFileAccess.PasFilesFunc(),
       mExcluded, Result.Files + Result.SearchFiles);
   end;
-  if not ASettings.IndexOfficeAndWinRt then
+  // L2: zusätzliche Quellordner samt Unterordnern, nach der Bibliothek (gleichnamige Units: Bibliothek vor
+  // Zusatzordner); was Projekt, Suchpfade oder Bibliothek schon haben, bleibt dort.
+  Result.ExtraRoots := ExtraRootsOf(ALoaded, ASettings, ALogger);
+  NoteExtraRoots(Result.ExtraRoots);
+  if Length(Result.ExtraRoots) > 0 then
   begin
-    Result.LibraryFiles := WithoutRarelyUsed(Result.LibraryFiles, RarelyUsedRoots(ALoaded));
+    Result.ExtraFolders := TIndexProjectFiles.FolderTree(Result.ExtraRoots, FoldersOf(), cMaxExtraFolders, mTruncated);
+    if mTruncated and (ALogger <> nil) then
+    begin
+      ALogger.Warning(Format('index.extraSourceFolders: mehr als %d Ordner, der Rest bleibt außen vor',
+        [cMaxExtraFolders]));
+    end;
+    Result.LibraryFiles := Result.LibraryFiles + TIndexProjectFiles.PathFiles(Result.ExtraFolders,
+      TShellFileAccess.PasFilesFunc(), mExcluded, Result.Files + Result.SearchFiles + Result.LibraryFiles);
   end;
 end;
 
-class function TShellIndexRequests.RarelyUsedRoots(const ALoaded: TShellLoadedProject): TArray<string>;
+class function TShellIndexRequests.OnDemandRoots(const ALoaded: TShellLoadedProject): TArray<string>;
 var
   mBds: string;
 begin
@@ -169,20 +268,6 @@ begin
   end;
   Result := [IncludeTrailingPathDelimiter(TPath.Combine(mBds, 'OCX\Servers')),
     IncludeTrailingPathDelimiter(TPath.Combine(mBds, 'source\rtl\win\winrt'))];
-end;
-
-class function TShellIndexRequests.IsRarelyUsed(const AFileName: string; const ARoots: TArray<string>): Boolean;
-var
-  mRoot: string;
-begin
-  for mRoot in ARoots do
-  begin
-    if StartsText(mRoot, AFileName) then
-    begin
-      Exit(True);
-    end;
-  end;
-  Result := False;
 end;
 
 /// <summary>Hängt die vorhandenen, noch nicht bekannten Dateien aus ACandidates an ATarget; Anzahl.</summary>
@@ -287,18 +372,21 @@ begin
   // Ablage je IDE-Version und Projekt (#492): %LOCALAPPDATA%\dpcc\Index\<Version>\<Projekt-Hash>.
   Result.CacheFile := TIndexCacheDirectory.FileFor(ATarget.CacheRoot, ALoaded.Version,
     TIndexProjectFiles.Signature(ALoaded.Project, ALoaded.Version));
-  // RTL/VCL/FMX einmal je Compilerversion und Plattform, geteilt mit allen Projekten (#492, #647). Ohne OCX\Servers
-  // und WinRT (c1) ein eigener, kleinerer Cache: Beim Umschalten bleibt der andere liegen und gilt beim
-  // Zurückschalten wieder; Einträge der ausgelassenen Units läsen sonst bei jedem Start mit.
+  // RTL/VCL/FMX einmal je Compilerversion und Plattform, geteilt mit allen Projekten (#492, #647); seit L2 immer
+  // samt Office-Typbibliotheken und WinRT (der eigene Cache "ohne-office-winrt" der Speicher-Optimierung c1 ist
+  // entfallen). Diese Units stehen im Katalog; über die uses der Bibliothek kommen sie nicht in die Hülle.
   mLibrarySignature := TIndexProjectFiles.LibrarySignature(ALoaded.Project, ALoaded.Version);
-  if not ATarget.OfficeAndWinRt then
-  begin
-    mLibrarySignature := mLibrarySignature + '|ohne-office-winrt';
-    // Auch über die uses der Bibliothek nicht vorab (nur, wenn das Projekt sie nennt).
-    Result.RarelyUsedRoots := RarelyUsedRoots(ALoaded);
-  end;
+  Result.OnDemandRoots := OnDemandRoots(ALoaded);
   Result.LibraryCacheFile := TIndexCacheDirectory.LibraryFileFor(ATarget.CacheRoot, ALoaded.Version,
     mLibrarySignature);
+  // Zusätzliche Quellordner (L2): eigener gemeinsamer Cache je Plattform, Version und Ordnern; ein anderer Ordner
+  // liest so nicht die ganze Bibliothek neu.
+  if Length(AFiles.ExtraRoots) > 0 then
+  begin
+    Result.ExtraRoots := AFiles.ExtraRoots;
+    Result.ExtraCacheFile := TIndexCacheDirectory.ExtraFileFor(ATarget.CacheRoot, ALoaded.Version,
+      TIndexProjectFiles.ExtraSignature(ALoaded.Project, ALoaded.Version, AFiles.ExtraRoots));
+  end;
   // Speicher-Optimierung Phase 3: Die Bibliotheksstufe übernimmt Units aus diesem Cache nur mit Kopf und Katalog;
   // ihre Symbole lädt der Index bei Bedarf. Bewusst ohne Einstellung.
   Result.LazyLibrary := True;

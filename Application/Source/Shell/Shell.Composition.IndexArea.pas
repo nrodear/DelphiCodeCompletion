@@ -7,6 +7,8 @@
 // bekommt sie über die Dienste. Seit Schritt 2 kennt sie nur den schlanken Kern (TShellCoreBase) und meldet sich
 // bei den Diagnosen über optionale Ereignisse statt über die Teilwurzel Diagnosen; so nutzt sie auch die Wurzel der
 // Completion (Shell.Composition.CompletionServer), die keine Diagnosen hat.
+// Gleichnamige Units (L2): TShellUnitScopes meldet dem Index je Datei das Projekt, das die Unit wählt (Unit-Suche des
+// Projekts in Compiler-Reihenfolge), seine Unit-Scope-Namen und den Rang ohne Projektbezug.
 
 interface
 
@@ -102,7 +104,109 @@ uses
   dpcc.Common.Lsp.IdeIndex,
   dpcc.Common.Architecture.UsesGraph,
   dpcc.Common.Pascal.Preprocessor,
-  Shell.Workspace;
+  Shell.Workspace,
+  Shell.Workspace.Requests;
+
+type
+  /// <summary>Projektbezug gleichnamiger Units (L2) über die Arbeitsbereiche des Kerns.</summary>
+  TShellUnitScopes = class(TInterfacedObject, IIndexUnitScopes)
+  private
+    FCore: TShellIndexCoreFunc;
+  public
+    constructor Create(const ACore: TShellIndexCoreFunc);
+    function ChooseUnit(const AFromFile, AUnitName: string; const ACandidates: TArray<string>): string;
+    function NamespacesOf(const AFromFile: string; out ANamespaces: TArray<string>): Boolean;
+    function RankOf(const AFileName: string; ALibrary: Boolean): Integer;
+  end;
+
+constructor TShellUnitScopes.Create(const ACore: TShellIndexCoreFunc);
+begin
+  inherited Create;
+  FCore := ACore;
+end;
+
+function TShellUnitScopes.ChooseUnit(const AFromFile, AUnitName: string; const ACandidates: TArray<string>): string;
+var
+  mCore: TShellCoreBase;
+  mWorkspace: TShellWorkspace;
+  mResolve: TUnitFileResolver;
+  mFile, mCandidate: string;
+begin
+  Result := '';
+  mCore := FCore();
+  if mCore = nil then
+  begin
+    Exit;
+  end;
+  mResolve := nil;
+  System.TMonitor.Enter(mCore.Workspaces.Lock);
+  try
+    mWorkspace := mCore.Workspaces.Pick(AFromFile);
+    if mWorkspace <> nil then
+    begin
+      mResolve := mWorkspace.UnitFileResolver();
+    end;
+  finally
+    System.TMonitor.Exit(mCore.Workspaces.Lock);
+  end;
+  // Unit-Suche des Projekts wie der Compiler (Projektdateien, Projektordner, Suchpfade, Bibliothek, Zusatzordner);
+  // außerhalb der Sperre, sie kann Ordner auflisten. Der Rückruf hält seinen Resolver selbst.
+  mFile := '';
+  if Assigned(mResolve) then
+  begin
+    mFile := mResolve(AUnitName);
+  end;
+  for mCandidate in ACandidates do
+  begin
+    if SameText(mCandidate, mFile) then
+    begin
+      Exit(mCandidate);
+    end;
+  end;
+end;
+
+function TShellUnitScopes.NamespacesOf(const AFromFile: string; out ANamespaces: TArray<string>): Boolean;
+var
+  mCore: TShellCoreBase;
+  mWorkspace: TShellWorkspace;
+begin
+  ANamespaces := nil;
+  Result := False;
+  mCore := FCore();
+  if mCore = nil then
+  begin
+    Exit;
+  end;
+  System.TMonitor.Enter(mCore.Workspaces.Lock);
+  try
+    // Nur das Projekt, das die Datei enthält; sonst gelten die aller Projekte.
+    mWorkspace := mCore.Workspaces.WorkspaceOf(AFromFile);
+    Result := (mWorkspace <> nil) and mWorkspace.State.ContainsFile(AFromFile);
+    if Result then
+    begin
+      ANamespaces := mWorkspace.State.Namespaces;
+    end;
+  finally
+    System.TMonitor.Exit(mCore.Workspaces.Lock);
+  end;
+end;
+
+function TShellUnitScopes.RankOf(const AFileName: string; ALibrary: Boolean): Integer;
+begin
+  // Projekt und Suchpfade vor der Bibliothek, die zusätzlichen Quellordner zuletzt.
+  if not ALibrary then
+  begin
+    Result := 0;
+  end
+  else if TShellIndexRequests.IsExtraSource(AFileName) then
+  begin
+    Result := 2;
+  end
+  else
+  begin
+    Result := 1;
+  end;
+end;
 
 function DeclaredIn(const AIndex: ISymbolIndex): TDeclaredFunc;
 begin
@@ -137,6 +241,8 @@ begin
   FFolders.Attach(FServices.Dispatcher);
   FIdeUnits := TIdeUnits.Create;
   FEditorIndex := TIdeIndex.Create(FIndex, FIdeUnits.Index);
+  // L2: gleichnamige Units je Projekt.
+  FIndex.SetUnitScopes(TShellUnitScopes.Create(FServices.Core));
 end;
 
 procedure TShellIndexArea.ReleaseDeclaredProvider;
@@ -154,6 +260,10 @@ begin
   FreeAndNil(FUsesGraph);
   FEditorIndex := nil;
   FreeAndNil(FIdeUnits);
+  if FIndex <> nil then
+  begin
+    FIndex.SetUnitScopes(nil);
+  end;
   FIndex := nil;
   FServices := Default(TShellIndexAreaServices);
   inherited;

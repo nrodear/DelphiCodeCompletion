@@ -53,9 +53,10 @@ uses
 const
   /// <summary>Seiten (x-page) der Plugin-Einstellungen, die ganz bleiben.</summary>
   cPluginPages: array[0..2] of string = ('Vervollständigung', 'Einfügen', 'Hints'); // german-ok x-page
-  /// <summary>Einzelne Plugin-Einstellungen (x-key) anderer Seiten: Hauptschalter und, seit der
-  /// Speicher-Optimierung c1, „Office-Typbibliotheken und WinRT vorab indizieren“ auf „Allgemein“.</summary>
-  cPluginKeys: array[0..1] of string = ('completion.enabled', 'index.officeAndWinRt');
+  /// <summary>Einzelne Plugin-Einstellungen (x-key) anderer Seiten: Hauptschalter und, seit L2, „Zusätzliche
+  /// Quellordner“ auf „Allgemein“ (vorher „Office-Typbibliotheken und WinRT vorab indizieren“, Speicher-Optimierung
+  /// c1).</summary>
+  cPluginKeys: array[0..1] of string = ('completion.enabled', 'index.extraSourceFolders');
   /// <summary>Tasten (x-key) auf der Seite „Tastenkonflikte“.</summary>
   cKeyKeys: array[0..3] of string = ('keys.completion', 'keys.completionPriority', 'keys.signature',
     'keys.signaturePriority');

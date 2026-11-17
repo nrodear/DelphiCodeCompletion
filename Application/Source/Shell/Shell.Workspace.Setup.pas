@@ -41,6 +41,7 @@ type
     FScheduler: TIndexScheduler;
     FDeferred: Boolean;
     FActivated: Boolean;
+    FLooseFolder: Boolean;
     FLoopThreadId: TThreadID;
     FIdeProjects: TLspIdeProject;
     FIdeTypes: IRuleIdeTypes;
@@ -68,6 +69,9 @@ type
     property Deferred: Boolean read FDeferred write FDeferred;
     /// <summary>Eine Datei des zurückgestellten Projekts war offen.</summary>
     property Activated: Boolean read FActivated write FActivated;
+    /// <summary>Ordner einer losen Datei ohne Projekt darüber (L2): ohne .dproj gilt der Ordner als Suchpfad, seine
+    /// Units lädt der Index bei Bedarf.</summary>
+    property LooseFolder: Boolean read FLooseFolder write FLooseFolder;
     /// <summary>Thread der Nachrichtenschleife: Reload aus einem anderen Thread löst EInvalidOpException aus
     ///. 0 = keine Prüfung, z. B. MCP, Linter, Tests.</summary>
     property LoopThreadId: TThreadID read FLoopThreadId write FLoopThreadId;

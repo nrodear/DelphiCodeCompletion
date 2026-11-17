@@ -34,12 +34,14 @@ uses
   dpcc.Common.Index.Contract;
 
 type
-  TDiskIndexFileSystem = class(TInterfacedObject, IIndexFileSystem, IIndexFileAppend)
+  TDiskIndexFileSystem = class(TInterfacedObject, IIndexFileSystem, IIndexFileAppend, IIndexFileSize)
   private
     class var FShared: IIndexFileSystem;
   public
     /// <summary>Die Platte für alle Dienste des Prozesses; die Klasse hält keinen Zustand.</summary>
     class function Shared: IIndexFileSystem; static;
+    /// <summary>Größe der Datei (L2, IIndexFileSize); False, wenn sie fehlt.</summary>
+    function FileSize(const AFileName: string; out ASize: Int64): Boolean;
     function FileStamp(const AFileName: string; out AStamp: Int64): Boolean;
     function ReadText(const AFileName: string; out AText: string): Boolean;
     function WriteText(const AFileName, AText: string): Boolean;
@@ -130,6 +132,19 @@ begin
   else
   begin
     AStamp := 0;
+  end;
+end;
+
+function TDiskIndexFileSystem.FileSize(const AFileName: string; out ASize: Int64): Boolean;
+var
+  mSearch: TSearchRec;
+begin
+  ASize := 0;
+  Result := FindFirst(AFileName, faAnyFile, mSearch) = 0;
+  if Result then
+  begin
+    ASize := mSearch.Size;
+    FindClose(mSearch);
   end;
 end;
 
