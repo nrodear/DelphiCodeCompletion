@@ -23,6 +23,8 @@ uses
   dpcc.Common.Configuration.Contract,
   dpcc.Common.Rules.Contract,
   dpcc.Common.Semantics.NameResolver,
+  dpcc.Common.Index.NameIndex,
+  dpcc.Common.Lsp.IdeTypes,
   dpcc.Common.Lsp.CompletionRequest;
 
 const
@@ -86,6 +88,53 @@ type
     Lossy: Boolean;
   end;
 
+  /// <summary>Wurzel der Vorfahrenkette für den Vorfilter (L3): Exception nach raise und on, TCustomAttribute in
+  /// Attributklammern.</summary>
+  TCompletionAncestryKind = (Exceptions, Attributes);
+
+  /// <summary>Vorfahrenkette für den Vorfilter bei raise und Attributen (L3), nur über die Vorfahren im Katalog
+  /// (TImportNames.Types, TCatalogSymbol.Ancestors) und die Vorfahren der IDE-Typen (TIdeTypeEntry.Parent): Kalte
+  /// Units lädt sie dafür nicht nach. Eine Klasse gilt, wenn ihre Kette die Wurzel erreicht oder an einem
+  /// unbekannten Vorfahren endet, dessen Name danach aussieht (wie TResolverQueries.ExceptionClassOf und
+  /// AttributeClassOf). Gleichnamige Typen genügen einzeln; Ergebnisse je Name gemerkt. Eine Instanz je Anfrage.
+  /// </summary>
+  TCompletionAncestry = class
+  private type
+    TReach = record
+      Reached: Boolean;
+      /// <summary>Erster Vorfahr, der weder im Katalog noch unter den IDE-Typen steht; '' ohne.</summary>
+      Open: string;
+    end;
+  private const
+    /// <summary>Höchste Tiefe der Kette (Schutz vor Zyklen und kaputten Daten).</summary>
+    cMaxDepth = 32;
+  private
+    FIndex: ISymbolIndex;
+    FKind: TCompletionAncestryKind;
+    FRoot: string;
+    FIdeTypes: TArray<TIdeTypeEntry>;
+    FTypes: TImportTypeTable;
+    FTypesReady: Boolean;
+    // IDE-Typ (Name groß) → Position in FIdeTypes; nil, bis ein Name nicht im Katalog steht.
+    FIde: TDictionary<string, Integer>;
+    // Typname (groß) → Ergebnis.
+    FMemo: TDictionary<string, TReach>;
+    procedure EnsureTypes;
+    function IdeParent(const AName: string; out AParent: string): Boolean;
+    function Reach(const AName: string; ADepth: Integer): TReach;
+    function Accepts(const AReach: TReach): Boolean;
+  public
+    /// <summary>AIndex liefert den Katalog (nil = nur die IDE-Typen), AIdeTypes die Typen der IDE.</summary>
+    constructor Create(const AIndex: ISymbolIndex; AKind: TCompletionAncestryKind;
+      const AIdeTypes: TArray<TIdeTypeEntry>);
+    destructor Destroy; override;
+    /// <summary>Lässt der Vorfilter den Katalogeintrag ASymbol zu (Klasse bzw. Alias mit passender Kette)?</summary>
+    function AdmitsCatalog(const ASymbol: TCatalogSymbol): Boolean;
+    /// <summary>Lässt der Vorfilter den IDE-Typ AType zu (Kette über Parent)?</summary>
+    function AdmitsIde(const AType: TIdeTypeEntry): Boolean;
+    property Kind: TCompletionAncestryKind read FKind;
+  end;
+
   TCompletionCollector = class
   private
     // Nicht besessen.
@@ -107,7 +156,12 @@ type
     FUsed: TArray<string>;
     FUsedReady: Boolean;
     FAdmit: TCompletionAdmitFunc;
+    // Vorfahrenkette für den Vorfilter (L3); nil, bis sie gebraucht wird.
+    FAncestry: TCompletionAncestry;
     function MemberFits(const AMember: TResolvedSymbol): Boolean;
+    /// <summary>Vorfahrenkette passend zum Vorfilter: raise/on bzw. Attributklammer wie in TListBuilder.Build;
+    /// nil an anderen Stellen.</summary>
+    function Ancestry: TCompletionAncestry;
     function TakeStage(AStaged: Boolean): TArray<TCompletionItem>;
   public
     /// <summary>ARequest liefert Baum, Resolver, Index, Datei und Matching; AExpected ist der erwartete Typ
@@ -145,7 +199,8 @@ type
     procedure AddFromOtherUnits(const ANames: TArray<string>); overload;
     /// <summary>Typen aus den Packages der IDE (TCompletionRequest.IdeTypes), die weder die Liste noch der Index
     /// bringt: aus eingebundenen Units ohne Quelltext direkt, sonst mit uses-Eintrag wie Bibliotheks-Importe.
-    /// Ohne Vorfilter (SetAdmit), denn die Art des Typs ist unbekannt.</summary>
+    /// Mit Vorfilter (SetAdmit) nach raise und in Attributklammern nur Klassen, deren Vorfahr (Parent) zur Wurzel
+    /// führt (L3, TCompletionAncestry); bei anderen Vorfiltern keine.</summary>
     procedure AddIdeTypes;
     /// <summary>Gleichnamige Bezeichner aus anderen Units (#475): je Eintrag aus einer eingebundenen Unit, dessen
     /// Name weitere Units deklarieren, diese Varianten direkt dahinter; der Eintrag selbst trägt „aktiv“.
@@ -173,6 +228,11 @@ type
 
 /// <summary>CompletionItemKind des LSP zur Symbolart.</summary>
 function CompletionKindOf(AKind: TIndexSymbolKind): Integer;
+/// <summary>Ist AItem ein Typ aus den Packages der IDE (TCompletionCollector.AddIdeTypes, L3)? Dann AType mit
+/// Unit und Vorfahr. Für die Nachbearbeitung der Exception- und Attributlisten, die solche Einträge ohne Quelle
+/// sonst verwürfen.</summary>
+function IdeTypeOfItem(ARequest: TCompletionRequest; const AItem: TCompletionItem;
+  out AType: TIdeTypeEntry): Boolean;
 /// <summary>Eintrag aus dem nächsten Gültigkeitsbereich: lokal, Parameter, eigenes Mitglied (nicht geerbt)
 /// oder eigene Unit; solche Einträge fallen beim Kürzen auf MaxItems nie heraus.</summary>
 function IsNearItem(const AItem: TCompletionItem): Boolean;
@@ -200,11 +260,9 @@ implementation
 uses
   dpcc.Common.Documents.Contract,
   dpcc.Common.Pascal.Contract,
-  dpcc.Common.Lsp.IdeTypes,
   System.Math,
   System.StrUtils,
   dpcc.Common.Pascal.Lexer,
-  dpcc.Common.Index.NameIndex,
   dpcc.Common.Editing.UsesClause,
   dpcc.Common.Editing.InterfaceStubs,
   dpcc.Common.Lsp.FuzzyMatch,
@@ -502,6 +560,7 @@ end;
 
 destructor TCompletionCollector.Destroy;
 begin
+  FAncestry.Free;
   FList.Free;
   FSentNames.Free;
   FBaseTypes.Free;
@@ -1107,15 +1166,263 @@ type
     function Wants(const AUnitInfo: TCatalogUnit; const ASymbol: TCatalogSymbol): Boolean;
   end;
 
-/// <summary>Passt ASymbol aus AUnitInfo zum Getippten, und lässt der Filter von SetAdmit es zu? Der Filter
-/// (Exceptions, Attribute) bekommt das Symbol aus dem Katalog samt Vorfahren; die Namensauflösung lädt dafür die
-/// Unit nach, wenn sie verdrängt ist.</summary>
+{ TCompletionAncestry }
+
+constructor TCompletionAncestry.Create(const AIndex: ISymbolIndex; AKind: TCompletionAncestryKind;
+  const AIdeTypes: TArray<TIdeTypeEntry>);
+begin
+  inherited Create;
+  FIndex := AIndex;
+  FKind := AKind;
+  FRoot := 'Exception';
+  if AKind = TCompletionAncestryKind.Attributes then
+  begin
+    FRoot := 'TCustomAttribute';
+  end;
+  FIdeTypes := AIdeTypes;
+  FMemo := TDictionary<string, TReach>.Create;
+end;
+
+destructor TCompletionAncestry.Destroy;
+begin
+  FMemo.Free;
+  FIde.Free;
+  inherited;
+end;
+
+procedure TCompletionAncestry.EnsureTypes;
+begin
+  if FTypesReady then
+  begin
+    Exit;
+  end;
+  FTypesReady := True;
+  FTypes := Default(TImportTypeTable);
+  if FIndex <> nil then
+  begin
+    FTypes := TImportNames.Types(FIndex);
+  end;
+end;
+
+function TCompletionAncestry.IdeParent(const AName: string; out AParent: string): Boolean;
+var
+  mPosition: Integer;
+begin
+  AParent := '';
+  if Length(FIdeTypes) = 0 then
+  begin
+    Exit(False);
+  end;
+  if FIde = nil then
+  begin
+    FIde := TDictionary<string, Integer>.Create;
+    for mPosition := 0 to High(FIdeTypes) do
+    begin
+      // Gleichnamige Typen mehrerer Units: der erste zählt.
+      if not FIde.ContainsKey(UpperCase(FIdeTypes[mPosition].Name)) then
+      begin
+        FIde.Add(UpperCase(FIdeTypes[mPosition].Name), mPosition);
+      end;
+    end;
+  end;
+  Result := FIde.TryGetValue(UpperCase(AName), mPosition);
+  if Result then
+  begin
+    AParent := FIdeTypes[mPosition].Parent;
+  end;
+end;
+
+function TCompletionAncestry.Reach(const AName: string; ADepth: Integer): TReach;
+var
+  mBare, mKey, mNext, mParent: string;
+  mEntry: Integer;
+  mSymbol: TCatalogSymbol;
+  mFound: Boolean;
+  mSub: TReach;
+begin
+  Result := Default(TReach);
+  mBare := TResolverText.BareTypeName(AName);
+  if (mBare = '') or TResolverText.IsObjectRoot(mBare) then
+  begin
+    Exit;
+  end;
+  if SameText(mBare, FRoot) then
+  begin
+    Result.Reached := True;
+    Exit;
+  end;
+  mKey := UpperCase(mBare);
+  if FMemo.TryGetValue(mKey, Result) or (ADepth >= cMaxDepth) then
+  begin
+    Exit;
+  end;
+  // Vorläufig "nicht erreicht": schützt vor Zyklen (TA = class(TB), TB = class(TA)).
+  FMemo.AddOrSetValue(mKey, Result);
+  EnsureTypes;
+  mFound := False;
+  for mEntry in FTypes.Named(mBare) do
+  begin
+    mFound := True;
+    mSymbol := FTypes.Symbol(mEntry);
+    mNext := '';
+    if mSymbol.Kind = TIndexSymbolKind.TypeAlias then
+    begin
+      mNext := mSymbol.TypeName;
+    end
+    else if Length(mSymbol.Ancestors) > 0 then
+    begin
+      mNext := mSymbol.Ancestors[0];
+    end;
+    if mNext = '' then
+    begin
+      Continue;
+    end;
+    mSub := Reach(mNext, ADepth + 1);
+    if mSub.Reached then
+    begin
+      Result := mSub;
+      Break;
+    end;
+    if Result.Open = '' then
+    begin
+      Result.Open := mSub.Open;
+    end;
+  end;
+  // Typen der IDE ohne Quelltext: Vorfahr über Parent (Unit.Typ).
+  if not mFound and IdeParent(mBare, mParent) then
+  begin
+    mFound := True;
+    if mParent <> '' then
+    begin
+      Result := Reach(mParent, ADepth + 1);
+    end;
+  end;
+  if not mFound then
+  begin
+    Result.Open := mBare;
+  end;
+  FMemo.AddOrSetValue(mKey, Result);
+end;
+
+function TCompletionAncestry.Accepts(const AReach: TReach): Boolean;
+begin
+  if AReach.Reached then
+  begin
+    Exit(True);
+  end;
+  if AReach.Open = '' then
+  begin
+    Exit(False);
+  end;
+  // Kette endet an einem unbekannten Vorfahren: nach dem Namen wie die Namensauflösung.
+  if FKind = TCompletionAncestryKind.Exceptions then
+  begin
+    Result := TResolverText.LooksLikeException(AReach.Open);
+  end
+  else
+  begin
+    Result := EndsText('Attribute', AReach.Open);
+  end;
+end;
+
+function TCompletionAncestry.AdmitsCatalog(const ASymbol: TCatalogSymbol): Boolean;
+var
+  mNext: string;
+begin
+  // Die Wurzel selbst: Exception ja, TCustomAttribute nicht (wie AttributeClassOf).
+  if (ASymbol.Kind = TIndexSymbolKind.ClassType) and SameText(ASymbol.Name, FRoot) then
+  begin
+    Exit(FKind = TCompletionAncestryKind.Exceptions);
+  end;
+  if ASymbol.Kind = TIndexSymbolKind.TypeAlias then
+  begin
+    mNext := ASymbol.TypeName;
+  end
+  else if (ASymbol.Kind = TIndexSymbolKind.ClassType) and (Length(ASymbol.Ancestors) > 0) then
+  begin
+    mNext := ASymbol.Ancestors[0];
+  end
+  else
+  begin
+    Exit(False);
+  end;
+  Result := Accepts(Reach(mNext, 0));
+end;
+
+function TCompletionAncestry.AdmitsIde(const AType: TIdeTypeEntry): Boolean;
+begin
+  if SameText(AType.Name, FRoot) then
+  begin
+    Exit(FKind = TCompletionAncestryKind.Exceptions);
+  end;
+  Result := (AType.Parent <> '') and Accepts(Reach(AType.Parent, 0));
+end;
+
+function TCompletionCollector.Ancestry: TCompletionAncestry;
+begin
+  if (FAncestry = nil) and (FContext.Exceptions or FContext.Attribute) then
+  begin
+    // Wie TListBuilder.Build: Der Filter für raise/on ersetzt den für Attribute.
+    if FContext.Exceptions then
+    begin
+      FAncestry := TCompletionAncestry.Create(FRequest.Index, TCompletionAncestryKind.Exceptions,
+        FRequest.IdeTypes);
+    end
+    else
+    begin
+      FAncestry := TCompletionAncestry.Create(FRequest.Index, TCompletionAncestryKind.Attributes,
+        FRequest.IdeTypes);
+    end;
+  end;
+  Result := FAncestry;
+end;
+
+function IdeTypeOfItem(ARequest: TCompletionRequest; const AItem: TCompletionItem;
+  out AType: TIdeTypeEntry): Boolean;
+var
+  mType: TIdeTypeEntry;
+begin
+  AType := Default(TIdeTypeEntry);
+  if (AItem.SourceFile <> '') or (AItem.Kind <> cKindClass) then
+  begin
+    Exit(False);
+  end;
+  // Detail wie in AddIdeType: die Unit, mit uses-Eintrag dahinter " (uses ergänzen)".
+  for mType in ARequest.IdeTypes do
+  begin
+    if SameText(mType.Name, AItem.Name) and (SameText(AItem.Detail, mType.UnitName) or
+      StartsText(mType.UnitName + ' (', AItem.Detail)) then
+    begin
+      AType := mType;
+      Exit(True);
+    end;
+  end;
+  Result := False;
+end;
+
+/// <summary>Passt ASymbol aus AUnitInfo zum Getippten, und lässt der Filter von SetAdmit es zu? Bei raise und
+/// Attributen entscheidet die Vorfahrenkette im Katalog (L3, TCompletionAncestry): Die Namensauflösung lud dafür
+/// früher jede verdrängte Unit eines Kandidaten und seiner Vorfahren nach. Andere Filter bekommen das Symbol aus dem
+/// Katalog samt Vorfahren.</summary>
 function SymbolAdmitted(ACollector: TCompletionCollector; const AUnitInfo: TCatalogUnit;
   const ASymbol: TCatalogSymbol): Boolean;
+var
+  mAncestry: TCompletionAncestry;
 begin
-  Result := (MatchScore(ASymbol.Name, ACollector.FContext.Prefix, ACollector.FRequest.Matching) <>
-    TFuzzyMatch.cNoMatch) and (not Assigned(ACollector.FAdmit) or
-    ACollector.FAdmit(TResolvedSymbol.FromIndex(AUnitInfo.Header, ASymbol.ToSymbol)));
+  if MatchScore(ASymbol.Name, ACollector.FContext.Prefix, ACollector.FRequest.Matching) = TFuzzyMatch.cNoMatch then
+  begin
+    Exit(False);
+  end;
+  if not Assigned(ACollector.FAdmit) then
+  begin
+    Exit(True);
+  end;
+  mAncestry := ACollector.Ancestry;
+  if mAncestry <> nil then
+  begin
+    Exit(mAncestry.AdmitsCatalog(ASymbol));
+  end;
+  Result := ACollector.FAdmit(TResolvedSymbol.FromIndex(AUnitInfo.Header, ASymbol.ToSymbol));
 end;
 
 function TImportScan.Candidate(const AEntry: TImportNameEntry): Boolean;
@@ -1354,6 +1661,22 @@ begin
     cKindClass, cPenaltyLibraryImport, Default(TResolvedSymbol), [mEdit]);
 end;
 
+/// <summary>Lässt der Vorfilter von SetAdmit den IDE-Typ AType zu? Ohne Filter alle; bei raise und Attributen
+/// nur passende Namen mit passender Vorfahrenkette (L3); bei anderen Filtern keinen, denn die Art des Typs ist
+/// unbekannt.</summary>
+function IdeTypeAdmitted(ACollector: TCompletionCollector; const AType: TIdeTypeEntry): Boolean;
+var
+  mAncestry: TCompletionAncestry;
+begin
+  if not Assigned(ACollector.FAdmit) then
+  begin
+    Exit(True);
+  end;
+  mAncestry := ACollector.Ancestry;
+  Result := (mAncestry <> nil) and (MatchScore(AType.Name, ACollector.FContext.Prefix,
+    ACollector.FRequest.Matching) <> TFuzzyMatch.cNoMatch) and mAncestry.AdmitsIde(AType);
+end;
+
 procedure TCompletionCollector.AddIdeTypes;
 var
   mKnown: TDictionary<string, Boolean>;
@@ -1362,7 +1685,8 @@ var
   mOwn: string;
   mAdded: Integer;
 begin
-  if (Length(FRequest.IdeTypes) = 0) or Assigned(FAdmit) or not KindAllowed(Self, TIndexSymbolKind.ClassType) then
+  if (Length(FRequest.IdeTypes) = 0) or not KindAllowed(Self, TIndexSymbolKind.ClassType) or
+    (Assigned(FAdmit) and (Ancestry = nil)) then
   begin
     Exit;
   end;
@@ -1374,6 +1698,7 @@ begin
     for mType in FRequest.IdeTypes do
     begin
       if mKnown.ContainsKey(UpperCase(mType.Name)) or SameText(mType.UnitName, mOwn) or
+        not IdeTypeAdmitted(Self, mType) or
         not AddIdeType(Self, mType, TUsesClauses.IsUsed(mUsed, mType.UnitName, FRequest.Resolver.Namespaces)) then
       begin
         Continue;

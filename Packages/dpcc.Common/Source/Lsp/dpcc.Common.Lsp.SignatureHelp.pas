@@ -12,6 +12,18 @@
 // erste verträgliche mit genug Parametern.
 // Formatroutinen (#451): Ist die Routine Format oder eine andere Formatroutine (Pascal.FormatRoutines, dazu eigene
 // aus FormatRoutinesFor), steht unter "format" die Zuordnung Platzhalter → Argument (Lsp.SignatureFormat).
+// Erweiterungen (L3):
+// - Überladungen aus Vorfahren: Tragen alle Methoden des Typs overload (bzw. override), kommen die gleichnamigen
+//   der Vorfahren dazu (TNameResolver.CallCandidates, nur die Kette des einen Typs); ohne overload verdeckt die
+//   Ableitung sie wie beim Compiler.
+// - Prozedurtypen: Variablen, Felder, Properties und Parameter eines Prozedurtyps (procedure … of object,
+//   reference to, auch generisch wie TProc<Integer>) zeigen die Signatur des Typs mit eingesetzten Typargumenten.
+// - Foo<Integer>(: Typargumente vor der Klammer wählen die generische Überladung und werden eingesetzt.
+// - Index-Properties: Liste.Items[ und Liste[ (default-Property) zeigen die Indexparameter, wenn kein Aufruf die
+//   Klammer umschließt; sonst gilt wie bisher der Aufruf.
+// - Argumenttypen auch für Ausdrücke (Aufrufe, Index, Operatoren …) über TNameResolver.NodeType.
+// Die Stelle ist dieselbe wie beim Parameter-Hint der IDE (Core: TDpccCallScanner); findet sie nichts (ein Array
+// statt einer Index-Property), bleibt die Antwort leer.
 
 interface
 
@@ -41,6 +53,15 @@ type
     /// eingeschlossen; First &gt; Last bei leerem Argument (#498).</summary>
     ArgumentFirst: TArray<Integer>;
     ArgumentLast: TArray<Integer>;
+    /// <summary>Index des Namens in ATree.Tokens.</summary>
+    NameIndex: Integer;
+    /// <summary>Offset hinter dem aufgerufenen Ausdruck: hinter dem Namen bzw. hinter dem "&gt;" der Typargumente
+    /// (L3).</summary>
+    CalleeEnd: Integer;
+    /// <summary>Index-Property: [ statt ( (L3).</summary>
+    Bracket: Boolean;
+    /// <summary>Typargumente vor der Klammer (Foo&lt;Integer&gt;(, L3); nil ohne.</summary>
+    TypeArgs: TArray<string>;
   end;
 
   TSignatureParameter = record
@@ -117,10 +138,13 @@ type
     procedure Attach(ADispatcher: TJsonRpcDispatcher);
     /// <summary>signatureHelpProvider mit ( und , als Auslöser.</summary>
     class function Capability: TJSONObject; static;
-    /// <summary>Innerster offener Aufruf vor APosition.</summary>
+    /// <summary>Innerster offener Aufruf vor APosition: Klammer ( hinter einem Bezeichner. Index-Properties und
+    /// Typargumente vor der Klammer erkennt nur HelpAt (L3); hier bleibt es beim bisherigen Verhalten für die
+    /// Vervollständigung.</summary>
     class function CallSiteAt(ATree: TSyntaxTree; const APosition: TTextPosition): TCallSite; static;
     /// <summary>Typ des Arguments aus ATokens[AFirst..ALast] (#498): Char, string, Integer, Double, Boolean, nil,
-    /// [] oder der Typ eines Bezeichners; '' wenn unbekannt.</summary>
+    /// [] oder der Typ eines Bezeichners; sonst der Typ des Ausdrucks, den die Namensauflösung liefert
+    /// (TNameResolver.NodeType, L3); '' wenn unbekannt oder ohne AResolver.</summary>
     class function ArgumentType(AResolver: TNameResolver; ATree: TSyntaxTree; const AFileName: string;
       AFirst, ALast: Integer): string; static;
     /// <summary>Setzt Fits und Mismatch von ASignature für AArgumentTypes.</summary>
@@ -177,6 +201,15 @@ const
   cNameEnds: array[0..2] of string = (':', ' ', ',');
   /// <summary>LiteralChars: kein Zeichen- oder String-Literal.</summary>
   cNoLiteral = -2;
+  /// <summary>So viele Tokens zwischen &lt; und &gt; der Typargumente vor einer Klammer höchstens (L3).</summary>
+  cMaxTypeArgTokens = 64;
+  /// <summary>Ausdrücke, deren Typ ein Argument haben kann (ArgumentType, L3).</summary>
+  cValueKinds = [TSyntaxKind.Identifier, TSyntaxKind.Literal, TSyntaxKind.MemberAccess, TSyntaxKind.Call,
+    TSyntaxKind.IndexAccess, TSyntaxKind.Dereference, TSyntaxKind.AddressOf, TSyntaxKind.SetConstructor,
+    TSyntaxKind.BinaryExpr, TSyntaxKind.UnaryExpr, TSyntaxKind.ParenExpr, TSyntaxKind.InheritedExpr,
+    TSyntaxKind.AnonymousMethod, TSyntaxKind.IfExpr];
+  /// <summary>Zugriffe hinter dem Kopf einer Property, die nicht ins Label gehören.</summary>
+  cPropertyAccessors: array[0..1] of string = (' read ', ' write ');
 
 type
   /// <summary>Rückwärtssuche nach der innersten offenen Aufrufklammer (CallSiteAt); sammelt die Argumente
@@ -191,7 +224,17 @@ type
     SpanEnd: Integer;
     Firsts: TArray<Integer>;
     Lasts: TArray<Integer>;
+    /// <summary>Auch Index-Properties (Name[) und Typargumente vor der Klammer (Foo&lt;Integer&gt;(), L3.</summary>
+    Extended: Boolean;
+    /// <summary>Innerste Index-Property (L3); gilt nur, wenn kein Aufruf sie umschließt.</summary>
+    Pending: TCallSite;
     procedure AddArgument(AFirst: Integer);
+    /// <summary>Füllt ASite für die Klammer an AIndex mit dem Namen an AName; APrevious: Token vor der Klammer.
+    /// </summary>
+    procedure FillSite(AIndex, AName, APrevious: Integer; const ATypeArgs: TArray<string>; var ASite: TCallSite);
+    /// <summary>Name vor den Typargumenten, deren "&gt;" an AClose steht; -1, wenn davor keine Typargumente
+    /// stehen. ATypeArgs: die Argumente als Text.</summary>
+    function GenericName(AClose: Integer; out ATypeArgs: TArray<string>): Integer;
     function Opening(AIndex: Integer; var ASite: TCallSite): Boolean;
     function Separator(AIndex: Integer): Boolean;
     /// <summary>Verarbeitet das Token AIndex; True beendet die Suche.</summary>
@@ -205,22 +248,43 @@ type
     FPosition: TTextPosition;
     FSite: TCallSite;
     FResolved: TResolvedSymbol;
-    FLines: TArray<string>;
     FStarts: TArray<TTextPosition>;
     FStartSymbols: TArray<TResolvedSymbol>;
+    /// <summary>Gebundene Typparameter je Anfang (Name=Typ): die des umgebenden Typs bzw. Prozedurtyps, dazu
+    /// Typargumente vor der Klammer.</summary>
+    FStartBindings: TArray<TArray<string>>;
+    /// <summary>Gelesene Dateien des Laufs: Name, Zeilen, lesbar.</summary>
+    FFiles: TArray<string>;
+    FFileLines: TArray<TArray<string>>;
+    FFileFound: TArray<Boolean>;
+    /// <summary>Signatur aus einem Prozedurtyp (L3): Kopf ohne Typ-Präfix-Prüfung.</summary>
+    FProcedural: Boolean;
+    /// <summary>Konstruktor einer Attributklasse statt des Namens (#465).</summary>
+    FAttribute: Boolean;
     procedure ResolveSite;
     function IntrinsicHelp: TSignatureHelp;
-    function ReadLines: Boolean;
-    procedure AddStart(const APosition: TTextPosition; const ASymbol: TResolvedSymbol);
+    function LinesOf(const AFileName: string; out ALines: TArray<string>): Boolean;
+    procedure AddStart(const APosition: TTextPosition; const ASymbol: TResolvedSymbol;
+      const ABindings: TArray<string>);
     function IsOverload(const ASymbol: TIndexSymbol): Boolean;
     function OwnerUnit(out AOwner: TUnitIndex): Boolean;
     function CollectUnitStarts: Boolean;
+    function InheritedCall: Boolean;
+    procedure AddInheritedStarts;
+    procedure OrderByContainer(const AOrder: TArray<string>);
+    procedure KeepGenericStarts;
     function CollectStarts: Boolean;
-    function BoundTypes: TArray<string>;
-    function HeaderLines(const AStart: TTextPosition; const ABindings: TArray<string>): TArray<string>;
+    function ProceduralType(out AType: TResolvedSymbol): Boolean;
+    function IndexedProperty(out AProperty: TResolvedSymbol): Boolean;
+    function BoundTypes(const ABindings: TArray<string>): TArray<string>;
+    function HeaderLines(const ALines: TArray<string>; const AStart: TTextPosition;
+      const ABindings: TArray<string>): TArray<string>;
+    function ParseText(const ALines: TArray<string>; ALine, AColumn: Integer): TSignature;
+    function IndexSignature(AIndex: Integer): TSignature;
     function Signatures: TArray<TSignature>;
     procedure MatchArguments(var ASignatures: TArray<TSignature>);
     procedure AddFormat(var AHelp: TSignatureHelp);
+    function SiteHelp: TSignatureHelp;
   public
     constructor Create(const ARequest: TSignatureHelpRequest; const APosition: TTextPosition);
     function Run: TSignatureHelp;
@@ -314,9 +378,95 @@ begin
   Lasts := TArray<Integer>.Create(SpanEnd) + Lasts;
 end;
 
+function TCallScan.GenericName(AClose: Integer; out ATypeArgs: TArray<string>): Integer;
+var
+  mIndex, mDepth, mCount: Integer;
+  mToken: TPascalToken;
+  mArgument: string;
+begin
+  // Rückwärts von ">" bis zum passenden "<": nur Bezeichner, Punkte, Kommas, string und verschachtelte <>,
+  // wie TExpressionParser.LooksLikeGenericArgs vorwärts.
+  Result := -1;
+  ATypeArgs := nil;
+  mDepth := 0;
+  mCount := 0;
+  mArgument := '';
+  mIndex := AClose;
+  while (mIndex >= 0) and (mCount < cMaxTypeArgTokens) do
+  begin
+    mToken := Tokens[mIndex];
+    if IsSkipped(mToken) then
+    begin
+      Dec(mIndex);
+      Continue;
+    end;
+    if mToken.IsSymbol('>') then
+    begin
+      Inc(mDepth);
+      if mDepth > 1 then
+      begin
+        mArgument := mToken.Text + mArgument;
+      end;
+    end
+    else if mToken.IsSymbol('<') then
+    begin
+      Dec(mDepth);
+      if mDepth = 0 then
+      begin
+        ATypeArgs := TArray<string>.Create(Trim(mArgument)) + ATypeArgs;
+        Result := PreviousCodeToken(Tokens, mIndex);
+        if (Result < 0) or (Tokens[Result].Kind <> TPascalTokenKind.Identifier) then
+        begin
+          Result := -1;
+          ATypeArgs := nil;
+        end;
+        Exit;
+      end;
+      mArgument := mToken.Text + mArgument;
+    end
+    else if mToken.IsSymbol(',') and (mDepth = 1) then
+    begin
+      ATypeArgs := TArray<string>.Create(Trim(mArgument)) + ATypeArgs;
+      mArgument := '';
+    end
+    else if mToken.IsSymbol(',') then
+    begin
+      mArgument := ', ' + mArgument;
+    end
+    else if (mToken.Kind = TPascalTokenKind.Identifier) or mToken.IsSymbol('.') or mToken.IsKeyword('string') then
+    begin
+      mArgument := mToken.Text + mArgument;
+    end
+    else
+    begin
+      Break;
+    end;
+    Dec(mIndex);
+    Inc(mCount);
+  end;
+  ATypeArgs := nil;
+end;
+
+procedure TCallScan.FillSite(AIndex, AName, APrevious: Integer; const ATypeArgs: TArray<string>;
+  var ASite: TCallSite);
+begin
+  AddArgument(AIndex + 1);
+  ASite.NamePosition := Tokens[AName].StartPos;
+  ASite.NameIndex := AName;
+  ASite.CalleeEnd := Tokens[APrevious].Offset + Length(Tokens[APrevious].Text);
+  ASite.Bracket := not Tokens[AIndex].IsSymbol('(');
+  ASite.TypeArgs := ATypeArgs;
+  ASite.ActiveParameter := Commas;
+  ASite.Found := True;
+  ASite.ArgumentFirst := Firsts;
+  ASite.ArgumentLast := Lasts;
+end;
+
 function TCallScan.Opening(AIndex: Integer; var ASite: TCallSite): Boolean;
 var
-  mPrevious: Integer;
+  mPrevious, mName: Integer;
+  mTypeArgs: TArray<string>;
+  mIdentifier: Boolean;
 begin
   Result := False;
   if Depth > 0 then
@@ -325,14 +475,27 @@ begin
     Exit;
   end;
   mPrevious := PreviousCodeToken(Tokens, AIndex);
-  if Tokens[AIndex].IsSymbol('(') and (mPrevious >= 0) and (Tokens[mPrevious].Kind = TPascalTokenKind.Identifier) then
+  mIdentifier := (mPrevious >= 0) and (Tokens[mPrevious].Kind = TPascalTokenKind.Identifier);
+  mName := -1;
+  mTypeArgs := nil;
+  if mIdentifier and Tokens[AIndex].IsSymbol('(') then
   begin
-    AddArgument(AIndex + 1);
-    ASite.NamePosition := Tokens[mPrevious].StartPos;
-    ASite.ActiveParameter := Commas;
-    ASite.Found := True;
-    ASite.ArgumentFirst := Firsts;
-    ASite.ArgumentLast := Lasts;
+    mName := mPrevious;
+  end
+  else if Extended and Tokens[AIndex].IsSymbol('(') and (mPrevious >= 0) and Tokens[mPrevious].IsSymbol('>') then
+  begin
+    // Foo<Integer>( (L3).
+    mName := GenericName(mPrevious, mTypeArgs);
+  end
+  else if Extended and mIdentifier and not Pending.Found then
+  begin
+    // Index-Property Liste[ (L3): nur, wenn kein Aufruf sie umschließt, wie beim Parameter-Hint der IDE
+    // (TDpccCallScanner). Weiter nach außen suchen; die Klammer zählt dort als Teil eines Arguments.
+    FillSite(AIndex, mPrevious, mPrevious, nil, Pending);
+  end;
+  if mName >= 0 then
+  begin
+    FillSite(AIndex, mName, mPrevious, mTypeArgs, ASite);
     Exit(True);
   end;
   // Klammer um einen Ausdruck oder eine Menge: sie ist selbst ein Argument des äußeren Aufrufs.
@@ -379,6 +542,124 @@ begin
   begin
     Result := Separator(AIndex);
   end;
+end;
+
+/// <summary>Innerster offener Aufruf vor APosition; AExtended: auch Index-Properties und Typargumente vor der
+/// Klammer (L3).</summary>
+function ScanCallSite(ATree: TSyntaxTree; const APosition: TTextPosition; AExtended: Boolean): TCallSite;
+var
+  mScan: TCallScan;
+  mIndex: Integer;
+begin
+  Result := Default(TCallSite);
+  if ATree = nil then
+  begin
+    Exit;
+  end;
+  mScan := Default(TCallScan);
+  mScan.Tokens := ATree.Tokens;
+  mScan.Extended := AExtended;
+  mScan.Last := LastTokenBefore(mScan.Tokens, APosition);
+  // Argumente rückwärts gesammelt (#498).
+  mScan.SpanEnd := mScan.Last;
+  for mIndex := mScan.Last downto 0 do
+  begin
+    if mScan.Step(mIndex, Result) then
+    begin
+      Break;
+    end;
+  end;
+  // Kein Aufruf um die Index-Property: sie selbst (L3).
+  if not Result.Found and mScan.Pending.Found then
+  begin
+    Result := mScan.Pending;
+  end;
+end;
+
+/// <summary>Umfasst ANode den Bereich AStart..AEnd? Knoten ohne Bereich (unvollständiger Code) gelten als
+/// umfassend.</summary>
+function NodeAround(ANode: TSyntaxNode; AStart, AEnd: Integer): Boolean;
+begin
+  Result := (ANode.EndOffset <= ANode.StartOffset) or ((ANode.StartOffset <= AStart) and (ANode.EndOffset >= AEnd));
+end;
+
+/// <summary>Äußerster Bezeichner bzw. Mitgliedszugriff, der an AEnd endet: der aufgerufene Ausdruck (L3); nil
+/// ohne.</summary>
+function CalleeNode(ATree: TSyntaxTree; AEnd: Integer): TSyntaxNode;
+begin
+  Result := nil;
+  if (ATree = nil) or (ATree.Root = nil) or (AEnd <= 0) then
+  begin
+    Exit;
+  end;
+  Result := ATree.Root.Search(
+    function(ANode: TSyntaxNode): TSyntaxSearchStep
+    begin
+      if (ANode.Kind in [TSyntaxKind.Identifier, TSyntaxKind.MemberAccess]) and (ANode.EndOffset = AEnd) then
+      begin
+        Result := TSyntaxSearchStep.Found;
+      end
+      else if NodeAround(ANode, AEnd - 1, AEnd) then
+      begin
+        Result := TSyntaxSearchStep.Descend;
+      end
+      else
+      begin
+        Result := TSyntaxSearchStep.Skip;
+      end;
+    end);
+end;
+
+/// <summary>Indexzugriff, dessen Basis an AEnd endet (Liste[, L3); nil ohne.</summary>
+function IndexNode(ATree: TSyntaxTree; AEnd: Integer): TSyntaxNode;
+begin
+  Result := nil;
+  if (ATree = nil) or (ATree.Root = nil) or (AEnd <= 0) then
+  begin
+    Exit;
+  end;
+  Result := ATree.Root.Search(
+    function(ANode: TSyntaxNode): TSyntaxSearchStep
+    begin
+      if (ANode.Kind = TSyntaxKind.IndexAccess) and (ANode.ChildCount > 0) and (ANode[0].EndOffset = AEnd) then
+      begin
+        Result := TSyntaxSearchStep.Found;
+      end
+      else if NodeAround(ANode, AEnd - 1, AEnd) then
+      begin
+        Result := TSyntaxSearchStep.Descend;
+      end
+      else
+      begin
+        Result := TSyntaxSearchStep.Skip;
+      end;
+    end);
+end;
+
+/// <summary>Äußerster Ausdruck, der genau von AStart bis AEnd reicht (ein Argument, L3); nil ohne.</summary>
+function SpanNode(ATree: TSyntaxTree; AStart, AEnd: Integer): TSyntaxNode;
+begin
+  Result := nil;
+  if (ATree = nil) or (ATree.Root = nil) or (AEnd <= AStart) then
+  begin
+    Exit;
+  end;
+  Result := ATree.Root.Search(
+    function(ANode: TSyntaxNode): TSyntaxSearchStep
+    begin
+      if (ANode.Kind in cValueKinds) and (ANode.StartOffset = AStart) and (ANode.EndOffset = AEnd) then
+      begin
+        Result := TSyntaxSearchStep.Found;
+      end
+      else if NodeAround(ANode, AStart, AEnd) then
+      begin
+        Result := TSyntaxSearchStep.Descend;
+      end
+      else
+      begin
+        Result := TSyntaxSearchStep.Skip;
+      end;
+    end);
 end;
 
 { TSignatureHelpRequest }
@@ -451,31 +732,12 @@ begin
 end;
 
 class function TLspSignatureHelp.CallSiteAt(ATree: TSyntaxTree; const APosition: TTextPosition): TCallSite;
-var
-  mScan: TCallScan;
-  mIndex: Integer;
 begin
-  Result := Default(TCallSite);
-  if ATree = nil then
-  begin
-    Exit;
-  end;
-  mScan := Default(TCallScan);
-  mScan.Tokens := ATree.Tokens;
-  mScan.Last := LastTokenBefore(mScan.Tokens, APosition);
-  // Argumente rückwärts gesammelt (#498).
-  mScan.SpanEnd := mScan.Last;
-  for mIndex := mScan.Last downto 0 do
-  begin
-    if mScan.Step(mIndex, Result) then
-    begin
-      Break;
-    end;
-  end;
+  Result := ScanCallSite(ATree, APosition, False);
 end;
 
-/// <summary>Position des ; außerhalb von Klammern in AText, 0 ohne; ADepth zählt offene Klammern über die Zeilen
-/// hinweg.</summary>
+/// <summary>Position des ; außerhalb von runden und eckigen Klammern in AText, 0 ohne; ADepth zählt offene Klammern
+/// über die Zeilen hinweg. Eckige zählen für Index-Properties mit mehreren Gruppen (L3).</summary>
 function HeaderEnd(const AText: string; var ADepth: Integer): Integer;
 var
   mIndex: Integer;
@@ -484,8 +746,8 @@ begin
   for mIndex := 1 to Length(AText) do
   begin
     case AText[mIndex] of
-      '(': Inc(ADepth);
-      ')': Dec(ADepth);
+      '(', '[': Inc(ADepth);
+      ')', ']': Dec(ADepth);
       ';':
         if ADepth = 0 then
         begin
@@ -548,8 +810,8 @@ begin
   end;
 end;
 
-/// <summary>Position der Klammer, die die Klammer an AOpen schließt; 0 ohne.</summary>
-function ClosingParen(const AText: string; AOpen: Integer): Integer;
+/// <summary>Position der Klammer AClose, die die Klammer AOpenChar an AOpen schließt; 0 ohne.</summary>
+function ClosingBracket(const AText: string; AOpen: Integer; AOpenChar, ACloseChar: Char): Integer;
 var
   mIndex, mDepth: Integer;
 begin
@@ -557,11 +819,11 @@ begin
   mDepth := 0;
   for mIndex := AOpen to Length(AText) do
   begin
-    if AText[mIndex] = '(' then
+    if AText[mIndex] = AOpenChar then
     begin
       Inc(mDepth);
     end
-    else if AText[mIndex] = ')' then
+    else if AText[mIndex] = ACloseChar then
     begin
       Dec(mDepth);
       if mDepth = 0 then
@@ -686,7 +948,29 @@ begin
   end;
 end;
 
-class function TLspSignatureHelp.ParseSignature(const ALines: TArray<string>; ALine, AColumn: Integer): TSignature;
+/// <summary>AText ohne read/write hinter der Position AFrom (Kopf einer Index-Property, L3).</summary>
+function WithoutAccessors(const AText: string; AFrom: Integer): string;
+var
+  mLower, mAccessor: string;
+  mAt, mCut: Integer;
+begin
+  mLower := LowerCase(AText);
+  mCut := Length(AText) + 1;
+  for mAccessor in cPropertyAccessors do
+  begin
+    mAt := PosEx(mAccessor, mLower, AFrom);
+    if (mAt > 0) and (mAt < mCut) then
+    begin
+      mCut := mAt;
+    end;
+  end;
+  Result := Copy(AText, 1, mCut - 1);
+end;
+
+/// <summary>Kopf ab ALine/AColumn auf eine Zeile gebracht, Parameter zwischen AOpenChar und ACloseChar; AStrip
+/// entfernt ein Typ-Präfix (procedure TFoo.Bar). Bei [ ] (Index-Property) ohne read/write (L3).</summary>
+function ParseHeader(const ALines: TArray<string>; ALine, AColumn: Integer; AOpenChar, ACloseChar: Char;
+  AStrip: Boolean): TSignature;
 var
   mText: string;
   mOpen, mClose: Integer;
@@ -695,18 +979,30 @@ begin
   Result.Fits := True;
   Result.Mismatch := -1;
   mText := CollapseSpaces(CollectHeader(ALines, ALine, AColumn));
-  Result.Qualified := StripQualifier(mText);
-  Result.Text := mText;
-  mOpen := Pos('(', mText);
-  if mOpen = 0 then
+  if AStrip then
   begin
-    Exit;
+    Result.Qualified := StripQualifier(mText);
   end;
-  mClose := ClosingParen(mText, mOpen);
+  mOpen := Pos(AOpenChar, mText);
+  mClose := 0;
+  if mOpen > 0 then
+  begin
+    mClose := ClosingBracket(mText, mOpen, AOpenChar, ACloseChar);
+  end;
+  if (mClose > 0) and (AOpenChar = '[') then
+  begin
+    mText := WithoutAccessors(mText, mClose);
+  end;
+  Result.Text := mText;
   if mClose > 0 then
   begin
     Result.Parameters := ParameterGroups(mText, mOpen, mClose);
   end;
+end;
+
+class function TLspSignatureHelp.ParseSignature(const ALines: TArray<string>; ALine, AColumn: Integer): TSignature;
+begin
+  Result := ParseHeader(ALines, ALine, AColumn, '(', ')', True);
 end;
 
 /// <summary>Name ohne Unit bzw. umgebenden Typ davor (System.Boolean → Boolean); Generics bleiben.</summary>
@@ -907,6 +1203,31 @@ begin
   end;
 end;
 
+/// <summary>Typ des Ausdrucks aus AParts über die Namensauflösung (L3): Aufrufe, Index, Typumwandlung und alles,
+/// was TNameResolver.NodeType typisiert (Operatoren …). Bloße Namen von Routinen und Typen bleiben unbekannt:
+/// Sie können ein Methodenzeiger bzw. eine Klassenreferenz sein.</summary>
+function ExpressionType(AResolver: TNameResolver; ATree: TSyntaxTree; const AFileName: string;
+  const AParts: TArray<TPascalToken>): string;
+var
+  mNode: TSyntaxNode;
+  mSymbol, mType: TResolvedSymbol;
+  mTypeFound: Boolean;
+begin
+  Result := '';
+  mNode := SpanNode(ATree, AParts[0].Offset, AParts[High(AParts)].Offset + Length(AParts[High(AParts)].Text));
+  if (mNode = nil) or not AResolver.NodeType(ATree, AFileName, mNode, mSymbol, mType, mTypeFound) or
+    not mTypeFound then
+  begin
+    Exit;
+  end;
+  if (mNode.Kind in [TSyntaxKind.Identifier, TSyntaxKind.MemberAccess]) and
+    (mSymbol.IsType or (mSymbol.SymbolKind in cRoutineKinds)) then
+  begin
+    Exit;
+  end;
+  Result := LastPart(mType.Name);
+end;
+
 class function TLspSignatureHelp.ArgumentType(AResolver: TNameResolver; ATree: TSyntaxTree; const AFileName: string;
   AFirst, ALast: Integer): string;
 var
@@ -918,14 +1239,19 @@ begin
     Exit;
   end;
   mParts := CodeTokens(ATree.Tokens, AFirst, ALast);
-  if (Length(mParts) = 0) or LiteralArgumentType(mParts, Result) then
+  if (Length(mParts) = 0) or LiteralArgumentType(mParts, Result) or (AResolver = nil) then
   begin
     Exit;
   end;
-  // Bezeichner oder Kette A.B.C; alles andere (Aufrufe, Ausdrücke) bleibt unbekannt.
-  if (AResolver <> nil) and IsNameChain(mParts) then
+  // Bezeichner oder Kette A.B.C: Aufzählungswerte über ihren Typ, Routinen bleiben unbekannt.
+  if IsNameChain(mParts) then
   begin
     Result := ResolvedType(AResolver.Resolve(ATree, AFileName, mParts[High(mParts)].StartPos));
+  end;
+  // Übrige Ausdrücke und Namen ohne deklarierten Typ (var X := …) über den Ausdrucksbaum (L3).
+  if Result = '' then
+  begin
+    Result := ExpressionType(AResolver, ATree, AFileName, mParts);
   end;
 end;
 
@@ -1099,10 +1425,11 @@ var
 begin
   FResolved := FRequest.Resolver.Resolve(FRequest.Tree, FRequest.FileName, FSite.NamePosition);
   // Attribut (#465): [TestCase('Name', |] zeigt den Konstruktor von TestCaseAttribute.
-  if AttributeConstructor(FRequest.Resolver, FRequest.Tree, FRequest.FileName, FSite.NamePosition, FResolved,
-    mCtor) then
+  if not FSite.Bracket and AttributeConstructor(FRequest.Resolver, FRequest.Tree, FRequest.FileName,
+    FSite.NamePosition, FResolved, mCtor) then
   begin
     FResolved := mCtor;
+    FAttribute := True;
   end;
 end;
 
@@ -1121,26 +1448,49 @@ begin
   end;
 end;
 
-function THelpRun.ReadLines: Boolean;
+function THelpRun.LinesOf(const AFileName: string; out ALines: TArray<string>): Boolean;
 var
+  mIndex: Integer;
   mText: string;
 begin
-  if SameText(FResolved.FileName, FRequest.FileName) then
+  // Jede Datei einmal je Lauf: Überladungen aus Vorfahren können in anderen Units stehen (L3).
+  for mIndex := 0 to High(FFiles) do
+  begin
+    if SameText(FFiles[mIndex], AFileName) then
+    begin
+      ALines := FFileLines[mIndex];
+      Exit(FFileFound[mIndex]);
+    end;
+  end;
+  if SameText(AFileName, FRequest.FileName) then
   begin
     mText := FRequest.TreeText;
+    Result := True;
   end
-  else if not (Assigned(FRequest.ReadText) and FRequest.ReadText(FResolved.FileName, mText)) then
+  else
   begin
-    Exit(False);
+    Result := Assigned(FRequest.ReadText) and FRequest.ReadText(AFileName, mText);
   end;
-  FLines := TTextLines.SplitLines(mText);
-  Result := True;
+  ALines := nil;
+  if Result then
+  begin
+    ALines := TTextLines.SplitLines(mText);
+  end;
+  FFiles := FFiles + [AFileName];
+  // Einzeln gesetzt: [ALines] wäre als Literal eines Arrays von Arrays, [Result] als Menge mehrdeutig.
+  SetLength(FFileLines, Length(FFileLines) + 1);
+  FFileLines[High(FFileLines)] := ALines;
+  SetLength(FFileFound, Length(FFileFound) + 1);
+  FFileFound[High(FFileFound)] := Result;
 end;
 
-procedure THelpRun.AddStart(const APosition: TTextPosition; const ASymbol: TResolvedSymbol);
+procedure THelpRun.AddStart(const APosition: TTextPosition; const ASymbol: TResolvedSymbol;
+  const ABindings: TArray<string>);
 begin
   FStarts := FStarts + [APosition];
   FStartSymbols := FStartSymbols + [ASymbol];
+  SetLength(FStartBindings, Length(FStartBindings) + 1);
+  FStartBindings[High(FStartBindings)] := ABindings;
 end;
 
 function THelpRun.IsOverload(const ASymbol: TIndexSymbol): Boolean;
@@ -1184,60 +1534,251 @@ begin
     if IsOverload(mSymbol) and (mSymbol.InInterface or not mHasInterface) and
       SameText(mOwner.SymbolFile(mSymbol), FResolved.FileName) then
     begin
-      AddStart(mSymbol.Range.StartPos, TResolvedSymbol.FromIndex(mOwner, mSymbol));
+      AddStart(mSymbol.Range.StartPos, TResolvedSymbol.FromIndex(mOwner, mSymbol), FResolved.Bindings);
     end;
   end;
+end;
+
+function THelpRun.InheritedCall: Boolean;
+var
+  mPrevious: Integer;
+begin
+  // inherited Add(: nur die Vorfahren; die eigenen Überladungen gehören nicht dazu.
+  mPrevious := PreviousCodeToken(FRequest.Tree.Tokens, FSite.NameIndex);
+  Result := (mPrevious >= 0) and FRequest.Tree.Tokens[mPrevious].IsKeyword('inherited');
+end;
+
+procedure THelpRun.AddInheritedStarts;
+var
+  mCallee: TSyntaxNode;
+  mCandidate: TResolvedSymbol;
+  mOrder: TArray<string>;
+begin
+  // Überladungen aus Vorfahren (L3): Die Namensauflösung sammelt sie wie der Compiler (alle Methoden einer Stufe mit
+  // overload bzw. override, sonst verdeckt die Stufe die Vorfahren), nur entlang der Kette des einen Typs.
+  if (FResolved.Kind <> TResolvedKind.Symbol) or (FResolved.Container = '') or FAttribute or InheritedCall then
+  begin
+    Exit;
+  end;
+  mCallee := CalleeNode(FRequest.Tree, FSite.CalleeEnd);
+  if mCallee = nil then
+  begin
+    Exit;
+  end;
+  mOrder := nil;
+  for mCandidate in FRequest.Resolver.CallCandidates(FRequest.Tree, FRequest.FileName, mCallee) do
+  begin
+    if not (mCandidate.SymbolKind in cRoutineKinds) or not SameText(mCandidate.Name, FResolved.Name) then
+    begin
+      Continue;
+    end;
+    if IndexText(mCandidate.Container, mOrder) < 0 then
+    begin
+      mOrder := mOrder + [mCandidate.Container];
+    end;
+    if not SameText(mCandidate.Container, FResolved.Container) then
+    begin
+      AddStart(mCandidate.Range.StartPos, mCandidate, mCandidate.Bindings);
+    end;
+  end;
+  OrderByContainer(mOrder);
+end;
+
+procedure THelpRun.OrderByContainer(const AOrder: TArray<string>);
+var
+  mRank, mIndex: Integer;
+  mStarts: TArray<TTextPosition>;
+  mSymbols: TArray<TResolvedSymbol>;
+  mBindings: TArray<TArray<string>>;
+begin
+  // Stabil nach der Stufe der Vererbung: der Typ selbst zuerst, dann seine Vorfahren, unabhängig davon, welche
+  // Überladung die Auflösung gewählt hat.
+  if Length(AOrder) < 2 then
+  begin
+    Exit;
+  end;
+  mStarts := nil;
+  mSymbols := nil;
+  mBindings := nil;
+  for mRank := -1 to High(AOrder) do
+  begin
+    for mIndex := 0 to High(FStarts) do
+    begin
+      if IndexText(FStartSymbols[mIndex].Container, AOrder) = mRank then
+      begin
+        mStarts := mStarts + [FStarts[mIndex]];
+        mSymbols := mSymbols + [FStartSymbols[mIndex]];
+        SetLength(mBindings, Length(mBindings) + 1);
+        mBindings[High(mBindings)] := FStartBindings[mIndex];
+      end;
+    end;
+  end;
+  FStarts := mStarts;
+  FStartSymbols := mSymbols;
+  FStartBindings := mBindings;
+end;
+
+procedure THelpRun.KeepGenericStarts;
+var
+  mIndex: Integer;
+  mStarts: TArray<TTextPosition>;
+  mSymbols: TArray<TResolvedSymbol>;
+  mBindings: TArray<TArray<string>>;
+begin
+  // Foo<Integer>( (L3): nur Überladungen mit so vielen Typparametern; die Typargumente werden eingesetzt.
+  if Length(FSite.TypeArgs) = 0 then
+  begin
+    Exit;
+  end;
+  mStarts := nil;
+  mSymbols := nil;
+  mBindings := nil;
+  for mIndex := 0 to High(FStarts) do
+  begin
+    if Length(TResolverText.SplitArgs(FStartSymbols[mIndex].TypeParams)) = Length(FSite.TypeArgs) then
+    begin
+      mStarts := mStarts + [FStarts[mIndex]];
+      mSymbols := mSymbols + [FStartSymbols[mIndex]];
+      SetLength(mBindings, Length(mBindings) + 1);
+      mBindings[High(mBindings)] := TResolverText.Bind(FStartSymbols[mIndex].TypeParams, FSite.TypeArgs) +
+        FStartBindings[mIndex];
+    end;
+  end;
+  FStarts := mStarts;
+  FStartSymbols := mSymbols;
+  FStartBindings := mBindings;
 end;
 
 function THelpRun.CollectStarts: Boolean;
 var
   mNested: TResolvedSymbol;
 begin
-  // Überladungen: gleicher Name im selben Typ bzw. auf Unit-Ebene derselben Unit.
+  // Überladungen: gleicher Name im selben Typ bzw. auf Unit-Ebene derselben Unit, dazu die geerbten.
   Result := True;
   if FResolved.Kind = TResolvedKind.Local then
   begin
     // Verschachtelte Routinen (#881): alle Überladungen in der umgebenden Routine, vor und hinter dem Aufruf.
     for mNested in FRequest.Resolver.Candidates.LocalOverloads(FResolved) do
     begin
-      AddStart(mNested.Range.StartPos, mNested);
+      AddStart(mNested.Range.StartPos, mNested, FResolved.Bindings);
     end;
   end
   else
   begin
     Result := CollectUnitStarts;
+    if Result then
+    begin
+      AddInheritedStarts;
+    end;
   end;
+  KeepGenericStarts;
 end;
 
-function THelpRun.BoundTypes: TArray<string>;
+function IsProcedureForm(const AForm: string): Boolean;
+begin
+  Result := SameText(AForm, 'procedure') or SameText(AForm, 'function');
+end;
+
+function THelpRun.ProceduralType(out AType: TResolvedSymbol): Boolean;
+begin
+  // Aufruf über eine Variable, ein Feld, eine Property oder einen Parameter eines Prozedurtyps (L3): FOnChange(Self),
+  // Callback(1), AProc(. Der Index führt die Form als "target:procedure" bzw. "target:function".
+  Result := False;
+  AType := Default(TResolvedSymbol);
+  if FResolved.IsType or (FResolved.SymbolKind in cRoutineKinds) then
+  begin
+    Exit;
+  end;
+  // Feld mit anonymem Typ: FOnTick: procedure(ATicks: Integer) of object;
+  if (FResolved.TypeName = '') and IsProcedureForm(FResolved.TargetForm) then
+  begin
+    AType := FResolved;
+    Exit(True);
+  end;
+  Result := FRequest.Resolver.TypeOf(FResolved, AType) and not AType.Builtin and
+    (AType.SymbolKind = TIndexSymbolKind.TypeAlias) and IsProcedureForm(AType.TargetForm);
+end;
+
+function IsIndexedProperty(const ASymbol: TResolvedSymbol): Boolean;
+begin
+  Result := (ASymbol.Kind in [TResolvedKind.Symbol, TResolvedKind.Local]) and
+    (ASymbol.SymbolKind = TIndexSymbolKind.Property_) and (ASymbol.MaxArgs > 0);
+end;
+
+function THelpRun.IndexedProperty(out AProperty: TResolvedSymbol): Boolean;
+var
+  mNode: TSyntaxNode;
+  mType: TResolvedSymbol;
+  mTypeFound: Boolean;
+begin
+  // Liste.Items[ ist die Property selbst; Liste[ meint die default-Property des Typs (L3), die die
+  // Namensauflösung am Indexzugriff liefert.
+  AProperty := FResolved;
+  if IsIndexedProperty(FResolved) then
+  begin
+    Exit(True);
+  end;
+  Result := False;
+  if not (FResolved.Kind in [TResolvedKind.Symbol, TResolvedKind.Local]) then
+  begin
+    Exit;
+  end;
+  mNode := IndexNode(FRequest.Tree, FSite.CalleeEnd);
+  Result := (mNode <> nil) and FRequest.Resolver.NodeType(FRequest.Tree, FRequest.FileName, mNode, AProperty, mType,
+    mTypeFound) and IsIndexedProperty(AProperty);
+end;
+
+function THelpRun.BoundTypes(const ABindings: TArray<string>): TArray<string>;
 var
   mBinding: string;
 begin
   // Typargumente ohne Unit davor ("T=TKunde" statt "T=Listen.TKunde").
   Result := nil;
-  for mBinding in FResolved.Bindings do
+  for mBinding in ABindings do
   begin
     Result := Result + [Copy(mBinding, 1, Pos('=', mBinding)) +
       FRequest.Resolver.Queries.UnqualifyType(Copy(mBinding, Pos('=', mBinding) + 1, MaxInt))];
   end;
 end;
 
-function THelpRun.HeaderLines(const AStart: TTextPosition; const ABindings: TArray<string>): TArray<string>;
+function THelpRun.HeaderLines(const ALines: TArray<string>; const AStart: TTextPosition;
+  const ABindings: TArray<string>): TArray<string>;
 var
   mLine: Integer;
 begin
   // Gebundene Typparameter (#450): FItems: TObjectList<TKunde> zeigt Add(const Value: TKunde). Nur die
   // Zeilen des Kopfs; die Spalte des Anfangs bleibt, weil davor kein Typparameter steht.
-  Result := FLines;
+  Result := ALines;
   if Length(ABindings) = 0 then
   begin
     Exit;
   end;
-  Result := Copy(FLines);
+  Result := Copy(ALines);
   for mLine := AStart.Line to Min(High(Result), AStart.Line + cMaxHeaderLines) do
   begin
     Result[mLine] := TInterfaceStubs.SubstituteWords(Result[mLine], ABindings);
   end;
+end;
+
+function THelpRun.ParseText(const ALines: TArray<string>; ALine, AColumn: Integer): TSignature;
+begin
+  if FSite.Bracket then
+  begin
+    Result := ParseHeader(ALines, ALine, AColumn, '[', ']', False);
+  end
+  else
+  begin
+    // Der Kopf eines Prozedurtyps hat kein Typ-Präfix; Punkte darin (Typargumente) sind keins.
+    Result := ParseHeader(ALines, ALine, AColumn, '(', ')', not FProcedural);
+  end;
+end;
+
+function THelpRun.IndexSignature(AIndex: Integer): TSignature;
+begin
+  // Kopf aus dem Index: ohne lesbaren Quelltext, und bei neu deklarierten Properties (property Items;), deren
+  // Indexparameter MergedProperty vom Vorfahren übernimmt.
+  Result := ParseText([TInterfaceStubs.SubstituteWords(FStartSymbols[AIndex].Signature,
+    BoundTypes(FStartBindings[AIndex]))], 0, 0);
 end;
 
 function THelpRun.Signatures: TArray<TSignature>;
@@ -1246,21 +1787,31 @@ var
   mStart: TTextPosition;
   mSignature: TSignature;
   mKey: string;
-  mSeen, mBindings: TArray<string>;
+  mSeen, mLines: TArray<string>;
   mReader: TDocReadText;
+  mFromSource: Boolean;
 begin
   Result := nil;
   mSeen := nil;
-  mBindings := BoundTypes;
   mReader := TLspDocumentation.Reader(FRequest.FileName, FRequest.TreeText, FRequest.ReadText);
   for mIndex := 0 to High(FStarts) do
   begin
     mStart := FStarts[mIndex];
-    if (mStart.Line < 0) or (mStart.Line > High(FLines)) then
+    mFromSource := LinesOf(FStartSymbols[mIndex].FileName, mLines) and (mStart.Line >= 0) and
+      (mStart.Line <= High(mLines));
+    if mFromSource then
     begin
-      Continue;
+      mSignature := ParseText(HeaderLines(mLines, mStart, BoundTypes(FStartBindings[mIndex])), mStart.Line,
+        mStart.Character);
+    end
+    else
+    begin
+      mSignature := Default(TSignature);
     end;
-    mSignature := TLspSignatureHelp.ParseSignature(HeaderLines(mStart, mBindings), mStart.Line, mStart.Character);
+    if not mFromSource or (FSite.Bracket and (Length(mSignature.Parameters) = 0)) then
+    begin
+      mSignature := IndexSignature(mIndex);
+    end;
     // Deklaration und Rumpf derselben Routine nur einmal; die Deklaration steht vorn und trägt die Doku.
     mKey := UpperCase(StringReplace(mSignature.Text, ' ', '', [rfReplaceAll]));
     if (mSignature.Text = '') or mSignature.Qualified or MatchStr(mKey, mSeen) then
@@ -1268,8 +1819,11 @@ begin
       Continue;
     end;
     mSeen := mSeen + [mKey];
-    ApplyDocumentation(mSignature, TLspDocumentation.Load(FRequest.Resolver, FStartSymbols[mIndex], FLines,
-      mStart.Line, mReader));
+    if mFromSource then
+    begin
+      ApplyDocumentation(mSignature, TLspDocumentation.Load(FRequest.Resolver, FStartSymbols[mIndex], mLines,
+        mStart.Line, mReader));
+    end;
     Result := Result + [mSignature];
   end;
 end;
@@ -1313,26 +1867,61 @@ begin
   AHelp.Format := TSignatureFormats.Analyze(mCall, mRoutine);
 end;
 
-function THelpRun.Run: TSignatureHelp;
+function THelpRun.SiteHelp: TSignatureHelp;
+var
+  mType: TResolvedSymbol;
 begin
   Result := Default(TSignatureHelp);
-  FSite := TLspSignatureHelp.CallSiteAt(FRequest.Tree, FPosition);
-  if not FSite.Found then
+  ResolveSite;
+  if FSite.Bracket then
+  begin
+    // Index-Property (L3).
+    if not IndexedProperty(mType) then
+    begin
+      Exit;
+    end;
+    AddStart(mType.Range.StartPos, mType, mType.Bindings);
+  end
+  else if not (FResolved.Kind in [TResolvedKind.Symbol, TResolvedKind.Local]) then
+  begin
+    if Length(FSite.TypeArgs) = 0 then
+    begin
+      Result := IntrinsicHelp;
+    end;
+    Exit;
+  end
+  else if FResolved.SymbolKind in cRoutineKinds then
+  begin
+    if not CollectStarts then
+    begin
+      Exit;
+    end;
+  end
+  else if ProceduralType(mType) then
+  begin
+    FProcedural := True;
+    AddStart(mType.Range.StartPos, mType, mType.Bindings);
+  end
+  else
   begin
     Exit;
   end;
-  ResolveSite;
-  if not (FResolved.Kind in [TResolvedKind.Symbol, TResolvedKind.Local]) then
+  Result.Signatures := Signatures;
+  Result.ActiveParameter := FSite.ActiveParameter;
+  MatchArguments(Result.Signatures);
+  Result.ActiveSignature := PreferredSignature(Result.Signatures, FSite.ActiveParameter);
+  AddFormat(Result);
+end;
+
+function THelpRun.Run: TSignatureHelp;
+begin
+  // Dieselbe Stelle wie der Parameter-Hint der IDE (TDpccCallScanner): Findet sie nichts (ein Array statt einer
+  // Index-Property, ein Vergleich A < B > (C)), bleibt die Antwort leer statt eines anderen Aufrufs.
+  Result := Default(TSignatureHelp);
+  FSite := ScanCallSite(FRequest.Tree, FPosition, True);
+  if FSite.Found then
   begin
-    Exit(IntrinsicHelp);
-  end;
-  if (FResolved.SymbolKind in cRoutineKinds) and ReadLines and CollectStarts then
-  begin
-    Result.Signatures := Signatures;
-    Result.ActiveParameter := FSite.ActiveParameter;
-    MatchArguments(Result.Signatures);
-    Result.ActiveSignature := PreferredSignature(Result.Signatures, FSite.ActiveParameter);
-    AddFormat(Result);
+    Result := SiteHelp;
   end;
 end;
 

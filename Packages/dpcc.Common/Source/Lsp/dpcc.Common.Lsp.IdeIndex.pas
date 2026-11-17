@@ -11,7 +11,7 @@ uses
   dpcc.Common.Index.Contract;
 
 type
-  TIdeIndex = class(TInterfacedObject, ISymbolIndex)
+  TIdeIndex = class(TInterfacedObject, ISymbolIndex, IIndexIncludeOwners)
   private
     FInner: ISymbolIndex;
     FIde: ISymbolIndex;
@@ -60,12 +60,38 @@ type
     procedure SetStaleCheck(const ACheck: IIndexStaleCheck);
     function StaleCheck: IIndexStaleCheck;
     procedure TrimEvictable;
+    /// <summary>Einbindende Unit einer Include-Datei (L3): erst im gemeinsamen Index, dann unter den Ersatz-Units.
+    /// </summary>
+    function IncludeOwner(const AIncludeFile: string): string;
   end;
 
 implementation
 
 uses
+  System.SysUtils,
+  System.StrUtils,
   dpcc.Common.Index.NameIndex;
+
+/// <summary>Einbindende Unit von AIncludeFile in AIndex: über IIndexIncludeOwners, sonst unter den geladenen Units.
+/// </summary>
+function OwnerIn(const AIndex: ISymbolIndex; const AIncludeFile: string): string;
+var
+  mOwners: IIndexIncludeOwners;
+  mUnit: TUnitIndex;
+begin
+  Result := '';
+  if Supports(AIndex, IIndexIncludeOwners, mOwners) then
+  begin
+    Exit(mOwners.IncludeOwner(AIncludeFile));
+  end;
+  for mUnit in AIndex.Units do
+  begin
+    if IndexText(AIncludeFile, mUnit.Includes) >= 0 then
+    begin
+      Exit(mUnit.FileName);
+    end;
+  end;
+end;
 
 /// <summary>AFirst, dann ASecond; ohne ASecond AFirst selbst (keine Kopie).</summary>
 function Joined(const AFirst, ASecond: TArray<TSymbolLocation>): TArray<TSymbolLocation>;
@@ -318,6 +344,15 @@ end;
 procedure TIdeIndex.TrimEvictable;
 begin
   FInner.TrimEvictable;
+end;
+
+function TIdeIndex.IncludeOwner(const AIncludeFile: string): string;
+begin
+  Result := OwnerIn(FInner, AIncludeFile);
+  if Result = '' then
+  begin
+    Result := OwnerIn(FIde, AIncludeFile);
+  end;
 end;
 
 end.

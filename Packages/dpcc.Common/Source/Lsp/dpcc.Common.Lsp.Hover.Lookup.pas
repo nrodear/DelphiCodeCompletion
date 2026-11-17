@@ -12,6 +12,16 @@
 // Zahlenliterale zeigen ihre Schreibweisen, Bezeichner von System ohne
 // Quelltext die eingebaute Beschreibung (#880), Unit-Namen den Dateinamen
 // und den Inhalt der Unit (#1921, TLspHoverUnitContents).
+//
+// Auflösung im Editor L3: Zieht sich eine Deklaration über mehrere Zeilen, zeigt
+// der Hover den vollen Kopf (TIndexFiles.SourceSignature, gelesen nur aus den
+// Zeilen der Deklaration). Ohne ///-Kommentar gelten der normale Kommentarblock
+// darüber und der Kommentar am Zeilenende (TLspDocumentation.DocAt); aus der
+// Deklarationszeile fällt der Kommentar am Ende weg. Inline-Variablen ohne Typ
+// (var X := …) zeigen den abgeleiteten Typ, Konstanten den Wert einfacher
+// Ausdrücke (cMax = cBase * 2) samt Konstanten aus dem Index. Deklarationen aus
+// nicht geltenden Zweigen ($IFDEF) liest der Hover aus ihrer Datei, wenn die
+// Namensauflösung sie nicht kennt.
 
 interface
 
@@ -41,6 +51,7 @@ uses
   dpcc.Common.Semantics.SystemIntrinsics,
   dpcc.Common.Semantics.Attributes,
   dpcc.Common.Pascal.Contract,
+  dpcc.Common.Pascal.Lexer,
   dpcc.Common.Pascal.TreeCache,
   dpcc.Common.Pascal.XmlDoc,
   dpcc.Common.Dfm.FormInfo,
@@ -59,14 +70,29 @@ uses
 
 type
   /// <summary>Texte der Unit in beiden Sprachen (#1458).</summary>
-  TLookupText = (PossibleElement, PossibleElements);
+  TLookupText = (PossibleElement, PossibleElements, Inactive, InactiveCondition);
 
 const
   cTexts: array[TLookupText] of TDpccText = (
     (De: ' · 1 mögliches Element'; En: ' · 1 possible element'),
-    (De: ' · %s mögliche Elemente'; En: ' · %s possible elements'));
+    (De: ' · %s mögliche Elemente'; En: ' · %s possible elements'),
+    (De: '**Nicht aktiv** unter der aktuellen Konfiguration'; En: '**Inactive** under the current configuration'),
+    (De: '**Nicht aktiv** unter der aktuellen Konfiguration (Bedingung: %s)';
+     En: '**Inactive** under the current configuration (condition: %s)'));
 
 {$SCOPEDENUMS OFF}
+
+const
+  /// <summary>So viele Zeilen ab dem Anfang einer Deklaration liest der Hover für ihren vollen Kopf höchstens
+  /// (L3); Klassen und Routinen brauchen nur die ersten (TIndexFiles.SourceSignature).</summary>
+  cSignatureLines = 200;
+  /// <summary>Längere Köpfe kürzt der Hover mit " …" (L3).</summary>
+  cMaxDeclaration = 1000;
+  /// <summary>Arten, deren Kopf nur die erste Zeile ist (Rumpf folgt); ohne abschließendes ";".</summary>
+  cBodyKinds = [TIndexSymbolKind.ClassType, TIndexSymbolKind.ObjectType, TIndexSymbolKind.RecordType,
+    TIndexSymbolKind.InterfaceType, TIndexSymbolKind.HelperType];
+  /// <summary>Arten mit Rumpf hinter dem Kopf (Routinen).</summary>
+  cRoutineKinds = [TIndexSymbolKind.Routine, TIndexSymbolKind.Method, TIndexSymbolKind.Constructor_];
 
 function ComparePositions(const A, B: TTextPosition): Integer;
 begin
@@ -101,6 +127,213 @@ begin
       Result := Result + ' ' + Trim(ALines[mLine]);
     end;
   end;
+end;
+
+/// <summary>AText ohne Kommentar am Zeilenende ("FWert: Integer; // mm" ergibt "FWert: Integer;"); ein Kommentar
+/// mitten in der Zeile bleibt (L3).</summary>
+function WithoutLineEndComment(const AText: string): string;
+var
+  mToken: TPascalToken;
+  mCut: Integer;
+begin
+  mCut := -1;
+  for mToken in TPascalLexer.Tokenize(AText) do
+  begin
+    if mToken.Kind = TPascalTokenKind.Comment then
+    begin
+      if mCut < 0 then
+      begin
+        mCut := mToken.Offset;
+      end;
+    end
+    else
+    begin
+      mCut := -1;
+    end;
+  end;
+  Result := AText;
+  if mCut > 0 then
+  begin
+    Result := TrimRight(Copy(AText, 1, mCut));
+  end;
+end;
+
+/// <summary>AText ohne Leerraum zwischen aufeinanderfolgenden String- und Zeichenliteralen: Die Signatur setzt
+/// zwischen alle Tokens ein Leerzeichen, "'a' + #13 #10" wäre aber kein gültiger Ausdruck mehr.</summary>
+function GluedLiterals(const AText: string): string;
+var
+  mToken: TPascalToken;
+  mPos: Integer;
+  mPreviousLiteral, mLiteral: Boolean;
+begin
+  Result := '';
+  mPos := 1;
+  mPreviousLiteral := False;
+  for mToken in TPascalLexer.Tokenize(AText) do
+  begin
+    mLiteral := mToken.Kind in [TPascalTokenKind.StringLiteral, TPascalTokenKind.CharLiteral];
+    if not (mPreviousLiteral and mLiteral and (Trim(Copy(AText, mPos, mToken.Offset + 1 - mPos)) = '')) then
+    begin
+      Result := Result + Copy(AText, mPos, mToken.Offset + 1 - mPos);
+    end;
+    Result := Result + mToken.Text;
+    mPos := mToken.Offset + Length(mToken.Text) + 1;
+    mPreviousLiteral := mLiteral;
+  end;
+  Result := Result + Copy(AText, mPos, MaxInt);
+end;
+
+/// <summary>Volle Signatur von ASymbol (TIndexFiles.SourceSignature, L1), gelesen nur aus den Zeilen seiner
+/// Deklaration in ALines statt aus dem ganzen Text. ATruncated, wenn die Deklaration länger als cSignatureLines
+/// Zeilen ist und ihr Kopf daher nicht vollständig sein kann. '' ohne Ergebnis.</summary>
+function SignatureFromLines(const ALines: TArray<string>; const ASymbol: TIndexSymbol;
+  out ATruncated: Boolean): string;
+var
+  mFirst, mLast, mLine, mEndCharacter: Integer;
+  mText: string;
+  mSymbol: TIndexSymbol;
+begin
+  Result := '';
+  ATruncated := False;
+  if ASymbol.Unavailable then
+  begin
+    // Nur die Zeile ist bekannt; SourceSignature liest ab ihrem Anfang.
+    mFirst := ASymbol.SelectionRange.StartPos.Line;
+    mLast := mFirst + cSignatureLines;
+  end
+  else
+  begin
+    mFirst := ASymbol.Range.StartPos.Line;
+    mLast := ASymbol.Range.EndPos.Line;
+  end;
+  if (mFirst < 0) or (mFirst > High(ALines)) then
+  begin
+    Exit;
+  end;
+  mEndCharacter := ASymbol.Range.EndPos.Character;
+  if mLast > mFirst + cSignatureLines then
+  begin
+    mLast := mFirst + cSignatureLines;
+    mEndCharacter := MaxInt div 2;
+    ATruncated := not ASymbol.Unavailable and not (ASymbol.Kind in cBodyKinds + cRoutineKinds);
+  end;
+  if mLast > High(ALines) then
+  begin
+    mLast := High(ALines);
+    mEndCharacter := MaxInt div 2;
+  end;
+  mText := '';
+  for mLine := mFirst to mLast do
+  begin
+    if mLine > mFirst then
+    begin
+      mText := mText + #10;
+    end;
+    mText := mText + ALines[mLine];
+  end;
+  // Positionen auf den Ausschnitt verschieben: seine erste Zeile ist Zeile 0.
+  mSymbol := ASymbol;
+  mSymbol.SelectionRange := TTextRange.Create(ASymbol.SelectionRange.StartPos.Line - mFirst,
+    ASymbol.SelectionRange.StartPos.Character, ASymbol.SelectionRange.EndPos.Line - mFirst,
+    ASymbol.SelectionRange.EndPos.Character);
+  if not ASymbol.Unavailable then
+  begin
+    mSymbol.Range := TTextRange.Create(0, ASymbol.Range.StartPos.Character, mLast - mFirst, mEndCharacter);
+  end;
+  Result := GluedLiterals(TIndexFiles.SourceSignature(mText, mSymbol));
+end;
+
+/// <summary>ASignature (ohne ";") als Kopf im Hover: mit ";" wie in der Quelle, bei Typen mit Rumpf ohne; die
+/// Standard-Property mit "; default"; zu lange bzw. abgeschnittene Köpfe mit " …".</summary>
+function DisplayedSignature(const ASymbol: TIndexSymbol; const ASignature: string; ATruncated: Boolean): string;
+begin
+  Result := ASignature;
+  if (ASymbol.Kind = TIndexSymbolKind.Property_) and ASymbol.IsDefault then
+  begin
+    Result := Result + '; default';
+  end;
+  if ATruncated or (Length(Result) > cMaxDeclaration) then
+  begin
+    Result := Copy(Result, 1, cMaxDeclaration) + ' …';
+  end
+  else if not (ASymbol.Kind in cBodyKinds) then
+  begin
+    Result := Result + ';';
+  end;
+end;
+
+/// <summary>Zeichen eines Bezeichners (auch Unicode-Buchstaben)?</summary>
+function IsNameChar(AChar: Char): Boolean;
+begin
+  Result := CharInSet(AChar, ['A'..'Z', 'a'..'z', '0'..'9', '_']) or (Ord(AChar) > 127);
+end;
+
+/// <summary>Bezeichner an APosition in AText ('' ohne).</summary>
+function NameAt(const AText: string; const APosition: TTextPosition): string;
+var
+  mLines: TArray<string>;
+  mLine: string;
+  mStart, mEnd: Integer;
+begin
+  Result := '';
+  mLines := TTextLines.SplitLines(AText);
+  if (APosition.Line < 0) or (APosition.Line > High(mLines)) then
+  begin
+    Exit;
+  end;
+  mLine := mLines[APosition.Line];
+  mStart := APosition.Character + 1;
+  if (mStart < 1) or (mStart > Length(mLine)) or not IsNameChar(mLine[mStart]) then
+  begin
+    Exit;
+  end;
+  mEnd := mStart;
+  while (mStart > 1) and IsNameChar(mLine[mStart - 1]) do
+  begin
+    Dec(mStart);
+  end;
+  while (mEnd < Length(mLine)) and IsNameChar(mLine[mEnd + 1]) do
+  begin
+    Inc(mEnd);
+  end;
+  Result := Copy(mLine, mStart, mEnd - mStart + 1);
+  if CharInSet(Result[1], ['0'..'9']) then
+  begin
+    Result := '';
+  end;
+end;
+
+/// <summary>Typ für die Anzeige hinter einer Inline-Variablen: der Name, bei gebundenen Typparametern samt
+/// Typargumenten (TList&lt;Integer&gt;).</summary>
+function TypeDisplay(const AType: TResolvedSymbol): string;
+var
+  mParam, mBinding, mArgs: string;
+  mFound: Boolean;
+begin
+  Result := AType.Name;
+  if (AType.TypeParams = '') or (Length(AType.Bindings) = 0) then
+  begin
+    Exit;
+  end;
+  mArgs := '';
+  for mParam in AType.TypeParams.Split([',']) do
+  begin
+    mFound := False;
+    for mBinding in AType.Bindings do
+    begin
+      if SameText(Copy(mBinding, 1, Pos('=', mBinding) - 1), Trim(mParam)) then
+      begin
+        mArgs := mArgs + IfThen(mArgs <> '', ', ') + Copy(mBinding, Pos('=', mBinding) + 1, MaxInt);
+        mFound := True;
+        Break;
+      end;
+    end;
+    if not mFound then
+    begin
+      Exit;
+    end;
+  end;
+  Result := Result + '<' + mArgs + '>';
 end;
 
 /// <summary>Ordinalzahl eines Aufzählungswerts: Position im Typ, ohne explizite Werte.</summary>
@@ -290,14 +523,23 @@ type
     FTypeSymbol: Boolean;
     FDocSymbol: TResolvedSymbol;
     FDocContainer: string;
+    /// <summary>Typ, in dem die Konstante unter dem Cursor steht ('' auf Unit-Ebene); für Namen in ihrem Wert.
+    /// </summary>
+    FValueContainer: string;
     function TryNumber: Boolean;
     function TryIntrinsic: Boolean;
     function FindTarget: Boolean;
+    function InCodeAt: Boolean;
+    function FindUnavailable(out AUnit: TUnitIndex; out ASymbol: TIndexSymbol): Boolean;
+    function TryUnavailable: Boolean;
     function TryUnitName: Boolean;
     function ReadDeclaration: Boolean;
     function FindOwnerUnit: Boolean;
     function IsTargetSymbol(const ASymbol: TIndexSymbol): Boolean;
+    function ConstantExpressionOf(const AName: string; out AExpression: string): Boolean;
     function ValueOf(const ASymbol: TIndexSymbol): string;
+    procedure ApplyFullDeclaration(const ASymbol: TIndexSymbol);
+    procedure ApplyInferredType;
     procedure ApplySymbol(const ASymbol: TIndexSymbol);
     procedure ApplyDocumentation;
     procedure ApplyTypes;
@@ -384,10 +626,119 @@ begin
   begin
     FTarget := mTargets[0];
   end
-  else if not TryIntrinsic then
+  else if not TryIntrinsic and not TryUnavailable then
   begin
     // Grundcodes für das Diagnoselog (#647).
     TRequestDiagnostics.Reason('noTarget');
+  end;
+end;
+
+function THoverLookupRun.InCodeAt: Boolean;
+var
+  mToken: TPascalToken;
+begin
+  // In Kommentaren und Strings sucht der Hover keine Namen nicht geltender Zweige.
+  for mToken in FTree.Tokens do
+  begin
+    if (ComparePositions(mToken.StartPos, FPosition) <= 0) and (ComparePositions(FPosition, mToken.EndPos) < 0) then
+    begin
+      Exit(not (mToken.Kind in [TPascalTokenKind.Comment, TPascalTokenKind.Directive,
+        TPascalTokenKind.StringLiteral, TPascalTokenKind.CharLiteral]));
+    end;
+  end;
+  Result := True;
+end;
+
+function THoverLookupRun.FindUnavailable(out AUnit: TUnitIndex; out ASymbol: TIndexSymbol): Boolean;
+var
+  mName: string;
+  mCandidate: TIndexSymbol;
+begin
+  // Nur Deklarationen der eigenen Unit; die Deklaration unter dem Cursor geht einem gleichnamigen Eintrag vor.
+  Result := False;
+  ASymbol := Default(TIndexSymbol);
+  if not TIndexFiles.UnitOf(FSource.Index, FFileName, AUnit) or (Length(AUnit.Unavailable) = 0) or
+    not InCodeAt then
+  begin
+    Exit;
+  end;
+  mName := NameAt(FTreeText, FPosition);
+  for mCandidate in AUnit.Unavailable do
+  begin
+    if not SameText(mCandidate.Name, mName) then
+    begin
+      Continue;
+    end;
+    if (mCandidate.SelectionRange.StartPos.Line = FPosition.Line) and
+      SameText(AUnit.SymbolFile(mCandidate), FFileName) then
+    begin
+      ASymbol := mCandidate;
+      Exit(True);
+    end;
+    if not Result then
+    begin
+      ASymbol := mCandidate;
+      Result := True;
+    end;
+  end;
+end;
+
+function THoverLookupRun.TryUnavailable: Boolean;
+var
+  mUnit: TUnitIndex;
+  mSymbol: TIndexSymbol;
+  mFile, mText, mSignature: string;
+  mLine: Integer;
+  mTruncated: Boolean;
+begin
+  // Deklaration aus einem nicht geltenden Zweig (L1, L3): Der Index kennt nur Name, Art und Zeile; Kopf und
+  // Kommentar kommen lazy aus der einen Datei der Deklaration.
+  Result := FindUnavailable(mUnit, mSymbol);
+  if not Result then
+  begin
+    Exit;
+  end;
+  mFile := mUnit.SymbolFile(mSymbol);
+  if SameText(mFile, FFileName) then
+  begin
+    mText := FTreeText;
+  end
+  else if not (Assigned(FSource.ReadText) and FSource.ReadText(mFile, mText)) then
+  begin
+    Exit(False);
+  end;
+  FLines := TTextLines.SplitLines(mText);
+  mSignature := SignatureFromLines(FLines, mSymbol, mTruncated);
+  Result := mSignature <> '';
+  if not Result then
+  begin
+    Exit;
+  end;
+  mLine := mSymbol.SelectionRange.StartPos.Line;
+  FInfo.Declaration := DisplayedSignature(mSymbol, mSignature, mTruncated);
+  FInfo.Doc := TLspDocumentation.DocAt(FLines, mLine, mLine);
+  FInfo.Documentation := FInfo.Doc.ToMarkdown;
+  FInfo.Kind := TLspHoverTypes.KindOf(mSymbol.Kind, FInfo.Declaration);
+  FInfo.Container := mSymbol.Container;
+  FInfo.Origin := TLspHoverTypes.Origin(mUnit.UnitName);
+  if not SameText(mFile, mUnit.FileName) then
+  begin
+    FInfo.UnitName := mUnit.UnitName + ' (' + ExtractFileName(mFile) + ')';
+  end
+  else if not SameText(mFile, FFileName) then
+  begin
+    FInfo.UnitName := mUnit.UnitName;
+  end;
+  FInfo.FileName := mFile;
+  FInfo.Line := mLine;
+  FInfo.Character := mSymbol.SelectionRange.StartPos.Character;
+  if mSymbol.Condition <> '' then
+  begin
+    FInfo.Deprecation := cTexts[TLookupText.InactiveCondition].Fmt([mSymbol.Condition]);
+  end
+  else
+  begin
+    FInfo.Deprecation := cTexts[TLookupText.Inactive].Text;
   end;
 end;
 
@@ -432,8 +783,9 @@ begin
     TRequestDiagnostics.Reason('declarationOutOfRange');
     Exit;
   end;
-  FInfo.Declaration := TrimRight(Copy(FLines[mStart.Line], mStart.Character + 1, MaxInt));
-  FInfo.Doc := TXmlDoc.Parse(TXmlDoc.CommentAbove(FLines, mStart.Line));
+  // Erste Zeile; mehrzeilige Köpfe ersetzt ApplyFullDeclaration. Der Kommentar am Zeilenende ist Doku (L3).
+  FInfo.Declaration := WithoutLineEndComment(TrimRight(Copy(FLines[mStart.Line], mStart.Character + 1, MaxInt)));
+  FInfo.Doc := TLspDocumentation.DocAt(FLines, mStart.Line, FTarget.SelectionRange.StartPos.Line);
   FInfo.Documentation := FInfo.Doc.ToMarkdown;
   FInfo.Deprecation := THoverValues.Deprecation(DeclarationText(FLines, FTarget.Range));
   FInfo.FileName := FTarget.FileName;
@@ -471,12 +823,55 @@ begin
     SameText(FOwner.SymbolFile(ASymbol), FTarget.FileName);
 end;
 
+function THoverLookupRun.ConstantExpressionOf(const AName: string; out AExpression: string): Boolean;
+var
+  mSymbol: TIndexSymbol;
+  mResolved: TResolvedSymbol;
+  mSignature: string;
+begin
+  // Namen im Wert einer Konstanten (L3): zuerst die eigene Unit (im selben Typ vor der Unit-Ebene), sonst über die
+  // Namensauflösung von dort aus. Der Wert kommt aus der Signatur im Index, ohne weitere Dateien zu lesen.
+  AExpression := '';
+  mSignature := '';
+  if Pos('.', AName) = 0 then
+  begin
+    for mSymbol in FOwner.Symbols do
+    begin
+      if (mSymbol.Kind = TIndexSymbolKind.Constant) and SameText(mSymbol.Name, AName) and
+        (SameText(mSymbol.Container, FValueContainer) or (mSymbol.Container = '')) then
+      begin
+        mSignature := mSymbol.Signature;
+        if SameText(mSymbol.Container, FValueContainer) then
+        begin
+          Break;
+        end;
+      end;
+    end;
+  end;
+  // Wie ein cref: Typ.Konstante, Konstante des eigenen Typs samt Vorfahren, globale Konstante über uses.
+  if (mSignature = '') and FSource.Resolver.LocateCref(FOwner, FValueContainer, AName, mResolved) and
+    (mResolved.Kind = TResolvedKind.Symbol) and (mResolved.SymbolKind = TIndexSymbolKind.Constant) then
+  begin
+    mSignature := mResolved.Signature;
+  end;
+  // Eine gekürzte Signatur (…) hat keinen vollständigen Wert.
+  if (mSignature <> '') and not mSignature.EndsWith('…') then
+  begin
+    AExpression := THoverValues.ConstantExpression(mSignature);
+  end;
+  Result := AExpression <> '';
+end;
+
 function THoverLookupRun.ValueOf(const ASymbol: TIndexSymbol): string;
 begin
   case ASymbol.Kind of
     TIndexSymbolKind.Constant:
-      // Ganze Deklaration: Mengen und Texte über mehrere Zeilen (Resourcestrings, #38).
-      Result := THoverValues.ConstantValue(DeclarationText(FLines, FTarget.Range));
+      begin
+        // Ganze Deklaration: Mengen und Texte über mehrere Zeilen (Resourcestrings, #38); einfache Ausdrücke samt
+        // anderer Konstanten (L3).
+        FValueContainer := ASymbol.Container;
+        Result := THoverValues.ConstantValue(DeclarationText(FLines, FTarget.Range), ConstantExpressionOf);
+      end;
     TIndexSymbolKind.TypeAlias:
       Result := SetTypeValue(FSource.Resolver, FOwner, DeclarationText(FLines, FTarget.Range));
     TIndexSymbolKind.EnumMember:
@@ -487,10 +882,66 @@ begin
   end;
 end;
 
+procedure THoverLookupRun.ApplyFullDeclaration(const ASymbol: TIndexSymbol);
+var
+  mSymbol: TIndexSymbol;
+  mSignature: string;
+  mTruncated: Boolean;
+begin
+  // Mehrzeilige Köpfe vollständig (L3); einzeilige bleiben wie in der Quelle.
+  if FTarget.Range.EndPos.Line <= FTarget.Range.StartPos.Line then
+  begin
+    Exit;
+  end;
+  // Positionen des Ziels: Sie passen zum gelesenen Text, auch wenn der Index der eigenen Datei älter ist.
+  mSymbol := ASymbol;
+  mSymbol.Range := FTarget.Range;
+  mSymbol.SelectionRange := FTarget.SelectionRange;
+  mSignature := SignatureFromLines(FLines, mSymbol, mTruncated);
+  if mSignature <> '' then
+  begin
+    FInfo.Declaration := DisplayedSignature(mSymbol, mSignature, mTruncated);
+  end;
+end;
+
+procedure THoverLookupRun.ApplyInferredType;
+var
+  mOffset, mEnd: Integer;
+  mRest: string;
+  mResolved, mType: TResolvedSymbol;
+begin
+  // var X := …, for var I := …, const C = …: den Typ aus dem Ausdruck hinter dem Namen einsetzen (L3).
+  if (FTarget.SelectionRange.StartPos.Line <> FTarget.Range.StartPos.Line) or
+    (FTarget.SelectionRange.EndPos.Line <> FTarget.SelectionRange.StartPos.Line) then
+  begin
+    Exit;
+  end;
+  mOffset := FTarget.SelectionRange.StartPos.Character - FTarget.Range.StartPos.Character;
+  mEnd := mOffset + FTarget.SelectionRange.EndPos.Character - FTarget.SelectionRange.StartPos.Character;
+  if (mOffset < 0) or (mEnd > Length(FInfo.Declaration)) then
+  begin
+    Exit;
+  end;
+  mRest := TrimLeft(Copy(FInfo.Declaration, mEnd + 1, MaxInt));
+  if not (StartsStr(':=', mRest) or StartsStr('=', mRest) or StartsText('in ', mRest)) then
+  begin
+    Exit;
+  end;
+  // Resolve setzt die Stelle, die TypeOf für den Ausdruck braucht.
+  mResolved := FSource.Resolver.Resolve(FTree, FFileName, FPosition);
+  if (mResolved.Kind = TResolvedKind.Local) and (mResolved.TypeName = '') and (mResolved.Initializer <> nil) and
+    FSource.Resolver.TypeOf(mResolved, mType) and (mType.Name <> '') then
+  begin
+    FInfo.Declaration := Copy(FInfo.Declaration, 1, mEnd) + ': ' + TypeDisplay(mType) +
+      Copy(FInfo.Declaration, mEnd + 1, MaxInt);
+  end;
+end;
+
 procedure THoverLookupRun.ApplySymbol(const ASymbol: TIndexSymbol);
 var
   mFormFile: string;
 begin
+  ApplyFullDeclaration(ASymbol);
   FSelfName := ASymbol.Name;
   FDocSymbol := TResolvedSymbol.FromIndex(FOwner, ASymbol);
   FDocContainer := ASymbol.Container;
@@ -625,18 +1076,26 @@ end;
 function THoverLookupRun.Run(const ADelphiVersion: string): THoverInfo;
 var
   mSymbol: TIndexSymbol;
+  mApplied: Boolean;
 begin
   FDelphiVersion := ADelphiVersion;
   FInfo := Default(THoverInfo);
   if not TryNumber and FindTarget and not TryUnitName and ReadDeclaration and FindOwnerUnit then
   begin
+    mApplied := False;
     for mSymbol in FOwner.Symbols do
     begin
       if IsTargetSymbol(mSymbol) then
       begin
         ApplySymbol(mSymbol);
+        mApplied := True;
         Break;
       end;
+    end;
+    // Lokale Namen stehen nicht im Index: Inline-Variablen ohne Typ zeigen den abgeleiteten (L3).
+    if not mApplied and SameText(FTarget.FileName, FFileName) then
+    begin
+      ApplyInferredType;
     end;
     ApplyDocumentation;
     ApplyTypes;

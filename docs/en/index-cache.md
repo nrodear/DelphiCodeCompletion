@@ -96,6 +96,16 @@ every reloaded unit at once; the 32 MB limit keeps applying meanwhile, also for 
 matches without holding all units of a frequent name (such as `Register`) in memory at the same time. They find members
 of classes and records only in loaded units.
 
+Declarations from include files (`{$I …}`) of a unit that is only in the catalog are found through an include file →
+unit table: the header of every unit lists its include files, also for units that are only in the catalog (they are
+stored in the cache directory). Hover, parameter hint and the details of completion thus load the including unit;
+for [units with the same name](#units-with-the-same-name), the file that includes the include file. The table holds
+one entry per include file and does not change the cache format (still format 35).
+
+After `raise`, `on E: ` and in attribute brackets, completion checks classes from units that are only in the catalog
+through the ancestors in the catalog and does not load those units for it. Classes from IDE packages without source
+code come in through their ancestor as reported by the IDE.
+
 #### Usage statistics
 
 For every unit of the library, dpcc counts how often requests need it and how often a project unit newly adds it to its
@@ -193,7 +203,8 @@ Since format 34, every unit is stored in a block of its own with its own checksu
 lists all units with their catalog. At startup, dpcc reads only the directory and the blocks of the units it loads,
 through an open handle; another instance can still replace the file. A damaged block affects only its unit; dpcc then
 reads it again from the source file. The current format 35 adds the content from
-[Content per declaration](#content-per-declaration).
+[Content per declaration](#content-per-declaration). The directory also lists the include files of every unit; at
+startup, the include file → unit table is built from it (see [Library on demand](#library-on-demand)).
 
 dpcc no longer reads caches of older formats (for example `index-34.dpccidx`): the first start after the update builds
 the index once more. As soon as dpcc has written a cache in the new format, it deletes the files

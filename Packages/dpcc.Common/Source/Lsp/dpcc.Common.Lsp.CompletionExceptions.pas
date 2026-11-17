@@ -10,6 +10,8 @@
 //   Klasse von einer ab, die ein früherer Zweig behandelt, trägt sie die Warnung: Dieser Zweig würde nie erreicht.
 // - Gesucht wird über die Tokens, damit es auch in noch unfertigem Code gilt; begin, try, case und asm öffnen
 //   einen Block, end schließt ihn.
+// - Klassen aus Packages der IDE ohne Quelltext (L3): Der Sammler lässt sie über ihren Vorfahren zu
+//   (TCompletionAncestry); hier bleiben sie ohne Symbol erhalten.
 // - Abschaltbar mit completion.exceptionClasses; dann gilt die gewöhnliche Liste.
 
 interface
@@ -84,6 +86,7 @@ uses
   dpcc.Common.Pascal.XmlDoc,
   dpcc.Common.Lsp.Documentation,
   dpcc.Common.Lsp.FuzzyMatch,
+  dpcc.Common.Lsp.IdeTypes,
   dpcc.Common.Lsp.CompletionGenerics;
 
 const
@@ -606,11 +609,25 @@ var
   mSymbol, mExceptionClass: TResolvedSymbol;
   mDeclaringUnit: TUnitIndex;
   mUnreachable: string;
+  mIdeType: TIdeTypeEntry;
 begin
   AEntry := Default(TExceptionEntry);
-  Result := TCompletionGenerics.ItemSymbol(ARequest, AUnits, AItem, mSymbol) and
-    ARequest.Resolver.Queries.ExceptionClassOf(mSymbol, mExceptionClass) and
-      (IndexOfText(AItem.Name, ASite.Handled) < 0);
+  if not TCompletionGenerics.ItemSymbol(ARequest, AUnits, AItem, mSymbol) then
+  begin
+    // Klasse aus einem Package der IDE ohne Quelltext (L3): zugelassen hat sie der Sammler über ihren Vorfahren.
+    Result := IdeTypeOfItem(ARequest, AItem, mIdeType) and (IndexOfText(AItem.Name, ASite.Handled) < 0);
+    if Result then
+    begin
+      AEntry.Item := AItem;
+      AEntry.Key := UpperCase(mIdeType.UnitName + '.' + mIdeType.Name);
+      AEntry.Preference := PreferenceOf(AItem, TResolvedSymbol.Empty);
+      AEntry.Library_ := True;
+      AEntry.TryRank := IndexOfText(AItem.Name, ATryNames);
+    end;
+    Exit;
+  end;
+  Result := ARequest.Resolver.Queries.ExceptionClassOf(mSymbol, mExceptionClass) and
+    (IndexOfText(AItem.Name, ASite.Handled) < 0);
   if not Result then
   begin
     Exit;

@@ -106,6 +106,17 @@ continue de s'appliquer pendant ce temps, y compris pour les autres requêtes. E
 garder en mémoire en même temps toutes les unités d'un nom fréquent (par exemple `Register`). Elles ne trouvent les
 membres des classes et des records que dans les unités chargées.
 
+Les déclarations issues de fichiers d'inclusion (`{$I …}`) d'une unité qui ne figure que dans le catalogue sont
+trouvées grâce à une table fichier d'inclusion → unité : l'en-tête de chaque unité énumère ses fichiers
+d'inclusion, y compris pour les unités qui ne figurent que dans le catalogue (ils sont enregistrés dans le répertoire
+du cache). Le survol, l'aide aux paramètres et les détails de la complétion chargent ainsi l'unité qui l'inclut ;
+pour les [unités de même nom](#unités-de-même-nom), le fichier qui inclut le fichier d'inclusion. La table ne contient
+qu'une entrée par fichier d'inclusion et ne modifie pas le format du cache (toujours le format 35).
+
+Après `raise`, `on E: ` et entre crochets d'attribut, la complétion vérifie les classes des unités qui ne figurent
+que dans le catalogue au moyen des ancêtres du catalogue et ne charge pas ces unités pour cela. Les classes des
+packages de l'IDE sans code source s'y ajoutent par leur ancêtre, tel que l'IDE l'indique.
+
 #### Statistiques d'utilisation
 
 Pour chaque unité de la bibliothèque, dpcc compte combien de fois des requêtes en ont besoin et combien de fois une
@@ -211,7 +222,9 @@ Depuis le format 34, chaque unité se trouve dans un bloc qui lui est propre, av
 répertoire à la fin du fichier énumère toutes les unités avec leur catalogue. Au démarrage, dpcc ne lit que le
 répertoire et les blocs des unités qu'il charge, par un handle ouvert ; une autre instance peut malgré tout remplacer
 le fichier. Un bloc endommagé ne concerne que son unité ; dpcc la relit alors depuis le fichier source. Le format
-actuel 35 apporte le contenu décrit sous [Contenu par déclaration](#contenu-par-déclaration).
+actuel 35 apporte le contenu décrit sous [Contenu par déclaration](#contenu-par-déclaration). Le répertoire énumère
+aussi les fichiers d'inclusion de chaque unité ; au démarrage, la table fichier d'inclusion → unité en est
+construite (voir [Bibliothèque à la demande](#bibliothèque-à-la-demande)).
 
 dpcc ne lit plus les caches des formats plus anciens (par exemple `index-34.dpccidx`) : le premier démarrage après la
 mise à jour reconstruit l'index une fois. Dès que dpcc a écrit un cache dans le nouveau format, il supprime dans le même

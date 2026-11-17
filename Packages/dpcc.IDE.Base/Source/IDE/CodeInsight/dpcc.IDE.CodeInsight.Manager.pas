@@ -44,8 +44,11 @@ type
     function CompletionVisible: Boolean;
     /// <summary>Läuft der Platzhalter-Modus einer Vorlage (#589: dann keine Mehrfachmarken)?</summary>
     function PlaceholdersActive: Boolean;
-    /// <summary>Vervollständigung bzw. Parameter-Hint über eine eigene Taste von dpcc öffnen (#494).</summary>
-    procedure OpenCompletion;
+    /// <summary>Vervollständigung über eine eigene Taste von dpcc öffnen (#494). False: Die Taste gehört der IDE,
+    /// weil an derselben Stelle nach dem vorigen Strg+Leertaste die Liste leer blieb (L3); sonst True, auch wenn
+    /// dpcc gerade nicht fragen kann (Hauptschalter, Sicherung, Server angehalten).</summary>
+    function OpenCompletion: Boolean;
+    /// <summary>Parameter-Hint über eine eigene Taste von dpcc öffnen (#494).</summary>
     procedure OpenSignature;
     /// <summary>Hauptschalter umgeschaltet (#407), ohne Neustart: an startet Sitzung und Server, falls sie nicht
     /// laufen; aus schließt Liste, Parameter-Hint und Tooltip von dpcc. Der Server läuft dann weiter. Nur im
@@ -550,17 +553,19 @@ begin
   end;
 end;
 
-procedure TDpccCodeInsightManager.OpenCompletion;
+function TDpccCodeInsightManager.OpenCompletion: Boolean;
 begin
+  Result := True;
   if not FEnabled or TDpccGuard.Disabled(TDpccFeature.Completion) or not ServerAvailable then
   begin
     Exit;
   end;
   Diagnose('Vervollständigung über eigene Taste');
   try
-    // Start nur hier im Hauptthread.
+    // Start nur hier im Hauptthread, vor der Anfrage: Die Quellen holen sich die laufende Sitzung.
     EnsureSession;
-    Completion.Invoke(TDpccCodeInsightQueries.CurrentEditView);
+    // Zweites Strg+Leertaste nach leerem Ergebnis an derselben Stelle (L3): False, die IDE öffnet ihre Liste.
+    Result := Completion.KeyInvoke(TDpccCodeInsightQueries.CurrentEditView);
   except
     on E: Exception do
     begin

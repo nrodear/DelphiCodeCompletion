@@ -21,6 +21,7 @@ type
     FUnits: TResolverUnits;
     FLookup: TResolverLookup;
     FInfer: TResolverInferFunc;
+    FInferElement: TResolverInferFunc;
     // Je Baum: Helfer je Typname und aufgelöste Vorfahren je Typ (Diagnoselog 15.10.2026: Jeder Mitgliedszugriff
     // lief die ganze Vererbungskette neu durch). Gelten, solange FCacheEpoch dem Stand der Stelle entspricht.
     FHelpers: TDictionary<string, TResolvedSymbol>;
@@ -52,6 +53,20 @@ type
     /// <summary>Reicht die Vorfahrenkette von AType ohne unbekannten Vorfahren bis TObject bzw. ans Ende?
     /// </summary>
     function ReachesRoot(const AType: TResolvedSymbol): Boolean;
+    /// <summary>Verschachtelter Typ (L3): Typtext ATypeText eines Mitglieds AResolved, der im umgebenden Typ
+    /// (oder dessen äußeren Typen und Vorfahren) deklariert ist, bzw. "TAussen&lt;X&gt;.TInnen". Bindungen bleiben
+    /// erhalten.</summary>
+    function NestedDeclaredType(const AResolved: TResolvedSymbol; const AFromUnit: TUnitIndex;
+      const ATypeText: string; out AType: TResolvedSymbol): Boolean;
+    /// <summary>Typ AName in AOuter oder dessen Vorfahren.</summary>
+    function InheritedNestedType(const AOuter: TResolvedSymbol; const AName: string;
+      out AResult: TResolvedSymbol): Boolean;
+    /// <summary>Ist AName (Teil vor dem ersten Punkt eines Typtexts) eine Unit bzw. der Anfang eines Unit-Namens
+    /// im Bereich von AFromUnit (System in System.Classes.TStrings)? Nur Namensvergleiche, ohne Nachschlagen.
+    /// </summary>
+    function IsUnitQualifier(const AName: string; const AFromUnit: TUnitIndex): Boolean;
+    /// <summary>Typpfad "TAussen.TInnen" aus Typen dieser Unit bzw. ihrer uses.</summary>
+    function TypePath(const APath: string; const AFromUnit: TUnitIndex; out AResult: TResolvedSymbol): Boolean;
   public
     constructor Create(APlace: TResolverPlace; AUnits: TResolverUnits; ALookup: TResolverLookup);
     destructor Destroy; override;
@@ -92,8 +107,24 @@ type
     /// zuletzt der Name des unbekannten Vorfahren. AComplete: Die Kette reicht ohne unbekannten Vorfahren bis zum
     /// Ende (#1326).</summary>
     function AncestorNames(const AClass: TResolvedSymbol; out AComplete: Boolean): TArray<string>;
+    /// <summary>Zieltyp AText (aus einem Eintrag target: des Index bzw. eines Zeigertyps) von AOwner, aufgelöst in
+    /// der Unit von AOwner, mit dessen Bindungen; eingebaute Typen auch ohne Unit (L3).</summary>
+    function TargetOfType(const AOwner: TResolvedSymbol; const AText: string; out AType: TResolvedSymbol): Boolean;
+    /// <summary>Zieltyp eines Zeigertyps (PFoo = ^TFoo, @X); False bei anderen Typen (L3).</summary>
+    function Dereferenced(const AType: TResolvedSymbol; out ATarget: TResolvedSymbol): Boolean;
+    /// <summary>Elementtyp eines Array-Typs (array of T, array[..] of T, TArray&lt;T&gt;) bzw. einer Menge (L3).
+    /// </summary>
+    function ElementOf(const AType: TResolvedSymbol; out AElement: TResolvedSymbol): Boolean;
+    /// <summary>Typ, dessen Mitglieder hinter einem Punkt gelten: bei Zeigern auf Records und Klassen das Ziel
+    /// (P.X statt P^.X, L3), sonst AType.</summary>
+    function MemberHost(const AType: TResolvedSymbol): TResolvedSymbol;
+    /// <summary>Typ von AValue wie TypeOf; bei Feldern und Variablen mit anonymem Typ (array of T, ^T) das Symbol
+    /// selbst, dessen Eintrag target: den Aufbau beschreibt (L3).</summary>
+    function ShapeOf(const AValue: TResolvedSymbol; out AShape: TResolvedSymbol): Boolean;
     /// <summary>Typ eines Ausdrucks für Inline-Variablen ohne Typangabe (TResolverExpressions.ExprSymbol).</summary>
     property Infer: TResolverInferFunc read FInfer write FInfer;
+    /// <summary>Elementtyp eines Ausdrucks für for-in-Variablen ohne Typangabe (L3).</summary>
+    property InferElement: TResolverInferFunc read FInferElement write FInferElement;
   end;
 
 implementation
@@ -101,7 +132,35 @@ implementation
 uses
   dpcc.Common.Pascal.SyntaxTree,
   System.SysUtils,
+  System.StrUtils,
   dpcc.Common.Diagnostics.RequestScope;
+
+/// <summary>Teilt "TAussen&lt;X&gt;.TInnen" am letzten Punkt außerhalb spitzer Klammern; False ohne Punkt.
+/// </summary>
+function SplitLastDot(const AText: string; out AHead, ATail: string): Boolean;
+var
+  mIndex, mDepth: Integer;
+begin
+  mDepth := 0;
+  for mIndex := Length(AText) downto 1 do
+  begin
+    if AText[mIndex] = '>' then
+    begin
+      Inc(mDepth);
+    end
+    else if AText[mIndex] = '<' then
+    begin
+      Dec(mDepth);
+    end
+    else if (AText[mIndex] = '.') and (mDepth = 0) then
+    begin
+      AHead := Copy(AText, 1, mIndex - 1);
+      ATail := Copy(AText, mIndex + 1, MaxInt);
+      Exit((AHead <> '') and (ATail <> ''));
+    end;
+  end;
+  Result := False;
+end;
 
 constructor TResolverTyping.Create(APlace: TResolverPlace; AUnits: TResolverUnits; ALookup: TResolverLookup);
 begin
@@ -183,7 +242,7 @@ var
   mSavedOffset: Integer;
 begin
   if (AResolved.Initializer = nil) or (FPlace.InferDepth >= cMaxInferDepth) or (FPlace.Tree = nil) or
-    not Assigned(FInfer) then
+    not Assigned(FInfer) or (AResolved.ElementOfInitializer and not Assigned(FInferElement)) then
   begin
     Exit(False);
   end;
@@ -191,7 +250,15 @@ begin
   FPlace.InferDepth := FPlace.InferDepth + 1;
   try
     FPlace.Offset := AResolved.Initializer.StartOffset;
-    Result := FInfer(AResolved.Initializer, mValue) and TypeOf(mValue, AType);
+    // for var X in Liste (L3): Elementtyp der Liste.
+    if AResolved.ElementOfInitializer then
+    begin
+      Result := FInferElement(AResolved.Initializer, mValue) and TypeOf(mValue, AType);
+    end
+    else
+    begin
+      Result := FInfer(AResolved.Initializer, mValue) and TypeOf(mValue, AType);
+    end;
   finally
     FPlace.InferDepth := FPlace.InferDepth - 1;
     FPlace.Offset := mSavedOffset;
@@ -202,14 +269,219 @@ function TResolverTyping.DeclaredType(const AResolved: TResolvedSymbol; out ATyp
 var
   mFromUnit: TUnitIndex;
   mWithImplementation: Boolean;
+  mText: string;
 begin
   Result := FUnits.UnitOf(AResolved, mFromUnit);
   if Result then
   begin
     mWithImplementation := (AResolved.Kind = TResolvedKind.Local) or
       (FPlace.IsCurrentFile(mFromUnit.FileName) and FPlace.InImplementation);
-    Result := FLookup.ResolveTypeText(TResolverText.Substitute(TResolverText.FullType(AResolved.TypeName,
-      AResolved.TypeArgs), AResolved.Bindings), mFromUnit, mWithImplementation, AType);
+    mText := TResolverText.Substitute(TResolverText.FullType(AResolved.TypeName, AResolved.TypeArgs),
+      AResolved.Bindings);
+    // Verschachtelte Typen zuerst (L3): "TAussen.TInnen" sonst als Unit TAussen gesucht, mit Nachladen.
+    if (Pos('.', mText) > 0) and NestedDeclaredType(AResolved, mFromUnit, mText, AType) then
+    begin
+      Exit(True);
+    end;
+    Result := FLookup.ResolveTypeText(mText, mFromUnit, mWithImplementation, AType) or
+      ((AResolved.Container <> '') and (Pos('.', mText) = 0) and
+      NestedDeclaredType(AResolved, mFromUnit, mText, AType));
+  end;
+end;
+
+function TResolverTyping.IsUnitQualifier(const AName: string; const AFromUnit: TUnitIndex): Boolean;
+var
+  mUnitName: string;
+begin
+  if SameText(AName, AFromUnit.UnitName) or StartsText(AName + '.', AFromUnit.UnitName) then
+  begin
+    Exit(True);
+  end;
+  for mUnitName in FUnits.ScopeUnits(AFromUnit, True) do
+  begin
+    if SameText(AName, mUnitName) or StartsText(AName + '.', mUnitName) then
+    begin
+      Exit(True);
+    end;
+  end;
+  Result := False;
+end;
+
+function TResolverTyping.TypePath(const APath: string; const AFromUnit: TUnitIndex;
+  out AResult: TResolvedSymbol): Boolean;
+var
+  mParts: TArray<string>;
+  mIndex: Integer;
+  mInner: TResolvedSymbol;
+begin
+  mParts := APath.Split(['.']);
+  Result := (Length(mParts) > 0) and FLookup.ResolveTypeName(mParts[0], AFromUnit,
+    FPlace.IsCurrentFile(AFromUnit.FileName), AResult);
+  mIndex := 1;
+  while Result and (mIndex <= High(mParts)) do
+  begin
+    Result := NestedType(AResult, mParts[mIndex], mInner);
+    AResult := mInner;
+    Inc(mIndex);
+  end;
+end;
+
+function TResolverTyping.InheritedNestedType(const AOuter: TResolvedSymbol; const AName: string;
+  out AResult: TResolvedSymbol): Boolean;
+var
+  mCurrent, mAncestor: TResolvedSymbol;
+  mDepth: Integer;
+begin
+  mCurrent := AOuter;
+  for mDepth := 0 to cMaxDepth do
+  begin
+    if NestedType(mCurrent, AName, AResult) then
+    begin
+      Exit(True);
+    end;
+    if not AncestorOf(mCurrent, mAncestor) then
+    begin
+      Break;
+    end;
+    mCurrent := mAncestor;
+  end;
+  Result := False;
+end;
+
+function TResolverTyping.NestedDeclaredType(const AResolved: TResolvedSymbol; const AFromUnit: TUnitIndex;
+  const ATypeText: string; out AType: TResolvedSymbol): Boolean;
+var
+  mHead, mTail, mContainer, mFirst: string;
+  mOuter, mInner: TResolvedSymbol;
+  mDot: Integer;
+begin
+  Result := False;
+  if SplitLastDot(ATypeText, mHead, mTail) then
+  begin
+    // TListe<TKunde>.TAufzaehler: Kopf samt Typargumenten, dann der Typ darin. Nur wenn der erste Teil ein Typ
+    // ist; sonst ist er ein Unit-Präfix (System.Classes.TList) und gehört zum normalen Weg, ohne Nachladen hier.
+    mFirst := ATypeText;
+    mDot := Pos('.', mFirst);
+    if (Pos('<', mFirst) > 0) and (Pos('<', mFirst) < mDot) then
+    begin
+      mDot := Pos('<', mFirst);
+    end;
+    mFirst := Copy(mFirst, 1, mDot - 1);
+    if (Pos('<', mTail) > 0) or IsUnitQualifier(mFirst, AFromUnit) or not FLookup.ResolveTypeName(mFirst,
+      AFromUnit, FPlace.IsCurrentFile(AFromUnit.FileName), mOuter) then
+    begin
+      Exit;
+    end;
+    if Pos('.', mHead) > 0 then
+    begin
+      Result := NestedDeclaredType(AResolved, AFromUnit, mHead, mOuter);
+    end
+    else
+    begin
+      Result := FLookup.ResolveTypeText(mHead, AFromUnit, FPlace.IsCurrentFile(AFromUnit.FileName), mOuter);
+    end;
+    if not Result or mOuter.Builtin or not InheritedNestedType(mOuter, mTail, mInner) then
+    begin
+      Exit(False);
+    end;
+    AType := mInner;
+    AType.Bindings := mOuter.Bindings;
+    Exit(True);
+  end;
+  if (Pos('<', ATypeText) > 0) or (AResolved.Container = '') then
+  begin
+    Exit;
+  end;
+  // Typ eines Mitglieds: im umgebenden Typ, dann in den äußeren (TAussen.TInnen.Feld sieht TAussen.X).
+  mContainer := AResolved.Container;
+  while mContainer <> '' do
+  begin
+    if TypePath(mContainer, AFromUnit, mOuter) and InheritedNestedType(mOuter, ATypeText, mInner) then
+    begin
+      AType := mInner;
+      // Typparameter des umgebenden Typs gelten im verschachtelten (TListe<T>.TAufzaehler.Current: T).
+      AType.Bindings := AResolved.Bindings;
+      Exit(True);
+    end;
+    mDot := LastDelimiter('.', mContainer);
+    mContainer := Copy(mContainer, 1, mDot - 1);
+  end;
+end;
+
+function TResolverTyping.TargetOfType(const AOwner: TResolvedSymbol; const AText: string;
+  out AType: TResolvedSymbol): Boolean;
+var
+  mText: string;
+  mUnit: TUnitIndex;
+  mFound: TResolvedSymbol;
+begin
+  mText := TResolverText.Substitute(AText, AOwner.Bindings);
+  Result := False;
+  if mText = '' then
+  begin
+    Exit;
+  end;
+  if not AOwner.Builtin and FUnits.UnitOf(AOwner, mUnit) then
+  begin
+    Result := FLookup.ResolveTypeText(mText, mUnit, (AOwner.Kind = TResolvedKind.Local) or
+      FPlace.IsCurrentFile(mUnit.FileName), mFound) and FollowAliases(mFound, AType);
+  end;
+  if not Result and TResolverText.IsBuiltinName(mText) then
+  begin
+    AType := TResolvedSymbol.BuiltinOf(mText);
+    Result := True;
+  end;
+end;
+
+function TResolverTyping.Dereferenced(const AType: TResolvedSymbol; out ATarget: TResolvedSymbol): Boolean;
+begin
+  Result := False;
+  if AType.TargetForm <> '^' then
+  begin
+    Exit;
+  end;
+  if Length(AType.Constructed) > 0 then
+  begin
+    Result := FollowAliases(AType.Constructed[0], ATarget);
+  end
+  else
+  begin
+    Result := TargetOfType(AType, AType.TargetType, ATarget);
+  end;
+end;
+
+function TResolverTyping.ElementOf(const AType: TResolvedSymbol; out AElement: TResolvedSymbol): Boolean;
+var
+  mForm: string;
+begin
+  mForm := AType.TargetForm;
+  Result := StartsText('array', mForm) or SameText(mForm, 'set of');
+  if Result and (Length(AType.Constructed) > 0) then
+  begin
+    // Menge ohne Deklaration ([A, B], TResolvedSymbol.SetOf): das Element selbst.
+    Result := FollowAliases(AType.Constructed[0], AElement);
+  end
+  else if Result then
+  begin
+    Result := TargetOfType(AType, AType.TargetType, AElement);
+  end;
+end;
+
+function TResolverTyping.MemberHost(const AType: TResolvedSymbol): TResolvedSymbol;
+begin
+  if not Dereferenced(AType, Result) or Result.Builtin then
+  begin
+    Result := AType;
+  end;
+end;
+
+function TResolverTyping.ShapeOf(const AValue: TResolvedSymbol; out AShape: TResolvedSymbol): Boolean;
+begin
+  Result := TypeOf(AValue, AShape);
+  if not Result and not AValue.IsType and (AValue.TypeName = '') and (AValue.TargetForm <> '') then
+  begin
+    AShape := AValue;
+    Result := True;
   end;
 end;
 

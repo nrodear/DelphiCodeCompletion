@@ -80,6 +80,14 @@ type
       const APosition: TTextPosition): TArray<TResolvedSymbol>;
     /// <summary>Äußerster Ausdruck im Baum der Stelle, der genau an AEndOffset endet.</summary>
     function FindReceiver(AEndOffset: Integer): TSyntaxNode;
+    /// <summary>Wert bzw. Typ des Empfängers AReceiver vor einem Punkt und der Namen ANames dahinter (L3, Liste[i].,
+    /// (X as T)., P^., 'abc'., Foo(1).Bar.). Ein Typ bleibt nur als Name ein Typ (TFoo., TListe&lt;X&gt;.); als
+    /// Ergebnis eines Ausdrucks (Typumwandlung, as, Literal) ist er ein Wert dieses Typs. Die Stelle muss
+    /// vorbereitet sein (FindReceiver).</summary>
+    function ReceiverOwner(AReceiver: TSyntaxNode; const ANames: TArray<string>; out AOwner: TResolvedSymbol): Boolean;
+    /// <summary>Wie ReceiverOwner für den Ausdruck, der an AEndOffset endet (FindReceiver). Steht dort ein Literal,
+    /// das der Baum nicht als Ausdruck führt ('abc'. am Anfang einer Anweisung), dessen Typ (L3).</summary>
+    function ReceiverOwnerAt(AEndOffset: Integer; const ANames: TArray<string>; out AOwner: TResolvedSymbol): Boolean;
     /// <summary>Aufruf, dessen aufgerufener Ausdruck an ACalleeEnd endet.</summary>
     function FindCall(ACalleeEnd: Integer): TSyntaxNode;
     /// <summary>AType stammt von TCustomAttribute ab (oder sein Vorfahr ist unbekannt).</summary>
@@ -299,7 +307,8 @@ begin
   end;
   if FTyping.TypeOf(ACurrent, mType) then
   begin
-    ACandidates := FMembers.FindMembers(mType, AName);
+    // P.X bei einem Zeiger auf einen Record (L3).
+    ACandidates := FMembers.FindMembers(FTyping.MemberHost(mType), AName);
   end;
   Result := Length(ACandidates) > 0;
 end;
@@ -493,6 +502,88 @@ begin
     begin
       Result := (ANode.Kind in cExpressionKinds) and (ANode.EndOffset = AEndOffset);
     end);
+end;
+
+function TResolverChains.ReceiverOwner(AReceiver: TSyntaxNode; const ANames: TArray<string>;
+  out AOwner: TResolvedSymbol): Boolean;
+var
+  mCandidates: TArray<TResolvedSymbol>;
+  mName: string;
+  mCurrent: TResolvedSymbol;
+begin
+  Result := (AReceiver <> nil) and FExpressions.ExprSymbol(AReceiver, mCurrent);
+  if not Result then
+  begin
+    Exit;
+  end;
+  if mCurrent.IsType and not (AReceiver.Kind in [TSyntaxKind.Identifier, TSyntaxKind.MemberAccess]) then
+  begin
+    mCurrent := TResolvedSymbol.ValueOf(mCurrent);
+  end;
+  for mName in ANames do
+  begin
+    if not NextCandidates(mCurrent, mName, mCandidates) then
+    begin
+      Exit(False);
+    end;
+    mCurrent := mCandidates[0];
+  end;
+  AOwner := mCurrent;
+end;
+
+function TResolverChains.ReceiverOwnerAt(AEndOffset: Integer; const ANames: TArray<string>;
+  out AOwner: TResolvedSymbol): Boolean;
+var
+  mReceiver: TSyntaxNode;
+  mIndex: Integer;
+  mToken: TPascalToken;
+  mCandidates: TArray<TResolvedSymbol>;
+  mName: string;
+  mCurrent: TResolvedSymbol;
+begin
+  mReceiver := FindReceiver(AEndOffset);
+  if mReceiver <> nil then
+  begin
+    Exit(ReceiverOwner(mReceiver, ANames, AOwner));
+  end;
+  // Literal, das keine Anweisung beginnt und deshalb nicht im Baum steht.
+  Result := False;
+  mIndex := FPlace.Tree.FirstTokenFrom(AEndOffset) - 1;
+  if (mIndex < 0) or (mIndex > High(FPlace.Tree.Tokens)) then
+  begin
+    Exit;
+  end;
+  mToken := FPlace.Tree.Tokens[mIndex];
+  if mToken.Offset + Length(mToken.Text) <> AEndOffset then
+  begin
+    Exit;
+  end;
+  case mToken.Kind of
+    TPascalTokenKind.StringLiteral, TPascalTokenKind.CharLiteral:
+      mCurrent := TResolvedSymbol.ValueOf(TResolvedSymbol.BuiltinOf('string'));
+    TPascalTokenKind.Number:
+      if (mToken.Text <> '') and (mToken.Text[1] <> '$') and ((Pos('.', mToken.Text) > 0) or
+        (Pos('E', UpperCase(mToken.Text)) > 0)) then
+      begin
+        mCurrent := TResolvedSymbol.ValueOf(TResolvedSymbol.BuiltinOf('Double'));
+      end
+      else
+      begin
+        mCurrent := TResolvedSymbol.ValueOf(TResolvedSymbol.BuiltinOf('Integer'));
+      end;
+  else
+    Exit;
+  end;
+  for mName in ANames do
+  begin
+    if not NextCandidates(mCurrent, mName, mCandidates) then
+    begin
+      Exit;
+    end;
+    mCurrent := mCandidates[0];
+  end;
+  AOwner := mCurrent;
+  Result := True;
 end;
 
 function TResolverChains.FindCall(ACalleeEnd: Integer): TSyntaxNode;

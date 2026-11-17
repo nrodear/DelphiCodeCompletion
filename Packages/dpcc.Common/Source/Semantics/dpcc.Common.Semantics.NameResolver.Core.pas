@@ -30,6 +30,8 @@ type
     FQueries: TResolverQueries;
     /// <summary>Typ eines Ausdrucks für TResolverTyping (Inline-Variablen ohne Typangabe).</summary>
     function InferFunc: TResolverInferFunc;
+    /// <summary>Elementtyp eines Ausdrucks für for-in-Variablen ohne Typangabe (L3).</summary>
+    function InferElementFunc: TResolverInferFunc;
   public
     constructor Create(const AIndex: ISymbolIndex; const AEnsureUnit: TEnsureUnitFunc; const ATreeUnits: ITreeUnits);
     destructor Destroy; override;
@@ -65,6 +67,7 @@ begin
   FCandidates := TResolverCandidates.Create(FParts, FExpressions, FChains);
   FQueries := TResolverQueries.Create(FParts, FExpressions, FChains);
   FParts.Typing.Infer := InferFunc();
+  FParts.Typing.InferElement := InferElementFunc();
 end;
 
 destructor TResolverCore.Destroy;
@@ -72,6 +75,7 @@ begin
   if FParts.Typing <> nil then
   begin
     FParts.Typing.Infer := nil;
+    FParts.Typing.InferElement := nil;
   end;
   FQueries.Free;
   FCandidates.Free;
@@ -96,6 +100,18 @@ begin
     function(ANode: TSyntaxNode; out AResult: TResolvedSymbol): Boolean
     begin
       Result := mExpressions.ExprSymbol(ANode, AResult);
+    end;
+end;
+
+function TResolverCore.InferElementFunc: TResolverInferFunc;
+var
+  mExpressions: TResolverExpressions;
+begin
+  mExpressions := FExpressions;
+  Result :=
+    function(ANode: TSyntaxNode; out AResult: TResolvedSymbol): Boolean
+    begin
+      Result := mExpressions.ElementSymbolOf(ANode, AResult);
     end;
 end;
 

@@ -372,12 +372,126 @@ begin
   end;
 end;
 
-/// <summary>Kette vor dem Punkt an ALast ("A.B(1)."); False, wenn sie nicht auflösbar ist (1. oder "a".).
-/// </summary>
+/// <summary>Kann AToken das Ende eines Ausdrucks vor einem Punkt sein, der kein Name ist (L3): ], ^, ) einer
+/// Klammer, &gt; von Typargumenten, Literale.</summary>
+function IsReceiverEnd(const AToken: TPascalToken): Boolean;
+begin
+  Result := AToken.IsSymbol(']') or AToken.IsSymbol('^') or AToken.IsSymbol('>') or AToken.IsSymbol(')') or
+    (AToken.Kind in [TPascalTokenKind.Number, TPascalTokenKind.StringLiteral, TPascalTokenKind.CharLiteral]);
+end;
+
+/// <summary>Index der öffnenden Klammer AOpen zur schließenden an AIndex; -1 ohne.</summary>
+function MatchingOpener(const ATokens: TArray<TPascalToken>; AIndex: Integer; const AOpen, AClose: string): Integer;
+var
+  mDepth: Integer;
+begin
+  mDepth := 0;
+  Result := AIndex;
+  while Result >= 0 do
+  begin
+    if ATokens[Result].IsSymbol(AClose) then
+    begin
+      Inc(mDepth);
+    end
+    else if ATokens[Result].IsSymbol(AOpen) then
+    begin
+      Dec(mDepth);
+      if mDepth = 0 then
+      begin
+        Exit;
+      end;
+    end
+    else if ATokens[Result].IsSymbol(';') or ATokens[Result].IsKeyword('begin') then
+    begin
+      Break;
+    end;
+    Result := PreviousIndex(ATokens, Result);
+  end;
+  Result := -1;
+end;
+
+/// <summary>Erstes Token des Ausdrucks, der an AIndex endet (L3), über Klammern, Namen, Punkte und ^; für den Text
+/// der Kette (ChainStart).</summary>
+function ExpressionStart(const ATokens: TArray<TPascalToken>; AIndex: Integer): Integer;
+var
+  mIndex, mOpen: Integer;
+begin
+  Result := AIndex;
+  mIndex := AIndex;
+  while mIndex >= 0 do
+  begin
+    mOpen := -1;
+    if ATokens[mIndex].IsSymbol(')') then
+    begin
+      mOpen := MatchingOpener(ATokens, mIndex, '(', ')');
+    end
+    else if ATokens[mIndex].IsSymbol(']') then
+    begin
+      mOpen := MatchingOpener(ATokens, mIndex, '[', ']');
+    end
+    else if ATokens[mIndex].IsSymbol('>') then
+    begin
+      mOpen := MatchingOpener(ATokens, mIndex, '<', '>');
+    end
+    else if ATokens[mIndex].IsSymbol('^') then
+    begin
+      mOpen := mIndex;
+    end
+    else if ATokens[mIndex].Kind in [TPascalTokenKind.Identifier, TPascalTokenKind.Number,
+      TPascalTokenKind.StringLiteral, TPascalTokenKind.CharLiteral] then
+    begin
+      Result := mIndex;
+      mIndex := PreviousIndex(ATokens, mIndex);
+      if (mIndex < 0) or not ATokens[mIndex].IsSymbol('.') then
+      begin
+        Exit;
+      end;
+      mIndex := PreviousIndex(ATokens, mIndex);
+      Continue;
+    end;
+    if mOpen < 0 then
+    begin
+      Exit;
+    end;
+    Result := mOpen;
+    mIndex := PreviousIndex(ATokens, mOpen);
+    if (mIndex < 0) or not (IsReceiverEnd(ATokens[mIndex]) or
+      (ATokens[mIndex].Kind = TPascalTokenKind.Identifier)) then
+    begin
+      Exit;
+    end;
+  end;
+end;
+
+/// <summary>Merkt den Ausdruck, der an AIndex endet, als Empfänger der Namen ANames (L3).</summary>
+procedure MarkReceiver(const ATokens: TArray<TPascalToken>; AIndex: Integer; const ANames: TArray<string>;
+  var AContext: TCompletionContext);
+begin
+  AContext.HasReceiver := True;
+  AContext.ReceiverEnd := ATokens[AIndex].Offset + Length(ATokens[AIndex].Text);
+  AContext.ReceiverNames := ANames;
+end;
+
+/// <summary>Vor den Namen ANames steht ein Ausdruck, der an AIndex endet und kein Name ist (L3): Liste[i].,
+/// (X as T)., P^., 'abc'.; die Kette taugt dann nicht als Rückfall.</summary>
+function SetReceiver(const ATokens: TArray<TPascalToken>; AIndex: Integer; var ANames: TArray<string>;
+  var AContext: TCompletionContext): Boolean;
+begin
+  if not AContext.HasReceiver then
+  begin
+    MarkReceiver(ATokens, AIndex, ANames, AContext);
+  end;
+  ANames := nil;
+  AContext.ChainStart := ATokens[ExpressionStart(ATokens, AIndex)].StartPos;
+  Result := True;
+end;
+
+/// <summary>Kette vor dem Punkt an ALast ("A.B(1)."); vor einem Ausdruck (Liste[i]., (X as T)., P^., 'abc'.)
+/// dessen Ende als Empfänger (L3). False, wenn davor nichts Auflösbares steht.</summary>
 function ChainNames(const ATokens: TArray<TPascalToken>; ALast: Integer; var AContext: TCompletionContext;
   out ANames: TArray<string>): Boolean;
 var
-  mIndex: Integer;
+  mIndex, mCall: Integer;
 begin
   ANames := nil;
   mIndex := PreviousIndex(ATokens, ALast);
@@ -386,12 +500,25 @@ begin
     // Foo(1). oder TFoo(X).: Klammern überspringen, das Glied davor ist ein Aufruf bzw. eine Typumwandlung (#188).
     if ATokens[mIndex].IsSymbol(')') then
     begin
-      mIndex := CallBefore(ATokens, mIndex);
-      if mIndex < 0 then
+      mCall := CallBefore(ATokens, mIndex);
+      if mCall < 0 then
       begin
-        Exit(False);
+        // (Sender as TFoo). (L3)
+        Exit(SetReceiver(ATokens, mIndex, ANames, AContext));
+      end;
+      // Der letzte Aufruf ist Empfänger (L3): Überladung, Prozedurtypen, generische Routinen über den Baum. Die
+      // Namen bleiben als Rückfall und für die Postfix-Vorlagen.
+      if not AContext.HasReceiver then
+      begin
+        MarkReceiver(ATokens, mIndex, ANames, AContext);
       end;
       AContext.Called := AContext.Called or (ANames = nil);
+      mIndex := mCall;
+    end
+    else if IsReceiverEnd(ATokens[mIndex]) then
+    begin
+      // Liste[i]., P^., TListe<T>., 'abc'., 42. (L3)
+      Exit(SetReceiver(ATokens, mIndex, ANames, AContext));
     end;
     if ATokens[mIndex].Kind <> TPascalTokenKind.Identifier then
     begin

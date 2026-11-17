@@ -63,6 +63,7 @@ Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --exclude:Benchmark --exitbehav
 |---|---|
 | `Tests\Common\Lsp` | Server-Seite: Vervollständigung, Hover, Parameterhilfe |
 | `Tests\Common\Index` | Index: Extractor, Token- und Typtexte, bedingte Kompilierung, Inhalte je Deklaration (Format 35) |
+| `Tests\Common\Semantics` | Namensauflösung (aus dem früheren Stand zurückgeholt): lokale Namen, Mitglieder und Vorfahren, Ketten, Überladungen, Generics, Helfer, `with`, Inline-Variablen, Sichtbarkeit, Ausdrücke als Empfänger, die Teile des Resolvers einzeln |
 | `Tests\Common\Pascal` | Parser und Präprozessor |
 | `Tests\IDE` | Plugin-Seite ohne ToolsAPI: Ablauf der Liste, Rangfolge, Favoriten, Mengenmodus, Platzhalter, Einstellungen, Texte |
 | `Tests\Application\Shell` | Hülle des Servers |

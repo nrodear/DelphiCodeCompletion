@@ -229,21 +229,28 @@ begin
 end;
 
 procedure TListBuilder.AddMembers;
+var
+  mSite: TResolverMemberSite;
 begin
   // Nur passende Namen aufbauen (#616); der Filter gilt nur beim Sammeln, nicht für die Typprüfungen in Add.
   // Die Postfix-Vorlagen brauchen die Mitglieder (GetEnumerator).
+  // Nach Ausdrücken (Liste[i]., (X as T)., P^.) über den Baum, nach einem Typnamen nur Klassenmitglieder (L3).
+  mSite := TResolverMemberSite.Chain(FContext.Names, FContext.Offset);
+  mSite.Called := FContext.Called;
+  mSite.HasReceiver := FContext.HasReceiver;
+  mSite.ReceiverEnd := FContext.ReceiverEnd;
+  mSite.ReceiverNames := FContext.ReceiverNames;
   FCollector.SetNameFilter(True);
   try
-    FCandidates := FRequest.Resolver.Candidates.MemberCandidates(FRequest.Tree, FRequest.FileName, FContext.Names,
-      FContext.Offset);
+    FCandidates := FRequest.Resolver.Candidates.MemberCandidatesAt(FRequest.Tree, FRequest.FileName, mSite);
   finally
     FCollector.SetNameFilter(False);
   end;
   FCollector.AddCandidates(FCandidates);
   FCollector.AddUnavailableMembers(FCandidates);
   // Helper aus nicht eingebundenen Units mit uses-Eintrag (#456), wie Symbole bei #180.
-  FCollector.AddHelpersFromOtherUnits(FRequest.Resolver.Candidates.ReceiverTypes(FRequest.Tree, FRequest.FileName,
-    FContext.Names, FContext.Offset));
+  FCollector.AddHelpersFromOtherUnits(FRequest.Resolver.Candidates.ReceiverTypesAt(FRequest.Tree,
+    FRequest.FileName, mSite));
 end;
 
 procedure TListBuilder.AddInherited;

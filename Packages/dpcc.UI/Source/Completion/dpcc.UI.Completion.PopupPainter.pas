@@ -208,7 +208,16 @@ begin
     DrawLine(1, TDpccCompletionStrings.Text(TDpccCompletionTextId.BackspaceWidens), Colors.Muted);
   end;
   Canvas.Brush.Style := bsSolid;
-  DrawFooter(TDpccCompletionStrings.Text(TDpccCompletionTextId.EscCloses), '');
+  // Hinweis der Fußzeile (ShowNotice), etwa „Strg+Leertaste erneut für die Liste der IDE“ (L3): links, „Esc schließt“
+  // rechts daneben.
+  if FNotice <> '' then
+  begin
+    DrawFooter(FNotice, TDpccCompletionStrings.Text(TDpccCompletionTextId.EscCloses));
+  end
+  else
+  begin
+    DrawFooter(TDpccCompletionStrings.Text(TDpccCompletionTextId.EscCloses), '');
+  end;
 end;
 
 /// <summary>Je Zeichen von AName (1-basiert), ob es zum Getippten APattern gehört.</summary>

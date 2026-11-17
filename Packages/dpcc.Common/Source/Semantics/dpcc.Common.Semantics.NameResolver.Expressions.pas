@@ -51,6 +51,16 @@ type
     function CallSymbol(ANode: TSyntaxNode; out AResult: TResolvedSymbol): Boolean;
     function IndexSymbol(ANode: TSyntaxNode; out AResult: TResolvedSymbol): Boolean;
     function ElementSymbol(const AType: TResolvedSymbol; out AResult: TResolvedSymbol): Boolean;
+    function OperandType(ANode: TSyntaxNode; out AType: TResolvedSymbol): Boolean;
+    function OperatorResult(const AType: TResolvedSymbol; const ANames: TArray<string>;
+      out AResult: TResolvedSymbol): Boolean;
+    function DerefSymbol(ANode: TSyntaxNode; out AResult: TResolvedSymbol): Boolean;
+    function AddressSymbol(ANode: TSyntaxNode; out AResult: TResolvedSymbol): Boolean;
+    function UnarySymbol(ANode: TSyntaxNode; out AResult: TResolvedSymbol): Boolean;
+    function BinarySymbol(ANode: TSyntaxNode; out AResult: TResolvedSymbol): Boolean;
+    function SetSymbol(ANode: TSyntaxNode; out AResult: TResolvedSymbol): Boolean;
+    function ProceduralResult(const ACallee: TResolvedSymbol; out AResult: TResolvedSymbol): Boolean;
+    procedure InferTypeArguments(ANode: TSyntaxNode; var ACallee: TResolvedSymbol);
     function DeclaredBase(const ACandidate: TResolvedSymbol; const AParam: string; out ABase: TResolvedSymbol): Boolean;
     function ParamFits(const ACandidate: TResolvedSymbol; AArg: Integer; const AArgType: string;
       out ASame: Boolean): Boolean;
@@ -68,6 +78,9 @@ type
     function ExprCandidates(ANode: TSyntaxNode): TArray<TResolvedSymbol>;
     /// <summary>Symbol, für das der Ausdruck ANode steht; bei Werten das Symbol, dessen Typ der Wert hat.</summary>
     function ExprSymbol(ANode: TSyntaxNode; out AResult: TResolvedSymbol): Boolean;
+    /// <summary>Element, über das for-in mit dem Ausdruck ANode läuft (L3): Arrays, Mengen, Zeichen eines
+    /// Strings, sonst GetEnumerator.Current; ein Wert bzw. die Property Current.</summary>
+    function ElementSymbolOf(ANode: TSyntaxNode; out AResult: TResolvedSymbol): Boolean;
     /// <summary>Typnamen der Argumente von ANode ab dem Kind AFirst; '' = unbekannt.</summary>
     function ArgTypes(ANode: TSyntaxNode; AFirst: Integer): TArray<string>;
     /// <summary>Überladungen, die zu AArgCount Argumenten der Typen AArgTypes passen; die mit den meisten genau
@@ -88,6 +101,7 @@ implementation
 
 uses
   System.SysUtils,
+  System.StrUtils,
   System.Math,
   dpcc.Common.Index.Contract,
   dpcc.Common.Index.Extractor;
@@ -133,6 +147,130 @@ begin
   begin
     AResult := TResolvedSymbol.BuiltinOf('Integer');
   end;
+end;
+
+/// <summary>Wert des eingebauten Typs AName (L3).</summary>
+function BuiltinValue(const AName: string): TResolvedSymbol;
+begin
+  Result := TResolvedSymbol.ValueOf(TResolvedSymbol.BuiltinOf(AName));
+end;
+
+/// <summary>Namen der Methoden "class operator" für den Operator AOperator (L3), wie Delphi sie vergibt.
+/// </summary>
+function OperatorNames(const AOperator: string; AUnary: Boolean): TArray<string>;
+const
+  cBinary: array[0..16, 0..1] of string = (('+', 'Add'), ('-', 'Subtract'), ('*', 'Multiply'), ('/', 'Divide'),
+    ('div', 'IntDivide'), ('mod', 'Modulus'), ('shl', 'LeftShift'), ('shr', 'RightShift'), ('and', 'LogicalAnd'),
+    ('or', 'LogicalOr'), ('xor', 'LogicalXor'), ('=', 'Equal'), ('<>', 'NotEqual'), ('<', 'LessThan'),
+    ('>', 'GreaterThan'), ('<=', 'LessThanOrEqual'), ('>=', 'GreaterThanOrEqual'));
+var
+  mIndex: Integer;
+begin
+  Result := nil;
+  if AUnary then
+  begin
+    if AOperator = '-' then
+    begin
+      Result := ['Negative'];
+    end
+    else if AOperator = '+' then
+    begin
+      Result := ['Positive'];
+    end
+    else if AOperator = 'not' then
+    begin
+      Result := ['LogicalNot'];
+    end;
+    Exit;
+  end;
+  for mIndex := Low(cBinary) to High(cBinary) do
+  begin
+    if cBinary[mIndex, 0] = AOperator then
+    begin
+      Result := [cBinary[mIndex, 1]];
+    end;
+  end;
+  // and/or/xor auf Ganzzahlen heißen Bitwise…
+  if (AOperator = 'and') or (AOperator = 'or') or (AOperator = 'xor') then
+  begin
+    Result := Result + ['Bitwise' + UpperCase(AOperator[1]) + Copy(AOperator, 2, MaxInt)];
+  end;
+end;
+
+/// <summary>Ganzzahliges Ergebnis zweier Operanden: Int64, wenn einer 64 Bit hat, sonst Integer.</summary>
+function IntegerResult(const ALeft, ARight: string): string;
+begin
+  if SameText(ALeft, 'Int64') or SameText(ARight, 'Int64') or SameText(ALeft, 'UInt64') or
+    SameText(ARight, 'UInt64') then
+  begin
+    Result := 'Int64';
+  end
+  else
+  begin
+    Result := 'Integer';
+  end;
+end;
+
+/// <summary>Ergebnis mit Gleitkomma: Currency bleibt Currency, Double bleibt Double, sonst Extended.</summary>
+function FloatResult(const ALeft, ARight: string): string;
+begin
+  if SameText(ALeft, 'Currency') or SameText(ARight, 'Currency') then
+  begin
+    Result := 'Currency';
+  end
+  else if (SameText(ALeft, 'Double') or not TResolverText.IsFloatName(ALeft)) and
+    (SameText(ARight, 'Double') or not TResolverText.IsFloatName(ARight)) then
+  begin
+    Result := 'Double';
+  end
+  else
+  begin
+    Result := 'Extended';
+  end;
+end;
+
+/// <summary>Text eines Typs als Typargument, auflösbar aus einer anderen Unit (Unit.Typ&lt;Argumente&gt;); ''
+/// bei lokalen und verschachtelten Typen.</summary>
+function TypeArgumentText(const AType: TResolvedSymbol): string;
+var
+  mBinding: string;
+  mArgs: TArray<string>;
+begin
+  Result := '';
+  if AType.Builtin then
+  begin
+    Exit(AType.Name);
+  end;
+  if (AType.Kind <> TResolvedKind.Symbol) or (AType.Container <> '') or (AType.UnitName = '') or
+    (Pos('^', AType.Name) > 0) or (Pos(' ', AType.Name) > 0) then
+  begin
+    Exit;
+  end;
+  Result := AType.UnitName + '.' + AType.Name;
+  mArgs := nil;
+  for mBinding in AType.Bindings do
+  begin
+    mArgs := mArgs + [Copy(mBinding, Pos('=', mBinding) + 1, MaxInt)];
+  end;
+  if Length(mArgs) > 0 then
+  begin
+    Result := Result + '<' + string.Join(',', mArgs) + '>';
+  end;
+end;
+
+/// <summary>Ist der Typparameter AParam in ABindings schon gebunden?</summary>
+function IsBound(const AParam: string; const ABindings: TArray<string>): Boolean;
+var
+  mBinding: string;
+begin
+  for mBinding in ABindings do
+  begin
+    if SameText(Copy(mBinding, 1, Pos('=', mBinding) - 1), AParam) then
+    begin
+      Exit(True);
+    end;
+  end;
+  Result := False;
 end;
 
 /// <summary>Einträge aus AFitting, deren Wertung in AScores die beste ist.</summary>
@@ -322,7 +460,8 @@ begin
     MarkConstructed(Result, mTarget);
     Exit;
   end;
-  Result := FMembers.FindMembers(AType, AName);
+  // P.X bei einem Zeiger auf einen Record (L3).
+  Result := FMembers.FindMembers(FTyping.MemberHost(AType), AName);
   // TKunde.Create liefert TKunde, auch wenn Create aus TObject stammt.
   if AOwner.IsType then
   begin
@@ -429,6 +568,7 @@ end;
 function TResolverExpressions.CallSymbol(ANode: TSyntaxNode; out AResult: TResolvedSymbol): Boolean;
 var
   mCandidates: TArray<TResolvedSymbol>;
+  mResult: TResolvedSymbol;
 begin
   Result := False;
   if ANode.ChildCount = 0 then
@@ -447,14 +587,323 @@ begin
   end;
   AResult := mCandidates[0];
   Result := True;
+  if AResult.IsType then
+  begin
+    Exit;
+  end;
+  // Aufruf über eine Variable, ein Feld oder eine Property mit Prozedurtyp (L3): ihr Ergebnis.
+  if not (AResult.SymbolKind in cRoutineKinds) and ProceduralResult(AResult, mResult) then
+  begin
+    AResult := TResolvedSymbol.ValueOf(mResult);
+  end
+  // Generische Routine ohne Typargumente (L3): Typparameter aus den Argumenten.
+  else if (AResult.SymbolKind in cRoutineKinds) and (AResult.TypeParams <> '') then
+  begin
+    InferTypeArguments(ANode, AResult);
+  end;
+end;
+
+function TResolverExpressions.ProceduralResult(const ACallee: TResolvedSymbol; out AResult: TResolvedSymbol): Boolean;
+var
+  mType: TResolvedSymbol;
+begin
+  Result := FTyping.ShapeOf(ACallee, mType) and SameText(mType.TargetForm, 'function') and
+    FTyping.TargetOfType(mType, mType.TargetType, AResult);
+end;
+
+procedure TResolverExpressions.InferTypeArguments(ANode: TSyntaxNode; var ACallee: TResolvedSymbol);
+var
+  mParams: TArray<string>;
+  mParam, mText, mArgText: string;
+  mArg: Integer;
+  mValue, mType, mElement: TResolvedSymbol;
+begin
+  mParams := TResolverText.SplitArgs(ACallee.TypeParams);
+  for mArg := 0 to Min(Length(ACallee.ParamTypes), ANode.ChildCount - 1) - 1 do
+  begin
+    mText := Trim(ACallee.ParamTypes[mArg]);
+    for mParam in mParams do
+    begin
+      if IsBound(Trim(mParam), ACallee.Bindings) then
+      begin
+        Continue;
+      end;
+      mArgText := '';
+      // Foo<T>(const A: T), Foo<T>(const A: array of T) bzw. TArray<T>: einfache Fälle wie der Compiler.
+      if SameText(mText, Trim(mParam)) then
+      begin
+        if OperandType(ANode[mArg + 1], mType) then
+        begin
+          mArgText := TypeArgumentText(mType);
+        end;
+      end
+      else if SameText(mText, 'array of ' + Trim(mParam)) or SameText(mText, 'TArray<' + Trim(mParam) + '>') then
+      begin
+        if ExprSymbol(ANode[mArg + 1], mValue) and FTyping.ShapeOf(mValue, mType) and
+          FTyping.ElementOf(mType, mElement) then
+        begin
+          mArgText := TypeArgumentText(mElement);
+        end;
+      end;
+      if mArgText <> '' then
+      begin
+        ACallee.Bindings := ACallee.Bindings + [Trim(mParam) + '=' + mArgText];
+      end;
+    end;
+  end;
+end;
+
+function TResolverExpressions.OperandType(ANode: TSyntaxNode; out AType: TResolvedSymbol): Boolean;
+var
+  mValue: TResolvedSymbol;
+begin
+  Result := ExprSymbol(ANode, mValue) and (mValue.Kind <> TResolvedKind.UnitName) and FTyping.TypeOf(mValue, AType);
+end;
+
+function TResolverExpressions.OperatorResult(const AType: TResolvedSymbol; const ANames: TArray<string>;
+  out AResult: TResolvedSymbol): Boolean;
+var
+  mName: string;
+  mMember: TResolvedSymbol;
+begin
+  // class operator Add(const A, B: TPunkt): TPunkt (L3): Ergebnistyp aus dem Index.
+  Result := False;
+  if AType.Builtin or not (AType.SymbolKind in [TIndexSymbolKind.RecordType, TIndexSymbolKind.ClassType]) then
+  begin
+    Exit;
+  end;
+  for mName in ANames do
+  begin
+    for mMember in FMembers.FindMembers(AType, mName) do
+    begin
+      if (IndexText('operator', mMember.Directives) >= 0) and FTyping.TypeOf(mMember, AResult) then
+      begin
+        Exit(True);
+      end;
+    end;
+  end;
+end;
+
+function TResolverExpressions.DerefSymbol(ANode: TSyntaxNode; out AResult: TResolvedSymbol): Boolean;
+var
+  mBase, mShape, mTarget: TResolvedSymbol;
+begin
+  // P^ (L3): der Zieltyp des Zeigers (PFoo = ^TFoo aus dem Index, @X, var P: ^TFoo).
+  Result := (ANode.ChildCount > 0) and ExprSymbol(ANode[0], mBase) and FTyping.ShapeOf(mBase, mShape) and
+    FTyping.Dereferenced(mShape, mTarget);
+  if Result then
+  begin
+    AResult := TResolvedSymbol.ValueOf(mTarget);
+  end;
+end;
+
+function TResolverExpressions.AddressSymbol(ANode: TSyntaxNode; out AResult: TResolvedSymbol): Boolean;
+var
+  mValue, mType: TResolvedSymbol;
+begin
+  // @R (L3): Zeiger auf den Typ von R; @Routine bleibt unbekannt (Methodenzeiger).
+  Result := (ANode.ChildCount > 0) and ExprSymbol(ANode[0], mValue) and not mValue.IsType and
+    (mValue.Kind <> TResolvedKind.UnitName) and not (mValue.SymbolKind in cRoutineKinds) and
+    FTyping.TypeOf(mValue, mType);
+  if Result then
+  begin
+    AResult := TResolvedSymbol.ValueOf(TResolvedSymbol.PointerTo(mType));
+  end;
+end;
+
+function TResolverExpressions.UnarySymbol(ANode: TSyntaxNode; out AResult: TResolvedSymbol): Boolean;
+var
+  mOperator: string;
+  mType, mResult: TResolvedSymbol;
+  mKnown: Boolean;
+begin
+  // not, -, + (L3): Typ des Operanden; not auf Unbekanntem ist meist ein Boolean.
+  Result := ANode.ChildCount > 0;
+  if not Result then
+  begin
+    Exit;
+  end;
+  mOperator := LowerCase(ANode.Name);
+  mKnown := OperandType(ANode[0], mType);
+  if mKnown and OperatorResult(mType, OperatorNames(mOperator, True), mResult) then
+  begin
+    AResult := TResolvedSymbol.ValueOf(mResult);
+  end
+  else if mOperator = 'not' then
+  begin
+    if mKnown and TResolverText.IsIntegerName(mType.Name) then
+    begin
+      AResult := TResolvedSymbol.ValueOf(mType);
+    end
+    else
+    begin
+      AResult := BuiltinValue('Boolean');
+    end;
+  end
+  else
+  begin
+    Result := mKnown;
+    if Result then
+    begin
+      AResult := TResolvedSymbol.ValueOf(mType);
+    end;
+  end;
+end;
+
+function TResolverExpressions.BinarySymbol(ANode: TSyntaxNode; out AResult: TResolvedSymbol): Boolean;
+var
+  mOperator, mLeftName, mRightName: string;
+  mLeft, mRight, mResult: TResolvedSymbol;
+  mLeftKnown, mRightKnown, mText: Boolean;
+begin
+  // Operatoren nach den Regeln von Delphi (L3): Vergleiche Boolean, Text + Text string, Ganzzahlen Integer bzw.
+  // Int64, / Gleitkomma, and/or/xor Boolean oder Ganzzahl; Operatoren von Records und Klassen zuerst.
+  Result := False;
+  if ANode.ChildCount <> 2 then
+  begin
+    Exit;
+  end;
+  mOperator := LowerCase(ANode.Name);
+  mLeftKnown := OperandType(ANode[0], mLeft);
+  mRightKnown := OperandType(ANode[1], mRight);
+  if (mLeftKnown and OperatorResult(mLeft, OperatorNames(mOperator, False), mResult)) or
+    (mRightKnown and OperatorResult(mRight, OperatorNames(mOperator, False), mResult)) then
+  begin
+    AResult := TResolvedSymbol.ValueOf(mResult);
+    Exit(True);
+  end;
+  if MatchText(mOperator, ['=', '<>', '<', '>', '<=', '>=', 'in', 'not in', 'is', 'is not']) then
+  begin
+    AResult := BuiltinValue('Boolean');
+    Exit(True);
+  end;
+  if not mLeftKnown and not mRightKnown then
+  begin
+    Exit;
+  end;
+  mLeftName := '';
+  mRightName := '';
+  if mLeftKnown and mLeft.Builtin then
+  begin
+    mLeftName := mLeft.Name;
+  end;
+  if mRightKnown and mRight.Builtin then
+  begin
+    mRightName := mRight.Name;
+  end;
+  mText := TResolverText.IsStringName(mLeftName) or TResolverText.IsStringName(mRightName) or
+    TResolverText.IsCharName(mLeftName) or TResolverText.IsCharName(mRightName);
+  // Mengen: A + B, A - B, A * B bleiben Mengen vom Typ des linken Operanden.
+  if mLeftKnown and SameText(mLeft.TargetForm, 'set of') and MatchText(mOperator, ['+', '-', '*']) then
+  begin
+    AResult := TResolvedSymbol.ValueOf(mLeft);
+    Result := True;
+  end
+  else if (mOperator = '+') and mText then
+  begin
+    AResult := BuiltinValue('string');
+    Result := True;
+  end
+  else if MatchText(mOperator, ['and', 'or', 'xor']) and (SameText(mLeftName, 'Boolean') or
+    SameText(mRightName, 'Boolean')) then
+  begin
+    AResult := BuiltinValue('Boolean');
+    Result := True;
+  end
+  else if (mOperator = '/') and not mText then
+  begin
+    AResult := BuiltinValue('Extended');
+    Result := True;
+  end
+  else if MatchText(mOperator, ['+', '-', '*']) and (TResolverText.IsFloatName(mLeftName) or
+    TResolverText.IsFloatName(mRightName)) then
+  begin
+    AResult := BuiltinValue(FloatResult(mLeftName, mRightName));
+    Result := True;
+  end
+  else if MatchText(mOperator, ['+', '-', '*', 'div', 'mod', 'shl', 'shr', 'and', 'or', 'xor']) and
+    (TResolverText.IsIntegerName(mLeftName) or TResolverText.IsIntegerName(mRightName)) and
+    (TResolverText.IsIntegerName(mLeftName) or not mLeftKnown) and
+    (TResolverText.IsIntegerName(mRightName) or not mRightKnown) then
+  begin
+    AResult := BuiltinValue(IntegerResult(mLeftName, mRightName));
+    Result := True;
+  end;
+end;
+
+function TResolverExpressions.SetSymbol(ANode: TSyntaxNode; out AResult: TResolvedSymbol): Boolean;
+var
+  mElement: TSyntaxNode;
+  mType: TResolvedSymbol;
+begin
+  // [A, B] bzw. [A..B] (L3): Menge vom Typ des ersten Elements.
+  Result := False;
+  if ANode.ChildCount = 0 then
+  begin
+    Exit;
+  end;
+  mElement := ANode[0];
+  if (mElement.Kind = TSyntaxKind.RangeExpr) and (mElement.ChildCount > 0) then
+  begin
+    mElement := mElement[0];
+  end;
+  Result := OperandType(mElement, mType);
+  if Result then
+  begin
+    AResult := TResolvedSymbol.ValueOf(TResolvedSymbol.SetOf(mType));
+  end;
+end;
+
+function TResolverExpressions.ElementSymbolOf(ANode: TSyntaxNode; out AResult: TResolvedSymbol): Boolean;
+var
+  mValue, mType, mElement, mHost, mGetter, mEnumerator: TResolvedSymbol;
+begin
+  Result := ExprSymbol(ANode, mValue) and (mValue.Kind <> TResolvedKind.UnitName) and
+    FTyping.ShapeOf(mValue, mType);
+  if not Result then
+  begin
+    Exit;
+  end;
+  // for C in S: Zeichen; Arrays und Mengen: ihr Element.
+  if mType.Builtin and TResolverText.IsStringName(mType.Name) then
+  begin
+    AResult := BuiltinValue('Char');
+    Exit(True);
+  end;
+  if FTyping.ElementOf(mType, mElement) then
+  begin
+    AResult := TResolvedSymbol.ValueOf(mElement);
+    Exit(True);
+  end;
+  // Sonst wie der Compiler: GetEnumerator, davon Current.
+  mHost := FTyping.MemberHost(mType);
+  Result := FMembers.FindMember(mHost, 'GetEnumerator', mGetter) and FTyping.TypeOf(mGetter, mEnumerator) and
+    FMembers.FindMember(FTyping.MemberHost(mEnumerator), 'Current', AResult);
 end;
 
 function TResolverExpressions.ElementSymbol(const AType: TResolvedSymbol; out AResult: TResolvedSymbol): Boolean;
 var
   mText: string;
   mFromUnit: TUnitIndex;
+  mElement, mTarget: TResolvedSymbol;
 begin
-  // TArray<T>[i]: das Element.
+  // array of T, array[..] of T, TArray<T> (Eintrag target: aus dem Index, L3): das Element.
+  if FTyping.ElementOf(AType, mElement) then
+  begin
+    AResult := TResolvedSymbol.ValueOf(mElement);
+    Exit(True);
+  end;
+  // Zeiger: P[i] ist P^[i] bei einem Zeiger auf ein Array (PByteArray), sonst das Ziel (POINTERMATH).
+  if FTyping.Dereferenced(AType, mTarget) then
+  begin
+    if not FTyping.ElementOf(mTarget, mElement) then
+    begin
+      mElement := mTarget;
+    end;
+    AResult := TResolvedSymbol.ValueOf(mElement);
+    Exit(True);
+  end;
+  // TArray<T>[i] aus Ständen ohne Eintrag target:.
   Result := False;
   if SameText(AType.Name, 'TArray') and (Length(AType.Bindings) > 0) then
   begin
@@ -480,7 +929,8 @@ begin
     AResult := mBase;
     Exit(True);
   end;
-  if not FTyping.TypeOf(mBase, mType) then
+  // Felder und Variablen mit anonymem Array-Typ (FListe: array of TFoo) über ihren eigenen Eintrag (L3).
+  if not FTyping.ShapeOf(mBase, mType) then
   begin
     Exit(False);
   end;
@@ -508,9 +958,29 @@ begin
     TSyntaxKind.ParenExpr:
       Result := (ANode.ChildCount > 0) and ExprSymbol(ANode[0], AResult);
     TSyntaxKind.BinaryExpr:
-      // (X as TBar): der Zieltyp.
-      Result := SameText(ANode.Name, 'as') and (ANode.ChildCount = 2) and ExprSymbol(ANode[1], AResult) and
-        AResult.IsType;
+      if SameText(ANode.Name, 'as') then
+      begin
+        // (X as TBar): der Zieltyp.
+        Result := (ANode.ChildCount = 2) and ExprSymbol(ANode[1], AResult) and AResult.IsType;
+      end
+      else
+      begin
+        Result := BinarySymbol(ANode, AResult);
+      end;
+    TSyntaxKind.UnaryExpr:
+      Result := UnarySymbol(ANode, AResult);
+    TSyntaxKind.Dereference:
+      Result := DerefSymbol(ANode, AResult);
+    TSyntaxKind.AddressOf:
+      Result := AddressSymbol(ANode, AResult);
+    TSyntaxKind.SetConstructor:
+      Result := SetSymbol(ANode, AResult);
+    TSyntaxKind.AnonymousMethod:
+      begin
+        // var F := function(A: Integer): string begin … end (L3): Routine mit Ergebnistyp, F(1) ist ein string.
+        AResult := FLocals.FromNode(ANode, 'function', TIndexSymbolKind.Routine, False);
+        Result := True;
+      end;
     TSyntaxKind.IfExpr:
       Result := (ANode.ChildCount >= 2) and ExprSymbol(ANode[1], AResult);
     TSyntaxKind.Literal:

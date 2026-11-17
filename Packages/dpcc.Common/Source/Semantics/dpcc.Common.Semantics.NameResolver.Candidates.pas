@@ -76,6 +76,14 @@ type
     procedure CollectRoutineScope(ARoutine: TSyntaxNode; AList: TResolverCandidateList);
     procedure CollectSelf(AList: TResolverCandidateList);
     procedure CollectIntrinsics(AList: TResolverCandidateList);
+    /// <summary>Wert bzw. Typ vor dem Punkt an ASite (L3): über den Baum, wenn ein Ausdruck davor steht, sonst über
+    /// die Kette. ATypeName: Ein Typ steht als Name da (TFoo., nicht TFoo(X). und nicht Self.).</summary>
+    function SiteOwner(ATree: TSyntaxTree; const AFileName: string; const ASite: TResolverMemberSite;
+      out AOwner: TResolvedSymbol; out ATypeName: Boolean): Boolean;
+    /// <summary>Typ, dessen Mitglieder hinter dem Punkt nach AOwner gelten, samt Klassenreferenzen und Zeigern
+    /// (L3); AClassOnly: nur Klassenmitglieder.</summary>
+    function OwnerType(const AOwner: TResolvedSymbol; ATypeName: Boolean; out AType: TResolvedSymbol;
+      out AClassOnly: Boolean): Boolean;
   public
     constructor Create(const AParts: TResolverParts; AExpressions: TResolverExpressions; AChains: TResolverChains);
     destructor Destroy; override;
@@ -95,6 +103,14 @@ type
     /// <summary>Mitglieder hinter der Kette ANames (Unit oder Typ).</summary>
     function MemberCandidates(ATree: TSyntaxTree; const AFileName: string; const ANames: TArray<string>;
       AOffset: Integer): TArray<TResolvedSymbol>;
+    /// <summary>Mitglieder hinter dem Punkt an ASite (L3): auch nach Ausdrücken (Liste[i]., (X as T)., P^.,
+    /// Literale, Foo(1).); nach einem Typnamen nur Klassenmitglieder (Klassenmethoden, Konstruktoren, class var,
+    /// class property, Konstanten, verschachtelte Typen, Enum-Werte).</summary>
+    function MemberCandidatesAt(ATree: TSyntaxTree; const AFileName: string;
+      const ASite: TResolverMemberSite): TArray<TResolvedSymbol>;
+    /// <summary>Wie ReceiverTypes für ASite (L3).</summary>
+    function ReceiverTypesAt(ATree: TSyntaxTree; const AFileName: string;
+      const ASite: TResolverMemberSite): TArray<TResolvedSymbol>;
     /// <summary>Typ der Kette ANames und seine Vorfahren, nächster zuerst.</summary>
     function ReceiverTypes(ATree: TSyntaxTree; const AFileName: string; const ANames: TArray<string>;
       AOffset: Integer): TArray<TResolvedSymbol>;
@@ -737,6 +753,138 @@ begin
     Result := mList.ToArray;
   finally
     mList.Free;
+  end;
+end;
+
+/// <summary>Gehört ASymbol nach einem Typnamen in die Liste (L3)? Klassenmethoden und -properties, class var,
+/// Konstruktoren, Konstanten, verschachtelte Typen und Enum-Werte; keine Operatoren.</summary>
+function IsClassLevel(const ASymbol: TResolvedSymbol): Boolean;
+begin
+  if IndexText('operator', ASymbol.Directives) >= 0 then
+  begin
+    Exit(False);
+  end;
+  Result := (ASymbol.SymbolKind in cTypeKinds) or (ASymbol.SymbolKind in [TIndexSymbolKind.Constant,
+    TIndexSymbolKind.EnumMember, TIndexSymbolKind.Constructor_]) or (IndexText('class', ASymbol.Directives) >= 0) or
+    (IndexText('static', ASymbol.Directives) >= 0);
+end;
+
+function TResolverCandidates.SiteOwner(ATree: TSyntaxTree; const AFileName: string;
+  const ASite: TResolverMemberSite; out AOwner: TResolvedSymbol; out ATypeName: Boolean): Boolean;
+begin
+  ATypeName := False;
+  AOwner := TResolvedSymbol.Empty;
+  if ATree = nil then
+  begin
+    Exit(False);
+  end;
+  if ASite.HasReceiver then
+  begin
+    FParts.Place.MoveTo(ATree, AFileName, ASite.Offset);
+    if FChains.ReceiverOwnerAt(ASite.ReceiverEnd, ASite.ReceiverNames, AOwner) then
+    begin
+      ATypeName := AOwner.IsType;
+      Exit(True);
+    end;
+  end;
+  // Ohne Empfänger im Baum über die Kette (bei Foo(1). auch, wenn der Baum an der Stelle nichts hergibt).
+  if Length(ASite.Names) = 0 then
+  begin
+    Exit(False);
+  end;
+  AOwner := FChains.ResolveChain(ATree, AFileName, ASite.Names, ASite.Offset, False);
+  Result := AOwner.Found;
+  ATypeName := Result and AOwner.IsType and not ASite.Called and not SameText(ASite.Names[High(ASite.Names)],
+    'Self');
+end;
+
+function TResolverCandidates.OwnerType(const AOwner: TResolvedSymbol; ATypeName: Boolean;
+  out AType: TResolvedSymbol; out AClassOnly: Boolean): Boolean;
+var
+  mTarget: TResolvedSymbol;
+begin
+  AClassOnly := ATypeName;
+  Result := (AOwner.Kind <> TResolvedKind.UnitName) and FParts.Typing.TypeOf(AOwner, AType);
+  if not Result then
+  begin
+    Exit;
+  end;
+  // Wert einer Klassenreferenz (FKlasse: TFooClass): die Klassenmitglieder der Zielklasse.
+  if not AOwner.IsType and FParts.Typing.ClassRefTargetOf(AType, mTarget) then
+  begin
+    AType := mTarget;
+    AClassOnly := True;
+  end;
+  AType := FParts.Typing.MemberHost(AType);
+end;
+
+function TResolverCandidates.MemberCandidatesAt(ATree: TSyntaxTree; const AFileName: string;
+  const ASite: TResolverMemberSite): TArray<TResolvedSymbol>;
+var
+  mOwner, mType, mCandidate: TResolvedSymbol;
+  mOwnerUnit: TUnitIndex;
+  mList: TResolverCandidateList;
+  mTypeName: Boolean;
+begin
+  Result := nil;
+  if not SiteOwner(ATree, AFileName, ASite, mOwner, mTypeName) then
+  begin
+    Exit;
+  end;
+  if mOwner.Kind = TResolvedKind.UnitName then
+  begin
+    mList := TResolverCandidateList.Create;
+    try
+      if FParts.Units.FindUnit(mOwner.UnitName, mOwnerUnit) then
+      begin
+        CollectUnit(mOwnerUnit, not FParts.Place.IsCurrentFile(mOwnerUnit.FileName), mList);
+      end;
+      Result := mList.ToArray;
+    finally
+      mList.Free;
+    end;
+    Exit;
+  end;
+  if not OwnerType(mOwner, mTypeName, mType, mTypeName) then
+  begin
+    Exit;
+  end;
+  mList := TResolverCandidateList.Create;
+  try
+    CollectMembers(mType, mList);
+    for mCandidate in mList.ToArray do
+    begin
+      if not mTypeName or IsClassLevel(mCandidate) then
+      begin
+        Result := Result + [mCandidate];
+      end;
+    end;
+  finally
+    mList.Free;
+  end;
+end;
+
+function TResolverCandidates.ReceiverTypesAt(ATree: TSyntaxTree; const AFileName: string;
+  const ASite: TResolverMemberSite): TArray<TResolvedSymbol>;
+var
+  mOwner, mCurrent, mAncestor: TResolvedSymbol;
+  mDepth: Integer;
+  mTypeName, mClassOnly: Boolean;
+begin
+  Result := nil;
+  if not SiteOwner(ATree, AFileName, ASite, mOwner, mTypeName) or
+    not OwnerType(mOwner, mTypeName, mCurrent, mClassOnly) then
+  begin
+    Exit;
+  end;
+  for mDepth := 0 to cMaxDepth do
+  begin
+    Result := Result + [mCurrent];
+    if mCurrent.Builtin or not FParts.Typing.AncestorOf(mCurrent, mAncestor) then
+    begin
+      Break;
+    end;
+    mCurrent := mAncestor;
   end;
 end;
 

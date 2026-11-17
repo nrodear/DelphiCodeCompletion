@@ -91,6 +91,11 @@
 //   hinzugekommener oder weggefallener Name macht ihn ungültig, FGuardDirty).
 // - Scheitert das Nachladen, weil der Block inzwischen an eine neue Datei gebunden wurde (BindSources), lädt LoadKey
 //   aus dem neuen Block, statt die Unit aus dem Index zu nehmen.
+//
+// L3 (Include-Dateien verdrängter Units): Je Include-Datei (groß) die Dateischlüssel der Units, die sie einbinden
+// (FIncludeOwners, IIndexIncludeOwners), gepflegt beim Eintragen und Entfernen jeder Unit aus ihrem Kopf
+// (TUnitIndex.Includes); kalte Units bringen ihn aus dem Verzeichnis des Caches mit. Nur verwaltete Verweise auf die
+// Schlüssel; ein Eintrag je Include-Datei.
 
 interface
 
@@ -276,7 +281,7 @@ type
     function Evictable: Boolean;
   end;
 
-  TSymbolIndex = class(TInterfacedObject, ISymbolIndex)
+  TSymbolIndex = class(TInterfacedObject, ISymbolIndex, IIndexIncludeOwners)
   public const
     /// <summary>Ab so vielen toten Verweisen (und mehr tot als lebend) werden die Tabellen neu gebaut.</summary>
     cRebuildDeadRefs = 4096;
@@ -357,7 +362,13 @@ type
     FNameBuiltFor: Int64;
     FNameBuilds: Integer;
     FUsage: IIndexUsage;
+    // L3: Include-Datei (groß) → Dateischlüssel der einbindenden Units in der Reihenfolge des Eintragens.
+    FIncludeOwners: TDictionary<string, TArray<string>>;
     function NewEntry: TIndexEntry;
+    /// <summary>Trägt AKey als einbindende Unit von AIncludes ein (L3).</summary>
+    procedure LinkIncludesLocked(const AKey: string; const AIncludes: TArray<string>);
+    /// <summary>Nimmt AKey bei AIncludes wieder heraus (L3).</summary>
+    procedure UnlinkIncludesLocked(const AKey: string; const AIncludes: TArray<string>);
     procedure Account(AEntry: TIndexEntry; ASign: Integer);
     /// <summary>Gehört AEntry zum Namensverzeichnis der kalten Units (nicht gepinnt, mit Block)?</summary>
     class function NameRelevant(AEntry: TIndexEntry): Boolean; static; inline;
@@ -457,6 +468,8 @@ type
     procedure SetStaleCheck(const ACheck: IIndexStaleCheck);
     function StaleCheck: IIndexStaleCheck;
     procedure TrimEvictable;
+    { IIndexIncludeOwners }
+    function IncludeOwner(const AIncludeFile: string): string;
     /// <summary>So oft wurde das Namensverzeichnis der kalten Units gebaut (Tests, Phase 4).</summary>
     function NameLookupBuilds: Integer;
     /// <summary>So oft suchte der Index Units zum Verdrängen (Tests, Phase 4).</summary>
@@ -561,6 +574,7 @@ begin
   FRefs := TSymbolRefTables.Create;
   FShrinkable := TDictionary<string, Boolean>.Create;
   FUsesPins := TDictionary<string, Integer>.Create;
+  FIncludeOwners := TDictionary<string, TArray<string>>.Create;
   FAliases := TUnitAliases.Defaults;
   SetLength(FLoadMs, cLoadSamples);
   FNameBuiltFor := -1;
@@ -570,6 +584,7 @@ destructor TSymbolIndex.Destroy;
 begin
   // Namensindex der Import-Vorschläge (#617) hält sonst unseren Katalog fest.
   TImportNames.Forget(Self);
+  FIncludeOwners.Free;
   FUsesPins.Free;
   FShrinkable.Free;
   FRefs.Free;
@@ -582,6 +597,100 @@ begin
   FPoolLock.Free;
   FLock.Free;
   inherited;
+end;
+
+procedure TSymbolIndex.LinkIncludesLocked(const AKey: string; const AIncludes: TArray<string>);
+var
+  mInclude, mIncludeKey: string;
+  mOwners: TArray<string>;
+begin
+  for mInclude in AIncludes do
+  begin
+    mIncludeKey := AnsiUpperCase(mInclude);
+    if not FIncludeOwners.TryGetValue(mIncludeKey, mOwners) then
+    begin
+      mOwners := nil;
+    end
+    else if IndexStr(AKey, mOwners) >= 0 then
+    begin
+      // Dieselbe Datei zweimal eingebunden ({$I} in mehreren Zweigen).
+      Continue;
+    end;
+    FIncludeOwners.AddOrSetValue(mIncludeKey, mOwners + [AKey]);
+  end;
+end;
+
+procedure TSymbolIndex.UnlinkIncludesLocked(const AKey: string; const AIncludes: TArray<string>);
+var
+  mInclude, mIncludeKey: string;
+  mOwners: TArray<string>;
+  mAt: Integer;
+begin
+  for mInclude in AIncludes do
+  begin
+    mIncludeKey := AnsiUpperCase(mInclude);
+    if not FIncludeOwners.TryGetValue(mIncludeKey, mOwners) then
+    begin
+      Continue;
+    end;
+    mAt := IndexStr(AKey, mOwners);
+    if mAt < 0 then
+    begin
+      Continue;
+    end;
+    // Kopie: Ein Leser könnte das alte Array noch halten.
+    mOwners := Copy(mOwners);
+    Delete(mOwners, mAt, 1);
+    if Length(mOwners) = 0 then
+    begin
+      FIncludeOwners.Remove(mIncludeKey);
+    end
+    else
+    begin
+      FIncludeOwners.AddOrSetValue(mIncludeKey, mOwners);
+    end;
+  end;
+end;
+
+function TSymbolIndex.IncludeOwner(const AIncludeFile: string): string;
+var
+  mOwners: TArray<string>;
+  mKey: string;
+  mEntry: TIndexEntry;
+  mRank, mBestRank: Integer;
+begin
+  Result := '';
+  FLock.Enter;
+  try
+    if not FIncludeOwners.TryGetValue(AnsiUpperCase(AIncludeFile), mOwners) then
+    begin
+      Exit;
+    end;
+    mBestRank := MaxInt;
+    for mKey in mOwners do
+    begin
+      if not FFiles.TryGetValue(mKey, mEntry) then
+      begin
+        Continue;
+      end;
+      // Eine geladene Unit braucht kein Nachladen.
+      if mEntry.Loaded then
+      begin
+        Exit(mEntry.Unit_.FileName);
+      end;
+      if not FFileRank.TryGetValue(mKey, mRank) then
+      begin
+        mRank := MaxInt - 1;
+      end;
+      if mRank < mBestRank then
+      begin
+        mBestRank := mRank;
+        Result := mEntry.Unit_.FileName;
+      end;
+    end;
+  finally
+    FLock.Leave;
+  end;
 end;
 
 function TSymbolIndex.NewEntry: TIndexEntry;
@@ -823,6 +932,7 @@ begin
   Inc(FGeneration);
   // L2: Nur diese Datei fällt weg; gleichnamige Units anderer Dateien bleiben unter dem Namen.
   UnlinkUnitFileLocked(UpperCase(mExisting.Unit_.UnitName), AFileKey);
+  UnlinkIncludesLocked(AFileKey, mExisting.Unit_.Includes);
   FFiles.Remove(AFileKey);
 end;
 
@@ -882,6 +992,7 @@ begin
     Inc(FNameMembership);
   end;
   LinkUnitFileLocked(UpperCase(AUnit.UnitName), AKey, AUnit.Library_);
+  LinkIncludesLocked(AKey, AUnit.Includes);
   InstallLocked(AKey, mEntry, ABytes, AUsageBytes);
 end;
 
@@ -2337,6 +2448,7 @@ begin
       Inc(FNameMembership);
     end;
     LinkUnitFileLocked(UpperCase(AHeader.UnitName), mKey, AHeader.Library_);
+    LinkIncludesLocked(mKey, AHeader.Includes);
     CleanRefsLocked;
   finally
     FLock.Leave;

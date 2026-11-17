@@ -7,6 +7,10 @@
 // Kommas in eckigen Klammern oder inneren Klammern zählen nicht. Eine Klammer
 // gilt als Aufruf, wenn davor ein Bezeichner, ")" oder "]" steht; "if (a" nicht.
 // Für die Pfadzeile (#438) liefert er auch die Namen der äußeren Aufrufe.
+// Erweiterungen (L3), gleich wie die Parameterhilfe des Servers (TLspSignatureHelp):
+// - Typargumente vor der Klammer: Foo<Integer>( ist ein Aufruf von Foo.
+// - Index-Property: Liste[ gilt als Aufruf, wenn kein Aufruf mit runden Klammern
+//   offen ist; in Foo(Liste[ bleibt es bei Foo.
 
 interface
 
@@ -16,7 +20,8 @@ uses
 type
   TDpccCallSite = record
     Found: Boolean;
-    /// <summary>0-basierter Zeichenoffset der öffnenden Klammer im Text.</summary>
+    /// <summary>0-basierter Zeichenoffset der öffnenden Klammer im Text (bei einer Index-Property das "[", L3).
+    /// </summary>
     OpenParen: Integer;
     /// <summary>0-basiert: Zahl der Kommas auf der Ebene des Aufrufs vor dem Caret.</summary>
     ActiveParameter: Integer;
@@ -58,20 +63,97 @@ begin
   Result := CharInSet(AChar, ['A'..'Z', 'a'..'z', '0'..'9', '_']) or (Ord(AChar) > 127);
 end;
 
-/// <summary>Steht vor AIndex (1-basiert, Position der Klammer) ein Bezeichner, ")" oder "]"?</summary>
-function FollowsCallee(const AText: string; AFrom, AIndex: Integer): Boolean;
 const
   // Schlüsselwörter vor einer Klammer: "if (", "and (" usw. sind keine Aufrufe.
   cKeywords: array[0..19] of string = ('if', 'while', 'until', 'and', 'or', 'not', 'xor', 'case', 'of',
     'then', 'else', 'do', 'to', 'downto', 'in', 'is', 'as', 'div', 'mod', 'repeat');
-var
-  mIndex, mStop: Integer;
+  // Wörter vor "[", die keine Index-Property meinen: array[0..9], string[20], Attribute hinter published (L3).
+  cBracketWords: array[0..6] of string = ('array', 'string', 'private', 'protected', 'public', 'published',
+    'automated');
+
+/// <summary>Letztes Zeichen vor AIndex (1-basiert), das kein Leerraum ist; kleiner als AFrom ohne.</summary>
+function SkipSpaceBack(const AText: string; AFrom, AIndex: Integer): Integer;
 begin
-  mIndex := AIndex - 1;
-  while (mIndex >= AFrom) and CharInSet(AText[mIndex], [' ', #9, #13, #10]) do
+  Result := AIndex;
+  while (Result >= AFrom) and CharInSet(AText[Result], [' ', #9, #13, #10]) do
+  begin
+    Dec(Result);
+  end;
+end;
+
+/// <summary>Typargumente Foo&lt;Integer&gt; vor einer Klammer (L3): Steht an AClose ein "&gt;" mit passendem "&lt;"
+/// und nur Bezeichnern, Punkten, Kommas und Leerraum dazwischen, das letzte Zeichen des Namens davor; sonst kleiner
+/// als AFrom.</summary>
+function GenericNameEnd(const AText: string; AFrom, AClose: Integer): Integer;
+var
+  mIndex, mDepth: Integer;
+begin
+  Result := AFrom - 1;
+  mDepth := 0;
+  mIndex := AClose;
+  while mIndex >= AFrom do
+  begin
+    if AText[mIndex] = '>' then
+    begin
+      Inc(mDepth);
+    end
+    else if AText[mIndex] = '<' then
+    begin
+      // "<>" ist der Operator ungleich: if A <> (B) ist kein Aufruf.
+      if (mIndex < Length(AText)) and (AText[mIndex + 1] = '>') then
+      begin
+        Exit;
+      end;
+      Dec(mDepth);
+      if mDepth = 0 then
+      begin
+        Result := SkipSpaceBack(AText, AFrom, mIndex - 1);
+        if (Result < AFrom) or not IsIdentifierChar(AText[Result]) then
+        begin
+          Result := AFrom - 1;
+        end;
+        Exit;
+      end;
+    end
+    else if not (IsIdentifierChar(AText[mIndex]) or CharInSet(AText[mIndex], ['.', ',', ' ', #9])) then
+    begin
+      Exit;
+    end;
+    Dec(mIndex);
+  end;
+end;
+
+/// <summary>Ende des Namens vor der Klammer an AIndex (1-basiert): Leerraum und Typargumente übersprungen; kleiner
+/// als AFrom ohne.</summary>
+function NameEndBefore(const AText: string; AFrom, AIndex: Integer): Integer;
+begin
+  Result := SkipSpaceBack(AText, AFrom, AIndex - 1);
+  if (Result >= AFrom) and (AText[Result] = '>') then
+  begin
+    Result := GenericNameEnd(AText, AFrom, Result);
+  end;
+end;
+
+/// <summary>Wort, das an AStop endet (1-basiert).</summary>
+function WordBefore(const AText: string; AFrom, AStop: Integer): string;
+var
+  mIndex: Integer;
+begin
+  mIndex := AStop;
+  while (mIndex >= AFrom) and IsIdentifierChar(AText[mIndex]) do
   begin
     Dec(mIndex);
   end;
+  Result := Copy(AText, mIndex + 1, AStop - mIndex);
+end;
+
+/// <summary>Steht vor AIndex (1-basiert, Position der Klammer) ein Bezeichner (auch mit Typargumenten), ")" oder
+/// "]"?</summary>
+function FollowsCallee(const AText: string; AFrom, AIndex: Integer): Boolean;
+var
+  mIndex: Integer;
+begin
+  mIndex := SkipSpaceBack(AText, AFrom, AIndex - 1);
   if mIndex < AFrom then
   begin
     Exit(False);
@@ -80,28 +162,37 @@ begin
   begin
     Exit(True);
   end;
-  if not IsIdentifierChar(AText[mIndex]) then
+  mIndex := NameEndBefore(AText, AFrom, AIndex);
+  if (mIndex < AFrom) or not IsIdentifierChar(AText[mIndex]) then
   begin
     Exit(False);
   end;
-  mStop := mIndex;
-  while (mIndex >= AFrom) and IsIdentifierChar(AText[mIndex]) do
-  begin
-    Dec(mIndex);
-  end;
-  Result := not MatchText(Copy(AText, mIndex + 1, mStop - mIndex), cKeywords);
+  Result := not MatchText(WordBefore(AText, AFrom, mIndex), cKeywords);
 end;
 
-/// <summary>Bezeichner direkt vor der Klammer an AIndex (1-basiert); '' ohne.</summary>
+/// <summary>Steht vor der eckigen Klammer an AIndex (1-basiert) der Name einer möglichen Index-Property (L3)?
+/// </summary>
+function FollowsIndexed(const AText: string; AFrom, AIndex: Integer): Boolean;
+var
+  mIndex: Integer;
+  mWord: string;
+begin
+  mIndex := SkipSpaceBack(AText, AFrom, AIndex - 1);
+  if (mIndex < AFrom) or not IsIdentifierChar(AText[mIndex]) then
+  begin
+    Exit(False);
+  end;
+  mWord := WordBefore(AText, AFrom, mIndex);
+  Result := (mWord <> '') and not CharInSet(mWord[1], ['0'..'9']) and not MatchText(mWord, cKeywords) and
+    not MatchText(mWord, cBracketWords);
+end;
+
+/// <summary>Bezeichner direkt vor der Klammer an AIndex (1-basiert), Typargumente übersprungen; '' ohne.</summary>
 function CalleeName(const AText: string; AFrom, AIndex: Integer): string;
 var
   mIndex, mStop: Integer;
 begin
-  mIndex := AIndex - 1;
-  while (mIndex >= AFrom) and CharInSet(AText[mIndex], [' ', #9, #13, #10]) do
-  begin
-    Dec(mIndex);
-  end;
+  mIndex := NameEndBefore(AText, AFrom, AIndex);
   mStop := mIndex;
   while (mIndex >= AFrom) and IsIdentifierChar(AText[mIndex]) do
   begin
@@ -129,7 +220,8 @@ type
     procedure Comma;
     /// <summary>Zeichen an Index lesen; Index steht danach auf dem letzten gelesenen.</summary>
     procedure Step;
-    /// <summary>Innerster offener Aufruf; Klammern zur Gruppierung und [...] darüber gehören zu ihm.</summary>
+    /// <summary>Innerster offener Aufruf; Klammern zur Gruppierung und [...] darüber gehören zu ihm. Ohne offenen
+    /// Aufruf die innerste Index-Property (Liste[, L3).</summary>
     function Site: TDpccCallSite;
   end;
 
@@ -194,6 +286,12 @@ var
 begin
   mFrame := Default(TFrame);
   mFrame.Position := Index - 1;
+  // Liste[: mögliche Index-Property (L3); Site nimmt sie nur ohne offenen Aufruf mit runden Klammern.
+  mFrame.IsCall := FollowsIndexed(Text, Start, Index);
+  if mFrame.IsCall then
+  begin
+    mFrame.Name := CalleeName(Text, Start, Index);
+  end;
   Stack := Stack + [mFrame];
 end;
 
@@ -266,7 +364,19 @@ begin
           Result.Outer := Result.Outer + [Stack[mIndex].Name];
         end;
       end;
-      Break;
+      Exit;
+    end;
+  end;
+  // Kein Aufruf offen: die innerste Index-Property (Liste[, L3), wie TLspSignatureHelp.
+  for mLevel := High(Stack) downto 0 do
+  begin
+    if not Stack[mLevel].IsParen and Stack[mLevel].IsCall then
+    begin
+      Result.Found := True;
+      Result.OpenParen := Stack[mLevel].Position;
+      Result.ActiveParameter := Stack[mLevel].Commas;
+      Result.Name := Stack[mLevel].Name;
+      Exit;
     end;
   end;
 end;

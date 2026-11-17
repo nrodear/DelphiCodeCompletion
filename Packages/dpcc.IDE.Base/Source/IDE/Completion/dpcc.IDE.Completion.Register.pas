@@ -16,7 +16,8 @@
 //   - Strg+Leertaste und Strg+Umschalt+Leertaste im Editor (Fix „Completion übernimmt wieder“): Delphi 13 ruft
 //     Code Insight nur beim Manager auf, der in den Optionen für Delphi gewählt ist (Vorgabe DelphiLSP,
 //     Borland.CodeInsight.LSP.Pascal), nie beim angemeldeten dpcc-Manager. Die zwei Tasten belegt dpcc deshalb
-//     selbst, nur für Dateien, die dpcc bedient; sonst behält die IDE sie.
+//     selbst, nur für Dateien, die dpcc bedient; sonst behält die IDE sie. Blieb die Liste von dpcc nach
+//     Strg+Leertaste leer, geht ein zweites Strg+Leertaste an derselben Stelle an die IDE (L3).
 // Kein Hauptmenü, keine Kontextmenüs, keine Palette, keine weiteren Tasten, kein Statusfeld, keine Andockfenster,
 // keine Hinweisfenster, kein Wächter und kein Vectored Exception Handler mehr. Fehler stehen im Protokoll; dass der
 // Server nach zwei gleichen Abstürzen angehalten ist, meldet eine Zeile im Meldungsfenster und eine Rückfrage
@@ -379,7 +380,8 @@ type
   /// <summary>Strg+Leertaste und Strg+Umschalt+Leertaste im Editor für dpcc. Technisch nötig: Delphi 13 leitet
   /// beide Tasten an den in den Optionen gewählten Code Insight-Manager (DelphiLSP) und fragt den angemeldeten
   /// dpcc-Manager nie. Bedient dpcc die Datei nicht (Hauptschalter aus, keine Delphi-Datei, Sicherung), bleibt die
-  /// Taste bei der IDE.</summary>
+  /// Taste bei der IDE; ebenso ein zweites Strg+Leertaste an derselben Stelle, wenn die Liste von dpcc leer blieb
+  /// (L3, TDpccCompletionFallback).</summary>
   TDpccCompletionKeys = class(TNotifierObject, IOTAKeyboardBinding)
   private
     procedure Run(const AContext: IOTAKeyContext; ASignature: Boolean; var ABindingResult: TKeyBindingResult);
@@ -433,9 +435,11 @@ begin
     begin
       ManagerInstance.OpenSignature;
     end
-    else
+    else if not ManagerInstance.OpenCompletion then
     begin
-      ManagerInstance.OpenCompletion;
+      // Zweites Strg+Leertaste nach leerem Ergebnis an derselben Stelle (L3): Mit krUnhandled läuft die nächste
+      // Belegung der Taste, die der IDE; sie öffnet die Liste des gewählten Managers (DelphiLSP).
+      Exit;
     end;
     ABindingResult := krHandled;
   except

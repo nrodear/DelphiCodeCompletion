@@ -80,6 +80,9 @@ type
     Builtin: Boolean;
     /// <summary>Ausdruck, aus dem der Typ einer Inline-Variablen ohne Typangabe folgt.</summary>
     Initializer: TSyntaxNode;
+    /// <summary>for var X in Initializer (L3): Der Typ ist der Elementtyp des Ausdrucks, nicht sein eigener.
+    /// </summary>
+    ElementOfInitializer: Boolean;
     /// <summary>TKunde.Create: der Typ, an dem der Konstruktor aufgerufen wurde (0 oder 1 Eintrag).</summary>
     Constructed: array of TResolvedSymbol;
     function Found: Boolean;
@@ -114,6 +117,14 @@ type
     class function OfUnit(const AUnit: TUnitIndex): TResolvedSymbol; static;
     /// <summary>Eingebauter Typ ohne Deklaration im Index (string, Integer …) als Ergebnis.</summary>
     class function BuiltinOf(const AName: string): TResolvedSymbol; static;
+    /// <summary>Ein Wert vom Typ AType (L3): Ergebnis eines Ausdrucks wie P^, Liste[i], A + B oder einer
+    /// Typumwandlung. Kein Typ (IsType False), TypeOf liefert AType.</summary>
+    class function ValueOf(const AType: TResolvedSymbol): TResolvedSymbol; static;
+    /// <summary>Zeigertyp ^ATarget ohne Deklaration (L3, @X): TargetForm "^", Dereferenzieren liefert ATarget.
+    /// </summary>
+    class function PointerTo(const ATarget: TResolvedSymbol): TResolvedSymbol; static;
+    /// <summary>Mengentyp "set of AElement" ohne Deklaration (L3, [A, B]): TargetForm "set of".</summary>
+    class function SetOf(const AElement: TResolvedSymbol): TResolvedSymbol; static;
     /// <summary>Index-Symbol ASymbol aus AUnit als aufgelöstes Symbol (#654).</summary>
     class function FromIndex(const AUnit: TUnitIndex; const ASymbol: TIndexSymbol): TResolvedSymbol; static;
     /// <summary>Hängt ASymbol an AList an, außer Deklaration oder Rumpf derselben Routine steht schon dort; die
@@ -130,6 +141,25 @@ type
   /// <summary>Typ eines Ausdrucks im Syntaxbaum (TResolverExpressions.ExprSymbol), für die Typen von
   /// Inline-Variablen ohne Typangabe.</summary>
   TResolverInferFunc = reference to function(ANode: TSyntaxNode; out AResult: TResolvedSymbol): Boolean;
+
+  /// <summary>Stelle eines Mitgliedszugriffs für die Vervollständigung (L3): die Kette ANames wie bisher und,
+  /// wenn vor dem Punkt ein Ausdruck steht (Liste[i]., (X as T)., P^., Foo(1).), dessen Ende im Baum und die
+  /// Namen dahinter.</summary>
+  TResolverMemberSite = record
+    /// <summary>Kette ab dem ersten Namen (Foo(1).Bar: Foo, Bar); nil, wenn vor dem Empfänger kein Name steht.
+    /// </summary>
+    Names: TArray<string>;
+    /// <summary>Offset, an dem die Namen gelten.</summary>
+    Offset: Integer;
+    /// <summary>Das letzte Glied von Names steht mit Klammern da (Foo(1).).</summary>
+    Called: Boolean;
+    /// <summary>Vor dem ersten Punkt von ReceiverNames steht ein Ausdruck, der an ReceiverEnd endet.</summary>
+    HasReceiver: Boolean;
+    ReceiverEnd: Integer;
+    ReceiverNames: TArray<string>;
+    /// <summary>Kette ohne Empfänger.</summary>
+    class function Chain(const ANames: TArray<string>; AOffset: Integer): TResolverMemberSite; static;
+  end;
 
   /// <summary>Ergebnis von TNameResolver.ChainType: der Name am Ende der Kette und sein Typ.</summary>
   TResolvedChainType = record
@@ -170,6 +200,12 @@ type
     class function IsBuiltinTypeName(const AName: string): Boolean; static;
     /// <summary>string, UnicodeString, AnsiString, WideString oder ShortString.</summary>
     class function IsStringName(const AName: string): Boolean; static;
+    /// <summary>Eingebaute Ganzzahl (Integer, Int64, Byte …).</summary>
+    class function IsIntegerName(const AName: string): Boolean; static;
+    /// <summary>Eingebaute Gleitkommazahl (Double, Single, Extended, Currency, Real).</summary>
+    class function IsFloatName(const AName: string): Boolean; static;
+    /// <summary>Char, WideChar oder AnsiChar.</summary>
+    class function IsCharName(const AName: string): Boolean; static;
     /// <summary>Gleiche Typfamilie (string/UnicodeString, Ganzzahlen ...).</summary>
     class function SameFamily(const A, B: string): Boolean; static;
     /// <summary>Passt ein Argument vom Typ AArg zu einem Parameter vom Typ AParam (#498)? Gleiche Typfamilie,
@@ -506,6 +542,42 @@ begin
   Result.Builtin := True;
 end;
 
+class function TResolvedSymbol.ValueOf(const AType: TResolvedSymbol): TResolvedSymbol;
+begin
+  Result := Empty;
+  Result.Kind := TResolvedKind.Symbol;
+  Result.Name := AType.Name;
+  Result.UnitName := AType.UnitName;
+  Result.FileName := AType.FileName;
+  Result.SymbolKind := TIndexSymbolKind.Variable;
+  Result.TypeName := AType.Name;
+  Result.Bindings := AType.Bindings;
+  Result.InInterface := True;
+  // TypeOf nimmt Constructed vor TypeName: der Typ steht fest, ohne Auflösen eines Typtexts.
+  Result.Constructed := [AType];
+end;
+
+class function TResolvedSymbol.PointerTo(const ATarget: TResolvedSymbol): TResolvedSymbol;
+begin
+  Result := Empty;
+  Result.Kind := TResolvedKind.Symbol;
+  Result.Name := '^' + ATarget.Name;
+  Result.UnitName := ATarget.UnitName;
+  Result.FileName := ATarget.FileName;
+  Result.SymbolKind := TIndexSymbolKind.TypeAlias;
+  Result.Directives := [TIndexSymbol.cTargetPrefix + '^=' + ATarget.Name];
+  Result.InInterface := True;
+  // Das Ziel selbst, damit Dereferenzieren nicht über den Namen sucht (auch eingebaute und lokale Typen).
+  Result.Constructed := [ATarget];
+end;
+
+class function TResolvedSymbol.SetOf(const AElement: TResolvedSymbol): TResolvedSymbol;
+begin
+  Result := PointerTo(AElement);
+  Result.Name := 'set of ' + AElement.Name;
+  Result.Directives := [TIndexSymbol.cTargetPrefix + 'set of=' + AElement.Name];
+end;
+
 class function TResolvedSymbol.FromIndex(const AUnit: TUnitIndex; const ASymbol: TIndexSymbol): TResolvedSymbol;
 begin
   Result := Empty;
@@ -550,6 +622,16 @@ begin
     end;
   end;
   AList := AList + [ASymbol];
+end;
+
+{ TResolverMemberSite }
+
+class function TResolverMemberSite.Chain(const ANames: TArray<string>; AOffset: Integer): TResolverMemberSite;
+begin
+  Result := Default(TResolverMemberSite);
+  Result.Names := ANames;
+  Result.Offset := AOffset;
+  Result.ReceiverEnd := -1;
 end;
 
 { TResolverText }
@@ -665,6 +747,21 @@ end;
 class function TResolverText.IsBuiltinTypeName(const AName: string): Boolean;
 begin
   Result := IsBuiltinName(AName) or MatchText(AName, ['PChar', 'PAnsiChar', 'PWideChar']);
+end;
+
+class function TResolverText.IsIntegerName(const AName: string): Boolean;
+begin
+  Result := MatchText(AName, cIntegerTypes);
+end;
+
+class function TResolverText.IsFloatName(const AName: string): Boolean;
+begin
+  Result := MatchText(AName, cFloatTypes);
+end;
+
+class function TResolverText.IsCharName(const AName: string): Boolean;
+begin
+  Result := MatchText(AName, cCharTypes);
 end;
 
 class function TResolverText.IsStringName(const AName: string): Boolean;

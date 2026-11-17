@@ -474,6 +474,17 @@ type
     function RankOf(const AFileName: string; ALibrary: Boolean): Integer;
   end;
 
+  /// <summary>Optional neben ISymbolIndex (L3): Zuordnung Include-Datei → Unit über alle Units, auch die verdrängten.
+  /// Die Include-Dateien stehen im Kopf jeder Unit (TUnitIndex.Includes, im Verzeichnis des Index-Caches seit Format
+  /// 34); der Index hält daraus eine Tabelle Include-Datei → Dateien der einbindenden Units. Gleichnamige Units (L2)
+  /// bleiben so getrennt. Threadsicher, lädt nichts nach.</summary>
+  IIndexIncludeOwners = interface
+    ['{7C582632-B97B-4B77-906F-672B0A74F0B1}']
+    /// <summary>Datei der Unit, die AIncludeFile per $I einbindet: eine geladene zuerst, sonst die mit dem kleinsten
+    /// Rang (IIndexUnitScopes.RankOf: Projekt und Suchpfade, Bibliothek, Zusatzordner), bei gleichem die zuerst
+    /// aufgenommene; '' ohne.</summary>
+    function IncludeOwner(const AIncludeFile: string): string;
+  end;
 
   ISymbolIndex = interface
     ['{8E3A51C4-7B29-4D6E-A0F8-2C9D41E7B635}']

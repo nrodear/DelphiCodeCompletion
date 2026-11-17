@@ -108,6 +108,45 @@ begin
   end;
 end;
 
+/// <summary>Eintrag target: für einen lokalen Namen mit anonymem Array- oder Zeigertyp (var A: array of TFoo;
+/// P: ^TFoo), wie ihn der Index für Felder führt (L1); '' sonst.</summary>
+function AnonymousTarget(ANode: TSyntaxNode): string;
+var
+  mIndex: Integer;
+  mType, mElement: TSyntaxNode;
+begin
+  Result := '';
+  for mIndex := 0 to ANode.ChildCount - 1 do
+  begin
+    mType := ANode[mIndex];
+    if (mType.Kind = TSyntaxKind.ArrayType) and (mType.ChildCount > 0) then
+    begin
+      mElement := mType[mType.ChildCount - 1];
+      if mElement.Kind = TSyntaxKind.TypeReference then
+      begin
+        if mType.ChildCount = 1 then
+        begin
+          Result := TIndexSymbol.cTargetPrefix + 'array of=' + TIndexExtractor.TypeText(mElement);
+        end
+        else
+        begin
+          Result := TIndexSymbol.cTargetPrefix + 'array[] of=' + TIndexExtractor.TypeText(mElement);
+        end;
+      end;
+      Exit;
+    end;
+    if mType.Kind = TSyntaxKind.PointerType then
+    begin
+      mElement := mType.FindChild(TSyntaxKind.TypeReference);
+      if mElement <> nil then
+      begin
+        Result := TIndexSymbol.cTargetPrefix + '^=' + TIndexExtractor.TypeText(mElement);
+      end;
+      Exit;
+    end;
+  end;
+end;
+
 /// <summary>Ausdruck, aus dem der Typ einer Deklaration ohne Typangabe folgt; nil ohne.</summary>
 function InitializerOf(ANode: TSyntaxNode): TSyntaxNode;
 begin
@@ -120,8 +159,9 @@ begin
   begin
     Result := ANode[ANode.ChildCount - 1];
   end
-  else if (ANode.Kind = TSyntaxKind.ForStatement) and (ANode.ChildCount > 0) then
+  else if (ANode.Kind in [TSyntaxKind.ForStatement, TSyntaxKind.ForInStatement]) and (ANode.ChildCount > 0) then
   begin
+    // for var I := 0 ...: der Startwert; for var X in Liste (L3): die Liste, der Typ ist ihr Elementtyp.
     Result := ANode[0];
   end;
 end;
@@ -172,6 +212,13 @@ begin
   else
   begin
     Result.Initializer := InitializerOf(ANode);
+    Result.ElementOfInitializer := (Result.Initializer <> nil) and (ANode.Kind = TSyntaxKind.ForInStatement);
+    // var A: array of TFoo; P: ^TFoo (L3): Aufbau wie bei Feldern im Index.
+    if (Result.Initializer = nil) and (AKind = TIndexSymbolKind.Variable) and HasAnonymousType(ANode) and
+      (AnonymousTarget(ANode) <> '') then
+    begin
+      Result.Directives := [AnonymousTarget(ANode)];
+    end;
   end;
   Result.IsParameter := AIsParameter;
   if AKind in cRoutineKinds then

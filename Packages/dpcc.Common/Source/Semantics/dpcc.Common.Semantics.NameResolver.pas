@@ -63,6 +63,7 @@ type
   TResolvedKind = dpcc.Common.Semantics.NameResolver.Symbols.TResolvedKind;
   TResolvedSymbol = dpcc.Common.Semantics.NameResolver.Symbols.TResolvedSymbol;
   TResolvedChainType = dpcc.Common.Semantics.NameResolver.Symbols.TResolvedChainType;
+  TResolverMemberSite = dpcc.Common.Semantics.NameResolver.Symbols.TResolverMemberSite;
   TResolvedWithMember = dpcc.Common.Semantics.NameResolver.Symbols.TResolvedWithMember;
   TCandidateNameFilter = dpcc.Common.Semantics.NameResolver.Symbols.TCandidateNameFilter;
   TResolverText = dpcc.Common.Semantics.NameResolver.Symbols.TResolverText;

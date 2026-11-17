@@ -13,7 +13,9 @@ Deutsch | [English](../en/usage.md) | [Français](../fr/usage.md)
 
 dpcc belegt diese zwei Tasten mit einer eigenen Tastenbindung („dpcc Code Completion“). Es nimmt sie nur, wenn es
 die Datei bedient: Endung `.pas`, `.dpr`, `.dpk` oder `.inc`, Hauptschalter an und die Funktion nicht von der
-Sicherung abgeschaltet (siehe [Fehlersuche](troubleshooting.md)). Sonst gehen die Tasten an die IDE.
+Sicherung abgeschaltet (siehe [Fehlersuche](troubleshooting.md)). Sonst gehen die Tasten an die IDE. Ebenso geht
+ein zweites Strg+Leertaste an die IDE, wenn die Liste von dpcc an derselben Stelle leer blieb (siehe
+[unten](#liste-der-ide-wenn-dpcc-nichts-findet)).
 
 Weitere Tasten belegt dpcc nicht dauerhaft. Pfeile, Enter, Tab und Esc nimmt es nur, solange eines seiner Fenster
 offen ist und die Taste braucht.
@@ -30,6 +32,21 @@ den Optionen der IDE für Delphi gewählt ist. Die Vorgabe ist DelphiLSP. Daraus
 
 Welcher Anbieter gewählt ist, schreibt dpcc beim Start ins Protokoll (Zeile „Code Insight für Delphi-Dateien:
 gewählt …“).
+
+### Liste der IDE, wenn dpcc nichts findet
+
+Bleibt die Liste nach Strg+Leertaste leer, steht in ihrer Fußzeile „Strg+Leertaste erneut für die Liste der IDE“.
+Ein zweites Strg+Leertaste an derselben Stelle öffnet dann die Liste der IDE (DelphiLSP) statt der von dpcc. Leer
+heißt hier: nichts gefunden, kein passender Kontext, ein Fehler oder das Zeitlimit des Servers.
+
+- Es gilt nur, wenn der Cursor noch an derselben Stelle steht (Datei, Zeile, Spalte) und dazwischen nichts getippt
+  wurde. Esc dazwischen ändert daran nichts, ein Wechsel des Reiters schon.
+- Steht die Antwort von dpcc noch aus, fragt ein weiteres Strg+Leertaste wieder dpcc.
+- Danach beginnt es von vorn: Das nächste Strg+Leertaste fragt wieder dpcc.
+- Von selbst wechselt dpcc nie zur Liste der IDE.
+
+Die Liste der IDE kommt vom Code-Insight-Anbieter, der in den Optionen der IDE für Delphi gewählt ist (Vorgabe
+DelphiLSP).
 
 ## Die Liste
 
@@ -103,6 +120,7 @@ Dazu kommen, je nach Einstellung:
 |---|---|
 | „Keine Treffer für „…““ | Nichts passt. Nur Esc gehört der Liste; Pfeile und Enter gehen an den Editor. |
 | „Keine Vorschläge an dieser Stelle“ | An dieser Stelle gibt es nichts anzubieten. |
+| Fußzeile „Strg+Leertaste erneut für die Liste der IDE“ | Die Liste nach Strg+Leertaste ist leer; ein zweites Strg+Leertaste an derselben Stelle öffnet die Liste der IDE (siehe [oben](#liste-der-ide-wenn-dpcc-nichts-findet)). |
 | „eingeschränkt (Index wird aufgebaut)“ | Der Index ist noch nicht fertig; die Liste kann unvollständig sein. |
 | Leiste „Ergebnisse möglicherweise unvollständig · Syntaxfehler in Zeile n“ | Vor dem Cursor steht in der aktuellen Routine oder Klasse ein Syntaxfehler. |
 | Leiste „Kontext unklar · Syntaxfehler in Zeile n“ | wie oben, und es gibt keine Einträge. |
@@ -139,11 +157,35 @@ antwortet.
 | wo ein Methodenreferenztyp erwartet wird | Gerüst einer anonymen Methode mit passender Signatur |
 | an der Namensposition einer Deklaration | Namensvorschläge |
 | nach `{$`, `{$IFDEF ` usw. | Compilerdirektiven und bedingte Symbole |
+| nach `{$I ` bzw. `{$INCLUDE ` | Namen der `.inc`-Dateien aus dem Ordner der Datei (bzw. dem getippten Unterordner) und aus den Ordnern der Include-Dateien, die die Unit schon einbindet |
 | in einem `///`-Kommentar, dessen Parameter nicht mehr passen | „Parameter abgleichen“ |
 | in der Unit eines Formulars | Komponenten des Formulars als eigene Gruppe „Formular …“ |
 | `Sender.` in einem Ereignisbehandler | Mitglieder des gemeinsamen Typs der Komponenten, denen die Methode im Formular zugewiesen ist |
 | in `FieldByName('…')`, `FindField('…')`, `ParamByName('…')` | Feld- bzw. Parameternamen der Datenmenge |
 | Name in mehreren Units deklariert | die Variante, die der Compiler wählt, zuerst mit „aktiv“, die übrigen mit ihrer Unit |
+
+### Ausdrücke vor dem Punkt
+
+Hinter dem Punkt kennt die Liste den Typ nicht nur bei Namensketten (`Liste.Items.`), sondern auch nach Ausdrücken:
+
+- Index und Default-Property: `Liste[i].`, `Items[0].`, `FArray[0].`, auch bei `array of T`, statischen Arrays und
+  Feldern oder lokalen Variablen mit anonymem Array-Typ
+- Klammern, Typumwandlung und `as`: `(Sender as TButton).`, `TButton(Sender).`
+- Zeiger: `P^.`, bei einem Zeiger auf einen Record auch `P.`
+- Literale: `'abc'.`, `42.` (Mitglieder der Helper von `string` bzw. `Integer`)
+- Aufrufe: `Foo(1).` mit der passenden Überladung, Aufrufe über Prozedurtypen und `reference to` (`FOnGet(1).`),
+  generische Routinen ohne Typargumente (`Max(A, B).`, `T` aus den Argumenten)
+- verschachtelte Typen als Typ eines Mitglieds: `Dict.Values.`, `Liste.GetEnumerator.Current.`
+
+Inline-Variablen ohne Typangabe erhalten den Typ ihres Ausdrucks auch bei Operatoren (`var S := A + IntToStr(1);`
+ist ein `string`, `I / 2` ein `Extended`, Vergleiche und `not` ein `Boolean`), bei `class operator` von Records,
+bei `@X` (Zeiger auf den Typ von `X`), `P^`, Mengenkonstruktoren und anonymen Methoden. Die Variable einer
+`for … in`-Schleife ohne Typangabe hat den Elementtyp: das Element eines Arrays, `Char` bei einem `string`, sonst
+`GetEnumerator.Current`.
+
+Nach einem Typnamen (`TFoo.`) zeigt die Liste nur, was über den Typ aufrufbar ist: Klassenmethoden, Konstruktoren,
+`class var`, `class property`, Konstanten, verschachtelte Typen und die Werte einer Aufzählung. Nach `TFoo.Create.`,
+`TFoo(X).` und `Self.` erscheinen alle Mitglieder.
 
 ### „+ Unit“
 
@@ -255,7 +297,8 @@ Strg+Umschalt+Leertaste in einem Aufruf zeigt die Signaturen der aufgerufenen Ro
 
 - Alle Überladungen stehen untereinander. In der gewählten ist der aktive Parameter fett und unterstrichen.
   Überladungen mit zu wenigen Parametern sind gedämpft.
-- Vorgewählt ist die erste Überladung, zu der die bisherigen Argumente passen.
+- Vorgewählt ist die erste Überladung, zu der die bisherigen Argumente passen. Dafür zählen Literale, Namen und der
+  Typ von Ausdrücken wie `Liefere(1)`, `Liste[i]` oder `A + 1`.
 - Ein Klick wählt eine Überladung; Alt+↑ / Alt+↓ wechselt sie.
 - Bei verschachtelten Aufrufen zeigt eine Pfadzeile oben die äußeren Aufrufe, etwa „ShowMessage › Format“.
 - Darunter stehen Name und Beschreibung des aktiven Parameters aus der XMLDoc (ohne `<param>`: „nicht
@@ -266,6 +309,20 @@ Strg+Umschalt+Leertaste in einem Aufruf zeigt die Signaturen der aufgerufenen Ro
   oder Wechsel des Reiters.
 - Wird die schließende Klammer entfernt und steht der Cursor danach in einem Aufruf, erscheint die Hilfe erneut;
   nicht für einen Aufruf, dessen Hilfe mit Esc geschlossen wurde.
+
+### Welche Aufrufe sie kennt
+
+- **Geerbte Überladungen**: Trägt eine Methode der Ableitung `overload`, stehen die gleichnamigen Methoden der
+  Vorfahren mit in der Liste (`TAbgeleitet.Add(const S: string)` und das geerbte `Add(A: Integer)`). Ohne
+  `overload` verdeckt die Ableitung sie wie beim Compiler.
+- **Prozedurtypen**: Aufrufe über Variablen, Felder, Properties und Parameter eines Prozedurtyps zeigen dessen
+  Signatur, etwa `FOnChange(Self` (`TNotifyEvent`), `Callback(1` oder `AProc(` mit `AProc: TProc<Integer>`. Bei
+  generischen Typen sind die Typargumente eingesetzt (`TProc<Integer> = reference to procedure (Arg1: Integer)`).
+- **Typargumente vor der Klammer**: `Foo<Integer>(` zeigt nur die generische Überladung, mit eingesetztem
+  Typargument.
+- **Index-Properties**: `Liste.Items[` und `Liste[` (default-Property) zeigen die Indexparameter, mit
+  Strg+Umschalt+Leertaste oder beim Komma. Steht die eckige Klammer in einem Aufruf (`Foo(Liste[`), bleibt es bei
+  dessen Signaturen; bei einem Array statt einer Property erscheint nichts.
 
 ### Platzhalter von Format
 
@@ -284,10 +341,10 @@ Inhalt, von oben nach unten (leere Abschnitte entfallen):
 | Abschnitt | Inhalt |
 |---|---|
 | Wert im Debugger | Ausdruck und Wert bei angehaltenem Programm, bis zur Antwort „wird ausgewertet …“ |
-| Kopfzeile | Art und Signatur |
+| Kopfzeile | Art und Signatur, auch mehrzeilig vollständig |
 | Herkunft, Fundort | Art in Worten, Bibliothek, Herkunft; Datei und Zeile |
-| Wert, Veraltung | Wert einer Konstante; `deprecated`, `platform`, `experimental` |
-| XMLDoc | Zusammenfassung, Parameter, Rückgabe, Ausnahmen, Hinweise, Beispiel, Siehe auch; `<inheritdoc/>` wird aufgelöst |
+| Wert, Veraltung | Wert einer Konstante, auch aus einfachen Ausdrücken; `deprecated`, `platform`, `experimental`; nicht aktiver Zweig |
+| XMLDoc | Zusammenfassung, Parameter, Rückgabe, Ausnahmen, Hinweise, Beispiel, Siehe auch; `<inheritdoc/>` wird aufgelöst; ohne `///` der normale Kommentar (siehe unten) |
 | published-Mitglieder | bei Komponentenklassen Properties und Ereignisse samt geerbter |
 | Vererbung | Vererbungskette bzw. Zieltyp einer Klassenreferenz |
 
@@ -296,6 +353,30 @@ Ist der Tooltip höher als der Platz oder als die eingestellte Zeilenzahl, scrol
 Der Tooltip schließt 300 ms nachdem die Maus Bezeichner und Tooltip verlassen hat, sofort bei Esc und jeder anderen
 Taste (außer Umschalt, Strg, Alt allein), bei Mausklick, Scrollen, Größenänderung und wenn die IDE inaktiv wird.
 Ist eine Vervollständigungsliste, eine Parameterhilfe oder ein Menü offen, erscheint kein Tooltip.
+
+### Signatur, Kommentare und Werte
+
+- **Signatur:** Zieht sich eine Deklaration über mehrere Zeilen, zeigt die Kopfzeile sie vollständig (Parameter,
+  Ergebnis und Direktiven wie `virtual` oder `stdcall`) als eine Zeile ohne Kommentare. Bei Klassen, Records und
+  Interfaces bleibt es bei der ersten Zeile. Sehr lange Köpfe kürzt dpcc nach 1000 Zeichen mit „…“.
+- **Abgeleiteter Typ:** Bei Inline-Variablen ohne Typangabe (`var X := TFoo.Create;`, `for var I := 0 to …`) setzt
+  dpcc den Typ ein, der aus dem Ausdruck folgt: `var X: TFoo := TFoo.Create;`. Lässt sich der Typ nicht sicher
+  bestimmen, bleibt die Zeile wie im Quelltext.
+- **Kommentare als Doku:** XMLDoc mit `///` hat Vorrang. Ohne sie zeigt dpcc den normalen Kommentarblock direkt über
+  der Deklaration (`//`, `{ }` oder `(* *)`, ohne Leerzeile dazwischen) und den Kommentar am Ende der Zeile mit dem
+  Namen. Nicht als Doku gelten Datei- und Lizenzköpfe (Block am Dateianfang oder mit Wörtern wie Copyright, License,
+  Lizenz), Blöcke hinter einer Leerzeile, Trennlinien wie `//-----`, ein einzelner Name wie `{ TFoo }` und
+  auskommentierter Code (Zeilen mit `:=`, auf `;` endende Anweisungen, `begin`/`end` …); besteht ein Block
+  überwiegend aus Code, entfällt er ganz. Den Kommentar am Zeilenende zeigt die Kopfzeile nicht mehr.
+- **Werte:** Konstanten zeigen ihren Wert auch bei einfachen Ausdrücken: Ganzzahlen mit
+  `+ - * div mod and or xor not shl shr`, Vorzeichen und Klammern, Texte mit `+` und Verweise auf andere Konstanten
+  der Unit oder aus dem Index (`cMax = cBase * 2`). Was dpcc nicht sicher berechnen kann (Gleitkomma, Funktionen wie
+  `High` oder `Ord`, Vergleiche, Kreise), zeigt keinen Wert.
+- **Nicht aktive Zweige:** Über einer Deklaration in einem Zweig, der unter der aktuellen Konfiguration nicht gilt
+  (`{$IFDEF …}`), zeigt der Hover ihren Kopf und Kommentar aus der Datei mit dem Hinweis „Nicht aktiv“ und der
+  Bedingung.
+
+Kommentare stehen nicht im Index; der Hover liest sie bei Bedarf aus der einen Datei der Deklaration.
 
 ### Werte beim Debuggen
 

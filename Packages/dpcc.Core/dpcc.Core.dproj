@@ -103,6 +103,7 @@
         <DCCReference Include="Source\Completion\Providers\dpcc.Core.Completion.Providers.Server.pas"/>
         <DCCReference Include="Source\Completion\dpcc.Core.Completion.Matching.pas"/>
         <DCCReference Include="Source\Completion\dpcc.Core.Completion.Controller.pas"/>
+        <DCCReference Include="Source\Completion\dpcc.Core.Completion.Fallback.pas"/>
         <DCCReference Include="Source\Signature\dpcc.Core.Signature.Contract.pas"/>
         <DCCReference Include="Source\Hover\dpcc.Core.Hover.Contract.pas"/>
         <DCCReference Include="Source\Hover\dpcc.Core.Hover.Plain.pas"/>

@@ -52,6 +52,7 @@ dpcc transmet la touche à l'IDE lorsqu'il ne traite pas le fichier :
 | Le fichier ne se termine pas par `.pas`, `.dpr`, `.dpk` ou `.inc`. | Comportement attendu. |
 | L'interrupteur principal est désactivé. | **Tools › Options › Third Party › dpcc › General**, activer « Code Insight by dpcc » (Code Insight de dpcc). |
 | Le fusible de sécurité a désactivé la complétion. | La fenêtre Messages le signale (voir plus bas). Redémarrer l'IDE. |
+| La liste de dpcc est restée vide, et Ctrl+Espace a été pressé une seconde fois au même endroit. | Comportement attendu, voir [Utilisation](usage.md#liste-de-lide-quand-dpcc-ne-trouve-rien). Après une saisie ou à un autre endroit, Ctrl+Espace interroge de nouveau dpcc. |
 
 ## La liste après « . » est différente de celle obtenue avec Ctrl+Espace
 
@@ -69,6 +70,8 @@ C'est le comportement attendu. La liste qui s'ouvre d'elle-même après « . �
 - Une unité manque alors que son fichier se trouve dans le chemin de recherche : chercher « Datei nicht lesbar »
   (fichier illisible) dans `dpcc.log`. L'index ignore un fichier qu'il ne peut ni lire ni analyser.
 - L'index semble périmé : **Rebuild index** (reconstruire l'index) sur la page **General**.
+- Si dpcc ne trouve rien à un endroit, un second Ctrl+Espace y ouvre la liste de l'IDE (voir
+  [Utilisation](usage.md#liste-de-lide-quand-dpcc-ne-trouve-rien)).
 
 ## Aucune proposition pour DUnitX
 

@@ -49,6 +49,9 @@
 // Esc (#414): Nach dem Schließen mit Esc öffnet ein automatischer Start im selben Wort (Datei, Zeile,
 // Wortanfang) die Liste nicht wieder; Strg+Leer öffnet sie und hebt die Sperre auf.
 //
+// Zweites Strg+Leertaste (L3): OnSettled meldet nach dem Abschluss jeder Abfrage, ob die Liste leer bleibt; die
+// Entscheidung, ob ein weiteres Strg+Leertaste der IDE gehört, trifft TDpccCompletionFallback.
+//
 // Diagnosemodus (#479): Ist TDpccQueryTimings.Enabled, beginnt Start eine gemessene Abfrage (Kontext ab
 // AContext.Started, Art des Kontexts, nur der Dateiname), Refresh meldet die Dauer von Filtern und Sortieren
 // samt Anzahl der Einträge und die erste sichtbare Liste. Aus wird nichts gemessen.
@@ -90,12 +93,15 @@ type
   end;
 
   TDpccCommitEvent = reference to procedure(const AItem: TDpccCompletionItem);
+  /// <summary>Abfrage abgeschlossen (L3); AEmpty: Die Liste zeigt danach den leeren Zustand (#423).</summary>
+  TDpccSettledEvent = reference to procedure(AEmpty: Boolean);
 
   /// <summary>Einstellungen der Vervollständigung, die der Aufrufer setzt (#418, #419, #458, #497).
   /// </summary>
   TDpccCompletionSettings = class
   private
     FOnCommit: TDpccCommitEvent;
+    FOnSettled: TDpccSettledEvent;
     FGroupInherited: Boolean;
     FListMode: TDpccListMode;
     FListScope: TDpccListScope;
@@ -108,6 +114,11 @@ type
     function RankOptions(AMembers: Boolean; const AItems: TDpccCompletionItems): TDpccRankOptions;
   public
     property OnCommit: TDpccCommitEvent read FOnCommit write FOnCommit;
+    /// <summary>Eine Abfrage ist abgeschlossen (L3, zweites Strg+Leertaste): einmal je Start bzw. Requery, nachdem
+    /// alle Quellen fertig sind, auch nach Fehler oder Zeitlimit einer Quelle (sie trägt dann nichts bei). AEmpty:
+    /// Die Liste zeigt den leeren Zustand. Nicht nach Close, nicht nach dem stillen Schließen nach "[" (#448).
+    /// </summary>
+    property OnSettled: TDpccSettledEvent read FOnSettled write FOnSettled;
     /// <summary>Geerbte Member gruppieren (#419).</summary>
     property GroupInherited: Boolean read FGroupInherited write FGroupInherited;
     /// <summary>Einträge ohne Treffer zeigen (#497); Filter = nur Treffer.</summary>
@@ -859,6 +870,11 @@ begin
   if Length(FItems) = 0 then
   begin
     Refresh(False);
+  end;
+  // Zweites Strg+Leertaste (L3): Erst jetzt steht fest, ob die Liste leer bleibt.
+  if Assigned(FOnSettled) then
+  begin
+    FOnSettled(FEmpty);
   end;
 end;
 

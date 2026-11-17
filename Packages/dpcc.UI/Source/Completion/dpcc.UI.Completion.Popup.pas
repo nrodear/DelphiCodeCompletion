@@ -24,7 +24,8 @@
 // TDpccQueryTimings (Schritt „Zeichnen“); aus kein Zeitstempel.
 // Favoriten (#458): Angeheftete Einträge stehen oben (Rangfolge im Controller) und werden als Favorit angesagt;
 // anheften bzw. lösen mit Strg+D (IDE-Schicht). ShowNotice zeigt einen Hinweis links in der Fußzeile („Schon 5
-// Favoriten bei TDataSet …“) bis zum nächsten getippten Zeichen bzw. Schließen.
+// Favoriten bei TDataSet …“) bis zum nächsten getippten Zeichen bzw. Schließen; im leeren Zustand den Hinweis auf das
+// zweite Strg+Leertaste (L3), dann mit „Esc schließt“ rechts daneben.
 // Rest der Liste (#497): Einträge unter der Überschrift „Weitere Einträge“ (TDpccRanking.cRestHeader) sind
 // gedämpft; die Fußzeile nennt „Keine Treffer“, wenn nur der Rest steht.
 // Barrierefreiheit (#447): Die Einträge sind für UI Automation Listeneinträge (IDpccAccessibleItems) mit
@@ -107,6 +108,8 @@ uses
 const
   // Rand neben dem Text „keine Treffer für …“ in der Breite des Fensters.
   cNoMatchesPadding = 32;
+  // Ränder und Abstand der Fußzeile mit Hinweis und „Esc schließt“ (DrawFooter: 9 + 10 + 9) samt Luft.
+  cNoticePadding = 40;
 
 { TDpccCompletionPopup }
 
@@ -207,6 +210,19 @@ begin
   begin
     Announce(AText);
   end;
+  // Leerer Zustand (L3, „Strg+Leertaste erneut …“): Hinweis links, „Esc schließt“ rechts; die Breite wächst, damit
+  // beide ganz lesbar sind.
+  if FEmpty.Showing and (AText <> '') then
+  begin
+    Canvas.Font := UIFont;
+    FSessionWidth := Max(FSessionWidth, Canvas.TextWidth(AText) +
+      Canvas.TextWidth(TDpccCompletionStrings.Text(TDpccCompletionTextId.EscCloses)) + Scale(cNoticePadding));
+    Canvas.Font := Font;
+    if IsShown then
+    begin
+      Relayout;
+    end;
+  end;
   Invalidate;
 end;
 
@@ -237,6 +253,8 @@ begin
   FEmpty.Prefix := APrefix;
   FEmpty.Total := ATotal;
   FEmpty.Showing := True;
+  // Ein Hinweis der Liste (#458) gilt nicht für den leeren Zustand; den eigenen setzt ShowNotice danach (L3).
+  FNotice := '';
   if AccessibleList <> nil then
   begin
     AccessibleList.ItemsChanged;

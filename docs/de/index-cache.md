@@ -96,6 +96,16 @@ Feldnamen aus Datenmodulen), finden Symbole oberster Ebene aller Units und laden
 So sieht sie alle Treffer, ohne dass bei häufigen Namen (etwa `Register`) alle ihre Units zugleich im Speicher liegen.
 Mitglieder von Klassen und Records finden sie nur in geladenen Units.
 
+Deklarationen aus Include-Dateien (`{$I …}`) einer Unit, die nur im Katalog steht, findet dpcc über eine Tabelle
+Include-Datei → Unit: Der Kopf jeder Unit nennt ihre Include-Dateien, auch bei Units, die nur im Katalog stehen
+(sie stehen im Verzeichnis des Caches). Hover, Parameterhilfe und die Details der Vervollständigung laden so die
+einbindende Unit nach, bei [gleichnamigen Units](#gleichnamige-units) die Datei, die die Include-Datei einbindet. Die
+Tabelle hält einen Eintrag je Include-Datei und ändert das Cache-Format nicht (weiter Format 35).
+
+Nach `raise`, `on E: ` und in Attributklammern prüft die Vervollständigung Klassen aus Units, die nur im Katalog
+stehen, über die Vorfahren im Katalog und lädt diese Units dafür nicht nach. Klassen aus Packages der IDE ohne
+Quelltext kommen über ihren Vorfahren dazu, wie ihn die IDE meldet.
+
 #### Nutzungsstatistik
 
 dpcc zählt je Unit der Bibliothek, wie oft Anfragen sie brauchen und wie oft eine Projekt-Unit sie neu in ihre `uses`
@@ -195,7 +205,8 @@ Seit Format 34 steht jede Unit in einem eigenen Block mit eigener Prüfsumme. Ei
 alle Units samt ihrem Katalog. dpcc liest beim Start nur das Verzeichnis und die Blöcke der Units, die es lädt, über ein
 offenes Handle; eine andere Instanz kann die Datei trotzdem ersetzen. Ein beschädigter Block betrifft nur seine Unit,
 dpcc liest sie dann aus der Quelldatei neu. Das aktuelle Format 35 bringt die Inhalte aus
-[Inhalt je Deklaration](#inhalt-je-deklaration).
+[Inhalt je Deklaration](#inhalt-je-deklaration). Das Verzeichnis nennt je Unit auch ihre Include-Dateien; daraus
+entsteht beim Start die Tabelle Include-Datei → Unit (siehe [Bibliothek bei Bedarf](#bibliothek-bei-bedarf)).
 
 Caches älterer Formate (etwa `index-34.dpccidx`) liest dpcc nicht mehr: Der erste Start nach dem Update baut den Index
 einmal neu auf. Sobald dpcc einen Cache im neuen Format geschrieben hat, löscht es im selben Ordner die Dateien

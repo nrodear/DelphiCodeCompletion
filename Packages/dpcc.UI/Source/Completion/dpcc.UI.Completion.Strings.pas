@@ -17,7 +17,7 @@ type
     ExceptionGroupGeneral, SyntaxLimited, SyntaxUnknown, SyntaxLine, TargetFooter, FavoritePinned, FavoriteUnpinned,
     FavoritesFull, FavoriteNotAllowed, AccessFavorite, CompletionRestHeader, CountHitsRest, UsesGroupProject,
     UsesGroupRtl, UsesGroupLibrary, UsesInInterface, UsesInImplementation, UsesCycleTag, InheritedSameTag,
-    InheritedOverloadTag, SameNameActiveTag, SameNameHiddenFooter, TagVariantBranch);
+    InheritedOverloadTag, SameNameActiveTag, SameNameHiddenFooter, TagVariantBranch, IdeListAgain);
 
   TDpccCompletionStrings = class
   public
@@ -86,7 +86,8 @@ const
      'Überladung',
      'aktiv',
      '%s ausgeblendet',
-     'Zweig %s'),
+     'Zweig %s',
+     'Strg+Leertaste erneut für die Liste der IDE'),
     ('Enter to accept · Esc to close',
      '%d of %d',
      'No matches for “%s”',
@@ -139,7 +140,8 @@ const
      'overload',
      'active',
      '%s hidden',
-     'branch %s'));
+     'branch %s',
+     'Press Ctrl+Space again for the IDE list'));
 
 { TDpccCompletionStrings }
 

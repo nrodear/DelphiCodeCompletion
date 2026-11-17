@@ -25,6 +25,10 @@
 // Index (ISymbolIndex.CatalogUnits) statt auf den Units samt Symbolen. Er
 // kennt so auch verdrängte Units, hält aber keine vollen Symbol-Arrays fest;
 // Nachladen und Verdrängen ändern ihn nicht (Generation bleibt).
+//
+// L3: Zum Schnappschuss gehört bei Bedarf eine Typtabelle (TImportTypeTable, TImportNames.Types): Klassen und
+// Typ-Aliase des Katalogs nach Namen, für die Vorfahrenkette bei raise und Attributen ohne Nachladen. Sie entsteht
+// erst bei der ersten solchen Anfrage und fällt mit dem Schnappschuss weg.
 
 interface
 
@@ -57,6 +61,23 @@ type
     function Count: Integer;
   end;
 
+  /// <summary>Klassen und Typ-Aliase des Katalogs nach Namen (L3): Der Vorfilter bei raise und Attributen prüft
+  /// damit die Vorfahrenkette über TCatalogSymbol.Ancestors, ohne kalte Units nachzuladen. Offene Adressierung über
+  /// die Einträge des Namensindex (4 Byte je Platz, rund 1,5 Plätze je Typ); Names teilt die Arrays des
+  /// Schnappschusses, aus dem die Tabelle entstand. Unveränderlich wie dieser.</summary>
+  TImportTypeTable = record
+    Names: TImportNameIndex;
+    /// <summary>Position in Names.Entries + 1; 0 = frei.</summary>
+    Slots: TArray<Integer>;
+    /// <summary>Tabelle über die Klassen und Typ-Aliase von ANames.</summary>
+    class function Build(const ANames: TImportNameIndex): TImportTypeTable; static;
+    /// <summary>Positionen in Names.Entries der Klassen und Typ-Aliase namens AName (ohne Groß-/Kleinschreibung,
+    /// wie CompareText); nil ohne.</summary>
+    function Named(const AName: string): TArray<Integer>;
+    /// <summary>Katalogeintrag zur Position AEntry aus Named.</summary>
+    function Symbol(AEntry: Integer): TCatalogSymbol;
+  end;
+
   TImportNames = class
   public const
     /// <summary>Ab so vielen Einträgen wird höchstens alle RebuildMs neu aufgebaut.</summary>
@@ -65,6 +86,9 @@ type
   public
     /// <summary>Aktueller Namensindex zu AIndex; threadsicher.</summary>
     class function Current(const AIndex: ISymbolIndex): TImportNameIndex; static;
+    /// <summary>Typtabelle zum aktuellen Namensindex von AIndex (L3); erst beim ersten Bedarf aufgebaut und mit dem
+    /// Schnappschuss verworfen. Threadsicher.</summary>
+    class function Types(const AIndex: ISymbolIndex): TImportTypeTable; static;
     /// <summary>AOwner (der Symbolindex als Objekt) wird freigegeben: seinen Schnappschuss verwerfen,
     /// sonst hielte der Cache dessen Units über das Ende hinaus fest.</summary>
     class procedure Forget(AOwner: TObject); static;
@@ -76,6 +100,7 @@ type
 implementation
 
 uses
+  System.SysUtils,
   System.Diagnostics;
 
 var
@@ -83,6 +108,8 @@ var
   CacheOwner: Pointer;
   CacheNames: TImportNameIndex;
   CacheWatch: TStopwatch;
+  // Typtabelle zu CacheNames (L3); leer, bis TImportNames.Types sie braucht.
+  CacheTypes: TImportTypeTable;
 
 { TImportNameIndex }
 
@@ -173,6 +200,100 @@ begin
   Result := Length(Entries);
 end;
 
+{ TImportTypeTable }
+
+/// <summary>FNV-1a über die Zeichen, a–z wie A–Z (passt zu CompareText).</summary>
+function TypeNameHash(const AName: string): Cardinal;
+var
+  mIndex: Integer;
+  mCode: Cardinal;
+begin
+  Result := 2166136261;
+  for mIndex := 1 to Length(AName) do
+  begin
+    mCode := Ord(AName[mIndex]);
+    if (mCode >= Ord('a')) and (mCode <= Ord('z')) then
+    begin
+      Dec(mCode, 32);
+    end;
+    Result := Cardinal(UInt64(Result xor mCode) * 16777619);
+  end;
+end;
+
+/// <summary>Gehört der Eintrag AEntry von ANames in die Typtabelle (Klasse oder Typ-Alias)?</summary>
+function IsTableEntry(const ANames: TImportNameIndex; AEntry: Integer): Boolean;
+begin
+  // Über die Indizes: die Katalog-Records nicht kopieren.
+  Result := ANames.Units[ANames.Entries[AEntry].UnitPos].Symbols[ANames.Entries[AEntry].SymbolPos].Kind in
+    [TIndexSymbolKind.ClassType, TIndexSymbolKind.TypeAlias];
+end;
+
+/// <summary>Name des Eintrags AEntry von ANames.</summary>
+function EntryName(const ANames: TImportNameIndex; AEntry: Integer): string;
+begin
+  Result := ANames.Units[ANames.Entries[AEntry].UnitPos].Symbols[ANames.Entries[AEntry].SymbolPos].Name;
+end;
+
+class function TImportTypeTable.Build(const ANames: TImportNameIndex): TImportTypeTable;
+var
+  mEntry, mCount, mSize, mMask, mSlot: Integer;
+begin
+  Result.Names := ANames;
+  mCount := 0;
+  for mEntry := 0 to High(ANames.Entries) do
+  begin
+    Inc(mCount, Ord(IsTableEntry(ANames, mEntry)));
+  end;
+  // Zweierpotenz mit mindestens 1,5 Plätzen je Typ: Es bleiben immer freie Plätze, die Suche endet.
+  mSize := 16;
+  while mSize < mCount + mCount div 2 + 1 do
+  begin
+    mSize := mSize * 2;
+  end;
+  SetLength(Result.Slots, mSize);
+  mMask := mSize - 1;
+  for mEntry := 0 to High(ANames.Entries) do
+  begin
+    if not IsTableEntry(ANames, mEntry) then
+    begin
+      Continue;
+    end;
+    mSlot := Integer(TypeNameHash(EntryName(ANames, mEntry)) and Cardinal(mMask));
+    while Result.Slots[mSlot] <> 0 do
+    begin
+      mSlot := (mSlot + 1) and mMask;
+    end;
+    Result.Slots[mSlot] := mEntry + 1;
+  end;
+end;
+
+function TImportTypeTable.Named(const AName: string): TArray<Integer>;
+var
+  mMask, mSlot, mEntry: Integer;
+begin
+  Result := nil;
+  if (Length(Slots) = 0) or (AName = '') then
+  begin
+    Exit;
+  end;
+  mMask := Length(Slots) - 1;
+  mSlot := Integer(TypeNameHash(AName) and Cardinal(mMask));
+  while Slots[mSlot] <> 0 do
+  begin
+    mEntry := Slots[mSlot] - 1;
+    if CompareText(EntryName(Names, mEntry), AName) = 0 then
+    begin
+      Result := Result + [mEntry];
+    end;
+    mSlot := (mSlot + 1) and mMask;
+  end;
+end;
+
+function TImportTypeTable.Symbol(AEntry: Integer): TCatalogSymbol;
+begin
+  Result := Names.Units[Names.Entries[AEntry].UnitPos].Symbols[Names.Entries[AEntry].SymbolPos];
+end;
+
 { TImportNames }
 
 class function TImportNames.Current(const AIndex: ISymbolIndex): TImportNameIndex;
@@ -189,11 +310,35 @@ begin
     end;
     if not mFresh then
     begin
+      CacheTypes := Default(TImportTypeTable);
       CacheNames := TImportNameIndex.Build(AIndex);
       CacheOwner := Pointer(AIndex as TObject);
       CacheWatch := TStopwatch.StartNew;
     end;
     Result := CacheNames;
+  finally
+    TMonitor.Exit(CacheLock);
+  end;
+end;
+
+class function TImportNames.Types(const AIndex: ISymbolIndex): TImportTypeTable;
+var
+  mNames: TImportNameIndex;
+begin
+  mNames := Current(AIndex);
+  TMonitor.Enter(CacheLock);
+  try
+    if (CacheTypes.Slots <> nil) and (Pointer(CacheTypes.Names.Entries) = Pointer(mNames.Entries)) then
+    begin
+      Exit(CacheTypes);
+    end;
+    Result := TImportTypeTable.Build(mNames);
+    // Nur zum gemerkten Schnappschuss behalten: Hat ein anderer Thread ihn inzwischen erneuert, hielte die Tabelle
+    // sonst den alten fest.
+    if Pointer(mNames.Entries) = Pointer(CacheNames.Entries) then
+    begin
+      CacheTypes := Result;
+    end;
   finally
     TMonitor.Exit(CacheLock);
   end;
@@ -205,6 +350,7 @@ begin
   try
     if CacheOwner = Pointer(AOwner) then
     begin
+      CacheTypes := Default(TImportTypeTable);
       CacheNames := Default(TImportNameIndex);
       CacheOwner := nil;
     end;
@@ -217,6 +363,7 @@ class procedure TImportNames.Clear;
 begin
   TMonitor.Enter(CacheLock);
   try
+    CacheTypes := Default(TImportTypeTable);
     CacheNames := Default(TImportNameIndex);
     CacheOwner := nil;
   finally
@@ -231,6 +378,7 @@ initialization
   TMonitor.Exit(CacheLock);
 
 finalization
+  CacheTypes := Default(TImportTypeTable);
   CacheNames := Default(TImportNameIndex);
   CacheLock.Free;
 

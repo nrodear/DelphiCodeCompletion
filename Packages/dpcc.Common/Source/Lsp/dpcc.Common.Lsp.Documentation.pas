@@ -13,6 +13,12 @@
 // line, character), damit das Plugin sie wie die Typnamen der Deklaration
 // anklickbar macht (#588). HintsJson gibt die Anzeige-Einstellungen "hints"
 // des Projekts an das Plugin weiter (dpcc.json vor den Plugin-Einstellungen).
+//
+// Auflösung im Editor L3: DocAt nimmt ohne ///-Kommentar den normalen Kommentarblock direkt über der Deklaration
+// (//, { } oder (* *), ohne Leerzeile dazwischen) und den Kommentar am Ende der Zeile des Namens als
+// Zusammenfassung. Nicht als Doku gelten Datei- und Lizenzköpfe (Block am Dateianfang, Copyright, Lizenz …),
+// Trennlinien, ein einzelner Name wie { TFoo } und auskommentierter Code. Die Kommentare stehen nicht im Index;
+// sie kommen bei Bedarf aus dem Text der einen Datei.
 
 interface
 
@@ -68,6 +74,14 @@ type
     /// liest deren Dateien.</summary>
     class function Load(AResolver: TNameResolver; const ASymbol: TResolvedSymbol; const ALines: TArray<string>;
       ALine: Integer; const AReadText: TDocReadText): TXmlDoc; static;
+    /// <summary>Doku der Deklaration ab Zeile ALine (0-basiert), deren Name in Zeile ANameLine steht (L3): Der
+    /// ///-Kommentar direkt darüber hat Vorrang; sonst der normale Kommentarblock direkt darüber und der
+    /// Kommentar am Ende der Zeile ANameLine als Zusammenfassung (PlainComment). Leer ohne Kommentar.</summary>
+    class function DocAt(const ALines: TArray<string>; ALine, ANameLine: Integer): TXmlDoc; static;
+    /// <summary>Normaler Kommentar zur Deklaration wie in DocAt, ohne Kommentarzeichen; Absätze durch #10#10
+    /// getrennt, Zeilen eines Absatzes durch #10. Ohne Datei- und Lizenzköpfe, Trennlinien, einzelne Namen
+    /// ({ TFoo }) und auskommentierten Code; '' ohne.</summary>
+    class function PlainComment(const ALines: TArray<string>; ALine, ANameLine: Integer): string; static;
     /// <summary>Fundorte aller cref in ADoc (Verweise und Exceptions), von AFromUnit bzw. AContainer aus
     /// aufgelöst; nicht auflösbare fehlen.</summary>
     class function Targets(AResolver: TNameResolver; const AFromUnit: TUnitIndex; const AContainer: string;
@@ -86,8 +100,409 @@ type
 implementation
 
 uses
+  System.StrUtils,
   dpcc.Text.Lines,
+  dpcc.Common.Pascal.Contract,
+  dpcc.Common.Pascal.Lexer,
   dpcc.Common.Lsp.IdeUnits;
+
+const
+  /// <summary>Höchstens so viele Zeilen hat ein Kommentarblock über einer Deklaration; längere sind meist Datei-
+  /// oder Abschnittsköpfe (L3).</summary>
+  cMaxCommentLines = 40;
+  /// <summary>Wörter von Lizenz- und Dateiköpfen (klein).</summary>
+  cHeaderWords: array[0..7] of string = ('copyright', 'license', 'licence', 'lizenz', 'all rights reserved',
+    'alle rechte vorbehalten', '©', 'spdx-');
+
+/// <summary>Text einer //-Zeile ohne die Schrägstriche (auch /// und //&lt;).</summary>
+function LineCommentText(const AText: string): string;
+begin
+  Result := AText;
+  while StartsStr('/', Result) do
+  begin
+    Result := Copy(Result, 2, MaxInt);
+  end;
+  // "//< Text" (Kommentar zum Element davor), nicht aber "<b>" am Anfang.
+  if StartsStr('< ', Result) or (Result = '<') then
+  begin
+    Result := Copy(Result, 2, MaxInt);
+  end;
+  Result := Trim(Result);
+end;
+
+/// <summary>Text eines Kommentar-Tokens ohne //, { } bzw. (* *).</summary>
+function CommentTokenText(const AText: string): string;
+begin
+  if StartsStr('//', AText) then
+  begin
+    Exit(LineCommentText(AText));
+  end;
+  Result := AText;
+  if StartsStr('{', Result) then
+  begin
+    Result := Copy(Result, 2, MaxInt);
+    if EndsStr('}', Result) then
+    begin
+      Result := Copy(Result, 1, Length(Result) - 1);
+    end;
+  end
+  else if StartsStr('(*', Result) then
+  begin
+    Result := Copy(Result, 3, MaxInt);
+    if EndsStr('*)', Result) then
+    begin
+      Result := Copy(Result, 1, Length(Result) - 2);
+    end;
+  end;
+  Result := Trim(Result);
+end;
+
+/// <summary>Zeile aus Satzzeichen wie //----- oder { ===== } (Trennlinie, keine Doku).</summary>
+function IsSeparatorLine(const AText: string): Boolean;
+var
+  mChar: Char;
+begin
+  Result := Trim(AText) <> '';
+  for mChar in AText do
+  begin
+    if not CharInSet(mChar, [' ', #9, '-', '=', '*', '#', '~', '_', '/', '+', '.', '<', '>', '|']) then
+    begin
+      Exit(False);
+    end;
+  end;
+end;
+
+/// <summary>Sieht die Kommentarzeile AText wie auskommentierter Pascal-Code aus? Endet auf ";" mit Code-Zeichen
+/// (FList.Free; X := 1; Foo(A);) oder ohne Leerzeichen (inherited;), enthält ":=", ist begin/end/try … oder
+/// "if … then", "for/while/with … do".</summary>
+function LooksLikeCode(const AText: string): Boolean;
+var
+  mText: string;
+begin
+  mText := LowerCase(Trim(AText));
+  Result := (Pos(':=', mText) > 0) or MatchStr(mText, ['begin', 'end', 'end.', 'try', 'finally', 'except',
+    'else', 'repeat', 'begin;']) or StartsStr('{$', mText) or StartsStr('(*$', mText) or
+    (StartsStr('if ', mText) and EndsStr(' then', mText)) or
+    ((StartsStr('for ', mText) or StartsStr('while ', mText) or StartsStr('with ', mText)) and EndsStr(' do', mText));
+  if not Result and EndsStr(';', mText) then
+  begin
+    Result := (Pos(' ', mText) = 0) or (Pos('(', mText) > 0) or (Pos(':', mText) > 0) or (Pos('.', mText) > 0) or
+      (Pos('[', mText) > 0) or (Pos('^', mText) > 0) or (Pos('=', mText) > 0);
+  end;
+end;
+
+/// <summary>Enthält AText ein Wort aus Lizenz- und Dateiköpfen?</summary>
+function HasHeaderWord(const AText: string): Boolean;
+var
+  mText, mWord: string;
+begin
+  mText := LowerCase(AText);
+  for mWord in cHeaderWords do
+  begin
+    if Pos(mWord, mText) > 0 then
+    begin
+      Exit(True);
+    end;
+  end;
+  Result := False;
+end;
+
+/// <summary>Hinweis der Formularvorlage wie { Private-Deklarationen } bzw. { Public declarations } (L3)? Er gehört
+/// zum Abschnitt, nicht zum ersten Mitglied darunter.</summary>
+function IsTemplateRemark(const AText: string): Boolean;
+const
+  cSections: array[0..3] of string = ('private', 'protected', 'public', 'published');
+  cWords: array[0..1] of string = ('deklarationen', 'declarations');
+var
+  mText, mSection, mWord: string;
+begin
+  mText := LowerCase(Trim(AText));
+  if mText.EndsWith('.') then
+  begin
+    mText := Copy(mText, 1, Length(mText) - 1);
+  end;
+  for mSection in cSections do
+  begin
+    for mWord in cWords do
+    begin
+      if (mText = mSection + '-' + mWord) or (mText = mSection + ' ' + mWord) then
+      begin
+        Exit(True);
+      end;
+    end;
+  end;
+  Result := False;
+end;
+
+/// <summary>Nur ein Name wie "TFoo" oder "TFoo.Bar" (Markierung { TFoo } der Klassenvervollständigung)?</summary>
+function IsSingleName(const AText: string): Boolean;
+var
+  mChar: Char;
+begin
+  Result := AText <> '';
+  for mChar in AText do
+  begin
+    if not (CharInSet(mChar, ['A'..'Z', 'a'..'z', '0'..'9', '_', '.']) or (Ord(mChar) > 127)) then
+    begin
+      Exit(False);
+    end;
+  end;
+end;
+
+/// <summary>Block-Kommentar { … } bzw. (* … *), der in Zeile AEnd endet und am Anfang einer Zeile beginnt;
+/// AStart ist seine erste Zeile, AParts sein Inhalt je Zeile. False bei Direktiven ({$IFDEF}), bei Code vor dem
+/// Kommentar und ohne Anfang innerhalb von cMaxCommentLines Zeilen.</summary>
+function BlockCommentAbove(const ALines: TArray<string>; AEnd: Integer; out AStart: Integer;
+  out AParts: TArray<string>): Boolean;
+var
+  mOpen, mClose, mText: string;
+  mIndex: Integer;
+begin
+  Result := False;
+  AStart := AEnd;
+  AParts := nil;
+  mText := Trim(ALines[AEnd]);
+  if EndsStr('}', mText) then
+  begin
+    mOpen := '{';
+    mClose := '}';
+  end
+  else if EndsStr('*)', mText) then
+  begin
+    mOpen := '(*';
+    mClose := '*)';
+  end
+  else
+  begin
+    Exit;
+  end;
+  // Die öffnende Klammer steht am Anfang einer Zeile; dazwischen weder öffnende noch schließende.
+  mIndex := AEnd;
+  while True do
+  begin
+    mText := Trim(ALines[mIndex]);
+    if StartsStr(mOpen, mText) then
+    begin
+      Break;
+    end;
+    if (Pos(mOpen, mText) > 0) or ((mIndex < AEnd) and (Pos(mClose, mText) > 0)) or (mIndex = 0) or
+      (AEnd - mIndex >= cMaxCommentLines) then
+    begin
+      Exit;
+    end;
+    Dec(mIndex);
+  end;
+  if StartsStr(mOpen + '$', mText) or ((mIndex < AEnd) and (Pos(mClose, mText) > 0)) or
+    (Pos(mOpen, Copy(mText, Length(mOpen) + 1, MaxInt)) > 0) then
+  begin
+    Exit;
+  end;
+  AStart := mIndex;
+  for mIndex := AStart to AEnd do
+  begin
+    mText := Trim(ALines[mIndex]);
+    if mIndex = AStart then
+    begin
+      mText := Copy(mText, Length(mOpen) + 1, MaxInt);
+    end;
+    if mIndex = AEnd then
+    begin
+      mText := Copy(mText, 1, Length(mText) - Length(mClose));
+    end;
+    // Zeilen im Stil " * Text" ohne den Stern.
+    mText := Trim(mText);
+    if (mIndex > AStart) and (StartsStr('* ', mText) or (mText = '*')) then
+    begin
+      mText := Trim(Copy(mText, 2, MaxInt));
+    end;
+    AParts := AParts + [mText];
+  end;
+  Result := True;
+end;
+
+/// <summary>Inhalt der Kommentarzeilen direkt über ALine, von oben nach unten: //-Zeilen und Block-Kommentare,
+/// Attribute ([Weak]) zwischen Kommentar und Deklaration übersprungen; eine Leerzeile beendet den Block. AFirst ist
+/// seine erste Zeile. nil ohne Block oder wenn er länger als cMaxCommentLines ist.</summary>
+function CommentLinesAbove(const ALines: TArray<string>; ALine: Integer; out AFirst: Integer): TArray<string>;
+var
+  mIndex, mStart: Integer;
+  mText: string;
+  mParts: TArray<string>;
+begin
+  Result := nil;
+  AFirst := ALine;
+  mIndex := ALine - 1;
+  if mIndex > High(ALines) then
+  begin
+    mIndex := High(ALines);
+  end;
+  while mIndex >= 0 do
+  begin
+    mText := Trim(ALines[mIndex]);
+    if StartsStr('//', mText) then
+    begin
+      Result := [LineCommentText(mText)] + Result;
+      AFirst := mIndex;
+      Dec(mIndex);
+    end
+    else if (Length(Result) = 0) and StartsStr('[', mText) then
+    begin
+      Dec(mIndex);
+    end
+    else if (mText <> '') and BlockCommentAbove(ALines, mIndex, mStart, mParts) then
+    begin
+      Result := mParts + Result;
+      AFirst := mStart;
+      mIndex := mStart - 1;
+    end
+    else
+    begin
+      Break;
+    end;
+    if Length(Result) > cMaxCommentLines then
+    begin
+      Exit(nil);
+    end;
+  end;
+end;
+
+/// <summary>Steht über AFirst nur Leeres? Dann ist der Block der Kopf der Datei (auch einer .inc-Datei).</summary>
+function IsFileStart(const ALines: TArray<string>; AFirst: Integer): Boolean;
+var
+  mIndex: Integer;
+begin
+  for mIndex := AFirst - 1 downto 0 do
+  begin
+    if Trim(ALines[mIndex]) <> '' then
+    begin
+      Exit(False);
+    end;
+  end;
+  Result := True;
+end;
+
+/// <summary>Absätze aus den Zeilen ABlock (ab Zeile AFirst): Trennlinien und Code-Zeilen fallen weg, Leerzeilen
+/// trennen Absätze. nil bei Datei- und Lizenzköpfen, bei überwiegend Code und bei einem einzelnen Namen.</summary>
+function BlockParagraphs(const ALines, ABlock: TArray<string>; AFirst: Integer): TArray<string>;
+var
+  mLine, mParagraph: string;
+  mCode, mText: Integer;
+begin
+  Result := nil;
+  if (Length(ABlock) = 0) or IsFileStart(ALines, AFirst) or HasHeaderWord(string.Join(' ', ABlock)) then
+  begin
+    Exit;
+  end;
+  mCode := 0;
+  mText := 0;
+  for mLine in ABlock do
+  begin
+    if (Trim(mLine) = '') or IsSeparatorLine(mLine) then
+    begin
+      Continue;
+    end;
+    if LooksLikeCode(mLine) then
+    begin
+      Inc(mCode);
+    end
+    else
+    begin
+      Inc(mText);
+    end;
+  end;
+  // Überwiegend Code: auskommentierter Code, keine Doku.
+  if (mText = 0) or (mCode > mText) then
+  begin
+    Exit;
+  end;
+  mParagraph := '';
+  for mLine in ABlock do
+  begin
+    if Trim(mLine) = '' then
+    begin
+      if mParagraph <> '' then
+      begin
+        Result := Result + [mParagraph];
+      end;
+      mParagraph := '';
+    end
+    else if not (IsSeparatorLine(mLine) or LooksLikeCode(mLine)) then
+    begin
+      mParagraph := mParagraph + IfThen(mParagraph <> '', #10) + Trim(mLine);
+    end;
+  end;
+  if mParagraph <> '' then
+  begin
+    Result := Result + [mParagraph];
+  end;
+  if (Length(Result) = 1) and (IsSingleName(Result[0]) or IsTemplateRemark(Result[0])) then
+  begin
+    Result := nil;
+  end;
+end;
+
+/// <summary>Kommentar am Ende von ALine hinter Code, ohne Kommentarzeichen; '' ohne, bei Code dahinter, bei
+/// Trennlinien, Lizenzwörtern und auskommentiertem Code.</summary>
+function LineEndComment(const ALine: string): string;
+var
+  mToken: TPascalToken;
+  mCode: Boolean;
+begin
+  Result := '';
+  mCode := False;
+  for mToken in TPascalLexer.Tokenize(ALine) do
+  begin
+    if mToken.Kind = TPascalTokenKind.Comment then
+    begin
+      if mCode then
+      begin
+        Result := Result + IfThen(Result <> '', ' ') + CommentTokenText(mToken.Text);
+      end;
+    end
+    else if mToken.Kind <> TPascalTokenKind.Directive then
+    begin
+      // Kommentar mitten in der Zeile ("procedure P({ Wert } A: Integer);") zählt nicht.
+      Result := '';
+      mCode := True;
+    end;
+  end;
+  if IsSeparatorLine(Result) or LooksLikeCode(Result) or HasHeaderWord(Result) then
+  begin
+    Result := '';
+  end;
+end;
+
+/// <summary>Absätze des normalen Kommentars zur Deklaration ab ALine mit dem Namen in ANameLine.</summary>
+function PlainParagraphs(const ALines: TArray<string>; ALine, ANameLine: Integer): TArray<string>;
+var
+  mFirst: Integer;
+  mBlock: TArray<string>;
+  mTrailing: string;
+begin
+  Result := nil;
+  if (ALine >= 0) and (ALine <= High(ALines)) then
+  begin
+    // Erst den Block lesen: AFirst kommt aus CommentLinesAbove.
+    mBlock := CommentLinesAbove(ALines, ALine, mFirst);
+    Result := BlockParagraphs(ALines, mBlock, mFirst);
+  end;
+  if (ANameLine >= 0) and (ANameLine <= High(ALines)) then
+  begin
+    mTrailing := LineEndComment(ALines[ANameLine]);
+    if mTrailing <> '' then
+    begin
+      Result := Result + [mTrailing];
+    end;
+  end;
+end;
+
+/// <summary>AText als Text für TXmlDoc.Parse: &amp;, &lt; und &gt; maskiert.</summary>
+function XmlText(const AText: string): string;
+begin
+  Result := StringReplace(AText, '&', '&amp;', [rfReplaceAll]);
+  Result := StringReplace(Result, '<', '&lt;', [rfReplaceAll]);
+  Result := StringReplace(Result, '>', '&gt;', [rfReplaceAll]);
+end;
 
 { TLspDocumentation.TLoader }
 
@@ -131,7 +546,8 @@ begin
   begin
     Exit;
   end;
-  Result := TXmlDoc.Parse(TXmlDoc.CommentAbove(mLines, ASymbol.Range.StartPos.Line));
+  // Ohne ///-Kommentar beim Vorfahren auch dessen normaler Kommentar (L3).
+  Result := TLspDocumentation.DocAt(mLines, ASymbol.Range.StartPos.Line, ASymbol.SelectionRange.StartPos.Line);
   if Result.InheritDoc then
   begin
     Result := Resolve(ASymbol, Result, ADepth);
@@ -289,6 +705,32 @@ begin
   finally
     mLoader.Free;
   end;
+end;
+
+class function TLspDocumentation.PlainComment(const ALines: TArray<string>; ALine, ANameLine: Integer): string;
+begin
+  Result := string.Join(#10#10, PlainParagraphs(ALines, ALine, ANameLine));
+end;
+
+class function TLspDocumentation.DocAt(const ALines: TArray<string>; ALine, ANameLine: Integer): TXmlDoc;
+var
+  mXml, mParagraph: string;
+begin
+  // /// hat Vorrang; der normale Kommentar kommt nur ohne ihn (L3).
+  mXml := TXmlDoc.CommentAbove(ALines, ALine);
+  if Trim(mXml) = '' then
+  begin
+    mXml := '';
+    for mParagraph in PlainParagraphs(ALines, ALine, ANameLine) do
+    begin
+      if mXml <> '' then
+      begin
+        mXml := mXml + '<para/>';
+      end;
+      mXml := mXml + XmlText(mParagraph);
+    end;
+  end;
+  Result := TXmlDoc.Parse(mXml);
 end;
 
 class function TLspDocumentation.Targets(AResolver: TNameResolver; const AFromUnit: TUnitIndex;

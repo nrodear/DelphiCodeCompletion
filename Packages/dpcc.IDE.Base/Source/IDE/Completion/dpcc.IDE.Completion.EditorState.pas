@@ -18,6 +18,7 @@ uses
   dpcc.Core.Completion.Contract,
   dpcc.Core.Completion.Composite,
   dpcc.Core.Completion.Controller,
+  dpcc.Core.Completion.Fallback,
   dpcc.Core.Completion.Parentheses,
   dpcc.Core.Editor.CloseRules,
   dpcc.Core.Lsp.Session,
@@ -113,8 +114,13 @@ type
     FCommitChar: TDpccEditorCommitChar;
     FGuard: TDpccEditorGuard;
     FCall: TDpccEditorCall;
+    // Zweites Strg+Leertaste nach leerem Ergebnis öffnet die Liste der IDE (L3).
+    FFallback: TDpccCompletionFallback;
     /// <summary>Ereignisse des Popups, die nur Ablauf, Einstellungen und Navigation brauchen.</summary>
     procedure WirePopup;
+    /// <summary>Abgeschlossene Abfrage an den Merker für das zweite Strg+Leertaste; bleibt die Liste nach einem
+    /// Strg+Leertaste leer, zeigt die Fußzeile den Hinweis darauf (L3).</summary>
+    procedure WireFallback;
     procedure Log(const AMessage: string);
     procedure CancelDelay;
     procedure ActiveChanged;
@@ -155,7 +161,8 @@ uses
   dpcc.Core.Settings.Plugin,
   dpcc.IDE.Foundation.Settings,
   dpcc.IDE.Foundation.Navigation,
-  dpcc.IDE.Foundation.EditorBuffer;
+  dpcc.IDE.Foundation.EditorBuffer,
+  dpcc.UI.Completion.Strings;
 
 const
   /// <summary>Takt, in dem die offene Liste Cursor und Vorschau prüft.</summary>
@@ -214,6 +221,8 @@ begin
   FPopup := TDpccCompletionPopup.Create(nil);
   FController := TDpccCompletionController.Create(FProvidersRef, FPopup);
   WirePopup;
+  FFallback := TDpccCompletionFallback.Create;
+  WireFallback;
   FPreview := TDpccEditorPreview.Create;
   FTimer := TTimer.Create(nil);
   FTimer.Enabled := False;
@@ -232,6 +241,7 @@ begin
   FTimer.Free;
   FDelay.Timer.Free;
   FController.Free;
+  FreeAndNil(FFallback);
   FPopup.Free;
   FKeys.Free;
   FSources := Default(TDpccCompletionSources);
@@ -260,6 +270,19 @@ begin
       FController.CommitSelected;
     end;
   WireSettings(FPopup);
+end;
+
+procedure TDpccEditorCompletionState.WireFallback;
+begin
+  FController.OnSettled :=
+    procedure(AEmpty: Boolean)
+    begin
+      if (FFallback <> nil) and FFallback.Settled(AEmpty) then
+      begin
+        Log('Vervollständigung: leeres Ergebnis nach Strg+Leer, ein weiteres Strg+Leer öffnet die Liste der IDE');
+        FPopup.ShowNotice(TDpccCompletionStrings.Text(TDpccCompletionTextId.IdeListAgain));
+      end;
+    end;
 end;
 
 class function TDpccEditorCompletionState.WindowState(const AView: IOTAEditView; AWindow,
@@ -342,6 +365,8 @@ end;
 procedure TDpccEditorCompletionState.ViewChanged;
 begin
   Close;
+  // Anderer Reiter oder Hauptschalter aus: Das zweite Strg+Leertaste gilt nur für dieselbe Stelle (L3).
+  FFallback.Reset;
   if FPlaceholders <> nil then
   begin
     FPlaceholders.Stop;

@@ -3,6 +3,11 @@
 // Zusatzangaben für den Hover (#38): Zahlen in mehreren Schreibweisen, Werte von Konstanten
 // (Zahlen, Mengen, Texte auch aus mehreren Teilen wie bei Resourcestrings), Basistyp von
 // Mengentypen und Hinweise auf veraltete, plattformspezifische oder experimentelle Symbole.
+//
+// Auflösung im Editor L3: Werte auch für einfache Ausdrücke (cMax = cBase * 2): Ganzzahlen mit + - * div mod and
+// or xor not shl shr, Texte mit +, Klammern, Vorzeichen und Namen anderer Konstanten (THoverConstantLookup, z. B.
+// aus dem Index), höchstens cMaxDepth Stufen tief. Was die Auswertung nicht kennt (Gleitkomma, Funktionen wie
+// High oder Ord, Vergleiche), liefert keinen Wert statt eines geratenen.
 
 interface
 
@@ -10,15 +15,35 @@ uses
   System.SysUtils;
 
 type
+  /// <summary>Ausdruck der Konstanten AName (Text hinter "=", ohne ";"), z. B. aus dem Index (L3); False, wenn
+  /// AName keine bekannte Konstante ist.</summary>
+  THoverConstantLookup = reference to function(const AName: string; out AExpression: string): Boolean;
+
   THoverValues = record
+  public const
+    /// <summary>So viele Stufen von Konstanten, die auf Konstanten verweisen, wertet ExpressionValue höchstens aus
+    /// (auch Schutz vor Kreisen wie A = B, B = A).</summary>
+    cMaxDepth = 8;
+    /// <summary>Höchstens so viele Konstanten schlägt eine Auswertung nach.</summary>
+    cMaxLookups = 64;
+    /// <summary>Längere Ausdrücke wertet ExpressionValue nicht aus.</summary>
+    cMaxExpression = 2000;
   public
     /// <summary>Dezimal, $Hex, %Binär und &amp;Oktal, mit optionalem Vorzeichen.</summary>
     class function TryParseNumber(const AText: string; out AValue: Int64): Boolean; static;
     /// <summary>"15 · $0F · %1111"</summary>
     class function FormatNumber(AValue: Int64): string; static;
     /// <summary>Wert einer Konstantendeklaration "Name = Ausdruck;": Zahl als FormatNumber, Menge als
-    /// SetValue, Text als StringValue; '' bei anderen Ausdrücken.</summary>
-    class function ConstantValue(const ADeclaration: string): string; static;
+    /// SetValue, Text als StringValue, einfacher Ausdruck über ExpressionValue (ohne Namen anderer Konstanten);
+    /// '' bei anderen Ausdrücken.</summary>
+    class function ConstantValue(const ADeclaration: string): string; overload; static;
+    /// <summary>Wie oben; Namen anderer Konstanten im Ausdruck liest ALookup (darf nil sein, L3).</summary>
+    class function ConstantValue(const ADeclaration: string; const ALookup: THoverConstantLookup): string;
+      overload; static;
+    /// <summary>Wert eines einfachen konstanten Ausdrucks (L3): Ganzzahlen mit + - * div mod and or xor not shl
+    /// shr, Texte (Literale, #13) mit +, Klammern, Vorzeichen und Namen anderer Konstanten über ALookup (darf nil
+    /// sein). Zahl wie FormatNumber, Text wie StringValue; '' bei allem anderen.</summary>
+    class function ExpressionValue(const AExpression: string; const ALookup: THoverConstantLookup): string; static;
     /// <summary>Ausdruck hinter "=" bis zum letzten ";", ohne angehängte Hinweis-Direktiven; '' ohne "=".
     /// </summary>
     class function ConstantExpression(const ADeclaration: string): string; static;
@@ -40,6 +65,8 @@ implementation
 
 uses
   System.StrUtils,
+  dpcc.Common.Pascal.Contract,
+  dpcc.Common.Pascal.Lexer,
   dpcc.Common.Localization.Texts;
 
 {$SCOPEDENUMS ON}
@@ -295,6 +322,11 @@ begin
 end;
 
 class function THoverValues.ConstantValue(const ADeclaration: string): string;
+begin
+  Result := ConstantValue(ADeclaration, nil);
+end;
+
+class function THoverValues.ConstantValue(const ADeclaration: string; const ALookup: THoverConstantLookup): string;
 var
   mExpression: string;
   mValue: Int64;
@@ -313,6 +345,11 @@ begin
   if Result = '' then
   begin
     Result := StringValue(mExpression);
+  end;
+  // Einfache Ausdrücke (L3): cBase * 2, 'Pfad' + cName, (1 shl 4) or 1.
+  if Result = '' then
+  begin
+    Result := ExpressionValue(mExpression, ALookup);
   end;
 end;
 
@@ -456,6 +493,17 @@ begin
   end;
 end;
 
+/// <summary>AText für die Anzeige: in Hochkommas, Zeilenumbrüche als ⏎.</summary>
+function QuotedText(const AText: string): string;
+var
+  mText: string;
+begin
+  mText := StringReplace(AText, #13#10, '⏎', [rfReplaceAll]);
+  mText := StringReplace(mText, #10, '⏎', [rfReplaceAll]);
+  mText := StringReplace(mText, #13, '⏎', [rfReplaceAll]);
+  Result := '''' + mText + '''';
+end;
+
 class function THoverValues.StringValue(const AExpression: string): string;
 var
   mPart, mText: string;
@@ -475,10 +523,367 @@ begin
   finally
     mBuilder.Free;
   end;
-  mText := StringReplace(mText, #13#10, '⏎', [rfReplaceAll]);
-  mText := StringReplace(mText, #10, '⏎', [rfReplaceAll]);
-  mText := StringReplace(mText, #13, '⏎', [rfReplaceAll]);
-  Result := '''' + mText + '''';
+  Result := QuotedText(mText);
+end;
+
+type
+  /// <summary>Wert eines Teilausdrucks: Ganzzahl oder Text (L3).</summary>
+  TConstantOperand = record
+    IsText: Boolean;
+    Number: Int64;
+    Text: string;
+    class function OfText(const AValue: string): TConstantOperand; static;
+  end;
+
+  /// <summary>Wertet einen einfachen konstanten Ausdruck aus (L3): rekursiver Abstieg über die Tokens nach den
+  /// Vorrangstufen von Delphi (unär vor multiplikativ vor additiv). Namen anderer Konstanten wertet er über
+  /// FLookup mit eigenen Tokens aus; Tiefe und Zahl der Nachschlagungen sind begrenzt. Unbekanntes bricht ab.
+  /// </summary>
+  TConstantEvaluator = class
+  private
+    FLookup: THoverConstantLookup;
+    FTokens: TArray<TPascalToken>;
+    FIndex: Integer;
+    FDepth: Integer;
+    FLookups: Integer;
+    function AtEnd: Boolean;
+    function IsSymbolAt(const ASymbol: string): Boolean;
+    function IsKeywordAt(const AWord: string): Boolean;
+    function Simple(out AValue: TConstantOperand): Boolean;
+    function Term(out AValue: TConstantOperand): Boolean;
+    function Factor(out AValue: TConstantOperand): Boolean;
+    function Literal(out AValue: TConstantOperand): Boolean;
+    function NameValue(out AValue: TConstantOperand): Boolean;
+    function Additive(const AOperator: string; const ALeft, ARight: TConstantOperand;
+      out AValue: TConstantOperand): Boolean;
+    function Multiplicative(const AOperator: string; const ALeft, ARight: TConstantOperand;
+      out AValue: TConstantOperand): Boolean;
+  public
+    constructor Create(const ALookup: THoverConstantLookup);
+    /// <summary>Wert von AExpression; False, wenn der Ausdruck nicht vollständig auswertbar ist.</summary>
+    function Evaluate(const AExpression: string; out AValue: TConstantOperand): Boolean;
+  end;
+
+class function TConstantOperand.OfText(const AValue: string): TConstantOperand;
+begin
+  Result := Default(TConstantOperand);
+  Result.IsText := True;
+  Result.Text := AValue;
+end;
+
+constructor TConstantEvaluator.Create(const ALookup: THoverConstantLookup);
+begin
+  inherited Create;
+  FLookup := ALookup;
+end;
+
+function TConstantEvaluator.AtEnd: Boolean;
+begin
+  Result := FIndex > High(FTokens);
+end;
+
+function TConstantEvaluator.IsSymbolAt(const ASymbol: string): Boolean;
+begin
+  Result := not AtEnd and (FTokens[FIndex].Kind = TPascalTokenKind.Symbol) and (FTokens[FIndex].Text = ASymbol);
+end;
+
+function TConstantEvaluator.IsKeywordAt(const AWord: string): Boolean;
+begin
+  Result := not AtEnd and (FTokens[FIndex].Kind = TPascalTokenKind.Keyword) and SameText(FTokens[FIndex].Text, AWord);
+end;
+
+function TConstantEvaluator.Evaluate(const AExpression: string; out AValue: TConstantOperand): Boolean;
+var
+  mSavedTokens: TArray<TPascalToken>;
+  mSavedIndex: Integer;
+  mToken: TPascalToken;
+begin
+  AValue := Default(TConstantOperand);
+  if (FDepth > THoverValues.cMaxDepth) or (Length(AExpression) > THoverValues.cMaxExpression) then
+  begin
+    Exit(False);
+  end;
+  mSavedTokens := FTokens;
+  mSavedIndex := FIndex;
+  Inc(FDepth);
+  try
+    // Kommentare und Direktiven gehören nicht zum Wert.
+    FTokens := nil;
+    for mToken in TPascalLexer.Tokenize(AExpression) do
+    begin
+      if not (mToken.Kind in [TPascalTokenKind.Comment, TPascalTokenKind.Directive]) then
+      begin
+        FTokens := FTokens + [mToken];
+      end;
+    end;
+    FIndex := 0;
+    Result := (Length(FTokens) > 0) and Simple(AValue) and AtEnd;
+  finally
+    Dec(FDepth);
+    FTokens := mSavedTokens;
+    FIndex := mSavedIndex;
+  end;
+end;
+
+function TConstantEvaluator.Simple(out AValue: TConstantOperand): Boolean;
+var
+  mOperator: string;
+  mLeft, mRight: TConstantOperand;
+begin
+  Result := Term(AValue);
+  while Result and (IsSymbolAt('+') or IsSymbolAt('-') or IsKeywordAt('or') or IsKeywordAt('xor')) do
+  begin
+    mOperator := LowerCase(FTokens[FIndex].Text);
+    Inc(FIndex);
+    // Eigene Kopie: AValue ist out und würde vor dem Aufruf geleert.
+    mLeft := AValue;
+    Result := Term(mRight) and Additive(mOperator, mLeft, mRight, AValue);
+  end;
+end;
+
+function TConstantEvaluator.Term(out AValue: TConstantOperand): Boolean;
+var
+  mOperator: string;
+  mLeft, mRight: TConstantOperand;
+begin
+  Result := Factor(AValue);
+  while Result and (IsSymbolAt('*') or IsKeywordAt('div') or IsKeywordAt('mod') or IsKeywordAt('and') or
+    IsKeywordAt('shl') or IsKeywordAt('shr')) do
+  begin
+    mOperator := LowerCase(FTokens[FIndex].Text);
+    Inc(FIndex);
+    mLeft := AValue;
+    Result := Factor(mRight) and Multiplicative(mOperator, mLeft, mRight, AValue);
+  end;
+end;
+
+// Rechnen mit Überlaufprüfung auch im Build ohne {$Q+}: Ein Überlauf ist kein Wert statt eines falschen (L3).
+{$IFOPT Q-}
+{$DEFINE DPCC_HOVER_NO_Q}
+{$Q+}
+{$ENDIF}
+function TConstantEvaluator.Factor(out AValue: TConstantOperand): Boolean;
+var
+  mNegative: Boolean;
+begin
+  AValue := Default(TConstantOperand);
+  if AtEnd then
+  begin
+    Exit(False);
+  end;
+  // Vorzeichen und not binden stärker als die Operatoren dahinter: -cBase * 2 = (-cBase) * 2.
+  if IsSymbolAt('-') or IsSymbolAt('+') then
+  begin
+    mNegative := FTokens[FIndex].Text = '-';
+    Inc(FIndex);
+    Result := Factor(AValue) and not AValue.IsText;
+    if Result and mNegative then
+    begin
+      AValue.Number := -AValue.Number;
+    end;
+    Exit;
+  end;
+  if IsKeywordAt('not') then
+  begin
+    Inc(FIndex);
+    Result := Factor(AValue) and not AValue.IsText;
+    if Result then
+    begin
+      AValue.Number := not AValue.Number;
+    end;
+    Exit;
+  end;
+  if IsSymbolAt('(') then
+  begin
+    Inc(FIndex);
+    Result := Simple(AValue) and IsSymbolAt(')');
+    if Result then
+    begin
+      Inc(FIndex);
+    end;
+    Exit;
+  end;
+  case FTokens[FIndex].Kind of
+    TPascalTokenKind.Number:
+      begin
+        Result := THoverValues.TryParseNumber(FTokens[FIndex].Text, AValue.Number);
+        Inc(FIndex);
+      end;
+    TPascalTokenKind.StringLiteral, TPascalTokenKind.CharLiteral:
+      Result := Literal(AValue);
+    TPascalTokenKind.Identifier:
+      Result := NameValue(AValue);
+  else
+    // Gleitkomma, Vergleiche, Mengen, @ … wertet der Hover nicht aus.
+    Result := False;
+  end;
+end;
+
+function TConstantEvaluator.Literal(out AValue: TConstantOperand): Boolean;
+var
+  mBuilder: TStringBuilder;
+begin
+  // 'a'#13#10'b': aufeinanderfolgende Literale ohne Operator sind ein Text.
+  mBuilder := TStringBuilder.Create;
+  try
+    Result := True;
+    while Result and not AtEnd and (FTokens[FIndex].Kind in [TPascalTokenKind.StringLiteral,
+      TPascalTokenKind.CharLiteral]) do
+    begin
+      Result := ReadStringPart(FTokens[FIndex].Text, mBuilder);
+      Inc(FIndex);
+    end;
+    AValue := TConstantOperand.OfText(mBuilder.ToString);
+  finally
+    mBuilder.Free;
+  end;
+end;
+
+function TConstantEvaluator.NameValue(out AValue: TConstantOperand): Boolean;
+var
+  mName, mExpression: string;
+begin
+  AValue := Default(TConstantOperand);
+  // Qualifiziert wie TFoo.cMax oder Unit.cMax.
+  mName := FTokens[FIndex].Text;
+  Inc(FIndex);
+  while IsSymbolAt('.') and (FIndex < High(FTokens)) and (FTokens[FIndex + 1].Kind = TPascalTokenKind.Identifier) do
+  begin
+    mName := mName + '.' + FTokens[FIndex + 1].Text;
+    Inc(FIndex, 2);
+  end;
+  // Aufrufe und Typumwandlungen (High(X), Integer(5)) wertet der Hover nicht aus.
+  if IsSymbolAt('(') or not Assigned(FLookup) or (FLookups >= THoverValues.cMaxLookups) then
+  begin
+    Exit(False);
+  end;
+  Inc(FLookups);
+  Result := FLookup(mName, mExpression) and Evaluate(mExpression, AValue);
+end;
+
+function TConstantEvaluator.Additive(const AOperator: string; const ALeft, ARight: TConstantOperand;
+  out AValue: TConstantOperand): Boolean;
+begin
+  AValue := Default(TConstantOperand);
+  // Texte nur verketten; Text mit Zahl mischt Delphi nicht.
+  if ALeft.IsText or ARight.IsText then
+  begin
+    Result := (AOperator = '+') and ALeft.IsText and ARight.IsText;
+    if Result then
+    begin
+      AValue := TConstantOperand.OfText(ALeft.Text + ARight.Text);
+    end;
+    Exit;
+  end;
+  Result := True;
+  if AOperator = '+' then
+  begin
+    AValue.Number := ALeft.Number + ARight.Number;
+  end
+  else if AOperator = '-' then
+  begin
+    AValue.Number := ALeft.Number - ARight.Number;
+  end
+  else if AOperator = 'or' then
+  begin
+    AValue.Number := ALeft.Number or ARight.Number;
+  end
+  else
+  begin
+    AValue.Number := ALeft.Number xor ARight.Number;
+  end;
+end;
+
+function TConstantEvaluator.Multiplicative(const AOperator: string; const ALeft, ARight: TConstantOperand;
+  out AValue: TConstantOperand): Boolean;
+begin
+  AValue := Default(TConstantOperand);
+  Result := not (ALeft.IsText or ARight.IsText);
+  if not Result then
+  begin
+    Exit;
+  end;
+  if AOperator = '*' then
+  begin
+    AValue.Number := ALeft.Number * ARight.Number;
+  end
+  else if (AOperator = 'div') or (AOperator = 'mod') then
+  begin
+    // Division durch 0 ist kein Wert.
+    Result := ARight.Number <> 0;
+    if Result and (AOperator = 'div') then
+    begin
+      AValue.Number := ALeft.Number div ARight.Number;
+    end
+    else if Result then
+    begin
+      AValue.Number := ALeft.Number mod ARight.Number;
+    end;
+  end
+  else if AOperator = 'and' then
+  begin
+    AValue.Number := ALeft.Number and ARight.Number;
+  end
+  else
+  begin
+    // shl und shr nur mit Verschiebungen, die Int64 fasst.
+    Result := (ARight.Number >= 0) and (ARight.Number < 64);
+    if Result and (AOperator = 'shl') then
+    begin
+      AValue.Number := ALeft.Number shl Integer(ARight.Number);
+    end
+    else if Result then
+    begin
+      AValue.Number := ALeft.Number shr Integer(ARight.Number);
+    end;
+  end;
+end;
+
+{$IFDEF DPCC_HOVER_NO_Q}
+{$Q-}
+{$UNDEF DPCC_HOVER_NO_Q}
+{$ENDIF}
+
+/// <summary>AEvaluator.Evaluate; ein Überlauf ist kein Wert statt eines
+/// falschen.</summary>
+function SafeEvaluate(AEvaluator: TConstantEvaluator; const AExpression: string;
+  out AValue: TConstantOperand): Boolean;
+begin
+  try
+    Result := AEvaluator.Evaluate(AExpression, AValue);
+  except
+    on EIntOverflow do
+      Result := False;
+    on ERangeError do
+      Result := False;
+  end;
+end;
+
+class function THoverValues.ExpressionValue(const AExpression: string; const ALookup: THoverConstantLookup): string;
+var
+  mEvaluator: TConstantEvaluator;
+  mValue: TConstantOperand;
+  mFound: Boolean;
+begin
+  Result := '';
+  mEvaluator := TConstantEvaluator.Create(ALookup);
+  try
+    mFound := SafeEvaluate(mEvaluator, AExpression, mValue);
+  finally
+    mEvaluator.Free;
+  end;
+  if not mFound then
+  begin
+    Exit;
+  end;
+  if mValue.IsText then
+  begin
+    Result := QuotedText(mValue.Text);
+  end
+  else
+  begin
+    Result := FormatNumber(mValue.Number);
+  end;
 end;
 
 class function THoverValues.SetBaseType(const ADeclaration: string; out ABaseType: string): Boolean;

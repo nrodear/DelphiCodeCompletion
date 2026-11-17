@@ -10,6 +10,8 @@
 // - Aus einer nicht eingebundenen Unit mit uses-Eintrag (#180); dieselbe Klasse über mehrere Units (DUnitX
 //   reicht TestAttribute aus DUnitX.Attributes über einen Alias in DUnitX.TestFramework weiter) nur einmal:
 //   eingebunden vor Alias vor Original.
+// - Attributklassen aus Packages der IDE ohne Quelltext (L3): Der Sammler lässt sie über ihren Vorfahren zu
+//   (TCompletionAncestry); Detail ist dann ihre Unit.
 // - Abschaltbar mit completion.attributes; dann gilt die gewöhnliche Liste.
 
 interface
@@ -54,6 +56,7 @@ uses
   dpcc.Common.Index.Contract,
   dpcc.Common.Semantics.Attributes,
   dpcc.Common.Lsp.FuzzyMatch,
+  dpcc.Common.Lsp.IdeTypes,
   dpcc.Common.Lsp.CompletionGenerics;
 
 { TCompletionAttributes }
@@ -212,6 +215,9 @@ type
     FOrder: Integer;
     function Matches(const AName: string): Boolean;
     procedure Keep(var AEntry: TAttributeEntry);
+    /// <summary>Eintrag für eine Attributklasse aus einem Package der IDE (L3); False bei anderen Einträgen.
+    /// </summary>
+    function AddIdeItem(const AItem: TCompletionItem): Boolean;
   public
     constructor Create(ARequest: TCompletionRequest; const APrefix: string);
     destructor Destroy; override;
@@ -266,14 +272,47 @@ begin
   end;
 end;
 
+function TAttributeList.AddIdeItem(const AItem: TCompletionItem): Boolean;
+var
+  mIdeType: TIdeTypeEntry;
+  mName: string;
+  mEntry: TAttributeEntry;
+begin
+  Result := IdeTypeOfItem(FRequest, AItem, mIdeType);
+  if not Result then
+  begin
+    Exit;
+  end;
+  mName := TAttributes.ShortName(AItem.Name);
+  if not Matches(mName) then
+  begin
+    Exit;
+  end;
+  mEntry := Default(TAttributeEntry);
+  mEntry.Item := AItem;
+  mEntry.Item.Name := mName;
+  mEntry.Item.FilterText := mName;
+  mEntry.Item.InsertText := mName;
+  mEntry.Item.Attribute := True;
+  mEntry.Item.Detail := mIdeType.UnitName;
+  mEntry.Key := UpperCase(mIdeType.UnitName + '.' + mIdeType.Name);
+  mEntry.Preference := PreferenceOf(AItem, TResolvedSymbol.Empty);
+  Keep(mEntry);
+end;
+
 procedure TAttributeList.AddItem(const AItem: TCompletionItem);
 var
   mSymbol, mAttributeClass: TResolvedSymbol;
   mName: string;
   mEntry: TAttributeEntry;
 begin
-  if not TCompletionGenerics.ItemSymbol(FRequest, FUnits, AItem, mSymbol) or
-    not FRequest.Resolver.Queries.AttributeClassOf(mSymbol, mAttributeClass) then
+  if not TCompletionGenerics.ItemSymbol(FRequest, FUnits, AItem, mSymbol) then
+  begin
+    // Ohne Quelle: vielleicht eine Attributklasse aus einem Package der IDE (L3).
+    AddIdeItem(AItem);
+    Exit;
+  end;
+  if not FRequest.Resolver.Queries.AttributeClassOf(mSymbol, mAttributeClass) then
   begin
     Exit;
   end;

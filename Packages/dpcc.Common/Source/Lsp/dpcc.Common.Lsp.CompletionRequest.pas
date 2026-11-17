@@ -46,6 +46,12 @@ type
     DotPos: TTextPosition;
     /// <summary>Bei Member: Das letzte Glied steht mit Klammern da, Foo(1). oder TFoo(X). (#188).</summary>
     Called: Boolean;
+    /// <summary>Bei Member (L3): Vor den Namen ReceiverNames steht ein Ausdruck, der an ReceiverEnd endet
+    /// (Liste[i]., (X as T)., P^., 'abc'., Foo(1).); sein Typ kommt aus dem Baum. Names ist dann nur gesetzt,
+    /// wenn die ganze Kette aus Namen und Aufrufen besteht (Rückfall), sonst nil.</summary>
+    HasReceiver: Boolean;
+    ReceiverEnd: Integer;
+    ReceiverNames: TArray<string>;
     /// <summary>Bei Scope: nur Typen bzw. nur Methoden der Vorfahren (#31).</summary>
     Filter: TCompletionFilter;
     /// <summary>Bei Filter Types: auch Typ-Schlüsselwörter wie string und array (nach ":").</summary>

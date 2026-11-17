@@ -50,6 +50,7 @@ dpcc passes the key on to the IDE if it does not serve the file:
 | The file does not end in `.pas`, `.dpr`, `.dpk` or `.inc`. | Expected. |
 | The master switch is off. | **Tools › Options › Third Party › dpcc › General**, turn on “Code Insight by dpcc”. |
 | The safety fuse has switched off completion. | The Messages window reports this (see below). Restart the IDE. |
+| The dpcc list stayed empty, and Ctrl+Space was pressed a second time at the same position. | Expected, see [Usage](usage.md#ide-list-when-dpcc-finds-nothing). After typing or at another position, Ctrl+Space asks dpcc again. |
 
 ## The list after “.” looks different from the one with Ctrl+Space
 
@@ -66,6 +67,8 @@ This is expected. The list that opens by itself after “.” comes from DelphiL
 - A unit is missing although its file is in the search path: search `dpcc.log` for “Datei nicht lesbar” (file not
   readable). The index skips a file that cannot be read or parsed.
 - The index seems outdated: **Rebuild index** on the **General** page.
+- If dpcc finds nothing at a position, a second Ctrl+Space there opens the IDE list (see
+  [Usage](usage.md#ide-list-when-dpcc-finds-nothing)).
 
 ## There are no suggestions for DUnitX
 

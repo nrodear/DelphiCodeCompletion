@@ -47,6 +47,7 @@ dpcc gibt die Taste an die IDE weiter, wenn es die Datei nicht bedient:
 | Die Datei endet nicht auf `.pas`, `.dpr`, `.dpk` oder `.inc`. | Erwartet. |
 | Der Hauptschalter ist aus. | **Tools › Optionen › Drittanbieter › dpcc › Allgemein**, „Code Insight von dpcc“ einschalten. |
 | Die Sicherung hat die Vervollständigung abgeschaltet. | Das Meldungsfenster nennt das (siehe unten). Die IDE neu starten. |
+| Die Liste von dpcc blieb leer, und Strg+Leertaste kam ein zweites Mal an derselben Stelle. | Erwartet, siehe [Bedienung](usage.md#liste-der-ide-wenn-dpcc-nichts-findet). Nach einer Eingabe oder an einer anderen Stelle fragt Strg+Leertaste wieder dpcc. |
 
 ## Die Liste nach „.“ sieht anders aus als die mit Strg+Leertaste
 
@@ -63,6 +64,8 @@ Das ist erwartet. Die Liste, die nach „.“ von selbst aufgeht, kommt von Delp
 - Eine Unit fehlt, obwohl ihre Datei im Suchpfad liegt: In `dpcc.log` nach „Datei nicht lesbar“ suchen. Eine Datei,
   die sich nicht lesen oder parsen lässt, übergeht der Index.
 - Der Index scheint veraltet: **Index neu aufbauen** auf der Seite **Allgemein**.
+- Findet dpcc an einer Stelle nichts, öffnet ein zweites Strg+Leertaste dort die Liste der IDE (siehe
+  [Bedienung](usage.md#liste-der-ide-wenn-dpcc-nichts-findet)).
 
 ## Für DUnitX gibt es keine Vorschläge
 

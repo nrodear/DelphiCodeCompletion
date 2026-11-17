@@ -26,6 +26,9 @@
 //   - Favoriten (#458, Einstellung Favorites): Strg+D im offenen Popup heftet den gewählten Eintrag an oder löst
 //     ihn (TDpccIdeFavorites, sofort gespeichert); Ergebnis bzw. „Schon 5 Favoriten …“ als Hinweis in der
 //     Fußzeile. Strg+D gehört bei offener Liste immer dem Popup, nie dem Editor.
+//   - Zweites Strg+Leertaste (L3): KeyInvoke fragt TDpccCompletionFallback. Blieb die Liste nach dem vorigen
+//     Strg+Leertaste an derselben Stelle ohne Eingabe dazwischen leer, schließt dpcc und die Taste geht an die IDE
+//     (DelphiLSP öffnet ihre Liste); die Fußzeile des leeren Zustands weist darauf hin.
 // Aufgeteilt in eine Kette von Stufen (dpcc.IDE.Completion.EditorState …EditorCommit); hier Tasten, Weitertippen
 // und Vorschau.
 
@@ -36,6 +39,7 @@ uses
   ToolsAPI,
   dpcc.Core.Completion.Contract,
   dpcc.Core.Completion.Controller,
+  dpcc.Core.Completion.Fallback,
   dpcc.Core.Editor.CloseRules,
   dpcc.Core.Lsp.Session,
   dpcc.IDE.Completion.EditorState,
@@ -76,6 +80,9 @@ type
     procedure CheckCallOpened(const AView: IOTAEditView);
     /// <summary>")" vor der automatischen Klammer (#430): diese überspringen.</summary>
     procedure TrackAutoParen(const AView: IOTAEditView);
+    /// <summary>Stelle des Cursors in AView für das zweite Strg+Leertaste (L3): Datei, Zeile, Zeichen, Zeilentext.
+    /// </summary>
+    function CursorPlace(const AView: IOTAEditView): TDpccCompletionPlace;
   public
     /// <summary>ASources legt die Quellen des Kerns an (Kompositionswurzel).</summary>
     constructor Create(const ASession: TDpccSessionFunc; const ALog: TDpccLogProc;
@@ -88,6 +95,10 @@ type
     procedure HandleCommand(AKey: Word; AShift: TShiftState);
     /// <summary>Editortext wurde geändert.</summary>
     procedure EditorModified(const AView: IOTAEditView);
+    /// <summary>Strg+Leertaste über die Taste von dpcc (L3). False: Die IDE soll ihre Liste öffnen, weil an
+    /// derselben Stelle nach dem vorigen Strg+Leertaste ohne Eingabe dazwischen die Liste leer blieb; dann ist die
+    /// Liste von dpcc geschlossen. Sonst öffnet dpcc die Vervollständigung (Invoke), True.</summary>
+    function KeyInvoke(const AView: IOTAEditView): Boolean;
   end;
 
 implementation
@@ -428,10 +439,46 @@ begin
   end;
 end;
 
+function TDpccEditorCompletion.CursorPlace(const AView: IOTAEditView): TDpccCompletionPlace;
+var
+  mLine: Integer;
+  mLineText: string;
+begin
+  mLine := AView.CursorPos.Line;
+  mLineText := TDpccEditorBuffer.LineText(AView, mLine);
+  Result := TDpccCompletionPlace.At(AView.Buffer.FileName, mLine,
+    TLspSession.ColumnToIndex(mLineText, AView.CursorPos.Col, TDpccEditorBuffer.TabWidth(AView.Buffer)), mLineText);
+end;
+
+function TDpccEditorCompletion.KeyInvoke(const AView: IOTAEditView): Boolean;
+begin
+  Result := True;
+  if (AView <> nil) and (AView.Buffer <> nil) and
+    (FFallback.Press(CursorPlace(AView)) = TDpccCompletionRoute.Ide) then
+  begin
+    Log('Vervollständigung: zweites Strg+Leer an derselben Stelle, die Liste der IDE übernimmt');
+    Close;
+    Exit(False);
+  end;
+  Invoke(AView);
+end;
+
 procedure TDpccEditorCompletion.EditorModified(const AView: IOTAEditView);
 var
   mHasBuffer: Boolean;
 begin
+  // Eingabe verwirft den Merker für das zweite Strg+Leertaste, sobald sich die Stelle geändert hat (L3).
+  if FFallback.State <> TDpccFallbackState.Idle then
+  begin
+    if (AView <> nil) and (AView.Buffer <> nil) then
+    begin
+      FFallback.Edited(CursorPlace(AView));
+    end
+    else
+    begin
+      FFallback.Reset;
+    end;
+  end;
   if FController.Active then
   begin
     Recheck;

@@ -14,6 +14,8 @@
 dpcc attribue ces deux touches au moyen de sa propre liaison de touches (« dpcc Code Completion »). Il ne les prend
 que s'il traite le fichier : extension `.pas`, `.dpr`, `.dpk` ou `.inc`, interrupteur principal activé et fonction
 non désactivée par le fusible de sécurité (voir [Dépannage](troubleshooting.md)). Sinon, les touches vont à l'IDE.
+De même, un second Ctrl+Espace va à l'IDE si la liste de dpcc est restée vide au même endroit (voir
+[plus bas](#liste-de-lide-quand-dpcc-ne-trouve-rien)).
 
 dpcc n'occupe pas d'autres touches de façon permanente. Il ne prend les flèches, Entrée, Tab et Échap que tant
 qu'une de ses fenêtres est ouverte et a besoin de la touche.
@@ -30,6 +32,22 @@ choisi pour Delphi dans les options de l'IDE. La valeur par défaut est DelphiLS
 
 Au démarrage, dpcc écrit dans le journal quel fournisseur est choisi (ligne « Code Insight für Delphi-Dateien:
 gewählt … », c'est-à-dire Code Insight pour les fichiers Delphi : choisi …).
+
+### Liste de l'IDE quand dpcc ne trouve rien
+
+Si la liste reste vide après Ctrl+Espace, son pied affiche « Press Ctrl+Space again for the IDE list » (Ctrl+Espace
+à nouveau pour la liste de l'IDE). Un second Ctrl+Espace au même endroit ouvre alors la liste de l'IDE (DelphiLSP)
+au lieu de celle de dpcc. Vide signifie ici : rien trouvé, pas de contexte adapté, une erreur ou le délai d'attente
+du serveur.
+
+- Cela ne vaut que si le curseur est toujours au même endroit (fichier, ligne, colonne) et que rien n'a été saisi
+  entre-temps. Échap entre-temps n'y change rien ; changer d'onglet, si.
+- Tant que la réponse de dpcc se fait attendre, un autre Ctrl+Espace interroge de nouveau dpcc.
+- Ensuite, tout recommence : le Ctrl+Espace suivant interroge de nouveau dpcc.
+- dpcc ne passe jamais de lui-même à la liste de l'IDE.
+
+La liste de l'IDE vient du fournisseur Code Insight choisi pour Delphi dans les options de l'IDE (par défaut
+DelphiLSP).
 
 ## La liste
 
@@ -105,6 +123,7 @@ Si l'on accepte au milieu d'un mot, dpcc remplace le mot entier.
 |---|---|
 | « No matches for “…” » (aucun résultat pour « … ») | Rien ne correspond. Seule Échap appartient à la liste ; les flèches et Entrée vont à l'éditeur. |
 | « No suggestions here » (aucune suggestion ici) | Il n'y a rien à proposer à cet endroit. |
+| Pied « Press Ctrl+Space again for the IDE list » (Ctrl+Espace à nouveau pour la liste de l'IDE) | La liste après Ctrl+Espace est vide ; un second Ctrl+Espace au même endroit ouvre la liste de l'IDE (voir [plus haut](#liste-de-lide-quand-dpcc-ne-trouve-rien)). |
 | « limited (index is being built) » (limitée, index en cours de construction) | L'index n'est pas encore prêt ; la liste peut être incomplète. |
 | Barre « Results may be incomplete · syntax error in line n » (résultats peut-être incomplets · erreur de syntaxe à la ligne n) | Avant le curseur, la routine ou la classe courante contient une erreur de syntaxe. |
 | Barre « Context unclear · syntax error in line n » (contexte incertain · erreur de syntaxe à la ligne n) | comme ci-dessus, et il n'y a pas d'entrées. |
@@ -141,11 +160,36 @@ Ce qui apparaît dépend de l'endroit. Le serveur examine les cas dans un ordre 
 | là où un type référence de méthode est attendu | squelette d'une méthode anonyme avec la signature qui convient |
 | à la position du nom dans une déclaration | suggestions de noms |
 | après `{$`, `{$IFDEF ` etc. | directives de compilation et symboles conditionnels |
+| après `{$I ` ou `{$INCLUDE ` | noms des fichiers `.inc` du dossier du fichier (ou du sous-dossier saisi) et des dossiers des fichiers d'inclusion que l'unité inclut déjà |
 | dans un commentaire `///` dont les paramètres ne correspondent plus | « Synchronize parameters » (synchroniser les paramètres) |
 | dans l'unité d'une fiche | composants de la fiche, dans un groupe à part « Form … » (fiche …) |
 | `Sender.` dans un gestionnaire d'événement | membres du type commun des composants auxquels la méthode est affectée dans la fiche |
 | dans `FieldByName('…')`, `FindField('…')`, `ParamByName('…')` | noms de champs ou de paramètres de l'ensemble de données |
 | nom déclaré dans plusieurs unités | la variante que choisit le compilateur d'abord, avec « active », les autres avec leur unité |
+
+### Expressions avant le point
+
+Après le point, la liste connaît le type non seulement pour les chaînes de noms (`Liste.Items.`), mais aussi après des
+expressions :
+
+- index et propriété par défaut : `Liste[i].`, `Items[0].`, `FArray[0].`, aussi avec `array of T`, les tableaux
+  statiques et les champs ou variables locales d'un type tableau anonyme
+- parenthèses, transtypage et `as` : `(Sender as TButton).`, `TButton(Sender).`
+- pointeurs : `P^.`, et `P.` pour un pointeur vers un record
+- littéraux : `'abc'.`, `42.` (membres des helpers de `string` et de `Integer`)
+- appels : `Foo(1).` avec la surcharge qui convient, appels par des types procéduraux et `reference to`
+  (`FOnGet(1).`), routines génériques sans arguments de type (`Max(A, B).`, `T` déduit des arguments)
+- types imbriqués comme type d'un membre : `Dict.Values.`, `Liste.GetEnumerator.Current.`
+
+Les variables inline sans type reçoivent le type de leur expression, aussi avec des opérateurs
+(`var S := A + IntToStr(1);` est un `string`, `I / 2` un `Extended`, les comparaisons et `not` un `Boolean`), avec les
+`class operator` des records, avec `@X` (pointeur vers le type de `X`), `P^`, les constructeurs d'ensemble et les
+méthodes anonymes. La variable d'une boucle `for … in` sans type a le type des éléments : l'élément d'un tableau,
+`Char` pour un `string`, sinon `GetEnumerator.Current`.
+
+Après un nom de type (`TFoo.`), la liste ne montre que ce qui s'appelle par le type : méthodes de classe,
+constructeurs, `class var`, `class property`, constantes, types imbriqués et valeurs d'une énumération. Après
+`TFoo.Create.`, `TFoo(X).` et `Self.`, tous les membres apparaissent.
 
 ### « + Unit »
 
@@ -265,7 +309,8 @@ Ctrl+Maj+Espace dans un appel affiche les signatures de la routine appelée au n
 
 - Toutes les surcharges sont affichées les unes sous les autres. Dans celle qui est sélectionnée, le paramètre actif
   est en gras et souligné. Les surcharges qui ont trop peu de paramètres sont atténuées.
-- La surcharge présélectionnée est la première à laquelle correspondent les arguments saisis jusque-là.
+- La surcharge présélectionnée est la première à laquelle correspondent les arguments saisis jusque-là. Comptent
+  les littéraux, les noms et le type d'expressions comme `Liefere(1)`, `Liste[i]` ou `A + 1`.
 - Un clic sélectionne une surcharge ; Alt+↑ / Alt+↓ en change.
 - Pour les appels imbriqués, une ligne de chemin en haut montre les appels extérieurs, par exemple
   « ShowMessage › Format ».
@@ -280,6 +325,21 @@ Ctrl+Maj+Espace dans un appel affiche les signatures de la routine appelée au n
   focus, de défilement ou de changement d'onglet.
 - Si la parenthèse fermante est supprimée et que le curseur se trouve ensuite dans un appel, l'aide réapparaît ; pas
   pour un appel dont l'aide a été fermée avec Échap.
+
+### Appels reconnus
+
+- **Surcharges héritées** : si une méthode de la classe dérivée porte `overload`, les méthodes de même nom des
+  ancêtres figurent aussi dans la liste (`TAbgeleitet.Add(const S: string)` et la méthode héritée `Add(A: Integer)`).
+  Sans `overload`, la classe dérivée les masque, comme pour le compilateur.
+- **Types procéduraux** : les appels via des variables, champs, propriétés et paramètres d'un type procédural
+  affichent sa signature, par exemple `FOnChange(Self` (`TNotifyEvent`), `Callback(1` ou `AProc(` avec
+  `AProc: TProc<Integer>`. Pour les types génériques, les arguments de type sont substitués
+  (`TProc<Integer> = reference to procedure (Arg1: Integer)`).
+- **Arguments de type avant la parenthèse** : `Foo<Integer>(` n'affiche que la surcharge générique, avec
+  l'argument de type substitué.
+- **Propriétés indexées** : `Liste.Items[` et `Liste[` (propriété par défaut) affichent les paramètres d'index,
+  avec Ctrl+Maj+Espace ou à la virgule. Si le crochet se trouve dans un appel (`Foo(Liste[`), l'aide reste celle
+  de cet appel ; pour un tableau au lieu d'une propriété, rien n'apparaît.
 
 ### Espaces réservés de Format
 
@@ -300,10 +360,10 @@ Contenu, de haut en bas (les sections vides sont omises) :
 | Section | Contenu |
 |---|---|
 | Valeur dans le débogueur | expression et valeur lorsque le programme est arrêté ; jusqu'à la réponse, « evaluating … » (évaluation en cours …) |
-| Ligne d'en-tête | nature et signature |
+| Ligne d'en-tête | nature et signature, complète même sur plusieurs lignes |
 | Origine, emplacement | nature en toutes lettres, bibliothèque, origine ; fichier et ligne |
-| Valeur, obsolescence | valeur d'une constante ; `deprecated`, `platform`, `experimental` |
-| XMLDoc | résumé, paramètres, valeur de retour, exceptions, remarques, exemple, voir aussi ; `<inheritdoc/>` est résolu |
+| Valeur, obsolescence | valeur d'une constante, aussi d'expressions simples ; `deprecated`, `platform`, `experimental` ; branche inactive |
+| XMLDoc | résumé, paramètres, valeur de retour, exceptions, remarques, exemple, voir aussi ; `<inheritdoc/>` est résolu ; sans `///`, le commentaire normal (voir ci-dessous) |
 | Membres published | pour les classes de composants, propriétés et événements, y compris hérités |
 | Héritage | chaîne d'héritage ou type cible d'une référence de classe |
 
@@ -314,6 +374,34 @@ L'infobulle se ferme 300 ms après que la souris a quitté l'identificateur et l
 toute autre touche (sauf Maj, Ctrl, Alt seules), en cas de clic de souris, de défilement, de redimensionnement et
 lorsque l'IDE devient inactive. Si une liste de complétion, une aide aux paramètres ou un menu est ouvert, aucune
 infobulle n'apparaît.
+
+### Signature, commentaires et valeurs
+
+- **Signature :** si une déclaration s'étend sur plusieurs lignes, la ligne d'en-tête l'affiche en entier
+  (paramètres, résultat et directives comme `virtual` ou `stdcall`) sur une seule ligne, sans commentaires. Pour les
+  classes, records et interfaces, seule la première ligne est affichée. Les en-têtes très longs sont abrégés après
+  1000 caractères par « … ».
+- **Type déduit :** pour les variables inline sans type (`var X := TFoo.Create;`, `for var I := 0 to …`),
+  dpcc insère le type qui découle de l'expression : `var X: TFoo := TFoo.Create;`. Si le type ne peut pas
+  être déterminé avec certitude, la ligne reste telle qu'elle est dans le source.
+- **Commentaires comme documentation :** le XMLDoc avec `///` est prioritaire. Sans lui, dpcc affiche le
+  bloc de commentaire normal situé juste au-dessus de la déclaration (`//`, `{ }` ou `(* *)`, sans ligne vide entre
+  les deux) et le commentaire en fin de la ligne qui porte le nom. Ne comptent pas comme documentation : les
+  en-têtes de fichier et de licence (bloc en début de fichier ou contenant des mots comme Copyright, License,
+  Lizenz), les blocs placés après une ligne vide, les lignes de séparation comme `//-----`, un nom seul comme
+  `{ TFoo }` et le code mis en commentaire (lignes avec `:=`, instructions terminées par `;`, `begin`/`end` …) ;
+  un bloc composé majoritairement de code est ignoré entièrement. La ligne d'en-tête n'affiche plus le commentaire
+  de fin de ligne.
+- **Valeurs :** les constantes affichent aussi la valeur d'expressions simples : entiers avec
+  `+ - * div mod and or xor not shl shr`, signes et parenthèses, textes avec `+` et références à d'autres constantes
+  de l'unité ou de l'index (`cMax = cBase * 2`). Ce que dpcc ne peut pas calculer avec certitude (virgule flottante,
+  fonctions comme `High` ou `Ord`, comparaisons, références circulaires) n'affiche aucune valeur.
+- **Branches inactives :** sur une déclaration située dans une branche qui ne s'applique pas à la
+  configuration actuelle (`{$IFDEF …}`), le survol affiche son en-tête et son commentaire, lus dans le fichier, avec
+  la mention « Inactive » (inactif) et la condition.
+
+dpcc n'enregistre pas les commentaires dans l'index ; le survol les lit au besoin dans le seul fichier de la
+déclaration.
 
 ### Valeurs pendant le débogage
 

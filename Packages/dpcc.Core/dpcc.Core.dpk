@@ -64,6 +64,7 @@ contains
   dpcc.Core.Completion.Providers.Server in 'Source\Completion\Providers\dpcc.Core.Completion.Providers.Server.pas',
   dpcc.Core.Completion.Matching in 'Source\Completion\dpcc.Core.Completion.Matching.pas',
   dpcc.Core.Completion.Controller in 'Source\Completion\dpcc.Core.Completion.Controller.pas',
+  dpcc.Core.Completion.Fallback in 'Source\Completion\dpcc.Core.Completion.Fallback.pas',
   dpcc.Core.Signature.Contract in 'Source\Signature\dpcc.Core.Signature.Contract.pas',
   dpcc.Core.Hover.Contract in 'Source\Hover\dpcc.Core.Hover.Contract.pas',
   dpcc.Core.Hover.Plain in 'Source\Hover\dpcc.Core.Hover.Plain.pas',

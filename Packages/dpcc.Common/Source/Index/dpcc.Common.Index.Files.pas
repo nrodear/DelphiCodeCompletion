@@ -4,6 +4,10 @@
 // eine Unit, die sie per $I einbindet. Steht im Root des Features Index, weil
 // ein Contract nur Typen und Interfaces enthält.
 //
+// L3: Die einbindende Unit kommt aus der Tabelle Include-Datei → Unit des Index (IIndexIncludeOwners), die auch
+// verdrängte Bibliotheks-Units kennt; FindFile lädt die gefundene nach. Vorher sah die Suche nur geladene Units, und
+// Symbole aus .inc-Dateien verdrängter Units (Hover, Parameterhilfe, Details der Vervollständigung) fehlten.
+//
 // Volle Signatur aus der Quelle (Index-Inhalte L1): Der Index kürzt Signaturen von Konstanten, Aufzählungen und
 // Typen auf TIndexSymbol.cMaxSignature Zeichen und speichert für Deklarationen aus nicht geltenden Zweigen nur Name,
 // Art und Zeile. SourceSignature liest den Kopf der Deklaration bei Bedarf aus dem Text der Datei über Range (bzw.
@@ -20,7 +24,8 @@ type
 
   TIndexFiles = class
   public
-    /// <summary>Unit zu AFileName: die Unit dieser Datei, sonst eine Unit, die sie per $I einbindet (#500).</summary>
+    /// <summary>Unit zu AFileName: die Unit dieser Datei, sonst eine Unit, die sie per $I einbindet (#500), auch eine
+    /// verdrängte (L3, IIndexIncludeOwners; sie wird nachgeladen). Ohne die Tabelle nur geladene Units.</summary>
     class function UnitOf(const AIndex: ISymbolIndex; const AFileName: string; out AUnit: TUnitIndex): Boolean;
       static;
     /// <summary>Volle Signatur von ASymbol aus AText, dem Text seiner Datei (L1): Kopf der Deklaration im Bereich
@@ -56,10 +61,19 @@ const
 class function TIndexFiles.UnitOf(const AIndex: ISymbolIndex; const AFileName: string; out AUnit: TUnitIndex): Boolean;
 var
   mCandidate: TUnitIndex;
+  mOwners: IIndexIncludeOwners;
+  mOwner: string;
 begin
   Result := (AIndex <> nil) and AIndex.FindFile(AFileName, AUnit);
   if Result or (AIndex = nil) then
   begin
+    Exit;
+  end;
+  // L3: Die Tabelle kennt geladene und verdrängte Units; höchstens eine wird nachgeladen.
+  if Supports(AIndex, IIndexIncludeOwners, mOwners) then
+  begin
+    mOwner := mOwners.IncludeOwner(AFileName);
+    Result := (mOwner <> '') and AIndex.FindFile(mOwner, AUnit);
     Exit;
   end;
   for mCandidate in AIndex.Units do
