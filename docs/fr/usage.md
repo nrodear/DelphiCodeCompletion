@@ -27,6 +27,9 @@ choisi pour Delphi dans les options de l'IDE. La valeur par défaut est DelphiLS
 
 - La liste qui s'ouvre d'elle-même après « . » vient de DelphiLSP.
 - Ctrl+Espace et Ctrl+Maj+Espace viennent de dpcc.
+- La liste qui s'ouvre d'elle-même pendant la saisie d'un nom (seulement si activée, voir
+  [Ouverture pendant la saisie](#ouverture-pendant-la-saisie)) vient de dpcc : pour cela, dpcc observe lui-même
+  l'éditeur, quel que soit le fournisseur choisi.
 - Les réglages qui n'agissent qu'à l'ouverture automatique sont sans effet avec cette valeur par défaut. Ils sont
   signalés dans [Réglages](settings.md).
 
@@ -54,6 +57,28 @@ Ctrl+Espace que dpcc lui transmet, jamais DelphiLSP. Le message du pied n'appara
 Ctrl+Espace interroge de nouveau dpcc. Pour garder la liste de DelphiLSP comme recours, laissez DelphiLSP choisi
 dans les options.
 
+### Quand dpcc est choisi comme fournisseur
+
+Si dpcc est choisi comme fournisseur Code Insight pour Delphi dans les options de l'IDE, l'IDE n'interroge que dpcc
+pour Ctrl+clic et « Find Declaration » (rechercher la déclaration, Alt+↑). Avec DelphiLSP (par défaut), l'IDE saute
+comme d'habitude via DelphiLSP ; dpcc n'y participe pas.
+
+- Depuis une utilisation, dpcc saute à la déclaration (pour les méthodes, celle de la classe ou de la section
+  interface). Si la position est déjà sur la déclaration elle-même, il va à l'implémentation, et de là en retour.
+  Pour les surcharges, c'est la variante avec les mêmes types de paramètres qui compte.
+- Cibles : à travers les unités, noms d'unités dans `uses` (début du fichier), variables locales et paramètres,
+  types, champs après des expressions comme `Liste[i].X`, déclarations dans des fichiers inclus et dans des branches
+  inactives (`{$IFDEF …}`), unités de la bibliothèque que dpcc charge exprès (y compris les bibliothèques de types
+  Office et WinRT). Pour des unités de même nom, c'est celle du projet qui compte.
+- Pas de cible, pas de saut : unités sans source (connues seulement par les packages), unités que dpcc ne trouve pas,
+  surcharges ambiguës et `with` avec un type inconnu. L'IDE ne saute alors pas et n'affiche aucun message.
+- Pour Ctrl+clic, c'est la position sous la souris qui compte, pour « Find Declaration » le curseur.
+- L'IDE attend dpcc au plus 1 seconde. Si cela dure plus longtemps, elle ne saute pas.
+
+La première fois de chaque session, la fenêtre Messages indique que dpcc est choisi et ce qui manque alors : Error
+Insight (marques d'erreur dans l'éditeur) et les autres services de DelphiLSP. Si vous en avez besoin, choisissez de
+nouveau DelphiLSP ; Ctrl+Espace reste chez dpcc même dans ce cas.
+
 ## La liste
 
 Ctrl+Espace ouvre la liste au niveau du curseur. Le mot situé avant le curseur sert de début du terme recherché.
@@ -67,6 +92,36 @@ Structure d'une ligne :
   dans `uses`, et les avertissements sous forme de texte.
 
 Le pied de la liste indique les touches ou une remarque.
+
+### Ouverture pendant la saisie
+
+Le réglage « Open on typing from characters » (ouvrir lors de la saisie à partir de … caractères,
+`completion.autoMinChars`, voir [Réglages](settings.md)) vaut par défaut 0 = désactivé : la saisie n'ouvre
+alors jamais la liste, comme avant cette fonction. Si vous la voulez, réglez par exemple 5. Lorsqu'on saisit alors un
+nom sans point devant, dpcc ouvre la liste de lui-même dès que le mot situé avant le curseur compte ce nombre de
+caractères. Avec moins de caractères, dpcc n'interroge pas du tout le
+serveur : la liste de tous les noms de la portée compterait souvent plus de mille entrées pour un début court et
+demanderait un temps de calcul sensible.
+
+- Ctrl+Espace ouvre la liste immédiatement comme avant, quel que soit le nombre de caractères.
+- Tant que la liste est ouverte (y compris ouverte par Ctrl+Espace avec moins de caractères), chaque caractère
+  supplémentaire ne fait que filtrer ; la saisie ne relance pas de requête.
+- Après « . » le seuil ne s'applique pas : la liste des membres vient avec le point comme avant. Les autres
+  déclencheurs restent eux aussi inchangés (« [ », « ( » après un nom, « ; » et Entrée après un constructeur
+  accepté).
+- La saisie n'ouvre rien dans les commentaires (y compris `{$…}`), les chaînes, les nombres et au milieu d'un mot.
+  Si le serveur ne trouve rien (par exemple dans un commentaire sur plusieurs lignes), la liste reste fermée sans
+  message.
+- Dans `uses`, après `raise` et entre les crochets d'attribut, le même seuil s'applique ; comme avec Ctrl+Espace,
+  le serveur décide quelle liste vient. Il ne propose toujours les unités qui ne figurent pas encore dans `uses`
+  (« + Unit ») qu'à partir de 2 caractères.
+- Le délai avant ouverture (`completion.openDelayMs`, 150 ms par défaut) s'applique ici aussi : qui continue de
+  saisir rapidement n'obtient la liste que pendant la pause, avec le mot saisi jusque-là.
+- Si le mot saisi est déjà le nom de l'entrée choisie (par exemple `begin`), rien n'est sélectionné : Entrée coupe
+  la ligne au lieu d'accepter l'entrée. Une touche fléchée sélectionne l'entrée.
+- Après Échap, la liste ne se rouvre plus d'elle-même dans le même mot.
+- En mode espaces réservés et tant que la liste de l'IDE est ouverte, la saisie n'ouvre rien.
+- 0 désactive l'ouverture pendant la saisie.
 
 ### Touches dans la liste ouverte
 
@@ -316,7 +371,8 @@ Ctrl+Maj+Espace dans un appel affiche les signatures de la routine appelée au n
   est en gras et souligné. Les surcharges qui ont trop peu de paramètres sont atténuées.
 - La surcharge présélectionnée est la première à laquelle correspondent les arguments saisis jusque-là. Comptent
   les littéraux, les noms et le type d'expressions comme `Liefere(1)`, `Liste[i]` ou `A + 1`.
-- Un clic sélectionne une surcharge ; Alt+↑ / Alt+↓ en change.
+- Un clic sélectionne une surcharge ; Ctrl+Alt+↑ / Ctrl+Alt+↓ en change. Alt+↑ reste à l'IDE (« Find
+  Declaration »), les flèches seules déplacent le curseur.
 - Pour les appels imbriqués, une ligne de chemin en haut montre les appels extérieurs, par exemple
   « ShowMessage › Format ».
 - En dessous figurent le nom et la description du paramètre actif tirés du XMLDoc (sans `<param>` : « not
@@ -379,6 +435,10 @@ L'infobulle se ferme 300 ms après que la souris a quitté l'identificateur et l
 toute autre touche (sauf Maj, Ctrl, Alt seules), en cas de clic de souris, de défilement, de redimensionnement et
 lorsque l'IDE devient inactive. Si une liste de complétion, une aide aux paramètres ou un menu est ouvert, aucune
 infobulle n'apparaît.
+
+Ctrl+clic à travers l'infobulle : tant que Ctrl est enfoncée, la souris et le clic traversent l'infobulle jusqu'à
+l'éditeur en dessous. Si la souris est au-dessus de l'infobulle, Ctrl la ferme. Ainsi, un mot que l'infobulle
+recouvre reste accessible par Ctrl+clic.
 
 ### Signature, commentaires et valeurs
 

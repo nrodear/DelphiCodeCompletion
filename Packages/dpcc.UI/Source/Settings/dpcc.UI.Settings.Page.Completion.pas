@@ -121,6 +121,8 @@ begin
   FAutoWidth := AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsAutoWidth));
   FAutoWidth.OnClick := AutoWidthClick;
   BindText('OpenDelayMs', AddNumber(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsOpenDelay)));
+  // L5: Tippen eines Bezeichners öffnet die Liste erst ab so vielen Zeichen (0 bis 10, 0 = nie).
+  BindText('AutoMinChars', AddNumber(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsAutoMinChars)));
   BindCheck('Learning', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsLearning)));
   FFavorites := BindCheck('Favorites', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsFavorites)));
   BindCheck('GroupInherited', AddCheck(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsGroupInherited)));

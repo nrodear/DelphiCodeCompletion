@@ -1,8 +1,9 @@
 ﻿unit Shell.Composition.CompletionCapabilities;
 
 // Capabilities der Wurzel der Completion (Schritt 2): Sie folgen aus dem, was am Verteiler hängt. Gemeldet werden nur
-// Synchronisation, Ordner des Arbeitsbereichs, Vervollständigung samt resolve, Hover und Parameterhilfe; dazu unter
-// experimental.dpcc die Eigenmethoden (dpcc/…), die der Server versteht. Kein executeCommand, keine Diagnosen,
+// Synchronisation, Ordner des Arbeitsbereichs, Vervollständigung samt resolve, Hover, Parameterhilfe und die
+// Sprungziele (definition, declaration, typeDefinition; Auftrag NAV); dazu unter experimental.dpcc die Eigenmethoden
+// (dpcc/…), die der Server versteht. Kein executeCommand, keine Diagnosen,
 // keine Code-Aktionen. Die Capabilities der alten Wurzel stehen weiter in Shell.Composition.Capabilities.
 
 interface
@@ -30,6 +31,7 @@ uses
   dpcc.Common.Lsp.Completion,
   dpcc.Common.Lsp.Hover,
   dpcc.Common.Lsp.SignatureHelp,
+  dpcc.Common.Lsp.Definition,
   dpcc.Common.Lsp.WorkspaceFolders;
 
 /// <summary>Liste der Methoden mit dem Präfix "dpcc/" als JSON.</summary>
@@ -87,6 +89,19 @@ begin
   if MatchText(TLspSignatureHelp.cMethod, ARequests) then
   begin
     Result.AddPair('signatureHelpProvider', TLspSignatureHelp.Capability);
+  end;
+  // Sprungziele (NAV): Ohne definitionProvider fragt die IDE-Seite (Strg+Klick) gar nicht erst.
+  if MatchText(TLspDefinition.cDefinitionMethod, ARequests) then
+  begin
+    Result.AddPair('definitionProvider', TJSONBool.Create(True));
+  end;
+  if MatchText(TLspDefinition.cDeclarationMethod, ARequests) then
+  begin
+    Result.AddPair('declarationProvider', TJSONBool.Create(True));
+  end;
+  if MatchText(TLspDefinition.cTypeDefinitionMethod, ARequests) then
+  begin
+    Result.AddPair('typeDefinitionProvider', TJSONBool.Create(True));
   end;
   Result.AddPair('workspace', TLspWorkspaceFolders.Capability);
   // Eigenmethoden für das IDE-Plugin; Clients ohne dpcc übergehen experimental.

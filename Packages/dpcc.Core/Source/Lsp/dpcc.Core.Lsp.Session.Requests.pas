@@ -84,7 +84,18 @@ type
     function LinkedLocals(const AFileName: string; ALine, ACharacter: Integer): TJSONValue;
     /// <summary>Typ des Symbols (textDocument/typeDefinition, #399).</summary>
     function TypeDefinition(const AFileName: string; ALine, ACharacter: Integer): TArray<TLspLocation>;
+    /// <summary>textDocument/definition mit Abgleich: das erste Ziel; Zeitlimit der Sitzung.</summary>
     function Definition(const AFileName, AText: string; ALine, ACharacter: Integer;
+      out ALocation: TLspLocation): Boolean; overload;
+    /// <summary>Wie oben mit eigenem Zeitlimit (0 = das der Sitzung).</summary>
+    function Definition(const AFileName, AText: string; ALine, ACharacter: Integer; ATimeoutMs: Cardinal;
+      out ALocation: TLspLocation): Boolean; overload;
+    /// <summary>Ziel für Strg+Klick und „Deklaration suchen“ der IDE (Auftrag NAV), mit Abgleich: wie die IDE von
+    /// einer Verwendung zur Deklaration (textDocument/declaration); steht die Stelle schon auf der Deklaration selbst,
+    /// zur Implementierung (textDocument/definition), von dort zurück. Ohne declarationProvider nur definition.
+    /// ATimeoutMs gilt für beide Anfragen zusammen (der Hauptthread wartet). False ohne Ziel; ELspClientError bei
+    /// Zeitlimit oder beendetem Server, ELspMethodNotFound ohne Sprungziele.</summary>
+    function GotoTarget(const AFileName, AText: string; ALine, ACharacter: Integer; ATimeoutMs: Cardinal;
       out ALocation: TLspLocation): Boolean;
     /// <summary>textDocument/definition ohne Abgleich (#505): alle Ziele; Sync vorher.</summary>
     function Definitions(const AFileName: string; ALine, ACharacter: Integer): TArray<TLspLocation>;
@@ -116,6 +127,10 @@ type
   end;
 
 implementation
+
+uses
+  System.Classes,
+  dpcc.Core.Editor.Navigation;
 
 function RangeToJson(const ARange: TLspRange): TJSONObject;
 begin
@@ -524,46 +539,116 @@ end;
 
 function TLspSessionRequests.Definition(const AFileName, AText: string; ALine, ACharacter: Integer;
   out ALocation: TLspLocation): Boolean;
+begin
+  Result := Definition(AFileName, AText, ALine, ACharacter, FTimeoutMs, ALocation);
+end;
+
+/// <summary>Erstes Ziel der Anfrage AMethod (Location, Location[] oder LocationLink[]) an der Stelle.</summary>
+function FirstLocation(AClient: TLspClient; const AMethod: string; AParams: TJSONObject; ATimeoutMs: Cardinal;
+  out ALocation: TLspLocation): Boolean;
 var
-  mResponse, mItem: TJSONValue;
-  mLocation: TJSONObject;
-  mUri: string;
-  mRange: TJSONObject;
+  mResponse: TJSONValue;
+  mLocations: TArray<TLspLocation>;
 begin
   ALocation := Default(TLspLocation);
-  Sync(AFileName, AText);
-  mResponse := FClient.Request('textDocument/definition', PositionParams(AFileName, ALine, ACharacter), FTimeoutMs);
+  mResponse := AClient.Request(AMethod, AParams, ATimeoutMs);
   try
-    // Location, Location[] oder LocationLink[].
-    mItem := mResponse;
-    if (mItem is TJSONArray) and (TJSONArray(mItem).Count > 0) then
-    begin
-      mItem := TJSONArray(mItem).Items[0];
-    end;
-    if not (mItem is TJSONObject) then
-    begin
-      Exit(False);
-    end;
-    mLocation := TJSONObject(mItem);
-    if not mLocation.TryGetValue<string>('uri', mUri) then
-    begin
-      mUri := mLocation.GetValue<string>('targetUri', '');
-    end;
-    mRange := mLocation.GetValue('range') as TJSONObject;
-    if mRange = nil then
-    begin
-      mRange := mLocation.GetValue('targetSelectionRange') as TJSONObject;
-    end;
-    if (mUri = '') or (mRange = nil) then
-    begin
-      Exit(False);
-    end;
-    ALocation.FileName := UriToPath(mUri);
-    ALocation.Line := mRange.GetValue<Integer>('start.line', 0);
-    ALocation.Character := mRange.GetValue<Integer>('start.character', 0);
-    Result := ALocation.FileName <> '';
+    mLocations := TLspSessionJson.LocationsOf(mResponse);
   finally
     mResponse.Free;
+  end;
+  // Nur das erste Ziel zählt: Die IDE springt an genau eine Stelle.
+  Result := Length(mLocations) > 0;
+  if Result then
+  begin
+    ALocation := mLocations[0];
+  end;
+end;
+
+/// <summary>Rest der Wartezeit ATimeoutMs seit AStarted (TThread.GetTickCount64), mindestens 1 ms.</summary>
+function RestOf(ATimeoutMs: Cardinal; AStarted: UInt64): Cardinal;
+var
+  mElapsed: UInt64;
+begin
+  mElapsed := TThread.GetTickCount64 - AStarted;
+  if mElapsed >= ATimeoutMs then
+  begin
+    Result := 1;
+  end
+  else
+  begin
+    Result := ATimeoutMs - Cardinal(mElapsed);
+  end;
+end;
+
+function TLspSessionRequests.Definition(const AFileName, AText: string; ALine, ACharacter: Integer;
+  ATimeoutMs: Cardinal; out ALocation: TLspLocation): Boolean;
+begin
+  Sync(AFileName, AText);
+  Result := FirstLocation(FClient, 'textDocument/definition', PositionParams(AFileName, ALine, ACharacter),
+    TimeoutOr(ATimeoutMs), ALocation);
+end;
+
+function TLspSessionRequests.GotoTarget(const AFileName, AText: string; ALine, ACharacter: Integer;
+  ATimeoutMs: Cardinal; out ALocation: TLspLocation): Boolean;
+var
+  mStarted: UInt64;
+  mTimeout: Cardinal;
+  mDeclared: Boolean;
+  mLines: TArray<string>;
+  mLineText: string;
+  mImplementation: TLspLocation;
+begin
+  Result := False;
+  ALocation := Default(TLspLocation);
+  mTimeout := TimeoutOr(ATimeoutMs);
+  mStarted := TThread.GetTickCount64;
+  Sync(AFileName, AText);
+  mDeclared := Offers('textDocument/declaration');
+  if mDeclared then
+  try
+    Result := FirstLocation(FClient, 'textDocument/declaration', PositionParams(AFileName, ALine, ACharacter),
+      mTimeout, ALocation);
+  except
+    // Ein Server ohne declaration (erst die Antwort zeigt es): wie ohne declarationProvider.
+    on ELspMethodNotFound do
+      mDeclared := False;
+  end;
+  if not mDeclared then
+  begin
+    Exit(FirstLocation(FClient, 'textDocument/definition', PositionParams(AFileName, ALine, ACharacter),
+      RestOf(mTimeout, mStarted), ALocation));
+  end;
+  if not Result or not Offers('textDocument/definition') then
+  begin
+    Exit;
+  end;
+  mLines := AText.Split([#13#10, #10]);
+  mLineText := '';
+  if (ALine >= 0) and (ALine < Length(mLines)) then
+  begin
+    mLineText := mLines[ALine];
+  end;
+  if not TDpccGotoDefinition.OnTarget(AFileName, ALine, ACharacter, mLineText, ALocation.FileName, ALocation.Line,
+    ALocation.Character) then
+  begin
+    Exit;
+  end;
+  // Auf der Deklaration selbst: zur Implementierung, mit dem Rest der Wartezeit. Ohne Rest bleibt es beim Ziel.
+  if Cardinal(TThread.GetTickCount64 - mStarted) >= mTimeout then
+  begin
+    Exit;
+  end;
+  try
+    if FirstLocation(FClient, 'textDocument/definition', PositionParams(AFileName, ALine, ACharacter),
+      RestOf(mTimeout, mStarted), mImplementation) then
+    begin
+      ALocation := mImplementation;
+    end;
+  except
+    // Zeitlimit beim zweiten Schritt: Die Deklaration ist schon ein Ziel.
+    on ELspClientError do
+      ;
   end;
 end;
 

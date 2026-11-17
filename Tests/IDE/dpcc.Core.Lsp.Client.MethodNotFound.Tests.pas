@@ -5,6 +5,10 @@
 // workspace/executeCommand gilt das je Befehl. Capabilities aus initialize sperren Anfragen ohne Anbieter, ohne sie zu
 // senden. Eine neue Sitzung (neues initialize bzw. neuer Client) beginnt von vorn.
 // Ohne Server und ohne IDE: Der Testserver antwortet schon im Sendeaufruf des Clients.
+// NAV: Der schlanke Server meldet seit dem Auftrag NAV auch definitionProvider, declarationProvider und
+// typeDefinitionProvider (cSlimCapabilities wie er); als fehlende Methode dient jetzt textDocument/references.
+// Strg+Klick (TLspSession.GotoTarget): declaration, auf der Deklaration selbst danach definition; ohne
+// declarationProvider bzw. nach -32601 nur definition.
 
 interface
 
@@ -25,6 +29,7 @@ type
     FErrors: TDictionary<string, Integer>;
     FCapabilities: string;
     FReported: TList<string>;
+    FReplies: TDictionary<string, string>;
     procedure Answer(const ABytes: TBytes);
   public
     constructor Create;
@@ -37,6 +42,8 @@ type
     property Capabilities: string read FCapabilities write FCapabilities;
     /// <summary>Meldungen von OnMethodNotFound: "Methode|server" bzw. "Methode|capabilities".</summary>
     property Reported: TList<string> read FReported;
+    /// <summary>Ergebnis (JSON) je Methode statt {"ok": true}.</summary>
+    property Replies: TDictionary<string, string> read FReplies;
   end;
 
   [TestFixture]
@@ -84,6 +91,22 @@ type
     procedure SessionInitializeStoresCapabilities;
     [Test]
     procedure SessionWithoutCapabilitiesLearnsFromServer;
+    /// <summary>Strg+Klick auf eine Verwendung: nur declaration, deren Ziel gilt.</summary>
+    [Test]
+    procedure GotoTargetOnUsageTakesDeclaration;
+    /// <summary>Strg+Klick auf die Deklaration selbst: danach definition (Implementierung).</summary>
+    [Test]
+    procedure GotoTargetOnDeclarationAsksDefinition;
+    /// <summary>Ohne declarationProvider: nur definition, declaration geht nicht hinaus.</summary>
+    [Test]
+    procedure GotoTargetWithoutDeclarationProvider;
+    /// <summary>Unbekannte Capabilities und -32601 für declaration: weiter mit definition, danach nur noch sie.
+    /// </summary>
+    [Test]
+    procedure GotoTargetLearnsMissingDeclaration;
+    /// <summary>Kein Ziel: False ohne Ausnahme.</summary>
+    [Test]
+    procedure GotoTargetWithoutTarget;
   end;
 
 implementation
@@ -94,8 +117,26 @@ uses
 const
   cTimeoutMs = 2000;
   cSlimCapabilities = '{"textDocumentSync":2,"completionProvider":{"resolveProvider":true},"hoverProvider":true,' +
-    '"signatureHelpProvider":{"triggerCharacters":["("]},"workspace":{},"experimental":{"dpcc":{"requests":' +
+    '"signatureHelpProvider":{"triggerCharacters":["("]},"definitionProvider":true,"declarationProvider":true,' +
+    '"typeDefinitionProvider":true,"workspace":{},"experimental":{"dpcc":{"requests":' +
     '["dpcc/expressionCompletion"],"notifications":["dpcc/postfixTemplates","dpcc/ideTypes"]}}}';
+  cUnitFile = 'C:\Projekt\Unit1.pas';
+  cUnitText =
+    'unit Unit1;'#13#10 +            // 0
+    'interface'#13#10 +              // 1
+    'procedure Bar;'#13#10 +         // 2
+    'implementation'#13#10 +         // 3
+    'procedure Bar;'#13#10 +         // 4
+    'begin'#13#10 +                  // 5
+    'end;'#13#10 +                   // 6
+    'end.';
+
+/// <summary>Location[] mit einem Ort in cUnitFile.</summary>
+function LocationAt(ALine, ACharacter: Integer): string;
+begin
+  Result := Format('[{"uri":"file:///C:/Projekt/Unit1.pas","range":{"start":{"line":%0:d,"character":%1:d},' +
+    '"end":{"line":%0:d,"character":%2:d}}}]', [ALine, ACharacter, ACharacter + 3]);
+end;
 
 { TFakeLspServer }
 
@@ -105,6 +146,7 @@ begin
   FRequests := TList<string>.Create;
   FErrors := TDictionary<string, Integer>.Create;
   FReported := TList<string>.Create;
+  FReplies := TDictionary<string, string>.Create;
   FClient := TLspClient.Create(
     procedure(const ABytes: TBytes)
     begin
@@ -127,6 +169,7 @@ end;
 destructor TFakeLspServer.Destroy;
 begin
   FClient.Free;
+  FReplies.Free;
   FReported.Free;
   FErrors.Free;
   FRequests.Free;
@@ -139,7 +182,7 @@ var
   mStart: Integer;
   mMessage: TJSONValue;
   mId: Integer;
-  mMethod, mKey, mReply: string;
+  mMethod, mKey, mReply, mResult: string;
   mCode: Integer;
   mBytes: TBytes;
 begin
@@ -159,6 +202,10 @@ begin
     begin
       mReply := Format('{"jsonrpc":"2.0","id":%d,"error":{"code":%d,"message":"Method not supported: %s"}}',
         [mId, mCode, mKey]);
+    end
+    else if FReplies.TryGetValue(mKey, mResult) then
+    begin
+      mReply := Format('{"jsonrpc":"2.0","id":%d,"result":%s}', [mId, mResult]);
     end
     else if (mMethod = 'initialize') and (FCapabilities <> '') then
     begin
@@ -340,18 +387,20 @@ begin
   SetCapabilities(cSlimCapabilities);
   Assert.IsTrue(FServer.Client.CapabilitiesKnown);
   Assert.IsTrue(FServer.Client.Supports('hoverProvider'));
-  Assert.IsFalse(FServer.Client.Supports('definitionProvider'));
+  // Seit NAV meldet der schlanke Server Sprungziele; Referenzen weiter nicht.
+  Assert.IsTrue(FServer.Client.Supports('definitionProvider'));
+  Assert.IsFalse(FServer.Client.Supports('referencesProvider'));
   for mRound := 1 to 2 do
   begin
     Assert.WillRaise(
       procedure
       begin
-        Ask('textDocument/definition');
+        Ask('textDocument/references');
       end, ELspMethodNotFound);
   end;
-  Assert.AreEqual(0, FServer.Sent('textDocument/definition'));
+  Assert.AreEqual(0, FServer.Sent('textDocument/references'));
   Assert.AreEqual(1, FServer.Reported.Count);
-  Assert.AreEqual('textDocument/definition|capabilities', FServer.Reported[0]);
+  Assert.AreEqual('textDocument/references|capabilities', FServer.Reported[0]);
   // Gemeldete Anbieter gehen hinaus.
   Ask('textDocument/hover');
   Ask('completionItem/resolve');
@@ -467,7 +516,6 @@ end;
 procedure TLspMethodNotFoundTests.SessionInitializeStoresCapabilities;
 var
   mSession: TLspSession;
-  mLocation: TLspLocation;
 begin
   FServer.Capabilities := cSlimCapabilities;
   mSession := TLspSession.Create(FServer.Client, cTimeoutMs);
@@ -475,7 +523,9 @@ begin
     mSession.Initialize;
     Assert.AreEqual('9.9', mSession.ServerVersion);
     Assert.IsTrue(mSession.Supports('hoverProvider'));
-    Assert.IsFalse(mSession.Supports('definitionProvider'));
+    Assert.IsTrue(mSession.Supports('definitionProvider'), 'seit NAV');
+    Assert.IsTrue(mSession.Offers('textDocument/definition'), 'seit NAV');
+    Assert.IsTrue(mSession.Offers('textDocument/declaration'), 'seit NAV');
     Assert.IsTrue(mSession.Offers('textDocument/completion'));
     Assert.IsFalse(mSession.Offers('textDocument/documentSymbol'));
     Assert.IsFalse(mSession.Offers('textDocument/diagnostic'));
@@ -483,10 +533,109 @@ begin
     Assert.WillRaise(
       procedure
       begin
-        mSession.Definition('C:\Projekt\Unit1.pas', 'unit Unit1;', 0, 5, mLocation);
+        mSession.References('C:\Projekt\Unit1.pas', 0, 5);
       end, ELspMethodNotFound);
-    Assert.AreEqual(0, FServer.Sent('textDocument/definition'));
+    Assert.AreEqual(0, FServer.Sent('textDocument/references'));
     Assert.AreEqual(1, FServer.Sent('initialize'));
+  finally
+    mSession.Free;
+  end;
+end;
+
+procedure TLspMethodNotFoundTests.GotoTargetOnUsageTakesDeclaration;
+var
+  mSession: TLspSession;
+  mLocation: TLspLocation;
+begin
+  FServer.Capabilities := cSlimCapabilities;
+  FServer.Replies.Add('textDocument/declaration', LocationAt(2, 10));
+  FServer.Replies.Add('textDocument/definition', LocationAt(4, 10));
+  mSession := TLspSession.Create(FServer.Client, cTimeoutMs);
+  try
+    mSession.Initialize;
+    // Stelle in Zeile 6, das Ziel der Deklaration liegt in Zeile 2: kein zweiter Schritt.
+    Assert.IsTrue(mSession.GotoTarget(cUnitFile, cUnitText, 6, 0, cTimeoutMs, mLocation), 'Ziel');
+    Assert.AreEqual(2, mLocation.Line, 'Deklaration');
+    Assert.AreEqual(1, FServer.Sent('textDocument/declaration'));
+    Assert.AreEqual(0, FServer.Sent('textDocument/definition'));
+  finally
+    mSession.Free;
+  end;
+end;
+
+procedure TLspMethodNotFoundTests.GotoTargetOnDeclarationAsksDefinition;
+var
+  mSession: TLspSession;
+  mLocation: TLspLocation;
+begin
+  FServer.Capabilities := cSlimCapabilities;
+  FServer.Replies.Add('textDocument/declaration', LocationAt(2, 10));
+  FServer.Replies.Add('textDocument/definition', LocationAt(4, 10));
+  mSession := TLspSession.Create(FServer.Client, cTimeoutMs);
+  try
+    mSession.Initialize;
+    // Stelle auf "Bar" in "procedure Bar;" (Zeile 2, Zeichen 11): Das ist die Deklaration selbst.
+    Assert.IsTrue(mSession.GotoTarget(cUnitFile, cUnitText, 2, 11, cTimeoutMs, mLocation), 'Ziel');
+    Assert.AreEqual(4, mLocation.Line, 'Implementierung');
+    Assert.AreEqual(1, FServer.Sent('textDocument/declaration'));
+    Assert.AreEqual(1, FServer.Sent('textDocument/definition'));
+  finally
+    mSession.Free;
+  end;
+end;
+
+procedure TLspMethodNotFoundTests.GotoTargetWithoutDeclarationProvider;
+var
+  mSession: TLspSession;
+  mLocation: TLspLocation;
+begin
+  FServer.Capabilities := '{"hoverProvider":true,"definitionProvider":true}';
+  FServer.Replies.Add('textDocument/definition', LocationAt(4, 10));
+  mSession := TLspSession.Create(FServer.Client, cTimeoutMs);
+  try
+    mSession.Initialize;
+    Assert.IsTrue(mSession.GotoTarget(cUnitFile, cUnitText, 2, 11, cTimeoutMs, mLocation), 'Ziel');
+    Assert.AreEqual(4, mLocation.Line);
+    Assert.AreEqual(0, FServer.Sent('textDocument/declaration'));
+    Assert.AreEqual(1, FServer.Sent('textDocument/definition'));
+  finally
+    mSession.Free;
+  end;
+end;
+
+procedure TLspMethodNotFoundTests.GotoTargetLearnsMissingDeclaration;
+var
+  mSession: TLspSession;
+  mLocation: TLspLocation;
+begin
+  FServer.Errors.Add('textDocument/declaration', TLspClient.cMethodNotFound);
+  FServer.Replies.Add('textDocument/definition', LocationAt(4, 10));
+  mSession := TLspSession.Create(FServer.Client, cTimeoutMs);
+  try
+    mSession.Initialize;
+    Assert.IsTrue(mSession.GotoTarget(cUnitFile, cUnitText, 6, 0, cTimeoutMs, mLocation), 'erstes Mal');
+    Assert.AreEqual(4, mLocation.Line);
+    Assert.IsTrue(mSession.GotoTarget(cUnitFile, cUnitText, 6, 0, cTimeoutMs, mLocation), 'zweites Mal');
+    Assert.AreEqual(1, FServer.Sent('textDocument/declaration'), 'declaration nur einmal');
+    Assert.AreEqual(2, FServer.Sent('textDocument/definition'));
+  finally
+    mSession.Free;
+  end;
+end;
+
+procedure TLspMethodNotFoundTests.GotoTargetWithoutTarget;
+var
+  mSession: TLspSession;
+  mLocation: TLspLocation;
+begin
+  FServer.Capabilities := cSlimCapabilities;
+  FServer.Replies.Add('textDocument/declaration', 'null');
+  mSession := TLspSession.Create(FServer.Client, cTimeoutMs);
+  try
+    mSession.Initialize;
+    Assert.IsFalse(mSession.GotoTarget(cUnitFile, cUnitText, 6, 0, cTimeoutMs, mLocation), 'kein Ziel');
+    Assert.AreEqual('', mLocation.FileName);
+    Assert.AreEqual(0, FServer.Sent('textDocument/definition'));
   finally
     mSession.Free;
   end;

@@ -16,6 +16,7 @@ uses
   Vcl.ExtCtrls,
   ToolsAPI,
   dpcc.Core.Completion.Contract,
+  dpcc.Core.Completion.AutoOpen,
   dpcc.Core.Completion.Composite,
   dpcc.Core.Completion.Controller,
   dpcc.Core.Completion.Fallback,
@@ -55,6 +56,8 @@ type
     State: TDpccEditorWindowState;
     /// <summary>Invoke kommt gerade aus dem Zeitgeber.</summary>
     Running: Boolean;
+    /// <summary>Auslöser des vorgemerkten Öffnens: Zeichen (Trigger) oder Tippen eines Bezeichners (L5).</summary>
+    Source: TDpccCompletionSource;
   end;
 
   /// <summary>Zustand der offenen Vervollständigung; Fenster beim Öffnen (Fokus, oberste Zeile, Größe) für
@@ -116,6 +119,12 @@ type
     FCall: TDpccEditorCall;
     // Zweites Strg+Leertaste nach leerem Ergebnis öffnet die Liste der IDE (L3).
     FFallback: TDpccCompletionFallback;
+    // Tippen eines Bezeichners (L5): letzter Stand der Zeile des Cursors.
+    FTyping: TDpccTypingTracker;
+    // Haken des Managers für das Öffnen beim Tippen (L5); nil = nicht gesetzt.
+    FOnHandles: TFunc<string, Boolean>;
+    FOnEnsureSession: TFunc<Boolean>;
+    FOnIdeListOpen: TFunc<Boolean>;
     /// <summary>Ereignisse des Popups, die nur Ablauf, Einstellungen und Navigation brauchen.</summary>
     procedure WirePopup;
     /// <summary>Abgeschlossene Abfrage an den Merker für das zweite Strg+Leertaste; bleibt die Liste nach einem

@@ -18,6 +18,11 @@ const
   cMaxListWidth = 720;
   /// <summary>Verzögerung bis zum automatischen Öffnen der Liste (ARG-046, #227); 0 = sofort.</summary>
   cMaxOpenDelay = 2000;
+  /// <summary>Zeichen des Bezeichners, ab denen Tippen die Liste öffnet (L5, completion.autoMinChars); 0 = nie.
+  /// Wie TDpccAutoOpen.cDefaultMinChars bzw. cMaxMinChars (Settings darf Completion nicht einbinden, der Test prüft
+  /// Gleichheit).</summary>
+  cDefaultAutoMinChars = 0;
+  cMaxAutoMinChars = 10;
   /// <summary>Wie TDpccListModes.cModeNames bzw. ScopeNames (#497); Settings darf Completion nicht einbinden
   ///, der Test prüft Gleichheit.</summary>
   cCompletionListModeNames: array[0..2] of string = ('filter', 'all', 'rest');
@@ -46,6 +51,9 @@ type
     FormatPlaceholders: Boolean;
     /// <summary>Millisekunden zwischen automatischem Auslösen (".") und dem Öffnen der Liste (ARG-046).</summary>
     OpenDelayMs: Integer;
+    /// <summary>Beim Tippen eines Bezeichners ohne Punkt davor öffnet die Liste erst ab so vielen Zeichen
+    /// (L5, completion.autoMinChars); 0 = Tippen öffnet nie. Strg+Leertaste gilt immer.</summary>
+    AutoMinChars: Integer;
     /// <summary>Lernende Gewichtung (#418).</summary>
     Learning: Boolean;
     /// <summary>Favoriten anheften (#458): Strg+D in der Liste, angeheftete Einträge stehen oben;
@@ -90,6 +98,7 @@ begin
   Result.ParameterHints := True;
   Result.FormatPlaceholders := True;
   Result.OpenDelayMs := 150;
+  Result.AutoMinChars := cDefaultAutoMinChars;
   Result.Learning := True;
   Result.Favorites := True;
   Result.GroupInherited := True;
@@ -109,6 +118,7 @@ begin
   CompletionListMode := Choice(CompletionListMode, cCompletionListModeNames);
   CompletionListScope := Choice(CompletionListScope, cCompletionListScopeNames);
   OpenDelayMs := EnsureRange(OpenDelayMs, 0, cMaxOpenDelay);
+  AutoMinChars := EnsureRange(AutoMinChars, 0, cMaxAutoMinChars);
 end;
 
 procedure TDpccPluginCompletionSettings.Exchange(const AIo: TDpccSettingsExchange);
@@ -123,6 +133,7 @@ begin
   AIo.Flag('ParameterHints', ParameterHints);
   AIo.Flag('FormatPlaceholders', FormatPlaceholders);
   AIo.Number('OpenDelayMs', OpenDelayMs);
+  AIo.Number('AutoMinChars', AutoMinChars);
   AIo.Flag('Learning', Learning);
   AIo.Flag('Favorites', Favorites);
   AIo.Flag('GroupInherited', GroupInherited);

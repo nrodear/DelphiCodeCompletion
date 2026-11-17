@@ -6,7 +6,7 @@
 //     aktiven Parameter passt.
 //   - Weitertippen: Übersteigt der aktive Parameter die gezeigte Signatur, wechselt
 //     der Hint zur nächsten passenden (z. B. Format mit TFormatSettings). Von Hand
-//     gewählte Überladungen (Alt+↑/↓) bleiben erreichbar, auch wenn sie nicht passen.
+//     gewählte Überladungen (Strg+Alt+↑/↓, TDpccOverloadKeys) bleiben erreichbar, auch wenn sie nicht passen.
 //   - Argumenttypen (#498): Meldet der Server, dass ein bisheriges Argument nicht zum Parametertyp passt
 //     (TypeMismatch), passt die Überladung nicht, erscheint gedämpft und wird nicht vorgewählt. Die Zahl der
 //     Argumente zählt weiter lokal.

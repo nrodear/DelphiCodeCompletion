@@ -20,6 +20,11 @@
 //   Vervollständigung (auch nach ":="), Hover und Parameterhilfe in anderen offenen Units anfragt
 //   (Speicher-Optimierung Phase 4). Die Zeile "[typing]" nennt Zahl, Median, 95. und 99. Perzentil und Höchstwert der
 //   Antwortzeiten; jede einzelne steht in <Datei>-latency.csv.
+//   L5: Die Vervollständigung nach ":=" folgt der Regel der IDE für das Öffnen beim Tippen (TDpccAutoOpen,
+//   completion.autoMinChars): Der Name hinter ":=" wird Zeichen für Zeichen getippt; gefragt wird einmal, sobald die
+//   Regel Query meldet (Vorgabe ab 5 Zeichen), danach filtert die Liste lokal. Ist der Name kürzer oder kein
+//   Bezeichner, gibt es keine Anfrage ("ohne Anfrage" in der Zeile "[typing]"). DPCC_MEMBENCH_AUTOMIN setzt die
+//   Schwelle (0 = Tippen öffnet nie); -1 fragt wie vor L5 direkt hinter "=" ohne Buchstaben.
 // - DPCC_MEMBENCH_PINNED (Vorgabe 0): Eine Projekt-Unit nennt die größten Units der Bibliothek in ihren uses
 //   (DPCC_MEMBENCH_PINNEDUNITS, kommagetrennt; Vorgabe die DPCC_MEMBENCH_PINNEDCOUNT größten Dateien unter
 //   DPCC_MEMBENCH_LIBDIR, 80) und lädt sie
@@ -39,6 +44,10 @@
 //   die nur System.SysUtils einbindet: im Rumpf einer Routine (etwa "raise E", "on E: EC" nach "try except") bzw.
 //   mit "[" am Anfang vor einer Deklaration (Attribut). Die Zeile "[lists]" nennt Einträge, Antwortzeit und die
 //   dabei nachgeladenen Units (raise und Attribute laden seit L4 keine kalte Unit mehr nach).
+// - DPCC_MEMBENCH_DEFINITIONS (NAV): durch "|" getrennte Fälle "Units#Zeile#Wort": eine Projekt-Unit mit diesen
+//   uses und der Zeile im Rumpf einer Routine, darin Strg+Klick auf das Wort (TLspSession.GotoTarget mit dem
+//   Zeitlimit des Hauptthreads wie in der IDE). Die Zeile "[definition]" nennt Ziel (Datei, Zeile), Antwortzeit und
+//   die dabei nachgeladenen Units; "[definition] Summe" Treffer, Median und Höchstwert.
 // Je Messpunkt eine Zeile "[lazy]" mit geladenen, gepinnten, verdrängbaren und verdrängten Units, Katalog und
 // Dauer des Nachladens (Median, Höchstwert, größte Unit).
 // Der Cache gehört nicht dem Benutzer: Der Aufrufer setzt LOCALAPPDATA bzw. DPCC_CACHE_ROOT auf einen eigenen Ordner
@@ -83,6 +92,8 @@ uses
   dpcc.Core.Lsp.Session,
   dpcc.Core.Lsp.Adapters.InProcess,
   dpcc.Core.Files.WatchedChanges,
+  dpcc.Core.Completion.Word,
+  dpcc.Core.Completion.AutoOpen,
   dpcc.Common.Index.Contract,
   dpcc.Windows.Diagnostics.ProcessInfo,
   dpcc.Common.Diagnostics.ShutdownLeaks,
@@ -146,14 +157,21 @@ type
     FTexts: TArray<string>;
     FSeed: Cardinal;
     FStop: Boolean;
+    /// <summary>Schwelle für das Öffnen beim Tippen (L5); -1 = wie vor L5 ohne Schwelle.</summary>
+    FMinChars: Integer;
     function NextRandom(ARange: Integer): Integer;
     procedure Place(const AText: string; const AMark: Char; out ALine, ACharacter: Integer);
+    /// <summary>Tippt den Namen ab ACharacter (nach Leerzeichen) in Zeile ALine von AText wie die IDE (L5): True mit
+    /// ACharacter hinter dem Zeichen, bei dem TDpccAutoOpen fragt; False, wenn beim ganzen Namen nicht.</summary>
+    function TypedPlace(const AText: string; ALine: Integer; var ACharacter: Integer): Boolean;
   protected
     procedure Execute; override;
   public
     Latencies: TList<Double>;
     Failures: Integer;
-    constructor Create(ASession: TLspSession; const AFiles, ATexts: TArray<string>);
+    /// <summary>Stellen nach ":=" ohne Anfrage, weil die Regel der IDE dort nicht öffnet (L5).</summary>
+    AutoSkipped: Integer;
+    constructor Create(ASession: TLspSession; const AFiles, ATexts: TArray<string>; AMinChars: Integer);
     destructor Destroy; override;
     procedure Finish;
   end;
@@ -198,6 +216,8 @@ type
     /// <summary>Listen nach raise, on und in Attributklammern aus DPCC_MEMBENCH_LISTS (L4): Einträge, Zeit,
     /// nachgeladene Units.</summary>
     procedure ListProbe(const ALines: TArray<string>);
+    /// <summary>Strg+Klick aus DPCC_MEMBENCH_DEFINITIONS (NAV): Ziel, Zeit, nachgeladene Units.</summary>
+    procedure DefinitionProbe(const ACases: TArray<string>);
     /// <summary>Die ausgewählten Dateien unter Packages (Units der Projekte).</summary>
     function PackageFiles: TArray<string>;
   public
@@ -781,8 +801,9 @@ end;
 
 { TBenchRequester }
 
-constructor TBenchRequester.Create(ASession: TLspSession; const AFiles, ATexts: TArray<string>);
+constructor TBenchRequester.Create(ASession: TLspSession; const AFiles, ATexts: TArray<string>; AMinChars: Integer);
 begin
+  FMinChars := AMinChars;
   FSession := ASession;
   FFiles := AFiles;
   FTexts := ATexts;
@@ -839,6 +860,37 @@ begin
   ACharacter := Length(mLines[ALine].TrimRight([#13]));
 end;
 
+function TBenchRequester.TypedPlace(const AText: string; ALine: Integer; var ACharacter: Integer): Boolean;
+var
+  mLines: TArray<string>;
+  mLineText: string;
+  mStart, mEnd, mTyped: Integer;
+begin
+  Result := False;
+  mLines := AText.Split([#10]);
+  if (ALine < 0) or (ALine > High(mLines)) then
+  begin
+    Exit;
+  end;
+  mLineText := mLines[ALine].TrimRight([#13]);
+  mStart := ACharacter;
+  while (mStart < Length(mLineText)) and (mLineText[mStart + 1] = ' ') do
+  begin
+    Inc(mStart);
+  end;
+  mEnd := TDpccWord.EndAfter(mLineText, mStart);
+  // Zeile, wie sie beim Tippen aussieht: bis zum Cursor. Ab der ersten Anfrage filtert die Liste nur noch.
+  for mTyped := mStart + 1 to mEnd do
+  begin
+    if TDpccAutoOpen.Action(TDpccCompletionSource.Typing, Copy(mLineText, 1, mTyped), mTyped, False,
+      FMinChars) = TDpccAutoOpenAction.Query then
+    begin
+      ACharacter := mTyped;
+      Exit(True);
+    end;
+  end;
+end;
+
 procedure TBenchRequester.Execute;
 var
   mPick, mKind, mLine, mCharacter: Integer;
@@ -882,6 +934,13 @@ begin
         mWhat := 'completion:=';
         Place(FTexts[mPick], '=', mLine, mCharacter);
         Inc(mCharacter);
+        // L5: wie die IDE erst ab completion.autoMinChars getippten Zeichen; darunter keine Anfrage.
+        if (FMinChars >= 0) and not TypedPlace(FTexts[mPick], mLine, mCharacter) then
+        begin
+          Inc(AutoSkipped);
+          Continue;
+        end;
+        mWatch := TStopwatch.StartNew;
         mResponse := FSession.Completion(FFiles[mPick], mLine, mCharacter, cRequestTimeoutMs);
         mResponse.Free;
       end;
@@ -922,7 +981,7 @@ procedure TBench.Typing(ARounds: Integer);
 var
   mFile, mText, mTyped: string;
   mFiles, mTexts: TArray<string>;
-  mAt, mRound, mKey, mIndex: Integer;
+  mAt, mRound, mKey, mIndex, mMinChars: Integer;
   mRequester: TBenchRequester;
   mSorted: TArray<Double>;
 begin
@@ -959,7 +1018,9 @@ begin
   mText := FTexts[mFile];
   mAt := TypingAt(mText);
   mTyped := '';
-  mRequester := TBenchRequester.Create(FSession, mFiles, mTexts);
+  // Messszenario: Vorgabe 5 (die Einstellung hat seit NAV die Vorgabe 0 = aus).
+  mMinChars := EnvInt('DPCC_MEMBENCH_AUTOMIN', 5);
+  mRequester := TBenchRequester.Create(FSession, mFiles, mTexts, mMinChars);
   try
     for mRound := 1 to ARounds do
     begin
@@ -981,6 +1042,8 @@ begin
       TFormatSettings.Invariant), FormatFloat('0.0', Percentile(mSorted, 95), TFormatSettings.Invariant),
       FormatFloat('0.0', Percentile(mSorted, 99), TFormatSettings.Invariant), FormatFloat('0.0',
       Percentile(mSorted, 100), TFormatSettings.Invariant)]));
+    System.Writeln(Format('[typing] nach ":=" ab %d Zeichen (-1 = ohne Schwelle): ohne Anfrage %d',
+      [mMinChars, mRequester.AutoSkipped]));
     Inc(FRequests, Length(mSorted));
     Inc(FFailures, mRequester.Failures);
   finally
@@ -1337,6 +1400,86 @@ begin
   FSession.Sync(mFile, FTexts[mFile]);
 end;
 
+procedure TBench.DefinitionProbe(const ACases: TArray<string>);
+var
+  mFile, mOwn, mCase, mText, mWord, mLine: string;
+  mParts: TArray<string>;
+  mWatch: TStopwatch;
+  mBefore, mAfter: TIndexLazyStats;
+  mLocation: TLspLocation;
+  mFound: Boolean;
+  mTimes: TList<Double>;
+  mHits, mAt: Integer;
+  mMedian: Double;
+begin
+  mFile := FFiles[0];
+  mOwn := ChangeFileExt(ExtractFileName(mFile), '');
+  EnsureOpen(mFile);
+  mHits := 0;
+  mTimes := TList<Double>.Create;
+  try
+    for mCase in ACases do
+    begin
+      mParts := mCase.Split(['#']);
+      if Length(mParts) < 3 then
+      begin
+        Continue;
+      end;
+      mLine := mParts[1];
+      mWord := Trim(mParts[2]);
+      // Zeile 6 (0-basiert 5) im Rumpf von BenchProbe.
+      mText := Format('unit %s;'#13#10'interface'#13#10'uses %s;'#13#10'implementation'#13#10 +
+        'procedure BenchProbe;'#13#10'begin'#13#10'%s'#13#10'end;'#13#10'end.'#13#10, [mOwn, Trim(mParts[0]), mLine]);
+      mAt := Pos(mWord, mLine) - 1;
+      try
+        FSession.Sync(mFile, mText);
+        mBefore := LazyNow(mFile);
+        mWatch := TStopwatch.StartNew;
+        mFound := FSession.GotoTarget(mFile, mText, 6, mAt + 1, TLspSession.cMainThreadTimeoutMs, mLocation);
+        mWatch.Stop;
+        mAfter := LazyNow(mFile);
+        Inc(FRequests);
+        mTimes.Add(mWatch.Elapsed.TotalMilliseconds);
+        if mFound then
+        begin
+          Inc(mHits);
+          System.Writeln(Format('[definition] %s: %s Zeile %d, %s ms, nachgeladen %d',
+            [mWord, ExtractFileName(mLocation.FileName), mLocation.Line + 1,
+            FormatFloat('0.0', mWatch.Elapsed.TotalMilliseconds, TFormatSettings.Invariant),
+            mAfter.Loads - mBefore.Loads]));
+        end
+        else
+        begin
+          System.Writeln(Format('[definition] %s: kein Ziel, %s ms, nachgeladen %d', [mWord,
+            FormatFloat('0.0', mWatch.Elapsed.TotalMilliseconds, TFormatSettings.Invariant),
+            mAfter.Loads - mBefore.Loads]));
+        end;
+      except
+        on E: Exception do
+        begin
+          Inc(FFailures);
+          System.Writeln(Format('[definition] %s: Fehler %s %s', [mWord, E.ClassName, E.Message]));
+        end;
+      end;
+    end;
+    mTimes.Sort;
+    if mTimes.Count > 0 then
+    begin
+      mMedian := mTimes[mTimes.Count div 2];
+      if not Odd(mTimes.Count) then
+      begin
+        mMedian := (mTimes[mTimes.Count div 2 - 1] + mTimes[mTimes.Count div 2]) / 2;
+      end;
+      System.Writeln(Format('[definition] Summe: %d von %d mit Ziel, Median %s ms, Höchstwert %s ms',
+        [mHits, mTimes.Count, FormatFloat('0.0', mMedian, TFormatSettings.Invariant),
+        FormatFloat('0.0', mTimes.Last, TFormatSettings.Invariant)]));
+    end;
+  finally
+    mTimes.Free;
+  end;
+  FSession.Sync(mFile, FTexts[mFile]);
+end;
+
 procedure TBench.Run(ARequests, ARebuilds, ARestarts, ABetween: Integer);
 var
   mIndex: Integer;
@@ -1358,6 +1501,13 @@ begin
     FSampler.SetPhase('lists');
     ListProbe(Trim(GetEnvironmentVariable('DPCC_MEMBENCH_LISTS')).Split(['|'], TStringSplitOptions.ExcludeEmpty));
     Point('lists');
+  end;
+  if Trim(GetEnvironmentVariable('DPCC_MEMBENCH_DEFINITIONS')) <> '' then
+  begin
+    FSampler.SetPhase('definitions');
+    DefinitionProbe(Trim(GetEnvironmentVariable('DPCC_MEMBENCH_DEFINITIONS')).Split(['|'],
+      TStringSplitOptions.ExcludeEmpty));
+    Point('definitions');
   end;
   FSampler.SetPhase('requests');
   Requests(ARequests);

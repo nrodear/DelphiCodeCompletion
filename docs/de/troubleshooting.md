@@ -79,6 +79,20 @@ und Routinen außerhalb von Typen fehlen dann.
 - Ein Verweis wie `$(DUnitX)` in einem Suchpfad wirkt nur, wenn die Variable in den Umgebungsvariablen der IDE oder
   des Systems steht. Sonst nennt `dpcc.log` den Pfad („… mit unaufgelöstem Verweis übergangen“).
 
+## Strg+Klick springt nicht
+
+Strg+Klick und „Deklaration suchen“ (Alt+↑) gehen an den Code-Insight-Anbieter, der in den Optionen der IDE gewählt
+ist. Nur wenn dort dpcc gewählt ist, springt dpcc (siehe
+[Bedienung](usage.md#wenn-dpcc-als-anbieter-gewählt-ist)).
+
+| Ursache | Abhilfe |
+|---|---|
+| Das Ziel liegt in einer Unit ohne Quelltext (nur aus einem Package bekannt). | Erwartet: kein Sprung, keine Meldung. Liegt der Quelltext vor, seinen Ordner unter „Zusätzliche Quellordner“ eintragen. |
+| dpcc findet die Unit nicht oder kann den Namen nicht eindeutig auflösen (mehrdeutige Überladung, `with` mit unbekanntem Typ). | Erwartet. Suchpfade prüfen; siehe [Die Liste ist leer oder unvollständig](#die-liste-ist-leer-oder-unvollständig). |
+| Der Index wird noch aufgebaut oder die Antwort dauerte länger als 1 Sekunde. | Warten und noch einmal versuchen. |
+| Ein Parameter-Hint von dpcc mit mehreren Überladungen ist offen. | Seit dieser Fassung wechselt dort Strg+Alt+↑/↓ die Überladung; Alt+↑ geht an die IDE. |
+| Der Tooltip von dpcc verdeckt das Wort. | Strg gedrückt halten: Maus und Klick gehen dann durch den Tooltip an den Editor. |
+
 ## Zwei Tooltips erscheinen
 
 - Help Insight der IDE: dpcc schaltet es ab, die IDE liest den Schalter aber erst beim nächsten Start. Die IDE neu
@@ -106,6 +120,7 @@ nicht mehr von selbst neu (siehe [Der Server ist abgestürzt](#der-server-ist-ab
 | „dpcc: … nach 3 Fehlern in 5 Minuten abgeschaltet (zuletzt: …); bis zum Neustart der IDE.“ | Die Sicherung hat eine Funktion abgeschaltet. Sie bleibt bis zum Neustart der IDE aus. Fehler von dpcc erreichen die IDE nie. |
 | „dpcc: Quelle „…“ nach 3 Fehlern in 5 Minuten abgeschaltet …“ | Nur diese Datenquelle ist aus; die übrigen laufen weiter. |
 | „dpcc zeigt den Tooltip selbst und hat Help Insight der IDE abgeschaltet …“ | siehe „Zwei Tooltips erscheinen“ |
+| „dpcc ist in den Optionen der IDE als Code-Insight-Anbieter für Delphi gewählt …“ | Einmal je Sitzung, wenn dpcc der gewählte Anbieter ist: Strg+Klick läuft über dpcc, Error Insight und die übrigen Dienste von DelphiLSP fehlen. Siehe [Bedienung](usage.md#wenn-dpcc-als-anbieter-gewählt-ist). |
 
 ## Der Server ist abgestürzt
 

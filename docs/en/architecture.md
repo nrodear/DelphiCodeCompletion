@@ -142,6 +142,11 @@ the log.
 Hover and parameter hint run the same way through the session (`textDocument/hover`, `textDocument/signatureHelp`).
 The tooltip is not triggered by the IDE but by the mouse movement, via the Code Editor API.
 
+Ctrl+click and “Find Declaration” only reach dpcc if it is the selected Code Insight provider: the IDE calls the
+manager's `GotoDefinition`, which asks `textDocument/declaration` through `TLspSession.GotoTarget` (on the
+declaration itself then `textDocument/definition`) and waits at most 1 second. Without a target it answers True with
+an empty file name, and the IDE then cancels silently. The rules for this are in `dpcc.Core.Editor.Navigation`.
+
 ## Robustness
 
 - **Safety fuse** (`dpcc.Core.Diagnostics.Guard`): Every entry point from the IDE runs through `TDpccGuard.Run`.

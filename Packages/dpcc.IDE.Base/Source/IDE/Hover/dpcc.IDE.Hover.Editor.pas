@@ -21,6 +21,9 @@
 // Hint oder ein Menü offen, erscheint kein Tooltip; geht eins auf, schließt der offene Tooltip (Wächter alle
 // 100 ms, TDpccCloseRules.OtherPopup über die obersten Fenster des Hauptthreads). Aussehen: Farben der
 // Code-Insight-Liste (TDpccIdeStyle.ListColors).
+// Strg+Klick (NAV): Bei gedrückter Strg-Taste lässt der Tooltip Maus und Klick an den Editor darunter durch
+// (TDpccTooltipMouse.PassThrough), und Strg schließt ihn, wenn die Maus über ihm steht (KeyCloses): So bleibt ein
+// Wort, das er verdeckt, mit Strg+Klick erreichbar.
 // Seit S3 entfallen Verlauf und Anheften, Aktionen, Links und Kopieren. Probleme an der Mausposition zeigt der
 // Tooltip nicht: Seit R6 gibt es in der IDE keine Quelle mehr dafür (der Rückruf war schon vor S3 nil).
 
@@ -39,6 +42,7 @@ uses
   dpcc.Core.Hover.Contract,
   dpcc.Core.Hover.DebugValue,
   dpcc.Core.Editor.CloseRules,
+  dpcc.Core.Editor.Navigation,
   dpcc.IDE.Foundation.KeyHook,
   dpcc.IDE.Hover.DebugValue,
   dpcc.UI.Hover.Tip;
@@ -208,7 +212,7 @@ begin
   Result := FOwner.FTip.IsShown and (AKey = VK_ESCAPE) and (AShift = []);
   {$IF CompilerVersion < 37.0}
   // Ohne Tastatur-Ereignisse des Editors: andere Tasten schließen nach der Verarbeitung (wie EditorKeyDown).
-  if not Result and (AKey <> VK_SHIFT) and (AKey <> VK_CONTROL) and (AKey <> VK_MENU) then
+  if not Result and FOwner.FTip.IsShown and TDpccTooltipMouse.KeyCloses(AKey, FOwner.MouseOverTip) then
   begin
     TDpccMainThread.ForceQueue(TDpccFeature.Hover,
       procedure
@@ -246,6 +250,12 @@ begin
   FLog := ALog;
   FHandles := AHandles;
   FTip := TDpccHoverTip.Create(nil);
+  // Strg+Klick auf ein Wort unter dem Tooltip (NAV): Mit Strg geht die Maus an den Editor.
+  FTip.MouseTransparent :=
+    function: Boolean
+    begin
+      Result := TDpccTooltipMouse.PassThrough(GetKeyState(VK_CONTROL) < 0);
+    end;
   FDebug := TDpccIdeDebugValues.Create;
   FAlive := TDpccHoverAlive.Create;
   FAlive.Alive := True;
@@ -792,8 +802,10 @@ procedure TDpccEditorHover.HideTimerTick(Sender: TObject);
 begin
   try
     FHideTimer.Enabled := False;
-    // Die Maus darf in den Tooltip wandern (#442), etwa um einen langen Kurztext zu lesen.
-    if FTip.IsShown and MouseOverTip and Application.Active then
+    // Die Maus darf in den Tooltip wandern (#442), etwa um einen langen Kurztext zu lesen; nicht mit Strg (NAV:
+    // Die Maus geht dann an den Editor darunter).
+    if FTip.IsShown and MouseOverTip and Application.Active and
+      not TDpccTooltipMouse.PassThrough(GetKeyState(VK_CONTROL) < 0) then
     begin
       FHideTimer.Enabled := True;
       Exit;
@@ -821,8 +833,9 @@ procedure TDpccEditorHover.EditorKeyDown(const Editor: TWinControl; Key: Word; S
   var Handled: Boolean);
 begin
   try
-    // Umschalt, Strg und Alt allein schließen nicht: Strg+Klick braucht sie.
-    if (Key = VK_SHIFT) or (Key = VK_CONTROL) or (Key = VK_MENU) then
+    // Umschalt, Strg und Alt allein schließen nicht: Strg+Klick auf das Wort darunter braucht sie. Strg aber,
+    // wenn die Maus über dem Tooltip steht: Er verdeckt dann das Wort, das der Klick meint (NAV).
+    if not TDpccTooltipMouse.KeyCloses(Key, MouseOverTip) then
     begin
       Exit;
     end;

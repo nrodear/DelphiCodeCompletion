@@ -6,6 +6,8 @@
 //   - WS_POPUP mit WS_EX_NOACTIVATE und WS_EX_TOOLWINDOW, Besitzer ist das
 //     Hauptfenster der IDE; Schatten über CS_DROPSHADOW.
 //   - WM_MOUSEACTIVATE liefert MA_NOACTIVATE: Klicks wählen, ohne zu aktivieren.
+//   - WM_NCHITTEST liefert HTCLIENT; solange MouseTransparent True meldet, HTTRANSPARENT: Maus und Klick gehen
+//     dann an das Fenster darunter im selben Thread, etwa den Editor (NAV: Strg+Klick durch den Tooltip).
 //   - Zeigen über SetWindowPos mit SWP_NOACTIVATE (wie THintWindow), nicht über Visible.
 // Aussehen (seit S8 für alle Fenster gleich, wie der Hover-Tooltip): Farben aus TDpccColors, flach wie ein Menü
 // der IDE – eckig (unter Windows 11 die Rundung des Fenstermanagers ausgeschaltet), dünner Rand in der
@@ -53,9 +55,10 @@ type
     FPPI: Integer;
     FAccess: TAccess;
     FGuardFeature: TDpccFeature;
+    FMouseTransparent: TFunc<Boolean>;
     function Accessible: IDpccRawElementProvider;
-    /// <summary>WM_GETOBJECT, WM_MOUSEACTIVATE (MA_NOACTIVATE) und WM_NCHITTEST (HTCLIENT); False für alle
-    /// übrigen Nachrichten.</summary>
+    /// <summary>WM_GETOBJECT, WM_MOUSEACTIVATE (MA_NOACTIVATE) und WM_NCHITTEST (HTCLIENT, mit MouseTransparent
+    /// HTTRANSPARENT); False für alle übrigen Nachrichten.</summary>
     function HandleOwnMessage(var AMessage: TMessage): Boolean;
     procedure CMFontChanged(var Message: TMessage); message CM_FONTCHANGED;
     procedure SetColors(const AValue: TDpccColors);
@@ -85,6 +88,9 @@ type
     /// <summary>Feature, dem Fehler des Fensters angerechnet werden (Sicherung, #493); die Randmarken setzen es
     /// je Ebene.</summary>
     property GuardFeature: TDpccFeature read FGuardFeature write FGuardFeature;
+    /// <summary>Gefragt bei jedem WM_NCHITTEST: True lässt Maus und Klicks an das Fenster darunter durch (NAV:
+    /// Tooltip bei gedrückter Strg-Taste). nil = nie.</summary>
+    property MouseTransparent: TFunc<Boolean> read FMouseTransparent write FMouseTransparent;
     /// <summary>Lässt einen Screenreader AText vorlesen; derselbe Text zweimal hintereinander nur einmal.</summary>
     procedure Announce(const AText: string);
     constructor Create(AOwner: TComponent); override;
@@ -252,7 +258,14 @@ begin
     WM_MOUSEACTIVATE:
       AMessage.Result := MA_NOACTIVATE;
     WM_NCHITTEST:
-      AMessage.Result := HTCLIENT;
+      if Assigned(FMouseTransparent) and FMouseTransparent() then
+      begin
+        AMessage.Result := HTTRANSPARENT;
+      end
+      else
+      begin
+        AMessage.Result := HTCLIENT;
+      end;
   else
     Result := False;
   end;

@@ -5,8 +5,9 @@
 // Dokumente mit Synchronisation, den schlanken Kern mit Arbeitsbereichen, Ordnern, Einstellungen, dpcc.json und
 // Direktiven (Shell.Composition.CoreBase), Index mit den Ersatz-Units der IDE (Shell.Composition.IndexArea),
 // Nachrichten aus der IDE (Shell.Composition.Ide), Dateiänderungen (Shell.Composition.FileChanges), Vervollständigung
-// samt resolve, dpcc/expressionCompletion und dpcc/postfixTemplates (Shell.Composition.Completion), Hover und
-// Parameterhilfe. Keine Diagnosen, kein Compiler, keine Befehle (executeCommand), keine Refactorings, kein MCP,
+// samt resolve, dpcc/expressionCompletion und dpcc/postfixTemplates (Shell.Composition.Completion), Hover,
+// Parameterhilfe und Sprungziele (textDocument/definition, declaration, typeDefinition; Auftrag NAV: Strg+Klick, wenn
+// dpcc der gewählte Code-Insight-Anbieter ist). Keine Diagnosen, kein Compiler, keine Befehle (executeCommand), keine Refactorings, kein MCP,
 // keine Absturzfälle (Rückbau R3).
 //
 // Der Transport kommt von außen (Create bzw. CreateForStreams); diese Unit liegt im Package dpcc.Server. Seit S1 ist
@@ -30,6 +31,7 @@ uses
   dpcc.Common.Lsp.TextDocumentSync,
   dpcc.Common.Lsp.Hover,
   dpcc.Common.Lsp.SignatureHelp,
+  dpcc.Common.Lsp.Definition,
   Shell.Composition.Channel,
   Shell.Composition.Protocol,
   Shell.Composition.Session,
@@ -87,6 +89,9 @@ type
     Completion: TShellCompletion;
     Hover: TLspHover;
     SignatureHelp: TLspSignatureHelp;
+    /// <summary>Sprungziele (NAV): Strg+Klick und „Deklaration suchen“, wenn dpcc der gewählte Anbieter ist.
+    /// </summary>
+    Definition: TLspDefinition;
     Connection: TJsonRpcConnection;
     /// <summary>Der Client hat keinen brauchbaren Ordner gemeldet (RAD Studio, #175).</summary>
     DeriveWorkspaces: Boolean;
@@ -255,6 +260,7 @@ begin
   FreeAndNil(Core);
   FreeAndNil(IndexArea);
   // Danach die Features; Protokoll und Absturzfälle zuletzt.
+  FreeAndNil(Definition);
   FreeAndNil(SignatureHelp);
   FreeAndNil(Hover);
   FreeAndNil(Completion);
@@ -292,6 +298,7 @@ begin
   mLeft.Completion := Completion;
   mLeft.Hover := Hover;
   mLeft.SignatureHelp := SignatureHelp;
+  mLeft.Definition := Definition;
   Connection := nil;
   Protocol := nil;
   Documents := nil;
@@ -304,6 +311,7 @@ begin
   Completion := nil;
   Hover := nil;
   SignatureHelp := nil;
+  Definition := nil;
   mDone := OnLateRelease;
   mThread := TThread.CreateAnonymousThread(
     procedure
@@ -512,6 +520,7 @@ begin
   Completion.Completion.Hooks.Namespaces := ANamespaces;
   Hover.Namespaces := ANamespaces;
   SignatureHelp.Namespaces := ANamespaces;
+  Definition.Namespaces := ANamespaces;
 end;
 
 function TShellCompletionServerParts.IndexServices: TShellIndexAreaServices;
@@ -719,6 +728,11 @@ begin
     mCore.Folders.EnsureUnitFunc());
   SignatureHelp.FormatRoutinesFor := FormatRoutinesFor;
   SignatureHelp.Attach(Protocol.Dispatcher);
+  // Sprungziele wie beim Hover (NAV): derselbe Index samt gleichnamigen Units (L2); kalte Units lädt die
+  // Namensauflösung über EnsureUnit nach (nur die gesuchte), ReadText für Sprünge aus Formulardateien.
+  Definition := TLspDefinition.Create(Documents, IndexArea.EditorIndex, mCore.Folders.EnsureUnitFunc());
+  Definition.ReadText := ReadText;
+  Definition.Attach(Protocol.Dispatcher);
 end;
 
 procedure TShellCompletionServerParts.Initialized;

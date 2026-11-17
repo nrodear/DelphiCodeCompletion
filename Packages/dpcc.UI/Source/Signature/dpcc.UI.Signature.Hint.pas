@@ -20,7 +20,8 @@
 //   - Verschachtelte Aufrufe (#438): Pfadzeile oben mit den äußeren Aufrufen (gedämpft,
 //     ohne eigenes Band, darunter eine Trennlinie), "ShowMessage › Format"; höchstens
 //     drei Ebenen, darüber "… ›".
-//   - Klick auf eine Überladung wählt sie; Alt+↑/↓ über die Tastatur (dpcc.IDE).
+//   - Klick auf eine Überladung wählt sie; Strg+Alt+↑/↓ über die Tastatur (dpcc.IDE, TDpccOverloadKeys; Alt+↑
+//     gehört der IDE, „Deklaration suchen“).
 //   - Formatroutinen (#451): Oben im Doku-Bereich eine Zeile zum Platzhalter des
 //     Arguments am Cursor („Platzhalter 2 von 2 erwartet ganzzahlig“) in Akzentfarbe,
 //     ein Problem (überzähliges Argument, Typkonflikt, ungültiger Platzhalter) in

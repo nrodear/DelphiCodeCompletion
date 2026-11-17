@@ -52,6 +52,11 @@
 // Zweites Strg+Leertaste (L3): OnSettled meldet nach dem Abschluss jeder Abfrage, ob die Liste leer bleibt; die
 // Entscheidung, ob ein weiteres Strg+Leertaste der IDE gehört, trifft TDpccCompletionFallback.
 //
+// Beim Tippen geöffnet (L5, TDpccContext.Typed, Regel in TDpccAutoOpen): Ohne Einträge schließt die Liste still
+// (kein leerer Zustand, etwa in einem mehrzeiligen Kommentar). Ist das getippte Wort schon der Name des gewählten
+// Eintrags (etwa "begin"), ist nichts gewählt (wie #471): Enter gehört dem Editor, eine Pfeiltaste wählt. Mit
+// Strg+Leertaste geöffnete Listen bleiben wie bisher.
+//
 // Diagnosemodus (#479): Ist TDpccQueryTimings.Enabled, beginnt Start eine gemessene Abfrage (Kontext ab
 // AContext.Started, Art des Kontexts, nur der Dateiname), Refresh meldet die Dauer von Filtern und Sortieren
 // samt Anzahl der Einträge und die erste sichtbare Liste. Aus wird nichts gemessen.
@@ -159,6 +164,8 @@ type
     FTrigger: string;
     /// <summary>Im Mengenmodus schon umgeschaltet.</summary>
     FToggled: Boolean;
+    /// <summary>Beim Tippen geöffnet (L5).</summary>
+    FTyped: Boolean;
     function GetVisible: Boolean;
     procedure SelectByName(const AName: string);
   public
@@ -184,6 +191,8 @@ type
     property Incomplete: Boolean read FIncomplete;
     /// <summary>Gezeigter Hinweis bei unvollständigem Code (#457); Trust Sure ohne.</summary>
     property Syntax: TDpccSyntaxNotice read FSyntax;
+    /// <summary>Die offene Liste wurde beim Tippen geöffnet (L5, TDpccContext.Typed).</summary>
+    property Typed: Boolean read FTyped;
     property Prefix: string read FPrefix;
     property Items: TDpccCompletionItems read FItems;
     property Order: TArray<Integer> read FOrder;
@@ -405,6 +414,15 @@ begin
   end;
   Result := IsPassiveItem(AItems[AOrder[ASelected]], ASelected, ARestStart) and
     ((AKept < 0) or (AOrder[ASelected] <> AKept));
+end;
+
+/// <summary>Beim Tippen geöffnet (L5): Ist das getippte Wort APrefix schon der Name des gewählten Eintrags, gibt es
+/// nichts zu ergänzen; Enter soll dann die Zeile umbrechen statt den Eintrag zu übernehmen.</summary>
+function AlreadyTyped(const AItems: TDpccCompletionItems; const AOrder: TArray<Integer>; ASelected: Integer;
+  const APrefix: string): Boolean;
+begin
+  Result := (APrefix <> '') and (ASelected >= 0) and (ASelected <= High(AOrder)) and
+    not TDpccRanking.IsHeader(AOrder[ASelected]) and SameText(AItems[AOrder[ASelected]].Name, APrefix);
 end;
 
 /// <summary>Lernzuschlag (#418) für AItems; eigene Routine, damit die Methodenreferenz nur das Nötige hält.
@@ -687,6 +705,7 @@ begin
   FLoading := True;
   FPrefix := AContext.Prefix;
   FTrigger := AContext.Trigger;
+  FTyped := AContext.Typed;
   FMembers := AContext.Kind = TDpccContextKind.MemberAccess;
   FRestStart := -1;
   FToggled := False;
@@ -765,6 +784,7 @@ begin
   end;
   FActive := False;
   FLoading := False;
+  FTyped := False;
   FIncomplete := False;
   FSyntax := Default(TDpccSyntaxNotice);
   FPendingSyntax := FSyntax;
@@ -860,8 +880,8 @@ begin
     FReplace := False;
     FItems := nil;
   end;
-  // Automatisch nach "[" geöffnet, aber keine Menge (#448): still schließen.
-  if (Length(FItems) = 0) and (FTrigger <> '') then
+  // Automatisch nach "[" geöffnet, aber keine Menge (#448), oder beim Tippen geöffnet (L5): still schließen.
+  if (Length(FItems) = 0) and ((FTrigger <> '') or FTyped) then
   begin
     Close;
     Exit;
@@ -901,7 +921,8 @@ begin
   FSelected := FirstSelection(FItems, FOrder);
   FSelected := PositionOf(FOrder, mKept, FSelected);
   FEmpty := False;
-  FPassive := IsPassive(FItems, FOrder, FSelected, FRestStart, mKept);
+  FPassive := IsPassive(FItems, FOrder, FSelected, FRestStart, mKept) or
+    (FTyped and (mKept < 0) and AlreadyTyped(FItems, FOrder, FSelected, FPrefix));
   if (mTimings <> nil) and (FSelected >= 0) then
   begin
     mTimings.ListShown;

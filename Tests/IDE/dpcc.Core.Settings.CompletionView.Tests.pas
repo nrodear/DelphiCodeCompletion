@@ -96,7 +96,7 @@ var
 begin
   mCatalog := TDpccSettingsCatalog.CreateDefault;
   try
-    for mName in ['Enabled', 'OpenDelayMs', 'VisibleRows', 'AutoUses', 'ParameterHints',
+    for mName in ['Enabled', 'OpenDelayMs', 'AutoMinChars', 'VisibleRows', 'AutoUses', 'ParameterHints',
       'HoverTooltip', 'XmlDocExpand', 'XmlDocMaxLines'] do
     begin
       Assert.AreEqual(Ord(spMain), Ord(PlaceOfName(mCatalog, mName)), mName);

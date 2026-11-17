@@ -86,6 +86,19 @@ constantes et les routines hors des types manquent alors.
   d'environnement de l'IDE ou du système. Sinon, `dpcc.log` cite le chemin (« … mit unaufgelöstem Verweis übergangen »,
   ignoré avec une référence non résolue).
 
+## Ctrl+clic ne saute pas
+
+Ctrl+clic et « Find Declaration » (Alt+↑) vont au fournisseur Code Insight choisi dans les options de l'IDE. dpcc ne
+saute que s'il y est choisi (voir [Utilisation](usage.md#quand-dpcc-est-choisi-comme-fournisseur)).
+
+| Cause | Remède |
+|---|---|
+| La cible se trouve dans une unité sans source (connue seulement par un package). | Attendu : pas de saut, pas de message. Si la source existe, ajouter son dossier sous « Additional source folders » (dossiers source supplémentaires). |
+| dpcc ne trouve pas l'unité ou ne peut pas résoudre le nom sans ambiguïté (surcharge ambiguë, `with` avec un type inconnu). | Attendu. Vérifier les chemins de recherche ; voir [La liste est vide ou incomplète](#la-liste-est-vide-ou-incomplète). |
+| L'index est encore en construction ou la réponse a pris plus d'une seconde. | Attendre et réessayer. |
+| Une aide aux paramètres de dpcc avec plusieurs surcharges est ouverte. | Depuis cette version, Ctrl+Alt+↑/↓ y change de surcharge ; Alt+↑ va à l'IDE. |
+| L'infobulle de dpcc recouvre le mot. | Maintenir Ctrl enfoncée : la souris et le clic traversent alors l'infobulle jusqu'à l'éditeur. |
+
 ## Deux infobulles apparaissent
 
 - Help Insight de l'IDE : dpcc le désactive, mais l'IDE ne lit ce réglage qu'au prochain démarrage. Redémarrer
@@ -114,6 +127,7 @@ dpcc ne le redémarre plus de lui-même (voir [Le serveur a planté](#le-serveur
 | « dpcc: … switched off after 3 errors in 5 minutes (last: …) until the IDE is restarted. » (dpcc : … désactivé après 3 erreurs en 5 minutes (dernière : …) jusqu'au redémarrage de l'IDE) | Le fusible de sécurité a désactivé une fonction. Elle reste désactivée jusqu'au redémarrage de l'IDE. Les erreurs de dpcc n'atteignent jamais l'IDE. |
 | « dpcc: source "…" switched off after 3 errors in 5 minutes … » (dpcc : source « … » désactivée après 3 erreurs en 5 minutes …) | Seule cette source de données est désactivée ; les autres continuent de tourner. |
 | « dpcc shows the tooltip itself and switched off the IDE's Help Insight … » (dpcc affiche lui-même l'infobulle et a désactivé Help Insight de l'IDE …) | voir « Deux infobulles apparaissent » |
+| « dpcc is selected as the Code Insight provider for Delphi in the IDE options … » (dpcc est choisi comme fournisseur Code Insight pour Delphi dans les options de l'IDE …) | Une fois par session si dpcc est le fournisseur choisi : Ctrl+clic passe par dpcc, Error Insight et les autres services de DelphiLSP manquent. Voir [Utilisation](usage.md#quand-dpcc-est-choisi-comme-fournisseur). |
 
 ## Le serveur a planté
 

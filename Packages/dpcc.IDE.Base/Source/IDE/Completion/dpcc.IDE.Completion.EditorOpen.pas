@@ -3,6 +3,9 @@
 // Vervollständigung im Editor (#410), Stufe Öffnen: Wort vor dem Cursor als Präfix, Caret-Rechteck als Anker des
 // Popups, Einstellungen ins Popup, verzögertes automatisches Öffnen (ARG-046). Kette:
 // dpcc.IDE.Completion.EditorState.
+// Beim Tippen eines Bezeichners (L5, TDpccCompletionSource.Typing) prüft Invoke vor allem anderen und nach der
+// Verzögerung noch einmal die Regel TDpccAutoOpen (completion.autoMinChars): Unter der Schwelle keine Anfrage und kein
+// Popup, eine offene Liste filtert weiter. Strg+Leertaste und Auslösezeichen gehen wie bisher durch.
 
 interface
 
@@ -11,6 +14,7 @@ uses
   System.Types,
   ToolsAPI,
   dpcc.Core.Completion.Contract,
+  dpcc.Core.Completion.AutoOpen,
   dpcc.IDE.Completion.EditorState;
 
 type
@@ -28,8 +32,9 @@ type
     /// <summary>Popup am Wortanfang verankern (ACaret: Caret-Rechteck) und die offene Stelle merken.</summary>
     procedure Anchor(const AView: IOTAEditView; AWindow: HWND; ACaret: TRect; ALine, AWordStart: Integer;
       const APrefix: string);
-    /// <summary>Verzögertes Öffnen vormerken (ARG-046); DelayTimerTick ruft Invoke wieder auf.</summary>
-    procedure StartDelay(const AView: IOTAEditView; ALine, ACharacter: Integer; AWindow: HWND);
+    /// <summary>Verzögertes Öffnen vormerken (ARG-046); DelayTimerTick ruft Invoke mit ASource wieder auf.</summary>
+    procedure StartDelay(const AView: IOTAEditView; ALine, ACharacter: Integer; AWindow: HWND;
+      ASource: TDpccCompletionSource);
     /// <summary>Zeichen, nach dem die IDE automatisch geöffnet hat ('' ohne besonderes).</summary>
     function AutomaticTrigger(const AView: IOTAEditView; const ALineText: string; ACharacter: Integer): string;
   public
@@ -39,6 +44,9 @@ type
     function Invoke(const AView: IOTAEditView; AAutomatic: Boolean): Boolean; overload;
     /// <summary>Wie oben über Strg+Leer (AAutomatic = False).</summary>
     function Invoke(const AView: IOTAEditView): Boolean; overload;
+    /// <summary>Wie oben mit dem Auslöser: Key = Strg+Leer, Trigger = automatisch nach einem Zeichen, Typing = beim
+    /// Tippen eines Bezeichners (L5): nur ab completion.autoMinChars Zeichen und nur ohne offene Liste.</summary>
+    function Invoke(const AView: IOTAEditView; ASource: TDpccCompletionSource): Boolean; overload;
   end;
 
 implementation
@@ -81,6 +89,10 @@ begin
     end;
   end;
 end;
+
+const
+  /// <summary>Auslöser fürs Protokoll (L5).</summary>
+  cSourceNames: array[TDpccCompletionSource] of string = (', Strg+Leer', ', Zeichen', ', Tippen');
 
 /// <summary>Steht ein AChar direkt vor dem Cursor (ACharacter 0-basiert)?</summary>
 function TypedBefore(const ALineText: string; ACharacter: Integer; AChar: Char): Boolean;
@@ -197,8 +209,9 @@ begin
 end;
 
 procedure TDpccEditorCompletionOpen.StartDelay(const AView: IOTAEditView; ALine, ACharacter: Integer;
-  AWindow: HWND);
+  AWindow: HWND; ASource: TDpccCompletionSource);
 begin
+  FDelay.Source := ASource;
   FDelay.View := AView;
   FDelay.Line := ALine;
   FDelay.Character := ACharacter;
@@ -224,11 +237,24 @@ end;
 
 function TDpccEditorCompletionOpen.Invoke(const AView: IOTAEditView): Boolean;
 begin
-  Result := Invoke(AView, False);
+  Result := Invoke(AView, TDpccCompletionSource.Key);
 end;
 
 function TDpccEditorCompletionOpen.Invoke(const AView: IOTAEditView; AAutomatic: Boolean): Boolean;
+begin
+  if AAutomatic then
+  begin
+    Result := Invoke(AView, TDpccCompletionSource.Trigger);
+  end
+  else
+  begin
+    Result := Invoke(AView, TDpccCompletionSource.Key);
+  end;
+end;
+
+function TDpccEditorCompletionOpen.Invoke(const AView: IOTAEditView; ASource: TDpccCompletionSource): Boolean;
 var
+  mAutomatic: Boolean;
   mContext: TDpccContext;
   mLineText: string;
   mCursor: TOTAEditPos;
@@ -252,6 +278,13 @@ begin
   mLineText := TDpccEditorBuffer.LineText(AView, mCursor.Line);
   mCharacter := TLspSession.ColumnToIndex(mLineText, mCursor.Col, TDpccEditorBuffer.TabWidth(AView.Buffer));
   mWordStart := TDpccWord.StartBefore(mLineText, mCharacter);
+  mAutomatic := ASource <> TDpccCompletionSource.Key;
+  // Beim Tippen (L5): erst ab completion.autoMinChars Zeichen, sonst keine Anfrage; offene Liste filtert weiter.
+  if (ASource = TDpccCompletionSource.Typing) and (TDpccAutoOpen.Action(ASource, mLineText, mCharacter,
+    FController.Active, TDpccIdeSettings.Current.AutoMinChars) <> TDpccAutoOpenAction.Query) then
+  begin
+    Exit;
+  end;
   if not CaretRect(mWindow, mAnchor) then
   begin
     Log('Vervollständigung: kein Caret gefunden');
@@ -259,20 +292,22 @@ begin
   end;
   CancelDelay;
   // Verzögerung bis zum Öffnen (ARG-046): nur beim automatischen Auslösen; DelayTimerTick ruft wieder auf.
-  if AAutomatic and not FDelay.Running and (TDpccIdeSettings.Current.OpenDelayMs > 0) then
+  if mAutomatic and not FDelay.Running and (TDpccIdeSettings.Current.OpenDelayMs > 0) then
   begin
-    StartDelay(AView, mCursor.Line, mCharacter, mWindow);
+    StartDelay(AView, mCursor.Line, mCharacter, mWindow, ASource);
     Exit(True);
   end;
   mContext := ContextAt(AView, mLineText, mCursor.Line, mCharacter, mWordStart);
-  mContext.Automatic := AAutomatic;
+  mContext.Automatic := mAutomatic;
+  mContext.Typed := ASource = TDpccCompletionSource.Typing;
   mContext.Started := mStarted;
   // Mit Esc geschlossen (#414): im selben Wort nicht automatisch wieder öffnen.
-  if AAutomatic and FController.Dismissed(mContext) then
+  if mAutomatic and FController.Dismissed(mContext) then
   begin
     Exit;
   end;
-  if AAutomatic then
+  // Beim Tippen gibt es kein Auslösezeichen; "(" bzw. ";" vor dem Wort gehören zu einem früheren Öffnen.
+  if ASource = TDpccCompletionSource.Trigger then
   begin
     mContext.Trigger := AutomaticTrigger(AView, mLineText, mCharacter);
   end;
@@ -282,8 +317,9 @@ begin
   ApplyOptions;
   Anchor(AView, mWindow, mAnchor, mCursor.Line, mWordStart, mContext.Prefix);
   // Ohne Datei- und Bezeichnernamen: Das Diagnoselog soll weitergegeben werden können (#647).
-  Log(Format('Vervollständigung (%s): Zeile %d, Zeichen %d, Präfix %d Zeichen',
-    [ExtractFileExt(mContext.FileName), mContext.Line + 1, mContext.Character, Length(mContext.Prefix)]));
+  Log(Format('Vervollständigung (%s%s): Zeile %d, Zeichen %d, Präfix %d Zeichen',
+    [ExtractFileExt(mContext.FileName), cSourceNames[ASource], mContext.Line + 1, mContext.Character,
+    Length(mContext.Prefix)]));
   FController.Start(mContext);
   ActiveChanged;
   Result := True;
@@ -295,8 +331,10 @@ var
   mLineText: string;
   mCharacter: Integer;
   mSame: Boolean;
+  mSource: TDpccCompletionSource;
 begin
   mView := FDelay.View;
+  mSource := FDelay.Source;
   CancelDelay;
   if (mView = nil) or (mView.Buffer = nil) then
   begin
@@ -315,7 +353,7 @@ begin
     end;
     FDelay.Running := True;
     try
-      Invoke(mView, True);
+      Invoke(mView, mSource);
     finally
       FDelay.Running := False;
     end;

@@ -145,6 +145,12 @@ Le survol et l'aide aux paramètres passent de la même façon par la session (`
 `textDocument/signatureHelp`). L'infobulle n'est pas déclenchée par l'IDE, mais par le mouvement de la souris, via
 l'API de l'éditeur de code.
 
+Ctrl+clic et « Find Declaration » n'atteignent dpcc que s'il est le fournisseur Code Insight choisi : l'IDE appelle
+`GotoDefinition` du gestionnaire, qui interroge `textDocument/declaration` via `TLspSession.GotoTarget` (sur la
+déclaration elle-même ensuite `textDocument/definition`) et attend au plus 1 seconde. Sans cible, il répond True avec
+un nom de fichier vide, et l'IDE abandonne alors sans message. Les règles se trouvent dans
+`dpcc.Core.Editor.Navigation`.
+
 ## Robustesse
 
 - **Fusible de sécurité** (`dpcc.Core.Diagnostics.Guard`) : chaque point d'entrée depuis l'IDE passe par

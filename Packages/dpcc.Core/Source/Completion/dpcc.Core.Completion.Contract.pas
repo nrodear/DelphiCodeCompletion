@@ -90,6 +90,10 @@ type
     /// <summary>Von der IDE oder nach einem Zeichen geöffnet, nicht mit Strg+Leer. Nach Esc im selben Wort
     /// öffnet dpcc dann nicht wieder (#414).</summary>
     Automatic: Boolean;
+    /// <summary>Beim Tippen eines Bezeichners automatisch geöffnet (L5, completion.autoMinChars). Ohne Einträge
+    /// schließt die Liste dann still; ist das getippte Wort schon der gewählte Name, gehört Enter dem Editor.
+    /// </summary>
+    Typed: Boolean;
     /// <summary>Diagnosemodus (#479): Zeitstempel (TDpccQueryTimings.Stamp) des auslösenden Ereignisses, ab dem
     /// der Kontext ermittelt wurde; 0 = nicht gemessen.</summary>
     Started: Int64;

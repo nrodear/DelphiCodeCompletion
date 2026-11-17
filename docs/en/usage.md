@@ -27,6 +27,9 @@ Delphi in the IDE options. The default is DelphiLSP. As a result:
 
 - The list that opens by itself after “.” comes from DelphiLSP.
 - Ctrl+Space and Ctrl+Shift+Space come from dpcc.
+- The list that opens by itself while you type a name (only if switched on, see
+  [Opening while typing](#opening-while-typing)) comes from dpcc: for this, dpcc watches the editor itself,
+  regardless of the selected provider.
 - Settings that only apply to automatic opening have no effect with this default. They are marked under
   [Settings](settings.md).
 
@@ -52,6 +55,28 @@ dpcc itself is selected there, there is no IDE list: the IDE calls dpcc again ev
 on, never DelphiLSP. The footer hint is then not shown, and a second Ctrl+Space asks dpcc again. If you want the
 DelphiLSP list as a fallback, keep DelphiLSP selected in the options.
 
+### When dpcc is selected as the provider
+
+If dpcc is selected as the Code Insight provider for Delphi in the IDE options, the IDE asks only dpcc for Ctrl+click
+and “Find Declaration” (Alt+↑). With DelphiLSP (the default), the IDE jumps through DelphiLSP as usual; dpcc is not
+involved.
+
+- From a usage, dpcc jumps to the declaration (for methods the one in the class or in the interface section). If the
+  position is already on the declaration itself, it goes to the implementation, and from there back. For overloads,
+  the variant with the same parameter types counts.
+- Targets: across units, unit names in `uses` (start of the file), local variables and parameters, types, fields
+  after expressions such as `List[i].X`, declarations in include files and in inactive branches (`{$IFDEF …}`),
+  library units that dpcc loads just for this (also Office type libraries and WinRT). For units with the same name,
+  the one of the own project counts.
+- No target, no jump: units without source (known only from packages), units dpcc does not find, ambiguous
+  overloads and `with` with an unknown type. The IDE then does not jump and shows no message.
+- For Ctrl+click the position under the mouse counts, for “Find Declaration” the cursor.
+- The IDE waits at most 1 second for dpcc. If it takes longer, it does not jump.
+
+The first time in each session, the Messages window says that dpcc is selected and what is missing then: Error
+Insight (error marks in the editor) and the other DelphiLSP services. If you need them, select DelphiLSP again;
+Ctrl+Space stays with dpcc even then.
+
 ## The list
 
 Ctrl+Space opens the list at the cursor. The word before the cursor is taken as the start of what you are looking
@@ -66,6 +91,31 @@ Layout of a row:
   `uses`, and warnings as text.
 
 The footer shows the keys or a hint.
+
+### Opening while typing
+
+The setting “Open on typing from characters” (`completion.autoMinChars`, see [Settings](settings.md)) has the
+default 0 = off: typing then never opens the list, as before this feature. If you want it, set e.g. 5. When you then
+type a name without a dot before it, dpcc opens the list by itself as soon as the word before the cursor has this
+many characters. With fewer characters dpcc does not ask the server at all: the list of all names in scope
+would often have more than a thousand entries for a short start and take noticeable computing time.
+
+- Ctrl+Space opens the list immediately as before, with any number of characters.
+- While the list is open (also when opened with Ctrl+Space with fewer characters), each further character only
+  filters; typing does not ask again.
+- After “.” the threshold does not apply: the member list comes with the dot as before. The other triggers are
+  unchanged as well (“[”, “(” after a name, “;” and Enter after an accepted constructor).
+- Typing opens nothing in comments (including `{$…}`), strings, numbers and in the middle of a word. If the server
+  finds nothing (for example in a comment spanning several lines), the list stays closed without a message.
+- In `uses`, after `raise` and in attribute brackets the same threshold applies; as with Ctrl+Space, the server
+  decides which list comes. It still offers units that are not yet in `uses` (“+ Unit”) only from 2 characters on.
+- The delay before opening (`completion.openDelayMs`, default 150 ms) applies here too: if you keep typing quickly,
+  the list only comes in the pause, with the word typed up to then.
+- If the typed word already is the name of the selected entry (for example `begin`), nothing is selected: Enter
+  breaks the line instead of accepting the entry. An arrow key selects the entry.
+- After Esc the list does not open by itself again in the same word.
+- In placeholder mode and while the IDE list is open, typing opens nothing.
+- 0 turns opening while typing off.
 
 ### Keys in the open list
 
@@ -301,7 +351,8 @@ Ctrl+Shift+Space in a call shows the signatures of the called routine at the ope
   Overloads with too few parameters are dimmed.
 - Preselected is the first overload that the arguments so far match. Literals, names and the type of expressions
   such as `Liefere(1)`, `List[i]` or `A + 1` count.
-- A click selects an overload; Alt+↑ / Alt+↓ switches between them.
+- A click selects an overload; Ctrl+Alt+↑ / Ctrl+Alt+↓ switches between them. Alt+↑ stays with the IDE (“Find
+  Declaration”), the arrows alone move the cursor.
 - For nested calls, a path line at the top shows the outer calls, for example “ShowMessage › Format”.
 - Below are the name and description of the active parameter from the XMLDoc (without `<param>`: “not
   documented”), default values (“optional, default …”) and the description of the method.
@@ -356,6 +407,10 @@ the mouse wheel.
 The tooltip closes 300 ms after the mouse has left the identifier and the tooltip, immediately on Esc and any other
 key (except Shift, Ctrl, Alt alone), on a mouse click, scrolling, resizing and when the IDE becomes inactive. If a
 completion list, a parameter hint or a menu is open, no tooltip appears.
+
+Ctrl+click through the tooltip: while Ctrl is held down, mouse and click go through the tooltip to the editor below.
+If the mouse is over the tooltip, Ctrl closes it. So a word that the tooltip covers can still be reached with
+Ctrl+click.
 
 ### Signature, comments and values
 

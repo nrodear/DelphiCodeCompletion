@@ -3,14 +3,16 @@
 // Fragen des Code Insight-Managers an den Editor: Welche Code Insight löst eine Taste aus (Vervollständigung nach
 // ".", Parameterhilfe nach "(", XMLDoc-Tags nach "<" in ///-Zeilen #435, Mengen nach "[" #448, try…finally nach ";"
 // #489, Mitglieder nach "{" in Wertdarstellungen #854, Feldnamen nach ' in FieldByName #461)? Dazu Symbolhinweis
-// (GetHintText, mit Wert im angehaltenen Debugger #891) und Gehe zu Definition für die Cursorposition.
+// (GetHintText, mit Wert im angehaltenen Debugger #891) und das Sprungziel für Strg+Klick und „Deklaration suchen“
+// (Auftrag NAV) an der Klickstelle bzw. am Cursor.
 
 interface
 
 uses
   System.SysUtils,
   ToolsAPI,
-  dpcc.Core.Lsp.Session;
+  dpcc.Core.Lsp.Session,
+  dpcc.Core.Editor.Navigation;
 
 type
   /// <summary>Editorposition, Auslöser und Antworten des Servers für die Einstiegspunkte der IDE.</summary>
@@ -33,19 +35,26 @@ type
     /// </summary>
     class function HintAt(ASession: TLspSession; const AView: IOTAEditView; AHintLine, AHintCol: Integer;
       const ADiagnose: TProc<string>): string; static;
-    /// <summary>Definition des Bezeichners an ALine, ACharacter (0-basiert) in AView; False ohne Definition oder mit
-    /// einer Ersatz-Unit des Servers (dpcc-ide:…), die es nicht als Datei gibt.</summary>
+    /// <summary>Ziel für Strg+Klick und „Deklaration suchen“ (NAV) an ALine, ACharacter (0-basiert) in AView
+    /// (TLspSession.GotoTarget, Zeitlimit für den Hauptthread); False ohne Ziel oder mit einer Ersatz-Unit des
+    /// Servers (dpcc-ide:…), die es nicht als Datei gibt.</summary>
     class function DefinitionOf(ASession: TLspSession; const AView: IOTAEditView; ALine, ACharacter: Integer;
       out ALocation: TLspLocation): Boolean; static;
-    /// <summary>Definition am Cursor von AView; AFileName = '' ohne Definition.</summary>
-    class procedure DefinitionAt(ASession: TLspSession; const AView: IOTAEditView; AIndex: Integer;
-      const ADiagnose: TProc<string>; out AFileName: string; out ALineNum: Integer); static;
+    /// <summary>Sprungziel an der Klickstelle (Strg gedrückt, Maus über einem Bezeichner im Editor von AView),
+    /// sonst am Cursor: Found mit AFileName und ALine (0-basiert), sonst NotFound bzw. NoView. Fehler und
+    /// Zeitlimit kommen als Exception.</summary>
+    class function DefinitionAt(ASession: TLspSession; const AView: IOTAEditView; AIndex: Integer;
+      const ADiagnose: TProc<string>; out AFileName: string; out ALine: Integer): TDpccGotoOutcome; static;
   end;
 
 implementation
 
 uses
+  Winapi.Windows,
+  System.Types,
   System.StrUtils,
+  Vcl.Controls,
+  ToolsAPI.Editor,
   dpcc.Text.DebugDisplay,
   dpcc.Core.Hover.DebugValue,
   dpcc.Core.Completion.Word,
@@ -247,41 +256,98 @@ class function TDpccCodeInsightQueries.DefinitionOf(ASession: TLspSession; const
   ACharacter: Integer; out ALocation: TLspLocation): Boolean;
 begin
   // Ersatz-Units des Servers (dpcc-ide:…) gibt es nicht als Datei: kein Sprungziel für Strg+Klick.
-  Result := ASession.Definition(AView.Buffer.FileName, TDpccEditorBuffer.Text(AView.Buffer), ALine, ACharacter,
-    ALocation) and not TDpccIdeMembers.IsIdePath(ALocation.FileName);
+  Result := ASession.GotoTarget(AView.Buffer.FileName, TDpccEditorBuffer.Text(AView.Buffer), ALine, ACharacter,
+    TLspSession.cMainThreadTimeoutMs, ALocation) and not TDpccIdeMembers.IsIdePath(ALocation.FileName);
 end;
 
-class procedure TDpccCodeInsightQueries.DefinitionAt(ASession: TLspSession; const AView: IOTAEditView;
-  AIndex: Integer; const ADiagnose: TProc<string>; out AFileName: string; out ALineNum: Integer);
+/// <summary>Stelle unter der Maus im Editor von AView: Zeile (1-basiert) und Zeichen (0-basiert) über einem
+/// Bezeichner; False außerhalb des Editors oder neben einem Bezeichner.</summary>
+function MousePosition(const AView: IOTAEditView; const ALines: TArray<string>; ATabWidth: Integer;
+  out ALine, ACharacter: Integer): Boolean;
+var
+  mServices: INTACodeEditorServices;
+  mEditor: TWinControl;
+  mState: INTACodeEditorState;
+  mPoint: TPoint;
+  mColumn, mVisibleLine: Integer;
+begin
+  Result := False;
+  ALine := 0;
+  ACharacter := 0;
+  if not Supports(BorlandIDEServices, INTACodeEditorServices, mServices) then
+  begin
+    Exit;
+  end;
+  mEditor := mServices.GetEditorForView(AView);
+  if (mEditor = nil) or not mEditor.HandleAllocated then
+  begin
+    Exit;
+  end;
+  mPoint := mEditor.ScreenToClient(Mouse.CursorPos);
+  if not PtInRect(mEditor.ClientRect, mPoint) then
+  begin
+    Exit;
+  end;
+  mState := mServices.EditorState[mEditor];
+  if (mState = nil) or not mState.PointToCharacterPos(mPoint, mColumn, mVisibleLine) then
+  begin
+    Exit;
+  end;
+  ALine := mState.LineState[mVisibleLine].LogicalLineNum;
+  if (ALine < 1) or (ALine > Length(ALines)) then
+  begin
+    Exit;
+  end;
+  ACharacter := TLspSession.ColumnToIndex(ALines[ALine - 1], mColumn, ATabWidth);
+  Result := (ACharacter < Length(ALines[ALine - 1])) and
+    TDpccWord.IsIdentifierChar(ALines[ALine - 1][ACharacter + 1]);
+end;
+
+class function TDpccCodeInsightQueries.DefinitionAt(ASession: TLspSession; const AView: IOTAEditView;
+  AIndex: Integer; const ADiagnose: TProc<string>; out AFileName: string; out ALine: Integer): TDpccGotoOutcome;
 var
   mText: string;
   mLines: TArray<string>;
   mCursor: TOTAEditPos;
-  mCharacter: Integer;
+  mTabWidth, mMouseLine, mMouseCharacter: Integer;
+  mMouseValid, mCtrlDown: Boolean;
+  mCaret, mAt: TPoint;
   mLocation: TLspLocation;
 begin
   AFileName := '';
-  ALineNum := 0;
+  ALine := 0;
   mText := TDpccEditorBuffer.Text(AView.Buffer);
   mLines := mText.Split([#13#10, #10]);
-  // Die synchrone Schnittstelle übergibt keine Klickposition; maßgeblich ist der Cursor.
+  mTabWidth := TDpccEditorBuffer.TabWidth(AView.Buffer);
+  // Die synchrone Schnittstelle übergibt keine Klickstelle. Bei Strg+Klick gilt die Stelle unter der Maus (ob die
+  // IDE den Cursor vorher dorthin setzt, ist nicht geprüft), sonst der Cursor („Deklaration suchen“, Alt+↑).
   mCursor := AView.CursorPos;
-  if (mCursor.Line < 1) or (mCursor.Line > Length(mLines)) then
+  mCaret := TPoint.Create(-1, mCursor.Line);
+  if (mCursor.Line >= 1) and (mCursor.Line <= Length(mLines)) then
   begin
-    ADiagnose(Format('Gehe zu Definition: Cursorzeile %d außerhalb des Puffers (%d Zeilen)',
-      [mCursor.Line, Length(mLines)]));
-    Exit;
+    mCaret.X := TLspSession.ColumnToIndex(mLines[mCursor.Line - 1], mCursor.Col, mTabWidth);
   end;
-  mCharacter := TLspSession.ColumnToIndex(mLines[mCursor.Line - 1], mCursor.Col,
-    TDpccEditorBuffer.TabWidth(AView.Buffer));
-  if DefinitionOf(ASession, AView, mCursor.Line - 1, mCharacter, mLocation) then
+  mMouseLine := 0;
+  mMouseCharacter := 0;
+  mCtrlDown := GetKeyState(VK_CONTROL) < 0;
+  mMouseValid := mCtrlDown and MousePosition(AView, mLines, mTabWidth, mMouseLine, mMouseCharacter);
+  mAt := TDpccGotoDefinition.ChoosePosition(mCtrlDown, mMouseValid, TPoint.Create(mMouseCharacter, mMouseLine),
+    mCaret);
+  if (mAt.X < 0) or (mAt.Y < 1) or (mAt.Y > Length(mLines)) then
+  begin
+    ADiagnose(Format('Gehe zu Definition: Zeile %d außerhalb des Puffers (%d Zeilen)', [mAt.Y, Length(mLines)]));
+    Exit(TDpccGotoOutcome.NoView);
+  end;
+  Result := TDpccGotoOutcome.NotFound;
+  if DefinitionOf(ASession, AView, mAt.Y - 1, mAt.X, mLocation) then
   begin
     AFileName := mLocation.FileName;
-    ALineNum := mLocation.Line + 1;
+    ALine := mLocation.Line;
+    Result := TDpccGotoOutcome.Found;
   end;
-  ADiagnose(Format('Gehe zu Definition (Index %d) (%s), Zeile %d, Spalte %d (Zeichen %d): %s',
-    [AIndex, ExtractFileExt(AView.Buffer.FileName), mCursor.Line, mCursor.Col, mCharacter,
-    IfThen(AFileName <> '', Format('%s, Zeile %d', [ExtractFileExt(AFileName), ALineNum]), 'keine Definition')]));
+  ADiagnose(Format('Gehe zu Definition (Index %d) (%s), Zeile %d, Zeichen %d (%s): %s',
+    [AIndex, ExtractFileExt(AView.Buffer.FileName), mAt.Y, mAt.X, IfThen(mMouseValid, 'Maus', 'Cursor'),
+    IfThen(AFileName <> '', Format('%s, Zeile %d', [ExtractFileExt(AFileName), ALine + 1]), 'kein Ziel')]));
 end;
 
 end.

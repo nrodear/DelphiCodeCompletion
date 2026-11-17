@@ -64,6 +64,7 @@ type
     cMinVisibleRows = dpcc.Core.Settings.Plugin.Completion.cMinVisibleRows;
     cMaxVisibleRows = dpcc.Core.Settings.Plugin.Completion.cMaxVisibleRows;
     cMinListWidth = dpcc.Core.Settings.Plugin.Completion.cMinListWidth;
+    cMaxAutoMinChars = dpcc.Core.Settings.Plugin.Completion.cMaxAutoMinChars;
     cMaxXmlDocLines = dpcc.Core.Settings.Plugin.Editor.cMaxXmlDocLines;
     cMinPeekLines = dpcc.Core.Settings.Plugin.Editor.cMinPeekLines;
     cMaxPeekLines = dpcc.Core.Settings.Plugin.Editor.cMaxPeekLines;
@@ -172,6 +173,7 @@ type
     property ParameterHints: Boolean read FCompletion.ParameterHints write FCompletion.ParameterHints;
     property FormatPlaceholders: Boolean read FCompletion.FormatPlaceholders write FCompletion.FormatPlaceholders;
     property OpenDelayMs: Integer read FCompletion.OpenDelayMs write FCompletion.OpenDelayMs;
+    property AutoMinChars: Integer read FCompletion.AutoMinChars write FCompletion.AutoMinChars;
     property PaletteKey: Integer read FEditingKeys.PaletteKey write FEditingKeys.PaletteKey;
     property CheckKey: Integer read FEditingKeys.CheckKey write FEditingKeys.CheckKey;
     property PaletteKeyPriority: Boolean read FKeyPriorities.PaletteKeyPriority write FKeyPriorities.PaletteKeyPriority;

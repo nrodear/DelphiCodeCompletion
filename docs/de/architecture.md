@@ -143,6 +143,11 @@ in n ms …“ im Protokoll.
 Hover und Parameterhilfe laufen genauso über die Sitzung (`textDocument/hover`, `textDocument/signatureHelp`). Den
 Tooltip löst nicht die IDE aus, sondern die Mausbewegung über die Code-Editor-API.
 
+Strg+Klick und „Deklaration suchen“ erreichen dpcc nur, wenn es der gewählte Code-Insight-Anbieter ist: Die IDE ruft
+`GotoDefinition` des Managers, der über `TLspSession.GotoTarget` `textDocument/declaration` fragt (auf der
+Deklaration selbst danach `textDocument/definition`) und höchstens 1 Sekunde wartet. Ohne Ziel antwortet er True mit
+leerem Dateinamen, die IDE bricht dann still ab. Die Regeln dazu stehen in `dpcc.Core.Editor.Navigation`.
+
 ## Robustheit
 
 - **Sicherung** (`dpcc.Core.Diagnostics.Guard`): Jeder Einstiegspunkt aus der IDE läuft über `TDpccGuard.Run`.

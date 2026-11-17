@@ -435,6 +435,8 @@ begin
   begin
     Exit;
   end;
+  // Das Übernehmen schreibt in die Zeile; auch ein einzelnes ergänztes Zeichen ist kein Tippen (L5).
+  FTyping.Reset;
   mRun := TCommitRun.Create(Self, FOpen.View, AItem);
   // Eintrag mit Platzhaltern (#51): eigener Weg mit Einrückung und Platzhalter-Modus.
   if AItem.PlaceholderText <> '' then

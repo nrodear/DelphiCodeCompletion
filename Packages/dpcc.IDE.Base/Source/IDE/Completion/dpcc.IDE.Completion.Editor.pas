@@ -31,15 +31,23 @@
 //     (DelphiLSP öffnet ihre Liste); die Fußzeile des leeren Zustands weist darauf hin. L4: nur, wenn die Liste der
 //     IDE erreichbar ist (dpcc nicht der gewählte Code-Insight-Anbieter); ist sie schon offen, gehört ihr die Taste
 //     und dpcc öffnet keine zweite Liste (TDpccIdeList, ermittelt vom Code Insight-Manager).
+//   - Tippen (L5, completion.autoMinChars, Regel in TDpccAutoOpen): Jede Änderung führt den Stand der Zeile nach
+//     (TDpccTypingTracker). Ist genau ein Zeichen eines Bezeichners ohne Punkt davor getippt worden und hat das Wort
+//     die Schwelle erreicht (Vorgabe 0 = aus, eingeschaltet etwa 5 Zeichen), öffnet dpcc die Liste wie ein
+//     automatischer Auslöser (mit Verzögerung, Esc-Sperre). Darunter keine Anfrage. Nur in Dateien, die dpcc bedient (OnHandles), nicht im
+//     Platzhalter-Modus und nicht, solange die Liste der IDE offen ist (OnIdeListOpen). Eine offene Liste filtert
+//     wie bisher weiter; Strg+Leertaste öffnet bei jeder Länge.
 // Aufgeteilt in eine Kette von Stufen (dpcc.IDE.Completion.EditorState …EditorCommit); hier Tasten, Weitertippen
 // und Vorschau.
 
 interface
 
 uses
+  System.SysUtils,
   System.Classes,
   ToolsAPI,
   dpcc.Core.Completion.Contract,
+  dpcc.Core.Completion.AutoOpen,
   dpcc.Core.Completion.Controller,
   dpcc.Core.Completion.Fallback,
   dpcc.Core.Editor.CloseRules,
@@ -80,6 +88,12 @@ type
     /// <summary>"(" hinter einem Namen (#472): fragen, ob der Server die Methode anlegen kann; einmal je Stelle.
     /// </summary>
     procedure CheckCallOpened(const AView: IOTAEditView);
+    /// <summary>Stand der Zeile des Cursors nachführen (L5); True, wenn gerade ein Zeichen eines Bezeichners getippt
+    /// wurde. ALineText und ACharacter: Zeile und Zeichen vor dem Cursor.</summary>
+    function TrackTyping(const AView: IOTAEditView; out ALineText: string; out ACharacter: Integer): Boolean;
+    /// <summary>Getipptes Zeichen (L5): ab completion.autoMinChars Zeichen gleich nach der Benachrichtigung öffnen.
+    /// </summary>
+    procedure CheckTyped(const AView: IOTAEditView; const ALineText: string; ACharacter: Integer);
     /// <summary>")" vor der automatischen Klammer (#430): diese überspringen.</summary>
     procedure TrackAutoParen(const AView: IOTAEditView);
     /// <summary>Stelle des Cursors in AView für das zweite Strg+Leertaste (L3): Datei, Zeile, Zeichen, Zeilentext.
@@ -102,13 +116,22 @@ type
     /// erreichbar ist, oder weil die Liste der IDE schon offen ist (L4, AIde); dann ist die Liste von dpcc
     /// geschlossen. Sonst öffnet dpcc die Vervollständigung (Invoke), True.</summary>
     function KeyInvoke(const AView: IOTAEditView; const AIde: TDpccIdeList): Boolean;
+    /// <summary>Stand der Zeile des Cursors in AView merken, ohne etwas auszulösen (L5): Der Manager legt die
+    /// Vervollständigung erst beim ersten Tippen in einer Datei von dpcc an; das nächste Zeichen zählt dann.</summary>
+    procedure SeedTyping(const AView: IOTAEditView);
+    /// <summary>Bedient dpcc die Datei (Hauptschalter, Endung, Sicherung)? Ohne Haken öffnet Tippen nichts (L5).
+    /// </summary>
+    property OnHandles: TFunc<string, Boolean> read FOnHandles write FOnHandles;
+    /// <summary>Sitzung starten bzw. laufende melden, nur im Hauptthread; vor dem Öffnen beim Tippen (L5).</summary>
+    property OnEnsureSession: TFunc<Boolean> read FOnEnsureSession write FOnEnsureSession;
+    /// <summary>Ist die Liste der IDE gerade offen (L4)? Dann öffnet Tippen keine zweite Liste (L5).</summary>
+    property OnIdeListOpen: TFunc<Boolean> read FOnIdeListOpen write FOnIdeListOpen;
   end;
 
 implementation
 
 uses
   Winapi.Windows,
-  System.SysUtils,
   DockForm,
   dpcc.Core.Diagnostics.MainThread,
   dpcc.Core.Diagnostics.Guard,
@@ -426,6 +449,56 @@ begin
   QueueInvoke(AView, False);
 end;
 
+function TDpccEditorCompletion.TrackTyping(const AView: IOTAEditView; out ALineText: string;
+  out ACharacter: Integer): Boolean;
+var
+  mLine: Integer;
+begin
+  mLine := AView.CursorPos.Line;
+  ALineText := TDpccEditorBuffer.LineText(AView, mLine);
+  ACharacter := TLspSession.ColumnToIndex(ALineText, AView.CursorPos.Col, TDpccEditorBuffer.TabWidth(AView.Buffer));
+  Result := FTyping.Typed(AView.Buffer.FileName, mLine, ACharacter, ALineText);
+end;
+
+procedure TDpccEditorCompletion.SeedTyping(const AView: IOTAEditView);
+var
+  mLineText: string;
+  mCharacter: Integer;
+begin
+  if (AView <> nil) and (AView.Buffer <> nil) then
+  begin
+    TrackTyping(AView, mLineText, mCharacter);
+  end;
+end;
+
+procedure TDpccEditorCompletion.CheckTyped(const AView: IOTAEditView; const ALineText: string; ACharacter: Integer);
+var
+  mView: IOTAEditView;
+begin
+  // Unter der Schwelle (oder 0 = aus) bleibt es bei der Rechnung hier: keine Anfrage an den Server.
+  if TDpccAutoOpen.Action(TDpccCompletionSource.Typing, ALineText, ACharacter, FController.Active,
+    TDpccIdeSettings.Current.AutoMinChars) <> TDpccAutoOpenAction.Query then
+  begin
+    Exit;
+  end;
+  if not Assigned(FOnHandles) or not FOnHandles(AView.Buffer.FileName) or PlaceholdersActive or
+    (Assigned(FOnIdeListOpen) and FOnIdeListOpen()) then
+  begin
+    Exit;
+  end;
+  mView := AView;
+  // Nicht im Benachrichtigungsaufruf selbst, sondern gleich danach (wie QueueInvoke).
+  TDpccMainThread.ForceQueue(TDpccFeature.Completion,
+    procedure
+    begin
+      if (mView.Buffer <> nil) and not FController.Active and
+        (not Assigned(FOnEnsureSession) or FOnEnsureSession()) then
+      begin
+        Invoke(mView, TDpccCompletionSource.Typing);
+      end;
+    end);
+end;
+
 procedure TDpccEditorCompletion.TrackAutoParen(const AView: IOTAEditView);
 var
   mRemoveAt: Integer;
@@ -475,8 +548,18 @@ end;
 
 procedure TDpccEditorCompletion.EditorModified(const AView: IOTAEditView);
 var
-  mHasBuffer: Boolean;
+  mHasBuffer, mTyped: Boolean;
+  mLineText: string;
+  mCharacter: Integer;
 begin
+  mHasBuffer := (AView <> nil) and (AView.Buffer <> nil);
+  // Tippen (L5): Stand der Zeile bei jeder Änderung nachführen, auch bei offener Liste.
+  mTyped := False;
+  mCharacter := 0;
+  if mHasBuffer then
+  begin
+    mTyped := TrackTyping(AView, mLineText, mCharacter);
+  end;
   // Eingabe verwirft den Merker für das zweite Strg+Leertaste, sobald sich die Stelle geändert hat (L3).
   if FFallback.State <> TDpccFallbackState.Idle then
   begin
@@ -497,7 +580,6 @@ begin
   begin
     FPlaceholders.EditorModified(AView);
   end;
-  mHasBuffer := (AView <> nil) and (AView.Buffer <> nil);
   // Enter am Ende der Zeile eines übernommenen Konstruktors (#489): nach dem Zeilenende anbieten.
   if not FController.Active and GuardNewLine(AView) then
   begin
@@ -507,6 +589,10 @@ begin
   else if not FController.Active and mHasBuffer then
   begin
     CheckCallOpened(AView);
+    if mTyped then
+    begin
+      CheckTyped(AView, mLineText, mCharacter);
+    end;
   end;
   if FAutoParen.Active and mHasBuffer then
   begin

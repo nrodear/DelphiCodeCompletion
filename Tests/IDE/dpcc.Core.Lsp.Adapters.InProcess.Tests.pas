@@ -10,6 +10,10 @@
 // initialize mit Capabilities und Version, completion, completionItem/resolve, hover, signatureHelp, didSave und
 // shutdown/exit gegen denselben Server im eigenen Prozess. Ohne RTL-Index: Das Testprojekt braucht nur eigene
 // Bezeichner, so hängt der Test nicht vom Indexaufbau der Delphi-Installation ab.
+// NAV: Strg+Klick über denselben Server (DefinitionInProcess): Capabilities mit definitionProvider,
+// declarationProvider und typeDefinitionProvider; TLspSession.GotoTarget von der Verwendung zur Deklaration, von der
+// Deklaration zur Implementierung und zurück, Feld und Parameter, kein Ziel auf einem Schlüsselwort. Vor NAV meldete
+// der Server keine Sprungziele (gegen den alten Stand: schon die Capabilities fehlen).
 
 interface
 
@@ -43,6 +47,9 @@ type
     /// <summary>Rauchtest: initialize, completion, resolve, hover, signatureHelp, didSave, shutdown/exit.</summary>
     [Test]
     procedure SmokeTestInProcess;
+    /// <summary>Strg+Klick (NAV) über den Server im eigenen Prozess.</summary>
+    [Test]
+    procedure DefinitionInProcess;
   end;
 
 implementation
@@ -406,6 +413,60 @@ begin
       mInfo := mServerRef.Client.CloseInfo;
       Assert.IsTrue(mInfo.ExitKnown, 'Exit-Code bekannt');
       Assert.AreEqual(Cardinal(0), mInfo.ExitCode, 'Exit-Code nach shutdown/exit');
+    finally
+      mSession.Free;
+    end;
+  finally
+    mServerRef := nil;
+  end;
+  Assert.AreEqual(0, TShellInProcessServer.ActiveCount, 'Server abgemeldet');
+end;
+
+procedure TLspInProcessServerTests.DefinitionInProcess;
+var
+  mServer: TLspInProcessServer;
+  mServerRef: IDpccLspServer;
+  mSession: TLspSession;
+  mUnitFile: string;
+
+  /// <summary>Ziel von Strg+Klick an ALine/ACharacter: Zeile, -1 ohne Ziel.</summary>
+  function LineAt(ALine, ACharacter: Integer): Integer;
+  var
+    mLocation: TLspLocation;
+  begin
+    Result := -1;
+    if mSession.GotoTarget(mUnitFile, cSmokeUnitText, ALine, ACharacter, cTimeoutMs, mLocation) then
+    begin
+      Assert.IsTrue(SameText(mUnitFile, mLocation.FileName), 'Ziel in der Datei: ' + mLocation.FileName);
+      Result := mLocation.Line;
+    end;
+  end;
+
+begin
+  mUnitFile := TPath.Combine(FFolder, 'URauch.pas');
+  TFile.WriteAllText(mUnitFile, cSmokeUnitText, TEncoding.UTF8);
+  mServer := TLspInProcessServer.Create;
+  mServerRef := mServer;
+  try
+    mSession := TLspSession.Create(mServerRef.Client, cTimeoutMs);
+    try
+      mSession.SetProjects([FProjectFile]);
+      mSession.Initialize;
+      Assert.IsTrue(mSession.Supports('definitionProvider'), 'definitionProvider');
+      Assert.IsTrue(mSession.Supports('declarationProvider'), 'declarationProvider');
+      Assert.IsTrue(mSession.Supports('typeDefinitionProvider'), 'typeDefinitionProvider');
+      // "  Setze(1, 'x');": Verwendung → Deklaration in der Klasse.
+      Assert.AreEqual(8, LineAt(23, 3), 'Verwendung → Deklaration');
+      // "    procedure Setze(": auf der Deklaration selbst → Implementierung.
+      Assert.AreEqual(13, LineAt(8, 16), 'Deklaration → Implementierung');
+      // "procedure TFoo.Setze(": Implementierung → Deklaration.
+      Assert.AreEqual(8, LineAt(13, 17), 'Implementierung → Deklaration');
+      // "  FWert := AWert;": Feld und Parameter.
+      Assert.AreEqual(5, LineAt(15, 3), 'Feld');
+      Assert.AreEqual(13, LineAt(15, 12), 'Parameter');
+      // Schlüsselwort: kein Ziel, keine Ausnahme.
+      Assert.AreEqual(-1, LineAt(14, 1), 'begin');
+      mServerRef.Client.Close;
     finally
       mSession.Free;
     end;

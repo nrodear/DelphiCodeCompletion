@@ -15,6 +15,9 @@
 // Unit-Namen (z. B. in uses) führen an den Anfang der Unit-Datei.
 // textDocument/typeDefinition springt von Variablen, Feldern, Parametern,
 // Properties und Funktionen zur Deklaration ihres Typs.
+// Strg+Klick (Auftrag NAV): Seit NAV meldet die Wurzel des Completion-Servers diese Anfragen an. Findet die
+// Namensauflösung nichts, gilt eine Deklaration der eigenen Unit aus einem nicht geltenden $IFDEF-Zweig (L1, L3:
+// der Index kennt Name, Art und Zeile; UnavailableTargets), wie beim Hover.
 
 interface
 
@@ -90,6 +93,11 @@ type
     /// <summary>Deklaration des Typs des Bezeichners an APosition; leer, wenn er keinen bekannten Typ hat.</summary>
     class function TypeTargets(AResolver: TNameResolver; ATree: TSyntaxTree; const AFileName: string;
       const APosition: TTextPosition): TArray<TDefinitionTarget>; static;
+    /// <summary>Deklarationen des Namens an APosition in AText aus nicht geltenden Zweigen der Unit AFileName
+    /// (TUnitIndex.Unavailable), die Deklaration in derselben Zeile zuerst; leer in Kommentaren, Strings und
+    /// Direktiven oder ohne solche Deklaration.</summary>
+    class function UnavailableTargets(const AIndex: ISymbolIndex; ATree: TSyntaxTree; const AFileName, AText: string;
+      const APosition: TTextPosition): TArray<TDefinitionTarget>; static;
     /// <summary>LocationLink[] des LSP ohne Ziele in Ersatz-Units der IDE. Der Aufrufer übernimmt das Objekt.
     /// </summary>
     class function ToJson(const ATargets: TArray<TDefinitionTarget>): TJSONArray; static;
@@ -112,6 +120,7 @@ uses
   dpcc.Common.Lsp.Internals.Cancellation,
   dpcc.Common.Dfm.Parser,
   dpcc.Common.Lsp.IdeUnits,
+  dpcc.Text.Lines,
   dpcc.Common.Localization.Texts;
 
 {$SCOPEDENUMS ON}
@@ -290,6 +299,22 @@ begin
   Result := Length(AVariant) >= 2;
 end;
 
+/// <summary>Steht eine der Fundstellen AVariant in einer anderen Datei als AFileName (Include-Datei)?</summary>
+function ReachesOtherFile(const AOwner: TUnitIndex; const AVariant: TArray<TIndexSymbol>;
+  const AFileName: string): Boolean;
+var
+  mSymbol: TIndexSymbol;
+begin
+  for mSymbol in AVariant do
+  begin
+    if not SameText(AOwner.SymbolFile(mSymbol), AFileName) then
+    begin
+      Exit(True);
+    end;
+  end;
+  Result := False;
+end;
+
 /// <summary>Ziel einer Routine: Deklaration und Implementierung derselben Variante. Steht der Cursor auf einer
 /// Routine dieser Datei (Deklaration oder Implementierung), gilt deren Variante. Ohne Paar das Symbol selbst.
 /// </summary>
@@ -309,10 +334,24 @@ begin
   if not mFound or not RoutinePair(mOwnerUnit, AResolved, VariantParams(mHere, AResolved, AQuery.Position),
     mVariant) then
   begin
-    Exit;
+    // Include-Dateien (NAV): Der Baum der offenen Datei kennt Deklarationen aus $I-Dateien nicht, ihr Eintrag im
+    // Index schon. Nur ein Paar, das in eine andere Datei führt: Zeilen der eigenen Datei stehen im Baum aktueller.
+    if not (SameText(AResolved.FileName, AQuery.FileName) and
+      TIndexFiles.UnitOf(AIndex, AQuery.FileName, mOwnerUnit) and
+      RoutinePair(mOwnerUnit, AResolved, VariantParams(mHere, AResolved, AQuery.Position), mVariant) and
+      ReachesOtherFile(mOwnerUnit, mVariant, AQuery.FileName)) then
+    begin
+      Exit;
+    end;
   end;
   mFirst := mVariant[0];
   mLast := mVariant[High(mVariant)];
+  // Deklarationen aus $I-Dateien hängt der Index hinten an (#500): Die im interface ist die Deklaration (NAV).
+  if not mFirst.InInterface and mLast.InInterface then
+  begin
+    mFirst := mVariant[High(mVariant)];
+    mLast := mVariant[0];
+  end;
   // Mit Include-Dateien (#500) kann jede Fundstelle in einer anderen Datei stehen.
   mChosen := mLast;
   if AQuery.Declaration or (SameText(mOwnerUnit.SymbolFile(mLast), AQuery.FileName) and
@@ -378,6 +417,118 @@ begin
   end;
 end;
 
+function IsNameChar(AChar: Char): Boolean;
+begin
+  Result := CharInSet(AChar, ['A'..'Z', 'a'..'z', '0'..'9', '_']) or (Ord(AChar) > 127);
+end;
+
+function ComparePositions(const A, B: TTextPosition): Integer;
+begin
+  if A.Line <> B.Line then
+  begin
+    Result := A.Line - B.Line;
+  end
+  else
+  begin
+    Result := A.Character - B.Character;
+  end;
+end;
+
+/// <summary>Bezeichner an APosition in AText; '' außerhalb eines Bezeichners.</summary>
+function NameAt(const AText: string; const APosition: TTextPosition): string;
+var
+  mLines: TArray<string>;
+  mLine: string;
+  mStart, mEnd: Integer;
+begin
+  Result := '';
+  mLines := TTextLines.SplitLines(AText);
+  if (APosition.Line < 0) or (APosition.Line > High(mLines)) then
+  begin
+    Exit;
+  end;
+  mLine := mLines[APosition.Line];
+  mStart := APosition.Character + 1;
+  if (mStart < 1) or (mStart > Length(mLine)) or not IsNameChar(mLine[mStart]) then
+  begin
+    Exit;
+  end;
+  mEnd := mStart;
+  while (mStart > 1) and IsNameChar(mLine[mStart - 1]) do
+  begin
+    Dec(mStart);
+  end;
+  while (mEnd < Length(mLine)) and IsNameChar(mLine[mEnd + 1]) do
+  begin
+    Inc(mEnd);
+  end;
+  Result := Copy(mLine, mStart, mEnd - mStart + 1);
+end;
+
+/// <summary>Liegt APosition im Code (nicht in Kommentar, String oder Direktive)? Ohne Token dort: ja (Text
+/// nicht geltender Zweige).</summary>
+function InCodeAt(ATree: TSyntaxTree; const APosition: TTextPosition): Boolean;
+var
+  mToken: TPascalToken;
+begin
+  for mToken in ATree.Tokens do
+  begin
+    if (ComparePositions(mToken.StartPos, APosition) <= 0) and (ComparePositions(APosition, mToken.EndPos) < 0) then
+    begin
+      Exit(not (mToken.Kind in [TPascalTokenKind.Comment, TPascalTokenKind.Directive,
+        TPascalTokenKind.StringLiteral, TPascalTokenKind.CharLiteral]));
+    end;
+  end;
+  Result := True;
+end;
+
+class function TLspDefinition.UnavailableTargets(const AIndex: ISymbolIndex; ATree: TSyntaxTree; const AFileName,
+  AText: string; const APosition: TTextPosition): TArray<TDefinitionTarget>;
+var
+  mUnit: TUnitIndex;
+  mName: string;
+  mCandidate, mChosen: TIndexSymbol;
+  mFound: Boolean;
+begin
+  Result := nil;
+  if not TIndexFiles.UnitOf(AIndex, AFileName, mUnit) or (Length(mUnit.Unavailable) = 0) or
+    not InCodeAt(ATree, APosition) then
+  begin
+    Exit;
+  end;
+  mName := NameAt(AText, APosition);
+  if mName = '' then
+  begin
+    Exit;
+  end;
+  mFound := False;
+  mChosen := Default(TIndexSymbol);
+  for mCandidate in mUnit.Unavailable do
+  begin
+    if not SameText(mCandidate.Name, mName) then
+    begin
+      Continue;
+    end;
+    // Die Deklaration in der Zeile der Stelle geht einer gleichnamigen anderen vor.
+    if (mCandidate.SelectionRange.StartPos.Line = APosition.Line) and
+      SameText(mUnit.SymbolFile(mCandidate), AFileName) then
+    begin
+      mChosen := mCandidate;
+      mFound := True;
+      Break;
+    end;
+    if not mFound then
+    begin
+      mChosen := mCandidate;
+      mFound := True;
+    end;
+  end;
+  if mFound then
+  begin
+    Result := [Target(mUnit.SymbolFile(mChosen), mChosen.Range, mChosen.SelectionRange)];
+  end;
+end;
+
 class function TLspDefinition.ToJson(const ATargets: TArray<TDefinitionTarget>): TJSONArray;
 var
   mItem: TDefinitionTarget;
@@ -408,6 +559,7 @@ var
   mTree: TSyntaxTree;
   mShared: ISharedSyntaxTree;
   mResolver: TNameResolver;
+  mTargets: TArray<TDefinitionTarget>;
 begin
   if not ((AParams is TJSONObject) and TJSONObject(AParams).TryGetValue<string>('textDocument.uri', mUri) and
     TJSONObject(AParams).TryGetValue<TJSONValue>('position', mPositionValue)) then
@@ -439,8 +591,15 @@ begin
     end
     else
     begin
-      Result := ToJson(Targets(mResolver, FIndex, mTree, TDocumentUris.ToPath(mUri),
-        TLspPositions.ReadPosition(mPositionValue), AKind = TDefinitionRequestKind.Declaration));
+      mTargets := Targets(mResolver, FIndex, mTree, TDocumentUris.ToPath(mUri),
+        TLspPositions.ReadPosition(mPositionValue), AKind = TDefinitionRequestKind.Declaration);
+      // Nichts aufgelöst: vielleicht eine Deklaration aus einem nicht geltenden Zweig (NAV).
+      if Length(mTargets) = 0 then
+      begin
+        mTargets := UnavailableTargets(FIndex, mTree, TDocumentUris.ToPath(mUri), mDocument.Text,
+          TLspPositions.ReadPosition(mPositionValue));
+      end;
+      Result := ToJson(mTargets);
     end;
   finally
     mResolver.Free;

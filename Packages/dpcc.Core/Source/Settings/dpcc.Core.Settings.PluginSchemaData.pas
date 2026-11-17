@@ -18,6 +18,7 @@
 // highlight.nestedRoutineColorLight/-Dark haben keinen Hauptschalter mehr (x-parent leer).
 // Seit L2 von Hand: IndexOfficeAndWinRt (index.officeAndWinRt) entfällt, neu ist IndexExtraSourceFolders
 // (index.extraSourceFolders, Text mit ";" zwischen den Ordnern).
+// Seit L5 von Hand: neu ist AutoMinChars (completion.autoMinChars, 0 bis 10); Vorgabe seit NAV 0 (aus, vorher 5).
 
 interface
 
@@ -300,7 +301,18 @@ const
       'arbe bei überzähligen Argumenten, ungültigen Platzhaltern und Typkonflikten mit Literalen; Platzhalter und Argument bekommen im Editor dieselbe Hintergrundfarbe (sechs Farben, danach wiederholt). Eige' + 'ne Formatroutinen: formatFunctions in der Projektdatei .dpcc bzw. formatMethods der Regel format-args in dpcc.json.",' + #10 + '      "type": "boolean",' + #10 + '      "default": true,' +
       #10 + '      "x-key": "completion.formatPlaceholders",' + #10 + '      "x-area": "completion",' + #10 + '      "x-page": "Einfügen",' + #10 + '      "x-parent": "completion.parameterHints",' + #10 + '      "x-issue": "#451"' + #10 + '    },' + #10 + '    "OpenDelayMs": {' + #10 + '      "type": "integer",' + #10 + '      "default": 150,' + #10 + '      "x-key": "completion.openDelayMs",' +
       #10 + '      "x-area": "completion",' + #10,
-    '      "x-page": "Vervollständigung"' + #10 + '    },' + #10 + '    "PaletteKey": {' + #10 + '      "type": "integer",' + #10 + '      "default": 24656,' + #10 + '      "x-key": "keys.palette",' + #10 + '      "x-area": "keys",' + #10 + '      "x-format": "shortcut",' + #10 + '      "x-page": "Tastenkonflikte",' + #10 + '      "x-keywords": [' + #10 + '        "Befehlspalette",' + #10 +
+    '      "x-page": "Vervollständigung"' + #10 + '    },' + #10 +
+      '    "AutoMinChars": {' + #10 + '      "type": "integer",' + #10 + '      "default": 0,' + #10 +
+      '      "minimum": 0,' + #10 + '      "maximum": 10,' + #10 +
+      '      "description": "Beim Tippen eines Bezeichners ohne Punkt davor öffnet die Liste erst ab so vielen ' +
+      'Zeichen; darunter keine Anfrage. 0 = Tippen öffnet nie. Strg+Leertaste öffnet immer.",' + #10 +
+      '      "x-description-en": "While typing an identifier without a dot before it, the list opens only from this ' +
+      'many characters on; below that no request. 0 = typing never opens it. Ctrl+Space always opens it.",' + #10 +
+      '      "x-key": "completion.autoMinChars",' + #10 + '      "x-area": "completion",' + #10 +
+      '      "x-page": "Vervollständigung",' + #10 + '      "x-keywords": [' + #10 + '        "Mindestlänge",' + #10 +
+      '        "Buchstaben",' + #10 + '        "automatisch öffnen",' + #10 + '        "minimum length",' + #10 +
+      '        "auto popup"' + #10 + '      ]' + #10 + '    },' + #10 +
+    '    "PaletteKey": {' + #10 + '      "type": "integer",' + #10 + '      "default": 24656,' + #10 + '      "x-key": "keys.palette",' + #10 + '      "x-area": "keys",' + #10 + '      "x-format": "shortcut",' + #10 + '      "x-page": "Tastenkonflikte",' + #10 + '      "x-keywords": [' + #10 + '        "Befehlspalette",' + #10 +
       '        "Command palette"' + #10 + '      ]' + #10 + '    },' + #10 + '    "CheckKey": {' + #10 + '      "type": "integer",' + #10 + '      "default": 49272,' + #10 + '      "x-key": "keys.check",' + #10 + '      "x-area": "keys",' + #10 + '      "x-format": "shortcut",' + #10 + '      "x-page": "Tastenkonflikte"' + #10 + '    },' + #10 + '    "PaletteKeyPriority": {' + #10 +
       '      "type": "boolean",' + #10 + '      "default": false,' + #10 + '      "x-key": "keys.palettePriority",' + #10 + '      "x-area": "keys",' + #10 + '      "x-page": "Tastenkonflikte"' + #10 + '    },' + #10 + '    "CheckKeyPriority": {' + #10 + '      "type": "boolean",' + #10 + '      "default": false,' + #10 + '      "x-key": "keys.checkPriority",' + #10 + '      "x-area": "keys",' +
       #10 + '      "x-page": "Tastenkonflikte"' + #10 + '    },' + #10 + '    "CompletionKey": {' + #10,

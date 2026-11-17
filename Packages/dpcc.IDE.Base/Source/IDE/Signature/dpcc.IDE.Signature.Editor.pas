@@ -17,7 +17,8 @@
 //     einen Aufruf, dessen Hint mit Esc geschlossen wurde. Dazu merkt sich jede
 //     Änderung die Zeile vorher.
 //   - Alle Überladungen stehen untereinander; Klick wählt eine. Tasten über den
-//     gemeinsamen Hook: Esc schließt, Alt+↑/↓ wechselt die gewählte Überladung;
+//     gemeinsamen Hook: Esc schließt, Strg+Alt+↑/↓ wechselt die gewählte Überladung
+//     (NAV, TDpccOverloadKeys; bis dahin Alt+↑/↓, das in der IDE „Deklaration suchen“ ist);
 //     nach der Vervollständigung, die Esc zuerst bekommt.
 //   - Platzhalter (#451): Bei Format und anderen Formatroutinen zeigt der Hint, welchen Platzhalter der Eintrag
 //     am Cursor füllt, und TDpccIdeFormatMarks färbt Platzhalter und Argumente im Editor. Ändern sich Text oder
@@ -37,6 +38,7 @@ uses
   dpcc.Core.Signature.Controller,
   dpcc.UI.Signature.Hint,
   dpcc.Core.Editor.CloseRules,
+  dpcc.Core.Editor.Navigation,
   dpcc.IDE.Foundation.KeyHook,
   dpcc.IDE.Signature.FormatMarks;
 
@@ -696,9 +698,10 @@ end;
 
 function TDpccEditorSignature.WantsKey(AKey: Word; AShift: TShiftState): Boolean;
 begin
+  // Alt+↑/↓ bleibt bei der IDE („Deklaration suchen“, NAV); die Überladung wechselt mit Strg+Alt+↑/↓.
   Result := FController.Active and
     (((AKey = VK_ESCAPE) and (AShift = [])) or
-     (((AKey = VK_UP) or (AKey = VK_DOWN)) and (AShift = [ssAlt]) and (Length(FController.Help.Signatures) > 1)));
+     (TDpccOverloadKeys.Step(AKey, AShift, Length(FController.Help.Signatures)) <> 0));
 end;
 
 procedure TDpccEditorSignature.HandleKey(AKey: Word);

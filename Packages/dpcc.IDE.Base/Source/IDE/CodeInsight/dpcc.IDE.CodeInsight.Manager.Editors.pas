@@ -4,6 +4,10 @@
 // (#436) und eigener Hover-Tooltip (#442). Sie fragen die Sitzung über die Haken des Managers; abgebaut wird in der
 // Reihenfolge, die StopSession und Shutdown brauchen. Probleme, Inlay-Hints und Code Lens gibt es seit Rückbau R6
 // nicht mehr.
+// Tippen (L5, completion.autoMinChars): Die Vervollständigung entsteht sonst erst beim ersten Strg+Leertaste. Damit
+// das Öffnen beim Tippen von Anfang an wirkt, beobachtet ein kleiner Editor-Beobachter die Änderungen, bis sie
+// existiert: Beim ersten Tippen in einer Datei, die dpcc bedient, legt er sie gleich nach der Benachrichtigung an und
+// merkt sich den Stand der Zeile; ab dann übernimmt ihr eigener Beobachter.
 
 interface
 
@@ -31,6 +35,8 @@ type
     Handles: TFunc<string, Boolean>;
     /// <summary>Editoransicht, in der Code Insight gerade läuft.</summary>
     EditView: TFunc<IOTAEditView>;
+    /// <summary>Ist die Liste der IDE gerade offen (L4)? Dann öffnet Tippen keine Liste von dpcc (L5).</summary>
+    IdeListOpen: TFunc<Boolean>;
     NewCompletionSources: TDpccCompletionSourcesFactory;
     NewSignatureSource: TFunc<TDpccSessionFunc, IDpccSignatureSource>;
   end;
@@ -42,7 +48,18 @@ type
     FCompletion: TDpccEditorCompletion;
     FSignature: TDpccEditorSignature;
     FHover: TDpccEditorHover;
+    /// <summary>Beobachter bis zur ersten Vervollständigung (L5); -1 ohne.</summary>
+    FWatchIndex: Integer;
+    FWatch: TObject;
+    /// <summary>Eigene Referenz: Der Beobachter lebt, bis StopWatch ihn gelöst hat.</summary>
+    FWatchRef: IInterface;
+    /// <summary>Das Anlegen nach dem ersten Tippen ist eingereiht.</summary>
+    FCreating: Boolean;
+    /// <summary>ReleaseViews lief: nichts mehr anlegen.</summary>
+    FReleased: Boolean;
     procedure CreateHover;
+    procedure StartWatch;
+    procedure StopWatch;
   public
     /// <summary>Hover anlegen; Vervollständigung und Parameter-Hint erst beim ersten Gebrauch.</summary>
     constructor Create(const AHooks: TDpccCodeInsightEditorHooks);
@@ -65,15 +82,162 @@ type
     procedure CloseViews;
     /// <summary>Vor der Sitzung freigeben: wartet auf laufende Anfragen und meldet Tasten und Beobachter ab.</summary>
     procedure ReleaseViews;
+    /// <summary>Änderung in AView, solange es noch keine Vervollständigung gibt (L5): beim ersten Tippen in einer
+    /// Datei von dpcc anlegen, wenn completion.autoMinChars nicht 0 ist.</summary>
+    procedure TypingSeen(const AView: IOTAEditView);
   end;
 
 implementation
+
+uses
+  System.Classes,
+  DockForm,
+  dpcc.Core.Diagnostics.Guard,
+  dpcc.Core.Diagnostics.MainThread,
+  dpcc.IDE.Foundation.Settings;
+
+type
+  /// <summary>Editor-Beobachter bis zur ersten Vervollständigung (L5): meldet Änderungen an TypingSeen.</summary>
+  TTypingWatch = class(TNotifierObject, INTAEditServicesNotifier)
+  private
+    FOwner: TDpccCodeInsightEditors;
+  public
+    constructor Create(AOwner: TDpccCodeInsightEditors);
+    procedure Detach;
+    procedure WindowShow(const EditWindow: INTAEditWindow; Show, LoadedFromDesktop: Boolean);
+    procedure WindowNotification(const EditWindow: INTAEditWindow; Operation: TOperation);
+    procedure WindowActivated(const EditWindow: INTAEditWindow);
+    procedure WindowCommand(const EditWindow: INTAEditWindow; Command, Param: Integer; var Handled: Boolean);
+    procedure EditorViewActivated(const EditWindow: INTAEditWindow; const EditView: IOTAEditView);
+    procedure EditorViewModified(const EditWindow: INTAEditWindow; const EditView: IOTAEditView);
+    procedure DockFormVisibleChanged(const EditWindow: INTAEditWindow; DockForm: TDockableForm);
+    procedure DockFormUpdated(const EditWindow: INTAEditWindow; DockForm: TDockableForm);
+    procedure DockFormRefresh(const EditWindow: INTAEditWindow; DockForm: TDockableForm);
+  end;
+
+{ TTypingWatch }
+
+constructor TTypingWatch.Create(AOwner: TDpccCodeInsightEditors);
+begin
+  inherited Create;
+  FOwner := AOwner;
+end;
+
+procedure TTypingWatch.Detach;
+begin
+  FOwner := nil;
+end;
+
+procedure TTypingWatch.WindowShow(const EditWindow: INTAEditWindow; Show, LoadedFromDesktop: Boolean);
+begin
+end;
+
+procedure TTypingWatch.WindowNotification(const EditWindow: INTAEditWindow; Operation: TOperation);
+begin
+end;
+
+procedure TTypingWatch.WindowActivated(const EditWindow: INTAEditWindow);
+begin
+end;
+
+procedure TTypingWatch.WindowCommand(const EditWindow: INTAEditWindow; Command, Param: Integer;
+  var Handled: Boolean);
+begin
+end;
+
+procedure TTypingWatch.EditorViewActivated(const EditWindow: INTAEditWindow; const EditView: IOTAEditView);
+begin
+end;
+
+procedure TTypingWatch.EditorViewModified(const EditWindow: INTAEditWindow; const EditView: IOTAEditView);
+begin
+  try
+    if FOwner <> nil then
+    begin
+      FOwner.TypingSeen(EditView);
+    end;
+  except
+    on E: Exception do
+      TDpccGuard.Report(TDpccFeature.Completion, E);
+  end;
+end;
+
+procedure TTypingWatch.DockFormVisibleChanged(const EditWindow: INTAEditWindow; DockForm: TDockableForm);
+begin
+end;
+
+procedure TTypingWatch.DockFormUpdated(const EditWindow: INTAEditWindow; DockForm: TDockableForm);
+begin
+end;
+
+procedure TTypingWatch.DockFormRefresh(const EditWindow: INTAEditWindow; DockForm: TDockableForm);
+begin
+end;
+
+{ TDpccCodeInsightEditors }
 
 constructor TDpccCodeInsightEditors.Create(const AHooks: TDpccCodeInsightEditorHooks);
 begin
   inherited Create;
   FHooks := AHooks;
+  FWatchIndex := -1;
   CreateHover;
+  StartWatch;
+end;
+
+procedure TDpccCodeInsightEditors.StartWatch;
+var
+  mEditor: IOTAEditorServices;
+  mWatch: TTypingWatch;
+begin
+  if Supports(BorlandIDEServices, IOTAEditorServices, mEditor) then
+  begin
+    mWatch := TTypingWatch.Create(Self);
+    FWatch := mWatch;
+    FWatchRef := mWatch as INTAEditServicesNotifier;
+    FWatchIndex := mEditor.AddNotifier(mWatch);
+  end;
+end;
+
+procedure TDpccCodeInsightEditors.StopWatch;
+var
+  mEditor: IOTAEditorServices;
+begin
+  if FWatch <> nil then
+  begin
+    TTypingWatch(FWatch).Detach;
+  end;
+  if (FWatchIndex >= 0) and Supports(BorlandIDEServices, IOTAEditorServices, mEditor) then
+  begin
+    mEditor.RemoveNotifier(FWatchIndex);
+  end;
+  FWatchIndex := -1;
+  FWatch := nil;
+  FWatchRef := nil;
+end;
+
+procedure TDpccCodeInsightEditors.TypingSeen(const AView: IOTAEditView);
+var
+  mView: IOTAEditView;
+begin
+  if (FCompletion <> nil) or FCreating or FReleased or (TDpccIdeSettings.Current.AutoMinChars <= 0) or
+    (AView = nil) or (AView.Buffer = nil) or not Assigned(FHooks.Handles) or
+    not FHooks.Handles(AView.Buffer.FileName) then
+  begin
+    Exit;
+  end;
+  FCreating := True;
+  mView := AView;
+  // Nicht in der Benachrichtigung: Das Anlegen meldet selbst einen Beobachter an.
+  TDpccMainThread.ForceQueue(TDpccFeature.Completion,
+    procedure
+    begin
+      FCreating := False;
+      if not FReleased and (FCompletion = nil) and (mView.Buffer <> nil) then
+      begin
+        Completion.SeedTyping(mView);
+      end;
+    end);
 end;
 
 destructor TDpccCodeInsightEditors.Destroy;
@@ -168,6 +332,10 @@ begin
       begin
         Signature.Invoke(mEditView());
       end;
+    // Öffnen beim Tippen (L5).
+    FCompletion.OnHandles := FHooks.Handles;
+    FCompletion.OnEnsureSession := FHooks.EnsureSession;
+    FCompletion.OnIdeListOpen := FHooks.IdeListOpen;
   end;
   Result := FCompletion;
 end;
@@ -223,6 +391,8 @@ end;
 
 procedure TDpccCodeInsightEditors.ReleaseViews;
 begin
+  FReleased := True;
+  StopWatch;
   FreeAndNil(FHover);
   FreeAndNil(FSignature);
   FreeAndNil(FCompletion);

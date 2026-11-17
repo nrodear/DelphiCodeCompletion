@@ -1,7 +1,8 @@
 ﻿unit dpcc.IDE.CodeInsight.Manager;
 
 // Code Insight-Manager für Delphi in RAD Studio. Die IDE ruft ihn direkt auf; er fragt dpcc über eine
-// eigene LSP-Sitzung. Umgesetzt: Symbolhinweis (Hover, GetHintText), Browse (Strg+Klick, GotoDefinition), Help
+// eigene LSP-Sitzung. Umgesetzt: Symbolhinweis (Hover, GetHintText), Browse (Strg+Klick, „Deklaration suchen“,
+// GotoDefinition über textDocument/declaration und definition; Auftrag NAV), Help
 // Insight (leer, solange der dpcc-Tooltip an ist) und Vervollständigung im eigenen Popup (#410): Strg+Leer und "."
 // lösen sie aus, InvokeCodeCompletion öffnet das Popup und meldet der IDE False, damit sie keine eigene Liste zeigt
 // (#407). Parameterhilfe ebenso im eigenen Hint (#436): "(", "," und Strg+Umschalt+Leer, InvokeParameterCodeInsight
@@ -29,6 +30,9 @@ type
     function EditorHooks: TDpccCodeInsightEditorHooks;
     /// <summary>Zeigt dpcc den Tooltip selbst (Hauptschalter und Tooltip an)?</summary>
     class function OwnTooltip: Boolean; static;
+    /// <summary>Einmal je Sitzung (NAV): Ist dpcc für die Datei im Editor der gewählte Anbieter, eine Zeile im
+    /// Meldungsfenster, was dann fehlt und dass Strg+Klick über dpcc läuft.</summary>
+    procedure NoticeIfSelected;
   public
     constructor Create(const AAdapters: TDpccCodeInsightAdapters);
     destructor Destroy; override;
@@ -106,6 +110,7 @@ uses
   dpcc.IDE.Foundation.EditorSnapshot,
   dpcc.IDE.Foundation.LineTracker,
   dpcc.IDE.CodeInsight.Manager.Queries,
+  dpcc.Core.Editor.Navigation,
   dpcc.Core.Localization.Language;
 
 {$SCOPEDENUMS ON}
@@ -255,6 +260,12 @@ begin
     begin
       Result := TDpccCodeInsightQueries.CurrentEditView;
     end;
+  // Öffnen beim Tippen (L5): keine zweite Liste neben der offenen der IDE.
+  Result.IdeListOpen :=
+    function: Boolean
+    begin
+      Result := IdeCompletionListOpen;
+    end;
   Result.NewCompletionSources := FAdapters.NewCompletionSources;
   Result.NewSignatureSource := FAdapters.NewSignatureSource;
 end;
@@ -351,57 +362,114 @@ function TDpccCodeInsightManager.GotoDefinition(out AFileName: string; out ALine
 var
   mView: IOTAEditView;
   mActivity: IInterface;
+  mOutcome: TDpccGotoOutcome;
+  mFileName: string;
+  mLine: Integer;
+  mAnswer: TDpccGotoAnswer;
 begin
   mActivity := TDpccActivity.Scope('Gehe zu Definition');
-  // Laut ToolsAPI: AFileName = '' und ALineNum = 0 bricht ohne Meldung ab. Mit False meldet die IDE „Datei ""
-  // nicht gefunden“; deshalb True. Ausnahme: Bietet der Server keine Definitionen an, False, damit die IDE selbst
-  // navigiert.
-  AFileName := '';
-  ALineNum := 0;
-  Result := True;
-  // Durch die Sicherung abgeschaltet (#493); AFileName = '' bricht still ab.
+  // Die IDE fragt nur den gewählten Anbieter und reicht nie an einen anderen weiter (ToolsAPI). Laut ToolsAPI
+  // meldet False einen Fehlschlag („Datei "" nicht gefunden“); True mit AFileName = '' bricht still ab. Deshalb
+  // immer True, mit Datei und Zeile nur bei einem Ziel (TDpccGotoDefinition.Answer).
+  mFileName := '';
+  mLine := 0;
+  // Durch die Sicherung abgeschaltet (#493): still abbrechen.
   if TDpccGuard.Disabled(TDpccFeature.GoToDefinition) then
+  begin
+    mOutcome := TDpccGotoOutcome.Disabled;
+  end
+  else
+  begin
+    Diagnose(Format('GotoDefinition(Index %d) aufgerufen', [Index]));
+    try
+      NoticeIfSelected;
+      mView := TDpccCodeInsightQueries.CurrentEditView;
+      if (mView = nil) or (mView.Buffer = nil) then
+      begin
+        Diagnose('Gehe zu Definition: keine Editoransicht');
+        mOutcome := TDpccGotoOutcome.NoView;
+      end
+      else if not EnsureSession then
+      begin
+        mOutcome := TDpccGotoOutcome.NoSession;
+      end
+      else if not FSession.Offers(cDefinitionMethod) then
+      begin
+        // Server ohne Sprungziele (ältere Fassung): still abbrechen, die IDE springt nicht.
+        Diagnose('Gehe zu Definition: Server bietet keine Definitionen');
+        mOutcome := TDpccGotoOutcome.NotOffered;
+      end
+      else
+      begin
+        mOutcome := TDpccCodeInsightQueries.DefinitionAt(FSession, mView, Index,
+          procedure(AMessage: string)
+          begin
+            Diagnose(AMessage);
+          end, mFileName, mLine);
+      end;
+    except
+      on E: ELspMethodNotFound do
+      begin
+        // Erst jetzt als fehlend erkannt (-32601): wie oben.
+        Diagnose('Gehe zu Definition: ' + E.Message);
+        mOutcome := TDpccGotoOutcome.NotOffered;
+      end;
+      on E: ELspClientError do
+      begin
+        // Zeitlimit (cMainThreadTimeoutMs) oder beendeter Server: erwartbar, keine Meldung.
+        Diagnose('Gehe zu Definition: ' + E.Message);
+        mOutcome := TDpccGotoOutcome.TimedOut;
+      end;
+      on E: Exception do
+      begin
+        mOutcome := TDpccGotoOutcome.Failed;
+        ReportError('Gehe zu Definition: ' + E.Message);
+        ReportFailure(TDpccFeature.GoToDefinition, E);
+      end;
+    end;
+  end;
+  mAnswer := TDpccGotoDefinition.Answer(mOutcome, mFileName, mLine);
+  AFileName := mAnswer.FileName;
+  ALineNum := mAnswer.Line;
+  Result := mAnswer.Result;
+end;
+
+/// <summary>Zeile in der Meldungsansicht, Gruppe „dpcc“; nur im Hauptthread.</summary>
+procedure MessageLine(const AText: string);
+var
+  mMessages: IOTAMessageServices;
+  mGroup: IOTAMessageGroup;
+begin
+  if not Supports(BorlandIDEServices, IOTAMessageServices, mMessages) then
   begin
     Exit;
   end;
-  Diagnose(Format('GotoDefinition(Index %d) aufgerufen', [Index]));
-  try
-    mView := TDpccCodeInsightQueries.CurrentEditView;
-    if (mView = nil) or (mView.Buffer = nil) then
-    begin
-      Diagnose('Gehe zu Definition: keine Editoransicht');
-    end
-    else if EnsureSession then
-    begin
-      // Server ohne textDocument/definition (schlanker Server, Schritt 2): False, ohne Meldung; die IDE springt
-      // dann selbst.
-      if not FSession.Offers(cDefinitionMethod) then
-      begin
-        Diagnose('Gehe zu Definition: Server bietet keine Definitionen, die IDE übernimmt');
-        Exit(False);
-      end;
-      TDpccCodeInsightQueries.DefinitionAt(FSession, mView, Index,
-        procedure(AMessage: string)
-        begin
-          Diagnose(AMessage);
-        end, AFileName, ALineNum);
-    end;
-  except
-    on E: ELspMethodNotFound do
-    begin
-      // Erst jetzt als fehlend erkannt (-32601): wie oben.
-      Diagnose('Gehe zu Definition: ' + E.Message + ', die IDE übernimmt');
-      AFileName := '';
-      ALineNum := 0;
-      Result := False;
-    end;
-    on E: Exception do
-    begin
-      ReportError('Gehe zu Definition: ' + E.Message);
-      ReportFailure(TDpccFeature.GoToDefinition, E);
-      AFileName := '';
-      ALineNum := 0;
-    end;
+  mGroup := mMessages.GetGroup('dpcc');
+  if mGroup = nil then
+  begin
+    mGroup := mMessages.AddMessageGroup('dpcc');
+  end;
+  mMessages.AddTitleMessage(AText, mGroup);
+end;
+
+procedure TDpccCodeInsightManager.NoticeIfSelected;
+var
+  mView: IOTAEditView;
+begin
+  // Schnell, solange schon gezeigt: AllowCodeInsight ruft es bei jeder Taste.
+  if not TDpccProviderNotice.Pending then
+  begin
+    Exit;
+  end;
+  mView := TDpccCodeInsightQueries.CurrentEditView;
+  if (mView = nil) or (mView.Buffer = nil) or IdeListReachable(mView.Buffer.FileName) then
+  begin
+    Exit;
+  end;
+  if TDpccProviderNotice.TakeFirst then
+  begin
+    MessageLine(TDpccProviderNotice.Text(TDpccTextLanguage.Current));
+    Diagnose('Hinweis: dpcc ist der gewählte Code-Insight-Anbieter');
   end;
 end;
 
@@ -484,6 +552,8 @@ begin
     // Server liefert nur in einem Mengenkonstruktor etwas, sonst bleibt das Popup zu.
     Allow := CharInSet(Key, [#0, '.', #1, '(', ',', #2, #3, '<', '[']);
     Diagnose(Format('AllowCodeInsight(#%d) = %s', [Ord(Key), BoolToStr(Allow, True)]));
+    // Die IDE fragt nur den gewählten Anbieter: Dann einmal der Hinweis (NAV).
+    NoticeIfSelected;
   except
     on E: Exception do
     begin

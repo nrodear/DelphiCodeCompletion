@@ -27,6 +27,9 @@ den Optionen der IDE für Delphi gewählt ist. Die Vorgabe ist DelphiLSP. Daraus
 
 - Die Liste, die nach „.“ von selbst aufgeht, kommt von DelphiLSP.
 - Strg+Leertaste und Strg+Umschalt+Leertaste kommen von dpcc.
+- Die Liste, die beim Tippen eines Namens von selbst aufgeht (nur wenn eingeschaltet, siehe
+  [Öffnen beim Tippen](#öffnen-beim-tippen)), kommt von dpcc: Dafür beobachtet dpcc den Editor selbst, unabhängig
+  vom gewählten Anbieter.
 - Einstellungen, die nur beim automatischen Öffnen wirken, haben mit dieser Vorgabe keine Wirkung. Sie sind unter
   [Einstellungen](settings.md) gekennzeichnet.
 
@@ -53,6 +56,28 @@ Strg+Leertaste wieder dpcc auf, nie DelphiLSP. Der Hinweis in der Fußzeile entf
 Strg+Leertaste fragt wieder dpcc. Wer die Liste von DelphiLSP als Ausweg haben will, lässt in den Optionen DelphiLSP
 gewählt.
 
+### Wenn dpcc als Anbieter gewählt ist
+
+Ist in den Optionen der IDE dpcc als Code-Insight-Anbieter für Delphi gewählt, fragt die IDE für Strg+Klick und
+„Deklaration suchen“ (Alt+↑) nur dpcc. Mit DelphiLSP (Vorgabe) springt die IDE wie gewohnt über DelphiLSP; dpcc ist
+daran nicht beteiligt.
+
+- Von einer Verwendung springt dpcc zur Deklaration (bei Methoden die in der Klasse bzw. im interface). Steht die
+  Stelle schon auf der Deklaration selbst, geht es zur Implementierung, von dort wieder zurück. Bei Überladungen gilt
+  die Variante mit denselben Parametertypen.
+- Ziele: über Units, Unit-Namen in `uses` (Anfang der Datei), lokale Variablen und Parameter, Typen, Felder hinter
+  Ausdrücken wie `Liste[i].X`, Deklarationen in Include-Dateien und in nicht aktiven Zweigen (`{$IFDEF …}`), Units
+  der Bibliothek, die dpcc erst dafür nachlädt (auch Office-Typbibliotheken und WinRT). Bei gleichnamigen Units gilt
+  die des eigenen Projekts.
+- Kein Ziel, kein Sprung: Units ohne Quelltext (nur aus Packages bekannt), Units, die dpcc nicht findet,
+  mehrdeutige Überladungen und `with` mit unbekanntem Typ. Die IDE springt dann nicht und zeigt keine Meldung.
+- Bei Strg+Klick gilt die Stelle unter der Maus, bei „Deklaration suchen“ der Cursor.
+- Die IDE wartet höchstens 1 Sekunde auf dpcc. Dauert es länger, springt sie nicht.
+
+Beim ersten Mal je Sitzung nennt das Meldungsfenster, dass dpcc gewählt ist und was dann fehlt: Error Insight
+(Fehlermarkierungen im Editor) und die übrigen Dienste von DelphiLSP. Wer sie braucht, wählt wieder DelphiLSP;
+Strg+Leertaste bleibt auch dann bei dpcc.
+
 ## Die Liste
 
 Strg+Leertaste öffnet die Liste am Cursor. Das Wort vor dem Cursor gilt als Anfang des Gesuchten.
@@ -66,6 +91,32 @@ Aufbau einer Zeile:
   und Warnungen als Text.
 
 Die Fußzeile nennt die Tasten oder einen Hinweis.
+
+### Öffnen beim Tippen
+
+Die Einstellung „Beim Tippen öffnen ab Zeichen“ (`completion.autoMinChars`, siehe [Einstellungen](settings.md)) hat
+die Vorgabe 0 = aus: Dann öffnet Tippen die Liste nie, wie vor dieser Funktion. Wer sie will, stellt z. B. 5 ein.
+Tippt man dann einen Namen ohne Punkt davor, öffnet dpcc die Liste von selbst, sobald das Wort vor dem Cursor so
+viele Zeichen hat. Mit weniger Zeichen fragt dpcc den Server gar nicht: Die Liste aller Namen im Gültigkeitsbereich hätte bei kurzem
+Anfang oft über tausend Einträge und bräuchte spürbar Rechenzeit.
+
+- Strg+Leertaste öffnet die Liste wie bisher sofort, bei jeder Zahl von Zeichen.
+- Ist die Liste offen (auch mit Strg+Leertaste bei weniger Zeichen geöffnet), filtert jedes weitere Zeichen nur;
+  Tippen fragt nicht neu.
+- Nach „.“ gilt die Schwelle nicht: Die Mitgliederliste kommt wie bisher mit dem Punkt. Ebenso bleiben die übrigen
+  Auslöser unverändert („[“, „(“ hinter einem Namen, „;“ und Enter hinter einem übernommenen Konstruktor).
+- In Kommentaren (auch `{$…}`), Strings, Zahlen und mitten in einem Wort öffnet Tippen nichts. Findet der Server
+  nichts (etwa in einem mehrzeiligen Kommentar), bleibt die Liste ohne Meldung zu.
+- In `uses`, nach `raise` und in Attributklammern gilt dieselbe Schwelle; welche Liste kommt, entscheidet wie bei
+  Strg+Leertaste der Server. Units, die noch nicht in `uses` stehen („+ Unit“), bietet er weiterhin erst ab
+  2 Zeichen an.
+- Die Verzögerung bis zum Öffnen (`completion.openDelayMs`, Vorgabe 150 ms) gilt auch hier: Wer zügig weitertippt,
+  bekommt die Liste erst in der Pause, mit dem bis dahin getippten Wort.
+- Ist das getippte Wort schon der Name des gewählten Eintrags (etwa `begin`), ist nichts gewählt: Enter bricht die
+  Zeile um, statt den Eintrag zu übernehmen. Eine Pfeiltaste wählt den Eintrag.
+- Nach Esc öffnet die Liste im selben Wort nicht wieder von selbst.
+- Im Platzhalter-Modus und solange die Liste der IDE offen ist, öffnet Tippen nichts.
+- 0 schaltet das Öffnen beim Tippen ab.
 
 ### Tasten in der offenen Liste
 
@@ -304,7 +355,8 @@ Strg+Umschalt+Leertaste in einem Aufruf zeigt die Signaturen der aufgerufenen Ro
   Überladungen mit zu wenigen Parametern sind gedämpft.
 - Vorgewählt ist die erste Überladung, zu der die bisherigen Argumente passen. Dafür zählen Literale, Namen und der
   Typ von Ausdrücken wie `Liefere(1)`, `Liste[i]` oder `A + 1`.
-- Ein Klick wählt eine Überladung; Alt+↑ / Alt+↓ wechselt sie.
+- Ein Klick wählt eine Überladung; Strg+Alt+↑ / Strg+Alt+↓ wechselt sie. Alt+↑ bleibt bei der IDE („Deklaration
+  suchen“), die Pfeile allein bewegen den Cursor.
 - Bei verschachtelten Aufrufen zeigt eine Pfadzeile oben die äußeren Aufrufe, etwa „ShowMessage › Format“.
 - Darunter stehen Name und Beschreibung des aktiven Parameters aus der XMLDoc (ohne `<param>`: „nicht
   dokumentiert“), Standardwerte („optional, Standard …“) und die Beschreibung der Methode.
@@ -358,6 +410,10 @@ Ist der Tooltip höher als der Platz oder als die eingestellte Zeilenzahl, scrol
 Der Tooltip schließt 300 ms nachdem die Maus Bezeichner und Tooltip verlassen hat, sofort bei Esc und jeder anderen
 Taste (außer Umschalt, Strg, Alt allein), bei Mausklick, Scrollen, Größenänderung und wenn die IDE inaktiv wird.
 Ist eine Vervollständigungsliste, eine Parameterhilfe oder ein Menü offen, erscheint kein Tooltip.
+
+Strg+Klick durch den Tooltip: Solange Strg gedrückt ist, gehen Maus und Klick durch den Tooltip an den Editor
+darunter. Steht die Maus über dem Tooltip, schließt Strg ihn. So bleibt auch ein Wort, das der Tooltip verdeckt, mit
+Strg+Klick erreichbar.
 
 ### Signatur, Kommentare und Werte
 

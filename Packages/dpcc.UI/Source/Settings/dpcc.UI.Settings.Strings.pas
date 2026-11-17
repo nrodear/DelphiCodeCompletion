@@ -28,7 +28,9 @@ type
     SettingsDebugHoverValues,
     // L2: zusätzliche Quellordner (index.extraSourceFolders) auf der Seite „Allgemein“; ersetzt den Schalter
     // index.officeAndWinRt (Speicher-Optimierung c1).
-    SettingsIndexExtraSourceFolders);
+    SettingsIndexExtraSourceFolders,
+    // L5: Tippen öffnet die Liste erst ab so vielen Zeichen (completion.autoMinChars).
+    SettingsAutoMinChars);
 
   TDpccSettingsStrings = class
   public
@@ -104,7 +106,8 @@ const
      'in %s',
      'Enter springt zum ersten Treffer, Pfeil runter in die Liste.',
      'Werte im Hover beim Debuggen (schaltet dafür den Wert-Tooltip der IDE ab)',
-     'Zusätzliche Quellordner (mit „;“ getrennt, samt Unterordnern; z. B. DUnitX-Quellen):'),
+     'Zusätzliche Quellordner (mit „;“ getrennt, samt Unterordnern; z. B. DUnitX-Quellen):',
+     'Beim Tippen öffnen ab Zeichen (0 = nie):'),
     ('Completion, parameter hint and tooltip by dpcc',
      'Code Insight by dpcc (off: built-in Code Insight of the IDE)',
      'Visible rows of the list:',
@@ -165,7 +168,8 @@ const
      'in %s',
      'Enter jumps to the first hit, arrow down moves into the list.',
      'Values in the hover while debugging (turns off the IDE''s value tooltip)',
-     'Additional source folders (separated by “;”, including subfolders; e.g. DUnitX sources):'));
+     'Additional source folders (separated by “;”, including subfolders; e.g. DUnitX sources):',
+     'Open on typing from characters (0 = never):'));
 
 { TDpccSettingsStrings }
 

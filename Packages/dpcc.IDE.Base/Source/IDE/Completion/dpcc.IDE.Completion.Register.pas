@@ -47,6 +47,7 @@ uses
   ToolsAPI,
   dpcc.UI.Strings,
   dpcc.Core.Localization.Language,
+  dpcc.Core.Editor.Navigation,
   dpcc.Core.Diagnostics.Guard,
   dpcc.Core.Diagnostics.Shutdown,
   dpcc.Core.Diagnostics.MainThread,
@@ -350,7 +351,8 @@ begin
 end;
 
 /// <summary>Welcher Code Insight-Manager bedient Delphi-Dateien? Eine Zeile ins Protokoll: Die IDE ruft nur den in
-/// den Optionen gewählten (IOTACodeInsightServices.HandlesFile mit seiner Kennung), andere nie.</summary>
+/// den Optionen gewählten (IOTACodeInsightServices.HandlesFile mit seiner Kennung), andere nie. Ist es dpcc, dazu
+/// einmal je Sitzung der Hinweis im Meldungsfenster (NAV, TDpccProviderNotice).</summary>
 procedure LogSelection;
 const
   cSample = 'dpcc.pas';
@@ -374,6 +376,11 @@ begin
   end;
   TDpccGuard.Log(Format('Code Insight für Delphi-Dateien: gewählt „%s“, dpcc an Index %d von %d',
     [mSelected, ManagerIndex, mServices.CodeInsightManagerCount]));
+  if (ManagerInstance <> nil) and SameText(mSelected, ManagerInstance.GetIDString) and
+    TDpccProviderNotice.TakeFirst then
+  begin
+    MessageLine(TDpccProviderNotice.Text(TDpccTextLanguage.Current));
+  end;
 end;
 
 { Tasten }

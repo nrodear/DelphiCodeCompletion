@@ -83,6 +83,19 @@ routines outside of types are then missing.
   the IDE or the system. Otherwise `dpcc.log` names the path (“… mit unaufgelöstem Verweis übergangen”, skipped with
   unresolved reference).
 
+## Ctrl+click does not jump
+
+Ctrl+click and “Find Declaration” (Alt+↑) go to the Code Insight provider selected in the IDE options. Only if dpcc
+is selected there does dpcc jump (see [Usage](usage.md#when-dpcc-is-selected-as-the-provider)).
+
+| Cause | Remedy |
+|---|---|
+| The target is in a unit without source (known only from a package). | Expected: no jump, no message. If the source is available, add its folder under “Additional source folders”. |
+| dpcc does not find the unit or cannot resolve the name uniquely (ambiguous overload, `with` with an unknown type). | Expected. Check the search paths; see [The list is empty or incomplete](#the-list-is-empty-or-incomplete). |
+| The index is still being built or the answer took longer than 1 second. | Wait and try again. |
+| A dpcc parameter hint with several overloads is open. | Since this version, Ctrl+Alt+↑/↓ switches the overload there; Alt+↑ goes to the IDE. |
+| The dpcc tooltip covers the word. | Hold down Ctrl: mouse and click then go through the tooltip to the editor. |
+
 ## Two tooltips appear
 
 - The IDE's Help Insight: dpcc switches it off, but the IDE reads the switch only at its next start. Restart the IDE.
@@ -109,6 +122,7 @@ server has crashed twice with the same cause within 10 minutes, and dpcc no long
 | “dpcc: … switched off after 3 errors in 5 minutes (last: …) until the IDE is restarted.” | The safety fuse has switched off a feature. It stays off until the IDE is restarted. Errors in dpcc never reach the IDE. |
 | “dpcc: source "…" switched off after 3 errors in 5 minutes …” | Only this data source is off; the others keep running. |
 | “dpcc shows the tooltip itself and switched off the IDE's Help Insight …” | see “Two tooltips appear” |
+| “dpcc is selected as the Code Insight provider for Delphi in the IDE options …” | Once per session if dpcc is the selected provider: Ctrl+click goes through dpcc, Error Insight and the other DelphiLSP services are missing. See [Usage](usage.md#when-dpcc-is-selected-as-the-provider). |
 
 ## The server has crashed
 
