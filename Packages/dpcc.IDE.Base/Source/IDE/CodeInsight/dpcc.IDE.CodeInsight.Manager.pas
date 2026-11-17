@@ -45,8 +45,10 @@ type
     /// <summary>Läuft der Platzhalter-Modus einer Vorlage (#589: dann keine Mehrfachmarken)?</summary>
     function PlaceholdersActive: Boolean;
     /// <summary>Vervollständigung über eine eigene Taste von dpcc öffnen (#494). False: Die Taste gehört der IDE,
-    /// weil an derselben Stelle nach dem vorigen Strg+Leertaste die Liste leer blieb (L3); sonst True, auch wenn
-    /// dpcc gerade nicht fragen kann (Hauptschalter, Sicherung, Server angehalten).</summary>
+    /// weil an derselben Stelle nach dem vorigen Strg+Leertaste die Liste leer blieb (L3) oder weil die Liste der
+    /// IDE schon offen ist (L4); sonst True, auch wenn dpcc gerade nicht fragen kann (Hauptschalter, Sicherung,
+    /// Server angehalten). Ist dpcc der für die Datei gewählte Code Insight-Anbieter, bliebe ein durchgereichtes
+    /// Strg+Leertaste wieder bei dpcc (InvokeCodeCompletion): Dann bleibt die Taste bei dpcc (L4).</summary>
     function OpenCompletion: Boolean;
     /// <summary>Parameter-Hint über eine eigene Taste von dpcc öffnen (#494).</summary>
     procedure OpenSignature;
@@ -93,6 +95,7 @@ implementation
 
 uses
   Winapi.Windows,
+  dpcc.Core.Completion.Fallback,
   dpcc.Core.Lsp.Client,
   dpcc.Core.Lsp.Session,
   dpcc.Core.Diagnostics.Guard,
@@ -128,6 +131,69 @@ const
   cManagerName = 'dpcc';
   cManagerId = 'dpcc.CodeInsight';
   cDefinitionMethod = 'textDocument/definition';
+
+const
+  /// <summary>Fensterklasse der Liste in der Code-Insight-Ansicht der IDE (Name aus coreide370.bpl; L4). In der IDE
+  /// nicht geprüft: Fehlt sie, gilt die Liste der IDE als geschlossen, wie bis L3.</summary>
+  cIdeListClass = 'TCodeCompleteListView';
+
+/// <summary>Ist AWindow sichtbar und von der Klasse cIdeListClass?</summary>
+function IsIdeListWindow(AWindow: HWND): Boolean;
+var
+  mClass: array[0..63] of Char;
+begin
+  Result := IsWindowVisible(AWindow) and (GetClassName(AWindow, mClass, Length(mClass)) > 0) and
+    SameText(string(PChar(@mClass[0])), cIdeListClass);
+end;
+
+function FindIdeListChild(AWindow: HWND; AParam: LPARAM): BOOL; stdcall;
+begin
+  if IsIdeListWindow(AWindow) then
+  begin
+    PBoolean(AParam)^ := True;
+    Exit(False);
+  end;
+  Result := True;
+end;
+
+function FindIdeListWindow(AWindow: HWND; AParam: LPARAM): BOOL; stdcall;
+begin
+  if not IsWindowVisible(AWindow) then
+  begin
+    Exit(True);
+  end;
+  if IsIdeListWindow(AWindow) then
+  begin
+    PBoolean(AParam)^ := True;
+  end
+  else
+  begin
+    EnumChildWindows(AWindow, @FindIdeListChild, AParam);
+  end;
+  Result := not PBoolean(AParam)^;
+end;
+
+/// <summary>Ist die Liste der Code-Insight-Ansicht der IDE gerade sichtbar (L4)? Sucht in den Fenstern des
+/// Hauptthreads nach cIdeListClass.</summary>
+function IdeCompletionListOpen: Boolean;
+begin
+  Result := False;
+  EnumThreadWindows(GetCurrentThreadId, @FindIdeListWindow, LPARAM(@Result));
+end;
+
+/// <summary>Kommt ein durchgereichtes Strg+Leertaste in AFileName bei einem anderen Anbieter an (L4)? Nein, wenn
+/// dpcc für die Datei der gewählte Code Insight-Anbieter ist: Dann ruft die IDE mit der Taste wieder dpcc auf.
+/// </summary>
+function IdeListReachable(const AFileName: string): Boolean;
+var
+  mServices: IOTACodeInsightServices;
+begin
+  Result := True;
+  if Supports(BorlandIDEServices, IOTACodeInsightServices, mServices) then
+  begin
+    Result := not mServices.HandlesFile(AFileName, cManagerId);
+  end;
+end;
 
 /// <summary>Fehler eines Einstiegspunkts an die Sicherung (#493); ein beendeter Server oder sein
 /// Zeitlimit (ELspClientError) ist erwartbar und zählt nicht.</summary>
@@ -554,6 +620,9 @@ begin
 end;
 
 function TDpccCodeInsightManager.OpenCompletion: Boolean;
+var
+  mView: IOTAEditView;
+  mIde: TDpccIdeList;
 begin
   Result := True;
   if not FEnabled or TDpccGuard.Disabled(TDpccFeature.Completion) or not ServerAvailable then
@@ -564,8 +633,17 @@ begin
   try
     // Start nur hier im Hauptthread, vor der Anfrage: Die Quellen holen sich die laufende Sitzung.
     EnsureSession;
-    // Zweites Strg+Leertaste nach leerem Ergebnis an derselben Stelle (L3): False, die IDE öffnet ihre Liste.
-    Result := Completion.KeyInvoke(TDpccCodeInsightQueries.CurrentEditView);
+    mView := TDpccCodeInsightQueries.CurrentEditView;
+    mIde := TDpccIdeList.Usual;
+    if (mView <> nil) and (mView.Buffer <> nil) then
+    begin
+      mIde := TDpccIdeList.Create(IdeListReachable(mView.Buffer.FileName), IdeCompletionListOpen);
+      Diagnose(Format('Liste der IDE: erreichbar %s, offen %s', [BoolToStr(mIde.Reachable, True),
+        BoolToStr(mIde.Open, True)]));
+    end;
+    // Zweites Strg+Leertaste nach leerem Ergebnis an derselben Stelle (L3) bzw. offene Liste der IDE (L4): False,
+    // die Taste gehört der IDE.
+    Result := Completion.KeyInvoke(mView, mIde);
   except
     on E: Exception do
     begin

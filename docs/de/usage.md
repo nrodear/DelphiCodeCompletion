@@ -14,8 +14,8 @@ Deutsch | [English](../en/usage.md) | [Français](../fr/usage.md)
 dpcc belegt diese zwei Tasten mit einer eigenen Tastenbindung („dpcc Code Completion“). Es nimmt sie nur, wenn es
 die Datei bedient: Endung `.pas`, `.dpr`, `.dpk` oder `.inc`, Hauptschalter an und die Funktion nicht von der
 Sicherung abgeschaltet (siehe [Fehlersuche](troubleshooting.md)). Sonst gehen die Tasten an die IDE. Ebenso geht
-ein zweites Strg+Leertaste an die IDE, wenn die Liste von dpcc an derselben Stelle leer blieb (siehe
-[unten](#liste-der-ide-wenn-dpcc-nichts-findet)).
+ein zweites Strg+Leertaste an die IDE, wenn die Liste von dpcc an derselben Stelle leer blieb, und jedes
+Strg+Leertaste, solange die Liste der IDE schon offen ist (siehe [unten](#liste-der-ide-wenn-dpcc-nichts-findet)).
 
 Weitere Tasten belegt dpcc nicht dauerhaft. Pfeile, Enter, Tab und Esc nimmt es nur, solange eines seiner Fenster
 offen ist und die Taste braucht.
@@ -44,9 +44,14 @@ heißt hier: nichts gefunden, kein passender Kontext, ein Fehler oder das Zeitli
 - Steht die Antwort von dpcc noch aus, fragt ein weiteres Strg+Leertaste wieder dpcc.
 - Danach beginnt es von vorn: Das nächste Strg+Leertaste fragt wieder dpcc.
 - Von selbst wechselt dpcc nie zur Liste der IDE.
+- Ist die Liste der IDE schon offen (etwa nach „.“ von DelphiLSP), gehört Strg+Leertaste ihr. dpcc öffnet dann keine
+  zweite Liste daneben.
 
 Die Liste der IDE kommt vom Code-Insight-Anbieter, der in den Optionen der IDE für Delphi gewählt ist (Vorgabe
-DelphiLSP).
+DelphiLSP). Ist dort dpcc selbst gewählt, gibt es keine Liste der IDE: Die IDE ruft auch für ein durchgereichtes
+Strg+Leertaste wieder dpcc auf, nie DelphiLSP. Der Hinweis in der Fußzeile entfällt dann, und ein zweites
+Strg+Leertaste fragt wieder dpcc. Wer die Liste von DelphiLSP als Ausweg haben will, lässt in den Optionen DelphiLSP
+gewählt.
 
 ## Die Liste
 

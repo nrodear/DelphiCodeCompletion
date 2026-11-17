@@ -12,6 +12,11 @@
 //   einen Block, end schließt ihn.
 // - Klassen aus Packages der IDE ohne Quelltext (L3): Der Sammler lässt sie über ihren Vorfahren zu
 //   (TCompletionAncestry); hier bleiben sie ohne Symbol erhalten.
+// - Ohne Nachladen (L4): Klassen und Aliase oberster Ebene aus anderen Units prüft die Nachbearbeitung über den
+//   Katalog wie der Vorfilter des Sammlers (TCompletionAncestry: Art, Ziel eines Alias, Vorfahren für die Warnung
+//   zur Reihenfolge der Zweige). Vorher bestimmte TCompletionGenerics.ItemSymbol das Symbol jedes Eintrags und lud
+//   dafür jede kalte Unit der Liste nach. Die übrigen Einträge (eigene Unit, Units im Speicher) gehen wie bisher
+//   über die Namensauflösung, ebenfalls ohne die Unit des Eintrags nachzuladen (LoadedItemSymbol).
 // - Abschaltbar mit completion.exceptionClasses; dann gilt die gewöhnliche Liste.
 
 interface
@@ -86,8 +91,7 @@ uses
   dpcc.Common.Pascal.XmlDoc,
   dpcc.Common.Lsp.Documentation,
   dpcc.Common.Lsp.FuzzyMatch,
-  dpcc.Common.Lsp.IdeTypes,
-  dpcc.Common.Lsp.CompletionGenerics;
+  dpcc.Common.Lsp.IdeTypes;
 
 const
   cKnownRaiseTable: array[0..19] of TKnownRaise = (
@@ -602,17 +606,94 @@ begin
   end;
 end;
 
+/// <summary>Vorzug eines Eintrags aus dem Katalog (wie PreferenceOf).</summary>
+function CatalogPreference(const AItem: TCompletionItem; const AType: TCompletionCatalogType): Integer;
+begin
+  if Length(AItem.AdditionalEdits) = 0 then
+  begin
+    Result := 0;
+  end
+  else if AType.Symbol.Kind = TIndexSymbolKind.TypeAlias then
+  begin
+    Result := 1;
+  end
+  else
+  begin
+    Result := 2;
+  end;
+end;
+
+/// <summary>Wie UnreachableBy mit den Vorfahren AAncestors aus dem Katalog (L4).</summary>
+function UnreachableIn(const AAncestors, AEarlier: TArray<string>): string;
+var
+  mEarlier: string;
+begin
+  Result := '';
+  for mEarlier in AEarlier do
+  begin
+    if IndexOfText(mEarlier, AAncestors) > 0 then
+    begin
+      Exit(mEarlier);
+    end;
+  end;
+end;
+
+/// <summary>Eintrag für AItem aus dem Katalog (L4), wenn er dort als Exception-Klasse (oder Alias darauf) steht;
+/// lädt nichts nach. False, wenn der Katalog ihn nicht kennt oder nicht zulässt: Dann entscheidet EntryOf wie
+/// bisher.</summary>
+function CatalogEntryOf(ARequest: TCompletionRequest; AAncestry: TCompletionAncestry; const AItem: TCompletionItem;
+  const ASite: TExceptionSite; const ATryNames: TArray<string>; out AHandled: Boolean;
+  out AEntry: TExceptionEntry): Boolean;
+var
+  mType, mClass: TCompletionCatalogType;
+begin
+  AEntry := Default(TExceptionEntry);
+  AHandled := False;
+  // Die eigene Unit steht im Baum aktueller als im Katalog.
+  Result := (AAncestry <> nil) and not SameText(AItem.SourceFile, ARequest.FileName) and
+    AAncestry.ItemType(AItem, mType) and AAncestry.AdmitsCatalog(mType.Symbol);
+  if not Result then
+  begin
+    Exit;
+  end;
+  AHandled := IndexOfText(AItem.Name, ASite.Handled) >= 0;
+  if AHandled then
+  begin
+    Exit;
+  end;
+  if not AAncestry.ClassOf(mType, mClass) then
+  begin
+    mClass := mType;
+  end;
+  AEntry.Item := AItem;
+  AEntry.Key := mClass.Key;
+  AEntry.Preference := CatalogPreference(AItem, mType);
+  AEntry.Library_ := mClass.Library_;
+  AEntry.TryRank := IndexOfText(AItem.Name, ATryNames);
+  if Length(ASite.Earlier) > 0 then
+  begin
+    AEntry.Item.Unreachable := UnreachableIn(AAncestry.AncestorNames(mClass), ASite.Earlier);
+  end;
+end;
+
 /// <summary>Eintrag für AItem, wenn er eine Exception-Klasse ist, die das except noch nicht behandelt.</summary>
-function EntryOf(ARequest: TCompletionRequest; AUnits: TDictionary<string, TUnitIndex>; const AItem: TCompletionItem;
-  const ASite: TExceptionSite; const ATryNames: TArray<string>; out AEntry: TExceptionEntry): Boolean;
+function EntryOf(ARequest: TCompletionRequest; AUnits: TDictionary<string, TUnitIndex>;
+  AAncestry: TCompletionAncestry; const AItem: TCompletionItem; const ASite: TExceptionSite;
+  const ATryNames: TArray<string>; out AEntry: TExceptionEntry): Boolean;
 var
   mSymbol, mExceptionClass: TResolvedSymbol;
   mDeclaringUnit: TUnitIndex;
   mUnreachable: string;
   mIdeType: TIdeTypeEntry;
+  mHandled: Boolean;
 begin
   AEntry := Default(TExceptionEntry);
-  if not TCompletionGenerics.ItemSymbol(ARequest, AUnits, AItem, mSymbol) then
+  if CatalogEntryOf(ARequest, AAncestry, AItem, ASite, ATryNames, mHandled, AEntry) then
+  begin
+    Exit(not mHandled);
+  end;
+  // Ohne Katalogeintrag: Symbol nur aus der eigenen Unit oder einer im Speicher (L4: kein Nachladen).
+  if not LoadedItemSymbol(ARequest, AUnits, AItem, mSymbol) then
   begin
     // Klasse aus einem Package der IDE ohne Quelltext (L3): zugelassen hat sie der Sammler über ihren Vorfahren.
     Result := IdeTypeOfItem(ARequest, AItem, mIdeType) and (IndexOfText(AItem.Name, ASite.Handled) < 0);
@@ -755,6 +836,7 @@ var
   mItem: TCompletionItem;
   mEntry: TExceptionEntry;
   mRank: Integer;
+  mAncestry: TCompletionAncestry;
 begin
   Result := AItems;
   if not SiteAt(ARequest.Tree.Tokens, AContext.ExceptionToken, mSite) then
@@ -767,6 +849,11 @@ begin
   begin
     mTryNames := TryClasses(ARequest, mSite, mTryUnits);
   end;
+  mAncestry := nil;
+  if ARequest.Index <> nil then
+  begin
+    mAncestry := TCompletionAncestry.Create(ARequest.Index, TCompletionAncestryKind.Exceptions, ARequest.IdeTypes);
+  end;
   mUnits := TDictionary<string, TUnitIndex>.Create;
   mEntries := Default(TExceptionEntries);
   mEntries.ByKey := TDictionary<string, Integer>.Create;
@@ -774,7 +861,7 @@ begin
   try
     for mItem in AItems do
     begin
-      if EntryOf(ARequest, mUnits, mItem, mSite, mTryNames, mEntry) then
+      if EntryOf(ARequest, mUnits, mAncestry, mItem, mSite, mTryNames, mEntry) then
       begin
         mEntries.Add(mEntry);
       end;
@@ -792,6 +879,7 @@ begin
     mEntries.Items.Free;
     mEntries.ByKey.Free;
     mUnits.Free;
+    mAncestry.Free;
   end;
 end;
 

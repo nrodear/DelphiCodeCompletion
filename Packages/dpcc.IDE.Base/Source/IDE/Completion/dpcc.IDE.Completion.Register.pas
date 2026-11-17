@@ -17,7 +17,9 @@
 //     Code Insight nur beim Manager auf, der in den Optionen für Delphi gewählt ist (Vorgabe DelphiLSP,
 //     Borland.CodeInsight.LSP.Pascal), nie beim angemeldeten dpcc-Manager. Die zwei Tasten belegt dpcc deshalb
 //     selbst, nur für Dateien, die dpcc bedient; sonst behält die IDE sie. Blieb die Liste von dpcc nach
-//     Strg+Leertaste leer, geht ein zweites Strg+Leertaste an derselben Stelle an die IDE (L3).
+//     Strg+Leertaste leer, geht ein zweites Strg+Leertaste an derselben Stelle an die IDE (L3). Ist dpcc selbst der
+//     gewählte Manager, landete die durchgereichte Taste wieder bei dpcc (InvokeCodeCompletion): Dann bleibt sie bei
+//     dpcc; ist die Liste der IDE schon offen, gehört die Taste ihr (L4, TDpccIdeList).
 // Kein Hauptmenü, keine Kontextmenüs, keine Palette, keine weiteren Tasten, kein Statusfeld, keine Andockfenster,
 // keine Hinweisfenster, kein Wächter und kein Vectored Exception Handler mehr. Fehler stehen im Protokoll; dass der
 // Server nach zwei gleichen Abstürzen angehalten ist, meldet eine Zeile im Meldungsfenster und eine Rückfrage
@@ -438,7 +440,8 @@ begin
     else if not ManagerInstance.OpenCompletion then
     begin
       // Zweites Strg+Leertaste nach leerem Ergebnis an derselben Stelle (L3): Mit krUnhandled läuft die nächste
-      // Belegung der Taste, die der IDE; sie öffnet die Liste des gewählten Managers (DelphiLSP).
+      // Belegung der Taste, die der IDE; sie öffnet die Liste des gewählten Managers (DelphiLSP). Ebenso bei schon
+      // offener Liste der IDE (L4): Sie bedient die Taste, dpcc öffnet keine zweite Liste.
       Exit;
     end;
     ABindingResult := krHandled;

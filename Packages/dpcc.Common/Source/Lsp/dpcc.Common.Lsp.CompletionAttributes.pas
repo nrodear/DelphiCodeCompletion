@@ -12,6 +12,10 @@
 //   eingebunden vor Alias vor Original.
 // - Attributklassen aus Packages der IDE ohne Quelltext (L3): Der Sammler lässt sie über ihren Vorfahren zu
 //   (TCompletionAncestry); Detail ist dann ihre Unit.
+// - Ohne Nachladen (L4): Klassen und Aliase oberster Ebene aus anderen Units prüft die Nachbearbeitung über den
+//   Katalog wie der Vorfilter des Sammlers (TCompletionAncestry). Die Parameter des Konstruktors als Detail gibt
+//   es nur, wenn die Unit der Klasse ohnehin im Speicher ist; sonst steht dort die Unit. Vorher bestimmte
+//   TCompletionGenerics.ItemSymbol das Symbol jedes Eintrags und lud dafür jede kalte Unit der Liste nach.
 // - Abschaltbar mit completion.attributes; dann gilt die gewöhnliche Liste.
 
 interface
@@ -56,8 +60,7 @@ uses
   dpcc.Common.Index.Contract,
   dpcc.Common.Semantics.Attributes,
   dpcc.Common.Lsp.FuzzyMatch,
-  dpcc.Common.Lsp.IdeTypes,
-  dpcc.Common.Lsp.CompletionGenerics;
+  dpcc.Common.Lsp.IdeTypes;
 
 { TCompletionAttributes }
 
@@ -213,8 +216,13 @@ type
     FByKey: TDictionary<string, Integer>;
     FEntries: TList<TAttributeEntry>;
     FOrder: Integer;
+    /// <summary>Vorfahrenkette über den Katalog (L4); nil ohne Index.</summary>
+    FAncestry: TCompletionAncestry;
     function Matches(const AName: string): Boolean;
     procedure Keep(var AEntry: TAttributeEntry);
+    /// <summary>Eintrag für eine Attributklasse aus dem Katalog (L4), ohne Nachladen; False, wenn der Katalog den
+    /// Eintrag nicht kennt oder nicht zulässt (dann entscheidet AddItem wie bisher).</summary>
+    function AddCatalogItem(const AItem: TCompletionItem): Boolean;
     /// <summary>Eintrag für eine Attributklasse aus einem Package der IDE (L3); False bei anderen Einträgen.
     /// </summary>
     function AddIdeItem(const AItem: TCompletionItem): Boolean;
@@ -234,10 +242,15 @@ begin
   FUnits := TDictionary<string, TUnitIndex>.Create;
   FByKey := TDictionary<string, Integer>.Create;
   FEntries := TList<TAttributeEntry>.Create;
+  if ARequest.Index <> nil then
+  begin
+    FAncestry := TCompletionAncestry.Create(ARequest.Index, TCompletionAncestryKind.Attributes, ARequest.IdeTypes);
+  end;
 end;
 
 destructor TAttributeList.Destroy;
 begin
+  FAncestry.Free;
   FEntries.Free;
   FByKey.Free;
   FUnits.Free;
@@ -300,13 +313,69 @@ begin
   Keep(mEntry);
 end;
 
+function TAttributeList.AddCatalogItem(const AItem: TCompletionItem): Boolean;
+var
+  mType, mClass: TCompletionCatalogType;
+  mLoaded: TResolvedSymbol;
+  mName: string;
+  mEntry: TAttributeEntry;
+begin
+  // Die eigene Unit steht im Baum aktueller als im Katalog.
+  Result := (FAncestry <> nil) and not SameText(AItem.SourceFile, FRequest.FileName) and
+    FAncestry.ItemType(AItem, mType) and FAncestry.AdmitsCatalog(mType.Symbol);
+  if not Result then
+  begin
+    Exit;
+  end;
+  mName := TAttributes.ShortName(AItem.Name);
+  if not Matches(mName) then
+  begin
+    Exit;
+  end;
+  if not FAncestry.ClassOf(mType, mClass) then
+  begin
+    mClass := mType;
+  end;
+  mEntry := Default(TAttributeEntry);
+  mEntry.Item := AItem;
+  mEntry.Item.Name := mName;
+  mEntry.Item.FilterText := mName;
+  mEntry.Item.InsertText := mName;
+  mEntry.Item.Attribute := True;
+  // Parameter des Konstruktors nur aus einer Unit im Speicher; sonst die Unit wie bei den IDE-Typen.
+  if LoadedTypeSymbol(FRequest.Index, mClass, mLoaded) then
+  begin
+    mEntry.Item.Detail := DetailOf(FRequest, mLoaded);
+  end
+  else
+  begin
+    mEntry.Item.Detail := mClass.UnitName;
+  end;
+  mEntry.Key := mClass.Key;
+  mEntry.Preference := 0;
+  if Length(AItem.AdditionalEdits) > 0 then
+  begin
+    mEntry.Preference := 2;
+    if mType.Symbol.Kind = TIndexSymbolKind.TypeAlias then
+    begin
+      mEntry.Preference := 1;
+    end;
+  end;
+  Keep(mEntry);
+end;
+
 procedure TAttributeList.AddItem(const AItem: TCompletionItem);
 var
   mSymbol, mAttributeClass: TResolvedSymbol;
   mName: string;
   mEntry: TAttributeEntry;
 begin
-  if not TCompletionGenerics.ItemSymbol(FRequest, FUnits, AItem, mSymbol) then
+  if AddCatalogItem(AItem) then
+  begin
+    Exit;
+  end;
+  // Ohne Katalogeintrag: Symbol nur aus der eigenen Unit oder einer im Speicher (L4: kein Nachladen).
+  if not LoadedItemSymbol(FRequest, FUnits, AItem, mSymbol) then
   begin
     // Ohne Quelle: vielleicht eine Attributklasse aus einem Package der IDE (L3).
     AddIdeItem(AItem);

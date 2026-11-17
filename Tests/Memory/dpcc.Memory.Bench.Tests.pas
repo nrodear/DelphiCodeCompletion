@@ -35,6 +35,10 @@
 // - DPCC_MEMBENCH_IMPORTS (L2): kommagetrennte Namen oberster Ebene (etwa aus Word2010, WinRT, DUnitX). Je Name eine
 //   Vervollständigung auf den Namen in einer Projekt-Unit, die ihn nicht kennt; die Zeile "[import]" nennt, ob die
 //   Liste ihn anbietet (mit "+ Unit"), die Antwortzeit und den Eintrag.
+// - DPCC_MEMBENCH_LISTS (L4): durch "|" getrennte Zeilen, je eine Vervollständigung an ihrem Ende in einer Projekt-Unit,
+//   die nur System.SysUtils einbindet: im Rumpf einer Routine (etwa "raise E", "on E: EC" nach "try except") bzw.
+//   mit "[" am Anfang vor einer Deklaration (Attribut). Die Zeile "[lists]" nennt Einträge, Antwortzeit und die
+//   dabei nachgeladenen Units (raise und Attribute laden seit L4 keine kalte Unit mehr nach).
 // Je Messpunkt eine Zeile "[lazy]" mit geladenen, gepinnten, verdrängbaren und verdrängten Units, Katalog und
 // Dauer des Nachladens (Median, Höchstwert, größte Unit).
 // Der Cache gehört nicht dem Benutzer: Der Aufrufer setzt LOCALAPPDATA bzw. DPCC_CACHE_ROOT auf einen eigenen Ordner
@@ -42,6 +46,9 @@
 // Fehler im Server (ERangeError, EIntOverflow, EAccessViolation) schreibt das Messprogramm mit Fehleradresse und
 // Rücksprungadressen nach <Datei>-exceptions.txt (Speicher-Optimierung Phase 2: gescheiterte Anfragen); die Adressen
 // löst die .map-Datei des Testprogramms auf. Nur im Testprogramm und nur während der Messung.
+// Jede gescheiterte Anfrage steht mit Art, Datei, Zeile, Zeichen (0-basiert), Exception-Klasse und Meldung in
+// <Datei>-failures.txt (L4: Die 8 gescheiterten Anfragen des Tipp-Szenarios waren ERegularExpressionError aus der
+// Ereignis-Vervollständigung nach ":=", ein Fehler im Server, kein Artefakt der Messung).
 
 interface
 
@@ -188,6 +195,9 @@ type
     function LazyNow(const AFile: string): TIndexLazyStats;
     /// <summary>"+ Unit" für die Namen aus DPCC_MEMBENCH_IMPORTS (L2).</summary>
     procedure ImportProbe(const ANames: TArray<string>);
+    /// <summary>Listen nach raise, on und in Attributklammern aus DPCC_MEMBENCH_LISTS (L4): Einträge, Zeit,
+    /// nachgeladene Units.</summary>
+    procedure ListProbe(const ALines: TArray<string>);
     /// <summary>Die ausgewählten Dateien unter Packages (Units der Projekte).</summary>
     function PackageFiles: TArray<string>;
   public
@@ -215,6 +225,9 @@ var
   BenchExceptionFile: string;
   BenchExceptionLock: TObject;
   BenchExceptionLines: Integer;
+  /// <summary>Zeilen der gescheiterten Anfragen (L4); '' = aus.</summary>
+  BenchFailureFile: string;
+  BenchFailureLines: Integer;
 
 function RtlCaptureStackBackTrace(AFramesToSkip, AFramesToCapture: Cardinal; ABackTrace: Pointer;
   ABackTraceHash: PCardinal): Word; stdcall; external kernel32 name 'RtlCaptureStackBackTrace';
@@ -305,6 +318,25 @@ end;
 function BenchStackString(AInfo: Pointer): string;
 begin
   Result := '';
+end;
+
+/// <summary>Gescheiterte Anfrage festhalten (L4): Art, Datei, Zeile, Zeichen, Exception; threadsicher.</summary>
+procedure BenchNoteFailure(const AKind, AFileName: string; ALine, ACharacter: Integer; E: Exception);
+var
+  mLine: string;
+begin
+  mLine := Format('%s %s:%d:%d %s: %s', [AKind, ExtractFileName(AFileName), ALine, ACharacter, E.ClassName,
+    E.Message.Replace(#13, ' ').Replace(#10, ' ')]);
+  TMonitor.Enter(BenchExceptionLock);
+  try
+    if (BenchFailureFile <> '') and (BenchFailureLines < cBenchExceptionLines) then
+    begin
+      Inc(BenchFailureLines);
+      TFile.AppendAllText(BenchFailureFile, mLine + sLineBreak, TEncoding.UTF8);
+    end;
+  finally
+    TMonitor.Exit(BenchExceptionLock);
+  end;
 end;
 
 procedure BenchCleanUpStack(AInfo: Pointer);
@@ -615,6 +647,8 @@ var
 begin
   mFile := FFiles[Random(Length(FFiles))];
   mKind := Random(100);
+  mLine := 0;
+  mCharacter := 0;
   try
     EnsureOpen(mFile);
     // 60 % Vervollständigung, 25 % Hover, 10 % Parameterhilfe, 5 % Vervollständigung ohne Punkt.
@@ -643,9 +677,12 @@ begin
     end;
     Inc(FRequests);
   except
-    // Eine gescheiterte Anfrage zählt nur; das Messprogramm misst Speicher, nicht Antworten.
-    on Exception do
+    // Eine gescheiterte Anfrage zählt und steht in <Datei>-failures.txt; das Messprogramm misst Speicher.
+    on E: Exception do
+    begin
       Inc(FFailures);
+      BenchNoteFailure(Format('request %d', [mKind]), mFile, mLine, mCharacter, E);
+    end;
   end;
 end;
 
@@ -807,12 +844,16 @@ var
   mPick, mKind, mLine, mCharacter: Integer;
   mWatch: TStopwatch;
   mResponse: TJSONValue;
+  mWhat: string;
 begin
   NameThreadForDebugging('dpcc.MemoryBench.Requests');
   while not FStop do
   begin
     mPick := NextRandom(Length(FFiles));
     mKind := NextRandom(100);
+    mLine := 0;
+    mCharacter := 0;
+    mWhat := 'completion.';
     try
       mWatch := TStopwatch.StartNew;
       // 50 % Vervollständigung nach ".", 20 % Hover, 15 % Parameterhilfe, 15 % Vervollständigung nach ":=" (Werte,
@@ -825,25 +866,32 @@ begin
       end
       else if mKind < 70 then
       begin
+        mWhat := 'hover';
         Place(FTexts[mPick], ' ', mLine, mCharacter);
         FSession.Hover(FFiles[mPick], FTexts[mPick], mLine, mCharacter, cRequestTimeoutMs);
       end
       else if mKind < 85 then
       begin
+        mWhat := 'signature';
         Place(FTexts[mPick], '(', mLine, mCharacter);
         mResponse := FSession.SignatureHelp(FFiles[mPick], mLine, mCharacter, cRequestTimeoutMs);
         mResponse.Free;
       end
       else
       begin
+        mWhat := 'completion:=';
         Place(FTexts[mPick], '=', mLine, mCharacter);
-        mResponse := FSession.Completion(FFiles[mPick], mLine, mCharacter + 1, cRequestTimeoutMs);
+        Inc(mCharacter);
+        mResponse := FSession.Completion(FFiles[mPick], mLine, mCharacter, cRequestTimeoutMs);
         mResponse.Free;
       end;
       Latencies.Add(mWatch.Elapsed.TotalMilliseconds);
     except
-      on Exception do
+      on E: Exception do
+      begin
         Inc(Failures);
+        BenchNoteFailure('typing ' + mWhat, FFiles[mPick], mLine, mCharacter, E);
+      end;
     end;
   end;
 end;
@@ -1226,6 +1274,69 @@ begin
   FSession.Sync(mFile, FTexts[mFile]);
 end;
 
+procedure TBench.ListProbe(const ALines: TArray<string>);
+var
+  mFile, mOwn, mLine, mText, mJson: string;
+  mWatch: TStopwatch;
+  mResponse: TJSONValue;
+  mBefore, mAfter: TIndexLazyStats;
+  mRow, mIndent, mItems, mAt: Integer;
+begin
+  mFile := FFiles[0];
+  mOwn := ChangeFileExt(ExtractFileName(mFile), '');
+  EnsureOpen(mFile);
+  for mLine in ALines do
+  begin
+    // Zeile 6 (0-basiert 5): im Rumpf bzw. vor der Deklaration.
+    if Trim(mLine).StartsWith('[') then
+    begin
+      mText := Format('unit %s;'#13#10'interface'#13#10'uses System.SysUtils;'#13#10'type'#13#10'  TBenchProbe = class'#13#10 +
+        '    %s'#13#10'    procedure Run;'#13#10'  end;'#13#10'implementation'#13#10'procedure TBenchProbe.Run;'#13#10 +
+        'begin'#13#10'end;'#13#10'end.'#13#10, [mOwn, Trim(mLine)]);
+      mRow := 5;
+      mIndent := 4;
+    end
+    else
+    begin
+      mText := Format('unit %s;'#13#10'interface'#13#10'uses System.SysUtils;'#13#10'implementation'#13#10 +
+        'procedure BenchProbe;'#13#10'begin'#13#10'  %s'#13#10'end;'#13#10'end.'#13#10, [mOwn, Trim(mLine)]);
+      mRow := 6;
+      mIndent := 2;
+    end;
+    try
+      FSession.Sync(mFile, mText);
+      mBefore := LazyNow(mFile);
+      mWatch := TStopwatch.StartNew;
+      mResponse := FSession.Completion(mFile, mRow, mIndent + Length(Trim(mLine)), cRequestTimeoutMs);
+      try
+        mJson := mResponse.ToJSON;
+      finally
+        mResponse.Free;
+      end;
+      mWatch.Stop;
+      mAfter := LazyNow(mFile);
+      Inc(FRequests);
+      mItems := 0;
+      mAt := Pos('"label":', mJson);
+      while mAt > 0 do
+      begin
+        Inc(mItems);
+        mAt := Pos('"label":', mJson, mAt + 8);
+      end;
+      System.Writeln(Format('[lists] %s: %d Einträge, %s ms, nachgeladen %d, kalt vorher %d nachher %d',
+        [Trim(mLine), mItems, FormatFloat('0.0', mWatch.Elapsed.TotalMilliseconds, TFormatSettings.Invariant),
+        mAfter.Loads - mBefore.Loads, mBefore.Cold, mAfter.Cold]));
+    except
+      on E: Exception do
+      begin
+        Inc(FFailures);
+        System.Writeln(Format('[lists] %s: Fehler %s', [Trim(mLine), E.ClassName]));
+      end;
+    end;
+  end;
+  FSession.Sync(mFile, FTexts[mFile]);
+end;
+
 procedure TBench.Run(ARequests, ARebuilds, ARestarts, ABetween: Integer);
 var
   mIndex: Integer;
@@ -1241,6 +1352,12 @@ begin
     FSampler.SetPhase('imports');
     ImportProbe(Trim(GetEnvironmentVariable('DPCC_MEMBENCH_IMPORTS')).Split([','], TStringSplitOptions.ExcludeEmpty));
     Point('imports');
+  end;
+  if Trim(GetEnvironmentVariable('DPCC_MEMBENCH_LISTS')) <> '' then
+  begin
+    FSampler.SetPhase('lists');
+    ListProbe(Trim(GetEnvironmentVariable('DPCC_MEMBENCH_LISTS')).Split(['|'], TStringSplitOptions.ExcludeEmpty));
+    Point('lists');
   end;
   FSampler.SetPhase('requests');
   Requests(ARequests);
@@ -1360,6 +1477,12 @@ begin
     TFile.Delete(BenchExceptionFile);
   end;
   BenchExceptionLines := 0;
+  BenchFailureFile := ChangeFileExt(mOut, '') + '-failures.txt';
+  if FileExists(BenchFailureFile) then
+  begin
+    TFile.Delete(BenchFailureFile);
+  end;
+  BenchFailureLines := 0;
   Exception.GetExceptionStackInfoProc := BenchCaptureStack;
   Exception.GetStackInfoStringProc := BenchStackString;
   Exception.CleanUpStackInfoProc := BenchCleanUpStack;
@@ -1379,6 +1502,7 @@ begin
     TMonitor.Enter(BenchExceptionLock);
     try
       BenchExceptionFile := '';
+      BenchFailureFile := '';
     finally
       TMonitor.Exit(BenchExceptionLock);
     end;

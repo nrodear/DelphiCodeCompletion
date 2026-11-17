@@ -2,6 +2,8 @@
 
 // Zweites Strg+Leertaste öffnet die Liste der IDE (L3), ohne IDE: Merker TDpccCompletionFallback für sich, die Meldung
 // OnSettled des Controllers (leer auch nach Fehler oder Zeitlimit einer Quelle) und beides zusammen wie im Editor.
+// L4 (TDpccIdeList): Ist dpcc der gewählte Code-Insight-Anbieter, bleibt der zweite Druck bei dpcc und der Hinweis
+// entfällt; bei offener Liste der IDE gehört ihr die Taste, dpcc öffnet keine zweite Liste.
 
 interface
 
@@ -32,6 +34,18 @@ type
     procedure ViewChangeResetsState;
     [Test]
     procedure HintTextInBothLanguages;
+    /// <summary>L4: dpcc ist der gewählte Anbieter (Liste der IDE nicht erreichbar): kein Hinweis, der zweite Druck
+    /// fragt wieder dpcc (durchgereicht käme er ohnehin bei dpcc an).</summary>
+    [Test]
+    procedure SelectedManagerKeepsSecondPressWithoutHint;
+    /// <summary>L4: Liste der IDE offen: Strg+Leertaste gehört ihr, auch ohne leeres Ergebnis davor und auch, wenn
+    /// eine Abfrage von dpcc aussteht; der Merker ist danach leer.</summary>
+    [Test]
+    procedure OpenIdeListTakesTheKey;
+    /// <summary>L4: Die alte Form Press(APlace) verhält sich wie mit erreichbarer, geschlossener Liste der IDE.
+    /// </summary>
+    [Test]
+    procedure UsualIdeListIsReachableAndClosed;
   end;
 
   /// <summary>OnSettled des Controllers und der Ablauf wie im Editor.</summary>
@@ -380,6 +394,60 @@ begin
       TDpccCompletionStrings.Text(TDpccCompletionTextId.IdeListAgain));
   finally
     TDpccStrings.Language := mSaved;
+  end;
+end;
+
+procedure TDpccCompletionFallbackTests.SelectedManagerKeepsSecondPressWithoutHint;
+var
+  mFallback: TDpccCompletionFallback;
+  mSelected: TDpccIdeList;
+begin
+  mSelected := TDpccIdeList.Create(False, False);
+  mFallback := TDpccCompletionFallback.Create;
+  try
+    Assert.IsTrue(mFallback.Press(Place(10), mSelected) = TDpccCompletionRoute.Dpcc, 'erstes Drücken fragt dpcc');
+    Assert.IsFalse(mFallback.Settled(True), 'leeres Ergebnis: kein Hinweis auf die Liste der IDE');
+    Assert.IsTrue(mFallback.Press(Place(10), mSelected) = TDpccCompletionRoute.Dpcc,
+      'zweites Drücken bleibt bei dpcc');
+    Assert.IsTrue(mFallback.State = TDpccFallbackState.Pending, 'wartet wieder auf das Ergebnis');
+    Assert.IsFalse(mFallback.Settled(True), 'auch beim zweiten leeren Ergebnis kein Hinweis');
+  finally
+    mFallback.Free;
+  end;
+end;
+
+procedure TDpccCompletionFallbackTests.OpenIdeListTakesTheKey;
+var
+  mFallback: TDpccCompletionFallback;
+begin
+  mFallback := TDpccCompletionFallback.Create;
+  try
+    Assert.IsTrue(mFallback.Press(Place(10), TDpccIdeList.Create(True, True)) = TDpccCompletionRoute.Ide,
+      'offene Liste der IDE: keine zweite Liste von dpcc');
+    Assert.IsTrue(mFallback.State = TDpccFallbackState.Idle);
+    Assert.IsTrue(mFallback.Press(Place(10), TDpccIdeList.Usual) = TDpccCompletionRoute.Dpcc, 'danach wieder dpcc');
+    Assert.IsTrue(mFallback.Press(Place(10), TDpccIdeList.Create(True, True)) = TDpccCompletionRoute.Ide,
+      'auch während eine Abfrage aussteht');
+    Assert.IsTrue(mFallback.State = TDpccFallbackState.Idle, 'Merker leer');
+    Assert.IsFalse(mFallback.Settled(True), 'das späte Ergebnis zählt nicht mehr');
+  finally
+    mFallback.Free;
+  end;
+end;
+
+procedure TDpccCompletionFallbackTests.UsualIdeListIsReachableAndClosed;
+var
+  mFallback: TDpccCompletionFallback;
+begin
+  Assert.IsTrue(TDpccIdeList.Usual.Reachable, 'erreichbar');
+  Assert.IsFalse(TDpccIdeList.Usual.Open, 'geschlossen');
+  mFallback := TDpccCompletionFallback.Create;
+  try
+    mFallback.Press(Place(10), TDpccIdeList.Usual);
+    Assert.IsTrue(mFallback.Settled(True), 'Hinweis wie in L3');
+    Assert.IsTrue(mFallback.Press(Place(10)) = TDpccCompletionRoute.Ide, 'zweites Drücken: Liste der IDE');
+  finally
+    mFallback.Free;
   end;
 end;
 

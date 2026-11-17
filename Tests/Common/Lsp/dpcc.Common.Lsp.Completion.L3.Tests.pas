@@ -9,6 +9,9 @@
 // Nur APIs, die es vor L3 schon gab: Die Tests lassen sich gegen den alten Stand gegenprüfen (dort schlagen
 // RaiseAdmitLoadsNoColdUnit, RaiseOffersIdeExceptionClasses, AttributeOffersIdeAttributeClasses und die
 // Include-Tests fehl). Testquellen in ASCII.
+// L4: Auch die Nachbearbeitung der Listen (TCompletionExceptions.Apply, TCompletionAttributes.Apply) lädt keine
+// kalte Unit mehr (RaiseListLoadsNoColdUnit, HandlerListLoadsNoColdUnit, AttributeListLoadsNoColdUnit; vor L4 rot:
+// zwei bzw. eine Unit nachgeladen).
 
 interface
 
@@ -60,6 +63,18 @@ type
     /// </summary>
     [Test]
     procedure AttributeOffersIdeAttributeClasses;
+    /// <summary>L4: raise EVendor zeigt die Exception-Klassen aus zwei kalten Units, ohne dass die Nachbearbeitung
+    /// der Liste eine davon nachlädt (vorher: beide).</summary>
+    [Test]
+    procedure RaiseListLoadsNoColdUnit;
+    /// <summary>L4: on E: nach einem Zweig für EVendorBase: EVendorThingError aus einer kalten Unit trägt die
+    /// Warnung zur Reihenfolge (Vorfahren aus dem Katalog), ohne Nachladen.</summary>
+    [Test]
+    procedure HandlerListLoadsNoColdUnit;
+    /// <summary>L4: [VendorM zeigt die Attributklasse aus einer kalten Unit ohne Endung, mit der Unit als Detail,
+    /// ohne sie nachzuladen (vorher: nachgeladen).</summary>
+    [Test]
+    procedure AttributeListLoadsNoColdUnit;
     /// <summary>{$I : die .inc-Dateien im Ordner der Datei, eingefügt per textEdit ab dem Namen.</summary>
     [Test]
     procedure IncludeOffersFilesOfFolder;
@@ -117,6 +132,7 @@ const
     'type'#10 +
     '  EVendorBase = class(Exception);'#10 +
     '  TVendorBaseThing = class(TObject);'#10 +
+    '  VendorMarkAttribute = class(TCustomAttribute);'#10 +
     'implementation'#10 +
     'end.';
 
@@ -388,6 +404,51 @@ begin
   Assert.IsTrue(mItem.Attribute, 'als Attribut');
   Assert.AreEqual('Vendor.Bpl', mItem.Detail, 'Unit als Detail');
   Assert.IsFalse(Find(mItems, 'VendorTool', mItem), 'keine Attributklasse');
+end;
+
+procedure TCompletionL3Tests.RaiseListLoadsNoColdUnit;
+var
+  mItems: TCompletionItems;
+  mItem: TCompletionItem;
+  mLoads: Integer;
+begin
+  mLoads := FIndex.LazyStats.Loads;
+  mItems := ItemsAt('raise EVendor|', nil);
+  Assert.IsTrue(Find(mItems, 'EVendorBase', mItem), 'Exception-Klasse aus kalter Unit');
+  Assert.AreEqual('EVendorBase.Create('''')', mItem.InsertText, 'Übernahme als raise');
+  Assert.IsTrue(Find(mItems, 'EVendorThingError', mItem), 'Vorfahr in einer zweiten kalten Unit');
+  Assert.AreEqual(mLoads, FIndex.LazyStats.Loads, 'die Nachbearbeitung lädt keine kalte Unit nach');
+  Assert.AreEqual(2, FIndex.LazyStats.Cold, 'beide Units weiter kalt');
+end;
+
+procedure TCompletionL3Tests.HandlerListLoadsNoColdUnit;
+var
+  mItems: TCompletionItems;
+  mItem: TCompletionItem;
+  mLoads: Integer;
+begin
+  mLoads := FIndex.LazyStats.Loads;
+  mItems := ItemsAt('try'#10'  except'#10'    on E: EVendorBase do ;'#10'    on E: EVendorT|', nil);
+  Assert.IsTrue(Find(mItems, 'EVendorThingError', mItem), 'Exception-Klasse aus kalter Unit');
+  Assert.AreEqual('EVendorBase', mItem.Unreachable, 'früherer Zweig fängt schon den Vorfahren');
+  Assert.AreEqual(mLoads, FIndex.LazyStats.Loads, 'die Nachbearbeitung lädt keine kalte Unit nach');
+  Assert.AreEqual(2, FIndex.LazyStats.Cold, 'beide Units weiter kalt');
+end;
+
+procedure TCompletionL3Tests.AttributeListLoadsNoColdUnit;
+var
+  mItems: TCompletionItems;
+  mItem: TCompletionItem;
+  mLoads: Integer;
+begin
+  mLoads := FIndex.LazyStats.Loads;
+  mItems := ItemsAt('A:[VendorM|', nil);
+  Assert.IsTrue(Find(mItems, 'VendorMark', mItem), 'Attributklasse aus kalter Unit ohne Endung');
+  Assert.IsTrue(mItem.Attribute, 'als Attribut');
+  Assert.AreEqual('Vendor.Base', mItem.Detail, 'Unit als Detail');
+  Assert.AreEqual(1, Integer(Length(mItem.AdditionalEdits)), 'mit uses-Eintrag');
+  Assert.AreEqual(mLoads, FIndex.LazyStats.Loads, 'die Nachbearbeitung lädt keine kalte Unit nach');
+  Assert.AreEqual(2, FIndex.LazyStats.Cold, 'beide Units weiter kalt');
 end;
 
 procedure TCompletionL3Tests.IncludeOffersFilesOfFolder;

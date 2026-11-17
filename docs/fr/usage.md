@@ -14,8 +14,8 @@
 dpcc attribue ces deux touches au moyen de sa propre liaison de touches (« dpcc Code Completion »). Il ne les prend
 que s'il traite le fichier : extension `.pas`, `.dpr`, `.dpk` ou `.inc`, interrupteur principal activé et fonction
 non désactivée par le fusible de sécurité (voir [Dépannage](troubleshooting.md)). Sinon, les touches vont à l'IDE.
-De même, un second Ctrl+Espace va à l'IDE si la liste de dpcc est restée vide au même endroit (voir
-[plus bas](#liste-de-lide-quand-dpcc-ne-trouve-rien)).
+De même, un second Ctrl+Espace va à l'IDE si la liste de dpcc est restée vide au même endroit, ainsi que tout
+Ctrl+Espace tant que la liste de l'IDE est déjà ouverte (voir [plus bas](#liste-de-lide-quand-dpcc-ne-trouve-rien)).
 
 dpcc n'occupe pas d'autres touches de façon permanente. Il ne prend les flèches, Entrée, Tab et Échap que tant
 qu'une de ses fenêtres est ouverte et a besoin de la touche.
@@ -45,9 +45,14 @@ du serveur.
 - Tant que la réponse de dpcc se fait attendre, un autre Ctrl+Espace interroge de nouveau dpcc.
 - Ensuite, tout recommence : le Ctrl+Espace suivant interroge de nouveau dpcc.
 - dpcc ne passe jamais de lui-même à la liste de l'IDE.
+- Si la liste de l'IDE est déjà ouverte (par exemple après « . » de DelphiLSP), Ctrl+Espace lui appartient. dpcc
+  n'ouvre alors pas de seconde liste à côté.
 
 La liste de l'IDE vient du fournisseur Code Insight choisi pour Delphi dans les options de l'IDE (par défaut
-DelphiLSP).
+DelphiLSP). Si dpcc lui-même y est choisi, il n'y a pas de liste de l'IDE : l'IDE rappelle dpcc même pour un
+Ctrl+Espace que dpcc lui transmet, jamais DelphiLSP. Le message du pied n'apparaît alors pas, et un second
+Ctrl+Espace interroge de nouveau dpcc. Pour garder la liste de DelphiLSP comme recours, laissez DelphiLSP choisi
+dans les options.
 
 ## La liste
 

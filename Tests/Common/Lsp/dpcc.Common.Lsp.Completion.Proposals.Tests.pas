@@ -27,6 +27,12 @@ type
     procedure OffersOverridesWithDeclarationAndBody;
     [Test]
     procedure OffersMatchingHandlersAndNewMethodForEvents;
+    /// <summary>L4: Nach "FLog := " mit einer Methodenreferenz ohne Ergebnis und ohne "of object" (und nach
+    /// "FDone := " mit "reference to procedure;") scheiterte die Anfrage an ERegularExpressionError (Index out of
+    /// bounds): optionale Gruppen am Ende des Musters fehlen in TMatch.Groups. Generische Typen (TProc&lt;T&gt;)
+    /// bekommen ihre Typargumente.</summary>
+    [Test]
+    procedure EventsWithMethodReferences;
     [Test]
     procedure OffersEnumValuesAndSetValues;
     [Test]
@@ -97,7 +103,8 @@ uses
   dpcc.Common.Lsp.Completion.Context,
   dpcc.Common.Lsp.FuzzyMatch,
   dpcc.Common.Lsp.CompletionCollector,
-  dpcc.Common.Lsp.Completion.Details;
+  dpcc.Common.Lsp.Completion.Details,
+  dpcc.Common.Lsp.Completion.Values;
 
 procedure TLspCompletionProposalTests.WarmUpFirstUse;
 begin
@@ -321,6 +328,93 @@ begin
     // Keine Ereignis-Zuweisung: normale Vervollständigung.
     Assert.IsFalse(EventsAt(LookupOf(Resolver, nil, Tree, cEventsText, nil),
       PositionOf(cEventsText, 'uses Ba'), Items));
+  finally
+    Resolver.Free;
+    Tree.Free;
+  end;
+end;
+
+const
+  cRefUnitBasis =
+    'unit Basis;'#13#10 +
+    'interface'#13#10 +
+    'type'#13#10 +
+    '  TProc = reference to procedure;'#13#10 +
+    '  TProc<T> = reference to procedure (Arg1: T);'#13#10 +
+    '  TLogProc = reference to procedure(const AMessage: string);'#13#10 +
+    'implementation'#13#10 +
+    'end.';
+  cRefText =
+    'unit Haupt;'#13#10 +
+    'interface'#13#10 +
+    'uses Basis;'#13#10 +
+    'type'#13#10 +
+    '  TWorker = class'#13#10 +
+    '    FLog: TLogProc;'#13#10 +
+    '    FDone: TProc;'#13#10 +
+    '    FPin: TProc<Integer>;'#13#10 +
+    '    procedure Run;'#13#10 +
+    '    procedure Schreibe(const AMessage: string);'#13#10 +
+    '    procedure Merke(AValue: Integer);'#13#10 +
+    '  end;'#13#10 +
+    'implementation'#13#10 +
+    'procedure TWorker.Run;'#13#10 +
+    'begin'#13#10 +
+    '  FLog := '#13#10 +
+    '  FDone := '#13#10 +
+    '  FPin := '#13#10 +
+    'end;'#13#10 +
+    'procedure TWorker.Schreibe(const AMessage: string);'#13#10 +
+    'begin'#13#10 +
+    'end;'#13#10 +
+    'procedure TWorker.Merke(AValue: Integer);'#13#10 +
+    'begin'#13#10 +
+    'end;'#13#10 +
+    'end.';
+
+/// <summary>Namen der passenden Methoden (ohne "Neue Methode …"), mit Leerzeichen davor.</summary>
+function HandlerNames(const AItems: TCompletionItems): string;
+var
+  mItem: TCompletionItem;
+begin
+  Result := '';
+  for mItem in AItems.Items do
+  begin
+    if mItem.Action = '' then
+    begin
+      Result := Result + ' ' + mItem.Name;
+    end;
+  end;
+end;
+
+procedure TLspCompletionProposalTests.EventsWithMethodReferences;
+var
+  Tree: TSyntaxTree;
+  Resolver: TNameResolver;
+  Lookup: TEnumLookup;
+  Items: TCompletionItems;
+begin
+  FIndex.AddUnit(TIndexExtractor.ExtractText(cRefUnitBasis, 'C:\P\Basis.pas', nil));
+  Tree := TPascalParser.Parse(cRefText);
+  Resolver := TNameResolver.Create(FIndex);
+  try
+    Lookup := LookupOf(Resolver, nil, Tree, cRefText,
+      function(const AFileName: string; out AText: string): Boolean
+      begin
+        AText := cRefUnitBasis;
+        Result := SameText(AFileName, 'C:\P\Basis.pas');
+      end);
+    // reference to procedure(const AMessage: string): Gruppen 4 und 5 fehlen.
+    Assert.IsTrue(EventsAt(Lookup, PositionOf(cRefText, 'FLog := '), Items), 'FLog');
+    Assert.AreEqual(' Schreibe', HandlerNames(Items), 'FLog');
+    // reference to procedure; ohne Klammern: Gruppen 3 bis 5 fehlen.
+    Assert.IsTrue(EventsAt(Lookup, PositionOf(cRefText, 'FDone := '), Items), 'FDone');
+    Assert.AreEqual(' Run', HandlerNames(Items), 'FDone');
+    // TProc<Integer>: nicht das nicht generische TProc; Merke(AValue: Integer) passt.
+    if EventsAt(Lookup, PositionOf(cRefText, 'FPin := '), Items) then
+    begin
+      Assert.AreEqual(' Merke', HandlerNames(Items), 'FPin');
+    end;
   finally
     Resolver.Free;
     Tree.Free;

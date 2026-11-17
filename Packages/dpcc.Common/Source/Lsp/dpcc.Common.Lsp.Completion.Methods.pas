@@ -139,20 +139,37 @@ begin
 end;
 
 /// <summary>Methodenzeigertyp des Ereignisses auflösen: wie im Quelltext, sonst über die Unit der Eigenschaft.
-/// </summary>
+/// ATypeText ist der Typ, wie er beim Ereignis steht (mit Typargumenten, etwa "TProc&lt;HMODULE&gt;").</summary>
 function EventTypeOf(ARequest: TCompletionRequest; const ATarget: TEventTarget;
-  out AEventType: TResolvedSymbol): Boolean;
+  out AEventType: TResolvedSymbol; out ATypeText: string): Boolean;
 var
   mEvent: TResolvedSymbol;
   mTypeNames: TArray<string>;
+  mUnit: TUnitIndex;
 begin
   AEventType := Default(TResolvedSymbol);
+  ATypeText := '';
   mEvent := ARequest.Resolver.ResolveChain(ARequest.Tree, ARequest.FileName, ATarget.Names, ATarget.Offset);
   if not mEvent.Found or not (mEvent.SymbolKind in [TIndexSymbolKind.Property_, TIndexSymbolKind.Field,
     TIndexSymbolKind.Variable]) or (mEvent.TypeName = '') then
   begin
     Exit(False);
   end;
+  ATypeText := mEvent.TypeName;
+  // Der Index führt Typargumente getrennt (FPin: TProc<HMODULE> → TypeName TProc, TypeArgs HMODULE).
+  if (mEvent.TypeArgs <> '') and (Pos('<', ATypeText) = 0) then
+  begin
+    ATypeText := ATypeText + '<' + mEvent.TypeArgs + '>';
+  end;
+  // Generischer Typ (L4): mit der Zahl der Typargumente in der Unit des Ereignisses suchen, sonst träfe die
+  // Namenskette den gleichnamigen nicht generischen Typ (TProc statt TProc<T>).
+  if (Pos('<', ATypeText) > 0) and ARequest.Resolver.DeclaringUnit(mEvent, mUnit) and
+    ARequest.Resolver.ResolveTypeTextFrom(mUnit, ATypeText, AEventType) and AEventType.Found and
+    (AEventType.FileName <> '') then
+  begin
+    Exit(True);
+  end;
+  AEventType := Default(TResolvedSymbol);
   mTypeNames := mEvent.TypeName.Split(['.']);
   AEventType := ARequest.Resolver.ResolveChain(ARequest.Tree, ARequest.FileName, mTypeNames, ATarget.Offset);
   if not AEventType.Found and (mEvent.UnitName <> '') then
@@ -178,6 +195,19 @@ begin
   end;
 end;
 
+/// <summary>Text der Gruppe AIndex von AMatch; '' auch, wenn die Gruppe nicht vorkommt. TMatch.Groups zählt nur bis
+/// zur letzten belegten Gruppe (PCRE): Optionale Gruppen am Ende fehlen dann ganz, und Groups[AIndex] löste
+/// ERegularExpressionError „Index out of bounds“ aus (L4: "FLog := " mit "reference to procedure(…)" ohne
+/// Ergebnis und ohne "of object").</summary>
+function GroupText(const AMatch: TMatch; AIndex: Integer): string;
+begin
+  Result := '';
+  if AMatch.Success and (AIndex < AMatch.Groups.Count) then
+  begin
+    Result := AMatch.Groups[AIndex].Value;
+  end;
+end;
+
 /// <summary>Signatur aus der Deklaration "TNotifyEvent = procedure(Sender: TObject) of object;"; nur
 /// Methodenzeiger und Methodenreferenzen.</summary>
 function SignatureOf(const ADeclaration: string; out ASignature: TEventSignature): Boolean;
@@ -188,14 +218,45 @@ begin
   mMatch := TRegEx.Match(ADeclaration,
     '=\s*(reference\s+to\s+)?(procedure|function)\s*(?:\((.*)\))?\s*(?::\s*([\w.<>, ]+?))?\s*(of\s+object)?\s*;',
     [roIgnoreCase]);
-  Result := mMatch.Success and ((mMatch.Groups[1].Length > 0) or (mMatch.Groups[5].Length > 0));
+  // Gruppen 3 bis 5 sind optional: nur über GroupText lesen.
+  Result := mMatch.Success and ((GroupText(mMatch, 1) <> '') or (GroupText(mMatch, 5) <> ''));
   if not Result then
   begin
     Exit;
   end;
-  ASignature.Kind := LowerCase(mMatch.Groups[2].Value);
-  ASignature.Params := Trim(mMatch.Groups[3].Value);
-  ASignature.ResultType := Trim(mMatch.Groups[4].Value);
+  ASignature.Kind := LowerCase(GroupText(mMatch, 2));
+  ASignature.Params := Trim(GroupText(mMatch, 3));
+  ASignature.ResultType := Trim(GroupText(mMatch, 4));
+  ASignature.ParamTypes := EventParamTypes(ASignature.Params);
+end;
+
+/// <summary>Typargumente des Ereignistyps (TProc&lt;HMODULE&gt;) in ASignature einsetzen (L4). False, wenn die Zahl
+/// der Typargumente nicht zu den Typparametern der gefundenen Deklaration passt (etwa TProc statt TProc&lt;T&gt;):
+/// Dann gälte eine falsche Signatur, und die gewöhnliche Liste ist besser.</summary>
+function BindTypeArgs(const ATypeText: string; const AEventType: TResolvedSymbol;
+  var ASignature: TEventSignature): Boolean;
+var
+  mBase: string;
+  mArgs, mParams: TArray<string>;
+  mIndex: Integer;
+begin
+  mArgs := TCompletionAnonymous.TypeArgs(ATypeText, mBase);
+  mParams := nil;
+  if Trim(AEventType.TypeParams) <> '' then
+  begin
+    mParams := Trim(AEventType.TypeParams).Split([',']);
+    for mIndex := 0 to High(mParams) do
+    begin
+      mParams[mIndex] := Trim(mParams[mIndex]);
+    end;
+  end;
+  Result := Length(mArgs) = Length(mParams);
+  if not Result or (Length(mArgs) = 0) then
+  begin
+    Exit;
+  end;
+  ASignature.Params := TCompletionAnonymous.Substitute(ASignature.Params, mParams, mArgs);
+  ASignature.ResultType := TCompletionAnonymous.Substitute(ASignature.ResultType, mParams, mArgs);
   ASignature.ParamTypes := EventParamTypes(ASignature.Params);
 end;
 
@@ -204,11 +265,12 @@ function EventSignatureOf(ARequest: TCompletionRequest; const ATarget: TEventTar
   out ASignature: TEventSignature): Boolean;
 var
   mEventType: TResolvedSymbol;
-  mSource: string;
+  mSource, mTypeText: string;
 begin
   ASignature := Default(TEventSignature);
-  Result := EventTypeOf(ARequest, ATarget, mEventType) and SourceOf(ARequest, mEventType, mSource) and
-    SignatureOf(TInterfaceStubs.DeclarationOf(TextLines(mSource), mEventType.Range), ASignature);
+  Result := EventTypeOf(ARequest, ATarget, mEventType, mTypeText) and SourceOf(ARequest, mEventType, mSource) and
+    SignatureOf(TInterfaceStubs.DeclarationOf(TextLines(mSource), mEventType.Range), ASignature) and
+    BindTypeArgs(mTypeText, mEventType, ASignature);
   ASignature.TypeName := mEventType.Name;
 end;
 

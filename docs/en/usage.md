@@ -14,7 +14,8 @@
 dpcc assigns these two keys with its own key binding (“dpcc Code Completion”). It takes them only if it serves the
 file: extension `.pas`, `.dpr`, `.dpk` or `.inc`, master switch on, and the feature not switched off by the safety
 fuse (see [Troubleshooting](troubleshooting.md)). Otherwise the keys go to the IDE. A second Ctrl+Space also goes
-to the IDE if the dpcc list stayed empty at the same position (see [below](#ide-list-when-dpcc-finds-nothing)).
+to the IDE if the dpcc list stayed empty at the same position, and so does every Ctrl+Space while the IDE list is
+already open (see [below](#ide-list-when-dpcc-finds-nothing)).
 
 dpcc does not take any other keys permanently. It takes the arrow keys, Enter, Tab and Esc only while one of its
 windows is open and needs the key.
@@ -43,8 +44,13 @@ nothing found, no suitable context, an error or the server time limit.
 - While the dpcc answer is still pending, another Ctrl+Space asks dpcc again.
 - Afterwards it starts over: the next Ctrl+Space asks dpcc again.
 - dpcc never switches to the IDE list by itself.
+- If the IDE list is already open (for example after “.” from DelphiLSP), Ctrl+Space belongs to it. dpcc then does
+  not open a second list next to it.
 
-The IDE list comes from the Code Insight provider selected for Delphi in the IDE options (default DelphiLSP).
+The IDE list comes from the Code Insight provider selected for Delphi in the IDE options (default DelphiLSP). If
+dpcc itself is selected there, there is no IDE list: the IDE calls dpcc again even for a Ctrl+Space that dpcc passes
+on, never DelphiLSP. The footer hint is then not shown, and a second Ctrl+Space asks dpcc again. If you want the
+DelphiLSP list as a fallback, keep DelphiLSP selected in the options.
 
 ## The list
 

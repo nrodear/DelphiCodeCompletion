@@ -92,6 +92,18 @@ type
   /// Attributklammern.</summary>
   TCompletionAncestryKind = (Exceptions, Attributes);
 
+  /// <summary>Klasse bzw. Typ-Alias oberster Ebene aus dem Katalog samt Unit (L4): Damit bestimmt die
+  /// Nachbearbeitung der Listen nach raise, on und in Attributklammern Art, Klasse und Vorfahren eines Eintrags,
+  /// ohne seine Unit nachzuladen.</summary>
+  TCompletionCatalogType = record
+    Symbol: TCatalogSymbol;
+    UnitName: string;
+    FileName: string;
+    Library_: Boolean;
+    /// <summary>Unit.Name in Großbuchstaben: dieselbe Klasse über mehrere Units nur einmal.</summary>
+    function Key: string;
+  end;
+
   /// <summary>Vorfahrenkette für den Vorfilter bei raise und Attributen (L3), nur über die Vorfahren im Katalog
   /// (TImportNames.Types, TCatalogSymbol.Ancestors) und die Vorfahren der IDE-Typen (TIdeTypeEntry.Parent): Kalte
   /// Units lädt sie dafür nicht nach. Eine Klasse gilt, wenn ihre Kette die Wurzel erreicht oder an einem
@@ -132,6 +144,17 @@ type
     function AdmitsCatalog(const ASymbol: TCatalogSymbol): Boolean;
     /// <summary>Lässt der Vorfilter den IDE-Typ AType zu (Kette über Parent)?</summary>
     function AdmitsIde(const AType: TIdeTypeEntry): Boolean;
+    /// <summary>Katalogeintrag (Klasse oder Typ-Alias oberster Ebene) zum Listeneintrag AItem über Datei, Stelle und
+    /// Namen (L4); lädt nichts nach. False ohne Katalog (AIndex nil) oder wenn der Eintrag nicht darin steht.
+    /// </summary>
+    function ItemType(const AItem: TCompletionItem; out AType: TCompletionCatalogType): Boolean;
+    /// <summary>Klasse hinter AType (L4): die Klasse selbst, bei einem Alias sein Ziel im Katalog (die Unit vor dem
+    /// Namen zuerst, höchstens cMaxDepth Stufen). False, wenn das Ziel keine Klasse im Katalog ist.</summary>
+    function ClassOf(const AType: TCompletionCatalogType; out AClass: TCompletionCatalogType): Boolean;
+    /// <summary>Namen der Klasse AClass und ihrer Vorfahren, die Klasse zuerst (wie
+    /// TResolverQueries.AncestorNames), nur über den Katalog und die Vorfahren der IDE-Typen (L4). Endet nach dem
+    /// ersten Vorfahren, der in keinem von beiden steht.</summary>
+    function AncestorNames(const AClass: TCompletionCatalogType): TArray<string>;
     property Kind: TCompletionAncestryKind read FKind;
   end;
 
@@ -233,6 +256,14 @@ function CompletionKindOf(AKind: TIndexSymbolKind): Integer;
 /// sonst verwürfen.</summary>
 function IdeTypeOfItem(ARequest: TCompletionRequest; const AItem: TCompletionItem;
   out AType: TIdeTypeEntry): Boolean;
+/// <summary>Symbol zum Listeneintrag AItem wie TCompletionGenerics.ItemSymbol, lädt aber keine Unit nach (L4): nur
+/// aus der eigenen Datei (Baum) und aus Units, deren Symbole im Speicher sind (ISymbolIndex.FindHeader); bei
+/// Include-Dateien über ihre einbindende Unit (IIndexIncludeOwners). AUnits merkt die Units je Datei.</summary>
+function LoadedItemSymbol(ARequest: TCompletionRequest; AUnits: TDictionary<string, TUnitIndex>;
+  const AItem: TCompletionItem; out ASymbol: TResolvedSymbol): Boolean;
+/// <summary>Symbol zum Katalogeintrag AType, wenn seine Unit gerade im Speicher ist (L4); lädt nichts nach.</summary>
+function LoadedTypeSymbol(const AIndex: ISymbolIndex; const AType: TCompletionCatalogType;
+  out ASymbol: TResolvedSymbol): Boolean;
 /// <summary>Eintrag aus dem nächsten Gültigkeitsbereich: lokal, Parameter, eigenes Mitglied (nicht geerbt)
 /// oder eigene Unit; solche Einträge fallen beim Kürzen auf MaxItems nie heraus.</summary>
 function IsNearItem(const AItem: TCompletionItem): Boolean;
@@ -1358,6 +1389,174 @@ begin
   Result := (AType.Parent <> '') and Accepts(Reach(AType.Parent, 0));
 end;
 
+{ TCompletionCatalogType }
+
+function TCompletionCatalogType.Key: string;
+begin
+  Result := UpperCase(UnitName + '.' + Symbol.Name);
+end;
+
+/// <summary>Katalogeintrag AEntry der Typtabelle ATypes mit seiner Unit.</summary>
+function CatalogTypeAt(const ATypes: TImportTypeTable; AEntry: Integer): TCompletionCatalogType;
+var
+  mUnit: TCatalogUnit;
+begin
+  mUnit := ATypes.Names.Units[ATypes.Names.Entries[AEntry].UnitPos];
+  Result.Symbol := ATypes.Symbol(AEntry);
+  Result.UnitName := mUnit.UnitName;
+  Result.FileName := mUnit.FileName;
+  Result.Library_ := mUnit.Library_;
+end;
+
+/// <summary>Name ohne Typparameter: "TFoo&lt;T&gt;" → "TFoo".</summary>
+function WithoutTypeParams(const AName: string): string;
+begin
+  Result := AName;
+  if Pos('<', Result) > 0 then
+  begin
+    Result := Copy(Result, 1, Pos('<', Result) - 1);
+  end;
+end;
+
+function TCompletionAncestry.ItemType(const AItem: TCompletionItem; out AType: TCompletionCatalogType): Boolean;
+var
+  mEntry: Integer;
+  mCandidate: TCompletionCatalogType;
+begin
+  AType := Default(TCompletionCatalogType);
+  if (FIndex = nil) or (AItem.SourceFile = '') then
+  begin
+    Exit(False);
+  end;
+  EnsureTypes;
+  // Generische Typen heißen in der Liste "TFoo<T>" (L1); der Katalog kennt nur den Namen.
+  for mEntry in FTypes.Named(WithoutTypeParams(AItem.Name)) do
+  begin
+    mCandidate := CatalogTypeAt(FTypes, mEntry);
+    if (mCandidate.Symbol.Start.Line = AItem.SourcePosition.Line) and
+      (mCandidate.Symbol.Start.Character = AItem.SourcePosition.Character) and
+      SameText(mCandidate.FileName, AItem.SourceFile) then
+    begin
+      AType := mCandidate;
+      Exit(True);
+    end;
+  end;
+  Result := False;
+end;
+
+function TCompletionAncestry.ClassOf(const AType: TCompletionCatalogType; out AClass: TCompletionCatalogType): Boolean;
+var
+  mTarget, mBare, mUnitName: string;
+  mEntry, mDepth: Integer;
+  mCandidate, mFirst: TCompletionCatalogType;
+  mFound: Boolean;
+begin
+  AClass := AType;
+  EnsureTypes;
+  for mDepth := 0 to cMaxDepth do
+  begin
+    if AClass.Symbol.Kind <> TIndexSymbolKind.TypeAlias then
+    begin
+      Exit(AClass.Symbol.Kind = TIndexSymbolKind.ClassType);
+    end;
+    // "EFoo = Vendor.Errors.EBase": die Unit vor dem Namen zuerst, sonst eine Klasse dieses Namens, sonst ein
+    // anderer Eintrag (nie der Alias selbst: "TestAttribute = DUnitX.Attributes.TestAttribute").
+    mTarget := WithoutTypeParams(AClass.Symbol.TypeName);
+    mBare := TResolverText.BareTypeName(mTarget);
+    mUnitName := '';
+    if LastDelimiter('.', mTarget) > 0 then
+    begin
+      mUnitName := Copy(mTarget, 1, LastDelimiter('.', mTarget) - 1);
+    end;
+    if mBare = '' then
+    begin
+      Exit(False);
+    end;
+    mFound := False;
+    mFirst := Default(TCompletionCatalogType);
+    for mEntry in FTypes.Named(mBare) do
+    begin
+      mCandidate := CatalogTypeAt(FTypes, mEntry);
+      if SameText(mCandidate.FileName, AClass.FileName) and (mCandidate.Symbol.Start.Line = AClass.Symbol.Start.Line)
+        and (mCandidate.Symbol.Start.Character = AClass.Symbol.Start.Character) then
+      begin
+        Continue;
+      end;
+      if (mUnitName <> '') and SameText(mCandidate.UnitName, mUnitName) then
+      begin
+        mFirst := mCandidate;
+        mFound := True;
+        Break;
+      end;
+      if not mFound or ((mFirst.Symbol.Kind <> TIndexSymbolKind.ClassType) and
+        (mCandidate.Symbol.Kind = TIndexSymbolKind.ClassType)) then
+      begin
+        mFirst := mCandidate;
+        mFound := True;
+      end;
+    end;
+    if not mFound then
+    begin
+      Exit(False);
+    end;
+    AClass := mFirst;
+  end;
+  Result := False;
+end;
+
+function TCompletionAncestry.AncestorNames(const AClass: TCompletionCatalogType): TArray<string>;
+var
+  mNext, mBare, mParent: string;
+  mEntry, mDepth: Integer;
+  mSymbol: TCatalogSymbol;
+  mFound: Boolean;
+begin
+  Result := [AClass.Symbol.Name];
+  mNext := '';
+  if Length(AClass.Symbol.Ancestors) > 0 then
+  begin
+    mNext := AClass.Symbol.Ancestors[0];
+  end;
+  EnsureTypes;
+  for mDepth := 0 to cMaxDepth do
+  begin
+    mBare := TResolverText.BareTypeName(mNext);
+    if mBare = '' then
+    begin
+      Exit;
+    end;
+    Result := Result + [mBare];
+    if TResolverText.IsObjectRoot(mBare) then
+    begin
+      Exit;
+    end;
+    mFound := False;
+    for mEntry in FTypes.Named(mBare) do
+    begin
+      mSymbol := FTypes.Symbol(mEntry);
+      if mSymbol.Kind = TIndexSymbolKind.ClassType then
+      begin
+        mNext := '';
+        if Length(mSymbol.Ancestors) > 0 then
+        begin
+          mNext := mSymbol.Ancestors[0];
+        end;
+        mFound := True;
+        Break;
+      end;
+    end;
+    if not mFound then
+    begin
+      // Typen der IDE ohne Quelltext: Vorfahr über Parent; sonst endet die Kette hier.
+      if not IdeParent(mBare, mParent) then
+      begin
+        Exit;
+      end;
+      mNext := mParent;
+    end;
+  end;
+end;
+
 function TCompletionCollector.Ancestry: TCompletionAncestry;
 begin
   if (FAncestry = nil) and (FContext.Exceptions or FContext.Attribute) then
@@ -1398,6 +1597,83 @@ begin
     end;
   end;
   Result := False;
+end;
+
+/// <summary>Symbol an der Stelle APosition namens AName in AUnit; False ohne.</summary>
+function SymbolAt(const AUnit: TUnitIndex; const AName: string; const APosition: TTextPosition;
+  out ASymbol: TResolvedSymbol): Boolean;
+var
+  mSymbol: TIndexSymbol;
+begin
+  for mSymbol in AUnit.Symbols do
+  begin
+    if (mSymbol.SelectionRange.StartPos.Line = APosition.Line) and
+      (mSymbol.SelectionRange.StartPos.Character = APosition.Character) and SameText(mSymbol.Name, AName) then
+    begin
+      ASymbol := TResolvedSymbol.FromIndex(AUnit, mSymbol);
+      Exit(True);
+    end;
+  end;
+  ASymbol := Default(TResolvedSymbol);
+  Result := False;
+end;
+
+/// <summary>Unit der Datei AFileName ohne Nachladen: die Unit selbst oder die, die sie per $I einbindet; nur mit
+/// Symbolen im Speicher.</summary>
+function LoadedUnitOf(const AIndex: ISymbolIndex; const AFileName: string; out AUnit: TUnitIndex): Boolean;
+var
+  mOwners: IIndexIncludeOwners;
+  mOwner: string;
+begin
+  AUnit := Default(TUnitIndex);
+  if AIndex = nil then
+  begin
+    Exit(False);
+  end;
+  Result := AIndex.FindHeader(AFileName, AUnit);
+  if not Result and Supports(AIndex, IIndexIncludeOwners, mOwners) then
+  begin
+    mOwner := mOwners.IncludeOwner(AFileName);
+    Result := (mOwner <> '') and AIndex.FindHeader(mOwner, AUnit);
+  end;
+  // Eine verdrängte Unit kommt als Kopf ohne Symbole.
+  Result := Result and (Length(AUnit.Symbols) > 0);
+end;
+
+function LoadedItemSymbol(ARequest: TCompletionRequest; AUnits: TDictionary<string, TUnitIndex>;
+  const AItem: TCompletionItem; out ASymbol: TResolvedSymbol): Boolean;
+var
+  mUnitInfo: TUnitIndex;
+begin
+  ASymbol := Default(TResolvedSymbol);
+  if AItem.SourceFile = '' then
+  begin
+    Exit(False);
+  end;
+  if not AUnits.TryGetValue(UpperCase(AItem.SourceFile), mUnitInfo) then
+  begin
+    // Die eigene Unit aus dem Baum, sie steht vielleicht noch nicht (aktuell) im Index.
+    if SameText(AItem.SourceFile, ARequest.FileName) and (ARequest.Tree <> nil) then
+    begin
+      mUnitInfo := ARequest.UnitIndex;
+    end
+    else if not LoadedUnitOf(ARequest.Index, AItem.SourceFile, mUnitInfo) then
+    begin
+      mUnitInfo := Default(TUnitIndex);
+    end;
+    AUnits.Add(UpperCase(AItem.SourceFile), mUnitInfo);
+  end;
+  Result := SymbolAt(mUnitInfo, AItem.Name, AItem.SourcePosition, ASymbol);
+end;
+
+function LoadedTypeSymbol(const AIndex: ISymbolIndex; const AType: TCompletionCatalogType;
+  out ASymbol: TResolvedSymbol): Boolean;
+var
+  mUnitInfo: TUnitIndex;
+begin
+  ASymbol := Default(TResolvedSymbol);
+  Result := LoadedUnitOf(AIndex, AType.FileName, mUnitInfo) and
+    SymbolAt(mUnitInfo, AType.Symbol.Name, AType.Symbol.Start, ASymbol);
 end;
 
 /// <summary>Passt ASymbol aus AUnitInfo zum Getippten, und lässt der Filter von SetAdmit es zu? Bei raise und

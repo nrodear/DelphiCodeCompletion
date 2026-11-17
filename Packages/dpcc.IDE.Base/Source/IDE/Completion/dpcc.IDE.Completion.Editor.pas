@@ -28,7 +28,9 @@
 //     Fußzeile. Strg+D gehört bei offener Liste immer dem Popup, nie dem Editor.
 //   - Zweites Strg+Leertaste (L3): KeyInvoke fragt TDpccCompletionFallback. Blieb die Liste nach dem vorigen
 //     Strg+Leertaste an derselben Stelle ohne Eingabe dazwischen leer, schließt dpcc und die Taste geht an die IDE
-//     (DelphiLSP öffnet ihre Liste); die Fußzeile des leeren Zustands weist darauf hin.
+//     (DelphiLSP öffnet ihre Liste); die Fußzeile des leeren Zustands weist darauf hin. L4: nur, wenn die Liste der
+//     IDE erreichbar ist (dpcc nicht der gewählte Code-Insight-Anbieter); ist sie schon offen, gehört ihr die Taste
+//     und dpcc öffnet keine zweite Liste (TDpccIdeList, ermittelt vom Code Insight-Manager).
 // Aufgeteilt in eine Kette von Stufen (dpcc.IDE.Completion.EditorState …EditorCommit); hier Tasten, Weitertippen
 // und Vorschau.
 
@@ -95,10 +97,11 @@ type
     procedure HandleCommand(AKey: Word; AShift: TShiftState);
     /// <summary>Editortext wurde geändert.</summary>
     procedure EditorModified(const AView: IOTAEditView);
-    /// <summary>Strg+Leertaste über die Taste von dpcc (L3). False: Die IDE soll ihre Liste öffnen, weil an
-    /// derselben Stelle nach dem vorigen Strg+Leertaste ohne Eingabe dazwischen die Liste leer blieb; dann ist die
-    /// Liste von dpcc geschlossen. Sonst öffnet dpcc die Vervollständigung (Invoke), True.</summary>
-    function KeyInvoke(const AView: IOTAEditView): Boolean;
+    /// <summary>Strg+Leertaste über die Taste von dpcc (L3). False: Die Taste gehört der IDE, weil an derselben
+    /// Stelle nach dem vorigen Strg+Leertaste ohne Eingabe dazwischen die Liste leer blieb und die Liste der IDE
+    /// erreichbar ist, oder weil die Liste der IDE schon offen ist (L4, AIde); dann ist die Liste von dpcc
+    /// geschlossen. Sonst öffnet dpcc die Vervollständigung (Invoke), True.</summary>
+    function KeyInvoke(const AView: IOTAEditView; const AIde: TDpccIdeList): Boolean;
   end;
 
 implementation
@@ -450,13 +453,20 @@ begin
     TLspSession.ColumnToIndex(mLineText, AView.CursorPos.Col, TDpccEditorBuffer.TabWidth(AView.Buffer)), mLineText);
 end;
 
-function TDpccEditorCompletion.KeyInvoke(const AView: IOTAEditView): Boolean;
+function TDpccEditorCompletion.KeyInvoke(const AView: IOTAEditView; const AIde: TDpccIdeList): Boolean;
 begin
   Result := True;
   if (AView <> nil) and (AView.Buffer <> nil) and
-    (FFallback.Press(CursorPlace(AView)) = TDpccCompletionRoute.Ide) then
+    (FFallback.Press(CursorPlace(AView), AIde) = TDpccCompletionRoute.Ide) then
   begin
-    Log('Vervollständigung: zweites Strg+Leer an derselben Stelle, die Liste der IDE übernimmt');
+    if AIde.Open then
+    begin
+      Log('Vervollständigung: Strg+Leer bei offener Liste der IDE, die Taste gehört ihr');
+    end
+    else
+    begin
+      Log('Vervollständigung: zweites Strg+Leer an derselben Stelle, die Liste der IDE übernimmt');
+    end;
     Close;
     Exit(False);
   end;
