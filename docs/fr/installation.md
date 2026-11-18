@@ -114,9 +114,11 @@ Code de sortie de `Status` et `Check` :
 - dpcc démarre le serveur à la première requête, par exemple avec Ctrl+Espace. Le serveur construit ensuite l'index.
   La première construction peut prendre quelques minutes sur les grosses installations, car elle lit aussi la
   bibliothèque. Ensuite, l'essentiel vient du cache. Voir [Index et cache](index-cache.md).
-- dpcc désactive Help Insight de l'IDE tant que sa propre infobulle est activée. La fenêtre Messages le signale.
-  L'IDE ne lit ce réglage qu'au prochain démarrage ; d'ici là, deux infobulles peuvent apparaître. Voir
-  [Réglages](settings.md#ce-que-dpcc-modifie-dans-lide).
+- Si DelphiLSP est choisi comme fournisseur Code Insight au démarrage de Delphi (par défaut), dpcc se désactive.
+  Pour l'activer, activer l'interrupteur principal sous **Tools › Options › Third Party › dpcc** et fermer avec
+  **OK** : dpcc bascule alors le fournisseur de l'IDE sur dpcc et règle les options de l'IDE dont il a besoin (Help
+  Insight, infobulles, délai). Cela prend effet après le redémarrage de Delphi ; la fenêtre Messages le signale.
+  Voir [Réglages](settings.md#ce-que-dpcc-modifie-dans-lide).
 
 ## Mise à jour
 
@@ -129,9 +131,9 @@ désenregistre pour cela étape par étape. Redémarrer l'IDE ensuite est la mé
 
 ## Désinstallation
 
-1. Pour que dpcc rende les réglages de l'IDE : sous **Tools › Options › Third Party › dpcc**, désactiver
-   l'interrupteur principal « Code Insight by dpcc » (Code Insight de dpcc) et fermer avec **OK**. dpcc réactive alors
-   Help Insight et l'infobulle de valeur du débogueur, s'il les avait désactivés.
+1. Pour que dpcc rende le fournisseur et les réglages de l'IDE : sous **Tools › Options › Third Party › dpcc**,
+   désactiver l'interrupteur principal « Code Insight by dpcc » (Code Insight de dpcc), fermer avec **OK** et
+   redémarrer Delphi une fois. dpcc rétablit alors le fournisseur (par défaut DelphiLSP) et annule ses réglages.
 2. Ouvrir **Component › Install Packages…**, choisir « dpcc (Code Insight-Manager) » puis **Remove**.
 3. Fermer l'IDE.
 4. Retirer l'entrée du PATH : `powershell -NoProfile -File Tools\IdePath.ps1 -Action Remove` ou à la main sous
@@ -146,6 +148,7 @@ Ce qui reste ensuite et peut être supprimé à la main :
 | `%LOCALAPPDATA%\dpcc` | `Logs` (journal), `Index` (caches d'index) |
 | dossier des BPL | `dpcc.IDE.Expert370.log`, si le journal de diagnostic était activé |
 
-Si l'on a sauté l'étape 1, Help Insight et l'infobulle de valeur de l'IDE peuvent rester désactivés. Il faut alors
-les réactiver tous les deux dans les options Code Insight de l'IDE. Les emplacements dans le registre figurent sous
+Si l'on a sauté l'étape 1, dpcc peut rester inscrit comme fournisseur, et Help Insight, les infobulles et
+l'infobulle de valeur de l'IDE peuvent rester désactivés. Il faut alors choisir DelphiLSP dans les options Code
+Insight de l'IDE et réactiver ces réglages. Les emplacements dans le registre figurent sous
 [Réglages](settings.md#ce-que-dpcc-modifie-dans-lide).

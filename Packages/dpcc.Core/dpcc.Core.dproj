@@ -131,6 +131,7 @@
         <DCCReference Include="Source\Settings\dpcc.Core.Settings.JsonText.pas"/>
         <DCCReference Include="Source\Settings\dpcc.Core.Settings.Scopes.pas"/>
         <DCCReference Include="Source\Settings\dpcc.Core.Settings.CompletionView.pas"/>
+        <DCCReference Include="Source\Settings\dpcc.Core.Settings.IdeCheck.pas"/>
         <DCCReference Include="Source\Settings\dpcc.Core.Settings.MasterSwitch.pas"/>
         <DCCReference Include="Source\Completion\dpcc.Core.Completion.Ranking.pas"/>
         <DCCReference Include="Source\Completion\dpcc.Core.Completion.Sets.pas"/>

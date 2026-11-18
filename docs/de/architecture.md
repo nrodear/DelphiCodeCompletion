@@ -118,9 +118,15 @@ Abhängigkeiten bis zum Ende der IDE geladen. So springt kein Thread in entladen
 ## Anmelden und Abbauen
 
 `dpcc.IDE.Completion.Register` ist die Wurzel. `Register` meldet nacheinander an: Sicherung und Protokoll, Sprache,
-Startbildschirm, Code-Insight-Manager, Tastenbindung, Formulare, Speicher-Notifier, Help-Insight-Abgleich,
+Startbildschirm, Betriebsart (IDE-Kontext), Code-Insight-Manager, Tastenbindung, Formulare, Speicher-Notifier,
 Hauptschalter, Optionsseite. Jeder Schritt läuft für sich; ein Fehler kostet nur diesen Schritt und steht im
 Protokoll.
+
+Die Betriebsart (dpcc ist Code-Insight-Anbieter oder aus) entscheidet `dpcc.Core.Settings.IdeCheck` ohne Registry
+(`TDpccIdeContext.Plan`: Schreibaktionen und Merker, `TDpccIdeCheck.Evaluate`: Prüfung); gelesen wird in
+`dpcc.IDE.Foundation.IdeSettingsCheck`, geschrieben in `dpcc.IDE.Foundation.InsightSwitch` (beim Start vor dem
+Manager, nach OK im Optionsdialog, bei der Wahl im Code-Insight-Dialog der IDE über
+`IOTACodeInsightManagerEnvOptions` und beim Beenden). Siehe [Einstellungen](settings.md#was-dpcc-an-der-ide-umstellt).
 
 `Unregister` baut in umgekehrter Reihenfolge ab, ebenfalls Schritt für Schritt. Es läuft beim Zerstören des
 Hauptfensters der IDE oder in der Finalisierung, je nachdem, was zuerst kommt. Am Ende steht die Zeile „dpcc entladen

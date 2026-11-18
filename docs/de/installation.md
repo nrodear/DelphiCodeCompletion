@@ -114,8 +114,10 @@ Exit-Code von `Status` und `Check`:
 - Den Server startet dpcc mit der ersten Anfrage, etwa mit Strg+Leertaste. Danach baut er den Index auf. Der
   erste Aufbau kann bei großen Installationen einige Minuten dauern, weil er auch die Bibliothek einliest. Danach
   kommt das meiste aus dem Cache. Siehe [Index und Cache](index-cache.md).
-- dpcc schaltet Help Insight der IDE ab, solange der eigene Tooltip an ist. Das Meldungsfenster nennt das. Die IDE
-  liest den Schalter erst beim nächsten Start; bis dahin können zwei Tooltips erscheinen. Siehe
+- Ist beim Start von Delphi DelphiLSP als Code-Insight-Anbieter gewählt (Vorgabe), schaltet dpcc sich aus. Zum
+  Einschalten unter **Tools › Optionen › Drittanbieter › dpcc** den Hauptschalter setzen und mit **OK** schließen:
+  dpcc stellt dann den Anbieter der IDE auf dpcc und die nötigen Schalter der IDE (Help Insight, Kurzhinweise,
+  Verzögerung). Das wirkt nach dem Neustart von Delphi; das Meldungsfenster nennt es. Siehe
   [Einstellungen](settings.md#was-dpcc-an-der-ide-umstellt).
 
 ## Aktualisieren
@@ -129,9 +131,9 @@ dafür Schritt für Schritt ab. Ein Neustart der IDE danach ist der sichere Weg.
 
 ## Deinstallieren
 
-1. Damit dpcc die Schalter der IDE zurückgibt: unter **Tools › Optionen › Drittanbieter › dpcc** den Hauptschalter
-   „Code Insight von dpcc“ ausschalten und mit **OK** schließen. dpcc schaltet dann Help Insight und den
-   Wert-Tooltip beim Debuggen wieder ein, falls es sie abgeschaltet hatte.
+1. Damit dpcc den Anbieter und die Schalter der IDE zurückgibt: unter **Tools › Optionen › Drittanbieter › dpcc**
+   den Hauptschalter „Code Insight von dpcc“ ausschalten, mit **OK** schließen und Delphi einmal neu starten. dpcc
+   stellt dann den Anbieter zurück (Vorgabe DelphiLSP) und dreht seine Schalter zurück.
 2. **Komponenten › Packages installieren** öffnen, „dpcc (Code Insight-Manager)“ wählen und **Entfernen**.
 3. Die IDE schließen.
 4. Den PATH-Eintrag entfernen: `powershell -NoProfile -File Tools\IdePath.ps1 -Action Remove` oder von Hand unter
@@ -146,6 +148,7 @@ Was danach noch liegt und von Hand gelöscht werden kann:
 | `%LOCALAPPDATA%\dpcc` | `Logs` (Protokoll), `Index` (Index-Caches) |
 | BPL-Ordner | `dpcc.IDE.Expert370.log`, falls das Diagnoseprotokoll an war |
 
-Hat man Schritt 1 ausgelassen, bleiben Help Insight und der Wert-Tooltip der IDE eventuell aus. Dann beide in den
-Code-Insight-Optionen der IDE wieder einschalten. Die Registry-Orte stehen unter
+Hat man Schritt 1 ausgelassen, bleibt eventuell dpcc als Anbieter eingetragen, und Help Insight, die Kurzhinweise und
+der Wert-Tooltip der IDE bleiben aus. Dann in den Code-Insight-Optionen der IDE DelphiLSP wählen und die Schalter
+wieder einschalten. Die Registry-Orte stehen unter
 [Einstellungen](settings.md#was-dpcc-an-der-ide-umstellt).

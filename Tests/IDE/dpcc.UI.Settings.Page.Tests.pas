@@ -4,7 +4,8 @@
 // wird ohne IDE und ohne Fenster erzeugt (wie die IDE sie vor dem Einhängen erzeugt) und an ihren Elementen geprüft:
 // genau Hauptschalter, zwölf Optionen und zwei Knöpfe in Reihenfolge und Abschnitten, Sperre durch den Hauptschalter,
 // Kopplung „Eigener Tooltip“ → „Werte beim Debuggen“, Laden und Speichern über TDpccPluginSettings, die Knöpfe und
-// das Layout (keine Beschriftung ragt in ein Feld, deutsch und englisch; passt ohne Rollen).
+// das Layout (keine Beschriftung ragt in ein Feld, deutsch und englisch; passt ohne Rollen). Seit IDECHECK zuletzt der
+// Abschnitt IDE mit „Jetzt prüfen“ und den Statuszeilen (OnIdeStatus).
 
 interface
 
@@ -41,6 +42,10 @@ type
     /// <summary>„Index neu aufbauen“: ohne Haken grau, mit Rückfrage Nein nichts, mit Ja die Meldung.</summary>
     [Test]
     procedure RebuildIndexButton;
+    /// <summary>Abschnitt IDE: „Jetzt prüfen“ ohne Haken grau; mit Haken zeigt die Seite die Statuszeilen sofort und
+    /// nach jedem Klick neu; hängt nicht am Hauptschalter.</summary>
+    [Test]
+    procedure CheckIdeButton;
     /// <summary>Keine Beschriftung ragt in ihr Feld, auch nicht auf Englisch; die Seite passt ohne Rollen.</summary>
     [Test]
     [TestCase('Deutsch', 'False')]
@@ -99,13 +104,13 @@ end;
 
 procedure TDpccSettingsPageTests.PageHasTwelveOptionsAndTwoButtonsInSections;
 const
-  cNames: array[0..14] of string = ('Enabled', 'AutoMinChars', 'CompletionListMode', 'VisibleRows', 'ListWidth',
+  cNames: array[0..15] of string = ('Enabled', 'AutoMinChars', 'CompletionListMode', 'VisibleRows', 'ListWidth',
     'Learning', 'ResetHistory', 'AutoParentheses', 'CommitCharacters', 'AutoUses', 'ParameterHints', 'HoverTooltip',
-    'DebugHoverValues', 'IndexExtraSourceFolders', 'RebuildIndex');
-  cSections: array[0..14] of TDpccPageSection = (psMaster, psCompletion, psCompletion, psCompletion, psCompletion,
-    psCompletion, psCompletion, psCommit, psCommit, psCommit, psHints, psHints, psHints, psIndex, psIndex);
+    'DebugHoverValues', 'IndexExtraSourceFolders', 'RebuildIndex', 'CheckIde');
+  cSections: array[0..15] of TDpccPageSection = (psMaster, psCompletion, psCompletion, psCompletion, psCompletion,
+    psCompletion, psCompletion, psCommit, psCommit, psCommit, psHints, psHints, psHints, psIndex, psIndex, psIde);
   cTitles: array[TDpccPageSection] of string = ('', 'VERVOLLSTÄNDIGUNG', 'BEIM ÜBERNEHMEN',
-    'PARAMETER-HINT UND TOOLTIP', 'INDEX');
+    'PARAMETER-HINT UND TOOLTIP', 'INDEX', 'IDE');
 var
   mPage: TDpccSettingsPage;
   mEntry: TDpccSettingsPageEntry;
@@ -115,9 +120,9 @@ begin
   mPage := TDpccSettingsPage.Create(nil);
   try
     Assert.AreEqual(Integer(Length(cNames)), Integer(Length(mPage.Entries)), 'Elemente');
-    // Vier Überschriften, Großbuchstaben, keine für den Hauptschalter.
+    // Fünf Überschriften, Großbuchstaben, keine für den Hauptschalter.
     Assert.IsNull(mPage.TitleOf(psMaster), 'Überschrift Hauptschalter');
-    for mSection := psCompletion to psIndex do
+    for mSection := psCompletion to psIde do
     begin
       Assert.IsNotNull(mPage.TitleOf(mSection), 'Überschrift ' + cTitles[mSection]);
       Assert.AreEqual(cTitles[mSection], mPage.TitleOf(mSection).Caption);
@@ -152,7 +157,7 @@ begin
       // Gruppierung: die nächste Überschrift darüber gehört zum Abschnitt des Elements.
       mFound := psMaster;
       mTitleRow := -1;
-      for mSection := psCompletion to psIndex do
+      for mSection := psCompletion to psIde do
       begin
         if (RowIndex(mPage, mPage.TitleOf(mSection).Parent) < mRow) and
           (RowIndex(mPage, mPage.TitleOf(mSection).Parent) > mTitleRow) then
@@ -164,12 +169,14 @@ begin
       Assert.AreEqual(Ord(mEntry.Item.Section), Ord(mFound), cNames[mIndex] + ': unter der Überschrift');
     end;
     Assert.AreEqual(12, mOptions, 'Optionen');
-    Assert.AreEqual(2, mButtons, 'Knöpfe');
+    Assert.AreEqual(3, mButtons, 'Knöpfe');
     // Art der Elemente.
     Assert.IsTrue(mPage.ControlOf('Enabled') is TCheckBox, 'Hauptschalter');
     Assert.IsTrue(mPage.ControlOf('ListWidth') = mPage.AutoWidth, 'Breite automatisch');
     Assert.IsTrue(mPage.ControlOf('IndexExtraSourceFolders') is TEdit, 'Quellordner');
     Assert.IsTrue(mPage.ControlOf('CompletionListMode') = mPage.ListModeChoice, 'Listenmodus');
+    Assert.IsTrue(mPage.ControlOf(cPageCheckIde) = mPage.CheckIde, 'Jetzt prüfen');
+    Assert.IsTrue(mPage.IdeStatus.Parent = mPage.CheckIde.Parent, 'Statuszeilen neben dem Knopf');
     Assert.IsNull(mPage.ControlOf('OpenDelayMs'), 'fest verdrahtet');
     Assert.IsNull(mPage.ControlOf('XmlDocExpand'), 'entfallen');
   finally
@@ -190,6 +197,11 @@ begin
       begin
         Result := '';
       end;
+    mPage.OnIdeStatus :=
+      function: string
+      begin
+        Result := '';
+      end;
     mPage.LoadFrom(TDpccPluginSettings.Defaults);
     for mEntry in mPage.Entries do
     begin
@@ -201,7 +213,8 @@ begin
     mPage.LoadFrom(mSettings);
     for mEntry in mPage.Entries do
     begin
-      if (mEntry.Item.Name = 'Enabled') or (mEntry.Item.Name = cPageRebuildIndex) then
+      if (mEntry.Item.Name = 'Enabled') or (mEntry.Item.Name = cPageRebuildIndex) or
+        (mEntry.Item.Name = cPageCheckIde) then
       begin
         Assert.IsTrue(mEntry.Control.Enabled, mEntry.Item.Name + ' bleibt bedienbar');
         Continue;
@@ -411,6 +424,40 @@ begin
   end;
 end;
 
+procedure TDpccSettingsPageTests.CheckIdeButton;
+var
+  mPage: TDpccSettingsPage;
+  mCalls: Integer;
+begin
+  mCalls := 0;
+  mPage := TDpccSettingsPage.Create(nil);
+  try
+    mPage.LoadFrom(TDpccPluginSettings.Defaults);
+    Assert.IsFalse(mPage.CheckIde.Enabled, 'ohne Haken grau');
+    Assert.AreEqual('', mPage.IdeStatus.Caption, 'ohne Haken keine Zeilen');
+    mPage.OnIdeStatus :=
+      function: string
+      begin
+        Inc(mCalls);
+        Result := 'Betriebsart dpcc' + sLineBreak + 'Lauf ' + IntToStr(mCalls);
+      end;
+    Assert.IsTrue(mPage.CheckIde.Enabled, 'mit Haken bereit');
+    Assert.AreEqual(1, mCalls, 'beim Setzen gelesen');
+    Assert.AreEqual('Betriebsart dpcc' + sLineBreak + 'Lauf 1', mPage.IdeStatus.Caption, 'Statuszeilen');
+    mPage.CheckIde.Click;
+    Assert.AreEqual(2, mCalls, 'Jetzt prüfen liest neu');
+    Assert.IsTrue(EndsText('Lauf 2', mPage.IdeStatus.Caption), 'neue Zeilen');
+    // Hängt nicht am Hauptschalter (wie „Index neu aufbauen“).
+    mPage.MasterSwitch.Checked := False;
+    Assert.IsTrue(mPage.CheckIde.Enabled, 'Hauptschalter aus');
+    mPage.OnIdeStatus := nil;
+    Assert.IsFalse(mPage.CheckIde.Enabled, 'Haken entfernt');
+    Assert.AreEqual('', mPage.IdeStatus.Caption, 'Zeilen geleert');
+  finally
+    mPage.Free;
+  end;
+end;
+
 procedure TDpccSettingsPageTests.LabelsDoNotOverlapFields(AEnglish: Boolean);
 var
   mPage: TDpccSettingsPage;
@@ -454,13 +501,17 @@ begin
     Assert.IsTrue(mPage.ResetHistory.Width > mPage.TextWidthFor(mPage.ResetHistory, mPage.ResetHistory.Caption),
       'Knopf fasst Text');
     Assert.IsTrue(mPage.Rebuild.Width > mPage.TextWidthFor(mPage.Rebuild, mPage.Rebuild.Caption), 'Knopf fasst Text');
+    Assert.IsTrue(mPage.CheckIde.Width > mPage.TextWidthFor(mPage.CheckIde, mPage.CheckIde.Caption),
+      'Jetzt prüfen fasst Text');
+    Assert.IsTrue(mPage.IdeStatus.Left >= mPage.CheckIde.Left + mPage.CheckIde.Width, 'Statuszeilen neben dem Knopf');
     // Gleiche Einrückung der Optionen; „Werte beim Debuggen“ tiefer als „Eigener Tooltip“.
     Assert.AreEqual(mPage.ControlOf('AutoParentheses').Left, mPage.ControlOf('ParameterHints').Left, 'Einrückung');
     Assert.AreEqual(mPage.ControlOf('Learning').Left, mPage.ControlOf('HoverTooltip').Left, 'Einrückung');
     Assert.IsTrue(mPage.DebugHoverValues.Left > mPage.HoverTooltip.Left, 'Unterpunkt eingerückt');
     Assert.IsTrue(mPage.ControlOf('AutoParentheses').Left > mPage.MasterSwitch.Left, 'unter der Überschrift');
-    // Passt ohne Rollen in einen Bereich üblicher Größe (bei 96 dpi etwa 500 Punkte hoch und 520 breit).
-    Assert.IsTrue(mPage.Height <= mPage.ScaleValue(500), 'Höhe ' + IntToStr(mPage.Height));
+    // Passt ohne Rollen in einen Bereich üblicher Größe (bei 96 dpi etwa 580 Punkte hoch und 520 breit; seit IDECHECK
+    // mit dem Abschnitt IDE, vorher 500).
+    Assert.IsTrue(mPage.Height <= mPage.ScaleValue(580), 'Höhe ' + IntToStr(mPage.Height));
     Assert.IsTrue(mPage.ResetHistory.Left + mPage.ResetHistory.Width <= mPage.ScaleValue(520),
       'Breite der Lernen-Zeile ' + IntToStr(mPage.ResetHistory.Left + mPage.ResetHistory.Width));
   finally

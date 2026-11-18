@@ -155,6 +155,9 @@
         <DCCReference Include="..\Packages\dpcc.Core\Source\Settings\dpcc.Core.Settings.Scopes.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Settings\dpcc.Core.Settings.CompletionView.pas"/>
         <DCCReference Include="IDE\dpcc.Core.Settings.CompletionView.Tests.pas"/>
+        <DCCReference Include="..\Packages\dpcc.Core\Source\Editor\dpcc.Core.Editor.CodeInsightKeys.pas"/>
+        <DCCReference Include="..\Packages\dpcc.Core\Source\Settings\dpcc.Core.Settings.IdeCheck.pas"/>
+        <DCCReference Include="IDE\dpcc.Core.Settings.IdeCheck.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Settings\dpcc.Core.Settings.MasterSwitch.pas"/>
         <DCCReference Include="IDE\dpcc.Core.Settings.MasterSwitch.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Diagnostics\dpcc.Core.Diagnostics.LogRedaction.pas"/>

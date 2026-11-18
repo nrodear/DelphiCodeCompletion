@@ -32,7 +32,7 @@ Version 0.1.0, for Delphi 13 (RAD Studio 37.0), Win32.
 | Completion | Ctrl+Space | dpcc |
 | Parameter hint | Ctrl+Shift+Space | dpcc |
 | Tooltip over identifiers | Mouse rests over an identifier | dpcc |
-| List that opens by itself after “.” | Typing “.” | DelphiLSP (IDE) |
+| List that opens by itself after “.” | Typing “.” | dpcc if it is the Code Insight provider (master switch on); otherwise DelphiLSP (IDE), and dpcc is off |
 
 dpcc serves files with the extensions `.pas`, `.dpr`, `.dpk` and `.inc`. In all other files, and when the master
 switch is off, the IDE stays in charge.

@@ -22,16 +22,20 @@ offen ist und die Taste braucht.
 
 ## Zusammenspiel mit DelphiLSP
 
-Delphi 13 leitet automatische Auslöser (Tippen von „.“, „(“, „,“) nur an den Code-Insight-Anbieter weiter, der in
-den Optionen der IDE für Delphi gewählt ist. Die Vorgabe ist DelphiLSP. Daraus folgt:
+Delphi 12 und 13 leiten automatische Auslöser (Tippen von „.“, „(“, „,“) nur an den Code-Insight-Anbieter weiter,
+der in den Optionen der IDE für Delphi gewählt ist. Die Vorgabe ist DelphiLSP. dpcc und DelphiLSP laufen deshalb
+nicht nebeneinander, sondern in zwei Betriebsarten (Einzelheiten unter
+[Einstellungen](settings.md#was-dpcc-an-der-ide-umstellt)):
 
-- Die Liste, die nach „.“ von selbst aufgeht, kommt von DelphiLSP.
-- Strg+Leertaste und Strg+Umschalt+Leertaste kommen von dpcc.
+- **Betriebsart dpcc** (Hauptschalter an): dpcc ist der Anbieter. Die Liste nach „.“, die Parameterhilfe bei „(“ und
+  „,“, Strg+Leertaste, Strg+Umschalt+Leertaste und der Tooltip kommen von dpcc. dpcc stellt die nötigen Schalter der
+  IDE selbst.
+- **Betriebsart IDE** (Hauptschalter aus): DelphiLSP ist der Anbieter, dpcc ist aus. Ist beim Start von Delphi
+  DelphiLSP gewählt, schaltet dpcc sich selbst aus.
+- Den Hauptschalter einschalten stellt den Anbieter auf dpcc, ausschalten zurück auf DelphiLSP. Das wirkt nach dem
+  Neustart von Delphi; bis dahin gilt das Folgende für den alten Anbieter.
 - Die Liste, die beim Tippen eines Namens von selbst aufgeht (nur wenn eingeschaltet, siehe
-  [Öffnen beim Tippen](#öffnen-beim-tippen)), kommt von dpcc: Dafür beobachtet dpcc den Editor selbst, unabhängig
-  vom gewählten Anbieter.
-- Einstellungen, die nur beim automatischen Öffnen wirken, haben mit dieser Vorgabe keine Wirkung. Sie sind unter
-  [Einstellungen](settings.md) gekennzeichnet.
+  [Öffnen beim Tippen](#öffnen-beim-tippen)), kommt von dpcc: Dafür beobachtet dpcc den Editor selbst.
 
 Welcher Anbieter gewählt ist, schreibt dpcc beim Start ins Protokoll (Zeile „Code Insight für Delphi-Dateien:
 gewählt …“).
@@ -75,8 +79,8 @@ daran nicht beteiligt.
 - Die IDE wartet höchstens 1 Sekunde auf dpcc. Dauert es länger, springt sie nicht.
 
 Beim ersten Mal je Sitzung nennt das Meldungsfenster, dass dpcc gewählt ist und was dann fehlt: Error Insight
-(Fehlermarkierungen im Editor) und die übrigen Dienste von DelphiLSP. Wer sie braucht, wählt wieder DelphiLSP;
-Strg+Leertaste bleibt auch dann bei dpcc.
+(Fehlermarkierungen im Editor) und die übrigen Dienste von DelphiLSP. Wer sie braucht, schaltet den Hauptschalter
+aus (oder wählt in den Optionen der IDE wieder DelphiLSP); ab dem nächsten Start ist dpcc dann aus.
 
 ## Die Liste
 

@@ -119,9 +119,16 @@ ses dépendances chargé jusqu'à la fin de l'IDE. Ainsi, aucun thread ne saute 
 ## Enregistrement et démontage
 
 `dpcc.IDE.Completion.Register` est la racine de composition. `Register` enregistre successivement : fusible de
-sécurité et journal, langue, écran de démarrage, gestionnaire Code Insight, liaison de touches, fiches, notificateur
-d'enregistrement, synchronisation de Help Insight, interrupteur principal, page d'options. Chaque étape s'exécute
-séparément ; une erreur ne coûte que cette étape et figure dans le journal.
+sécurité et journal, langue, écran de démarrage, mode de fonctionnement (contexte IDE), gestionnaire Code Insight,
+liaison de touches, fiches, notificateur d'enregistrement, interrupteur principal, page d'options. Chaque étape
+s'exécute séparément ; une erreur ne coûte que cette étape et figure dans le journal.
+
+Le mode de fonctionnement (dpcc est le fournisseur Code Insight ou désactivé) est décidé par
+`dpcc.Core.Settings.IdeCheck` sans le registre (`TDpccIdeContext.Plan` : actions d'écriture et marqueurs,
+`TDpccIdeCheck.Evaluate` : vérification) ; la lecture se fait dans `dpcc.IDE.Foundation.IdeSettingsCheck`, l'écriture
+dans `dpcc.IDE.Foundation.InsightSwitch` (au démarrage avant le gestionnaire, après OK dans la boîte de dialogue des
+options, lors du choix dans la boîte de dialogue Code Insight de l'IDE via `IOTACodeInsightManagerEnvOptions` et à
+la fermeture). Voir [Réglages](settings.md#ce-que-dpcc-modifie-dans-lide).
 
 `Unregister` démonte dans l'ordre inverse, lui aussi étape par étape. Il s'exécute lors de la destruction de la
 fenêtre principale de l'IDE ou lors de la finalisation, selon ce qui arrive en premier. À la fin, la ligne

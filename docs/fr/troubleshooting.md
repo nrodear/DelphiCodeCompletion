@@ -54,9 +54,23 @@ dpcc transmet la touche à l'IDE lorsqu'il ne traite pas le fichier :
 | Le fusible de sécurité a désactivé la complétion. | La fenêtre Messages le signale (voir plus bas). Redémarrer l'IDE. |
 | La liste de dpcc est restée vide, et Ctrl+Espace a été pressé une seconde fois au même endroit. | Comportement attendu, voir [Utilisation](usage.md#liste-de-lide-quand-dpcc-ne-trouve-rien). Après une saisie ou à un autre endroit, Ctrl+Espace interroge de nouveau dpcc. |
 
+## Aucune liste ne s'ouvre après le point
+
+Le plus souvent, « Code completion: Auto invoke » (complétion de code : appel automatique) est désactivé dans les
+options Code Insight de l'IDE (valeur de registre `Auto Code Completions` = `False`). Alors ni la liste de l'IDE ni
+celle de dpcc ne s'ouvre après « . ».
+
+- Mode dpcc : dpcc règle lui-même la valeur sur `True` au démarrage de Delphi ; prend effet au prochain démarrage.
+- Mode IDE (DelphiLSP choisi) : dpcc ne fait que signaler l'écart, dans le journal (« IDE-Einstellungen: 1 Abweichung:
+  Auto Code Completions ») et sur la page dpcc dans la section **IDE**. Activer « Auto invoke » dans les options Code
+  Insight de l'IDE.
+
+Emplacements et valeurs attendues pour Delphi 12 et 13 : [Réglages](settings.md#ce-que-dpcc-modifie-dans-lide).
+
 ## La liste après « . » est différente de celle obtenue avec Ctrl+Espace
 
-C'est le comportement attendu. La liste qui s'ouvre d'elle-même après « . » vient de DelphiLSP. Voir
+Attendu après l'activation de dpcc et jusqu'au redémarrage de Delphi : la liste qui s'ouvre d'elle-même après « . »
+vient encore du fournisseur précédent (DelphiLSP). Après le redémarrage, dpcc est le fournisseur. Voir
 [Utilisation](usage.md#interaction-avec-delphilsp).
 
 ## La liste est vide ou incomplète
@@ -101,18 +115,18 @@ saute que s'il y est choisi (voir [Utilisation](usage.md#quand-dpcc-est-choisi-c
 
 ## Deux infobulles apparaissent
 
-- Help Insight de l'IDE : dpcc le désactive, mais l'IDE ne lit ce réglage qu'au prochain démarrage. Redémarrer
-  l'IDE.
-- Pendant le débogage, l'infobulle de valeur de l'IDE : dpcc ne la désactive que lorsque la page dpcc est fermée
-  avec **OK**. Ouvrir la page une fois, OK, redémarrer l'IDE.
+- L'IDE ne lit ses réglages qu'au prochain démarrage. dpcc désactive Help Insight, l'infobulle Symbol Insight et,
+  pendant le débogage, l'évaluation d'expressions dans l'infobulle dès qu'il est le fournisseur Code Insight.
+  Redémarrer Delphi.
+- La page dpcc affiche l'état dans la section **IDE** (« Check now », vérifier maintenant).
 - Qui veut garder l'infobulle de l'IDE désactive « Own tooltip when hovering identifiers » (infobulle propre au
-  survol des identificateurs) ou « Show values while debugging » (afficher les valeurs pendant le
-  débogage).
+  survol des identificateurs) ou « Show values while debugging » (afficher les valeurs pendant le débogage).
 
 ## Help Insight manque après la désinstallation
 
-dpcc ne rend Help Insight et l'infobulle de valeur que tant qu'il est chargé. S'il a été retiré sans désactiver
-auparavant l'interrupteur principal, réactiver les deux dans les options Code Insight de l'IDE. Les valeurs de
+dpcc ne rend le fournisseur et les réglages de l'IDE que tant qu'il est chargé. S'il a été retiré sans désactiver
+auparavant l'interrupteur principal et redémarrer Delphi, choisir DelphiLSP dans les options Code Insight de l'IDE et
+réactiver Help Insight, l'infobulle Symbol Insight et l'évaluation d'expressions dans l'infobulle. Les valeurs de
 registre figurent sous [Réglages](settings.md#ce-que-dpcc-modifie-dans-lide).
 
 ## Messages dans la fenêtre Messages
@@ -126,7 +140,9 @@ dpcc ne le redémarre plus de lui-même (voir [Le serveur a planté](#le-serveur
 | « dpcc: Server crashed repeatedly – The server ended twice with … within 10 minutes. dpcc no longer restarts it on its own … » (dpcc : le serveur a planté à plusieurs reprises – le serveur s'est arrêté deux fois avec … en moins de 10 minutes. dpcc ne le redémarre plus de lui-même …) | Le serveur reste arrêté jusqu'à ce qu'on le redémarre à la main. La question « Restart server? » (redémarrer le serveur ?) apparaît à cet effet. |
 | « dpcc: … switched off after 3 errors in 5 minutes (last: …) until the IDE is restarted. » (dpcc : … désactivé après 3 erreurs en 5 minutes (dernière : …) jusqu'au redémarrage de l'IDE) | Le fusible de sécurité a désactivé une fonction. Elle reste désactivée jusqu'au redémarrage de l'IDE. Les erreurs de dpcc n'atteignent jamais l'IDE. |
 | « dpcc: source "…" switched off after 3 errors in 5 minutes … » (dpcc : source « … » désactivée après 3 erreurs en 5 minutes …) | Seule cette source de données est désactivée ; les autres continuent de tourner. |
-| « dpcc shows the tooltip itself and switched off the IDE's Help Insight … » (dpcc affiche lui-même l'infobulle et a désactivé Help Insight de l'IDE …) | voir « Deux infobulles apparaissent » |
+| « dpcc: dpcc switched the IDE's Code Insight provider to dpcc; takes effect after restarting Delphi. » (dpcc a basculé le fournisseur Code Insight de l'IDE sur dpcc ; prend effet après le redémarrage de Delphi) | Après interrupteur principal activé et OK, une fois par session. Jusqu'au redémarrage, l'IDE appelle le fournisseur précédent. Voir [Réglages](settings.md#ce-que-dpcc-modifie-dans-lide). |
+| « dpcc: dpcc switched the IDE's Code Insight provider back to …; takes effect after restarting Delphi … » (dpcc a rétabli le fournisseur Code Insight de l'IDE sur … ; prend effet après le redémarrage de Delphi) | Après interrupteur principal désactivé et OK, une fois par session. |
+| « dpcc: The Code Insight provider is no longer dpcc …; dpcc is off … » (le fournisseur Code Insight n'est plus dpcc … ; dpcc est désactivé …) | Au démarrage : dpcc s'était inscrit comme fournisseur, mais l'IDE a démarré avec un autre (modifié dans les options de l'IDE ou réécrit par l'IDE). Pour activer dpcc, réactiver l'interrupteur principal. |
 | « dpcc is selected as the Code Insight provider for Delphi in the IDE options … » (dpcc est choisi comme fournisseur Code Insight pour Delphi dans les options de l'IDE …) | Une fois par session si dpcc est le fournisseur choisi : Ctrl+clic passe par dpcc, Error Insight et les autres services de DelphiLSP manquent. Voir [Utilisation](usage.md#quand-dpcc-est-choisi-comme-fournisseur). |
 
 ## Le serveur a planté

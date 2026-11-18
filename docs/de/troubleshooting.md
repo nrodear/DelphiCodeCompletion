@@ -49,9 +49,22 @@ dpcc gibt die Taste an die IDE weiter, wenn es die Datei nicht bedient:
 | Die Sicherung hat die Vervollständigung abgeschaltet. | Das Meldungsfenster nennt das (siehe unten). Die IDE neu starten. |
 | Die Liste von dpcc blieb leer, und Strg+Leertaste kam ein zweites Mal an derselben Stelle. | Erwartet, siehe [Bedienung](usage.md#liste-der-ide-wenn-dpcc-nichts-findet). Nach einer Eingabe oder an einer anderen Stelle fragt Strg+Leertaste wieder dpcc. |
 
+## Nach dem Punkt öffnet keine Liste
+
+Meist steht in den Code-Insight-Optionen der IDE „Code-Vervollständigung: Automatisch aufrufen“ aus (Registry-Wert
+`Auto Code Completions` = `False`). Dann öffnet nach „.“ weder die Liste der IDE noch die von dpcc.
+
+- Betriebsart dpcc: dpcc stellt den Wert beim Start von Delphi selbst auf `True`; wirkt nach dem nächsten Start.
+- Betriebsart IDE (DelphiLSP gewählt): dpcc meldet die Abweichung nur, im Protokoll („IDE-Einstellungen: 1 Abweichung:
+  Auto Code Completions“) und auf der Seite dpcc im Abschnitt **IDE**. In den Code-Insight-Optionen der IDE
+  „Automatisch aufrufen“ einschalten.
+
+Orte und Soll-Werte für Delphi 12 und 13: [Einstellungen](settings.md#was-dpcc-an-der-ide-umstellt).
+
 ## Die Liste nach „.“ sieht anders aus als die mit Strg+Leertaste
 
-Das ist erwartet. Die Liste, die nach „.“ von selbst aufgeht, kommt von DelphiLSP. Siehe
+Nach dem Einschalten von dpcc bis zum Neustart von Delphi erwartet: Die Liste, die nach „.“ von selbst aufgeht, kommt
+noch vom bisherigen Anbieter (DelphiLSP). Nach dem Neustart ist dpcc der Anbieter. Siehe
 [Bedienung](usage.md#zusammenspiel-mit-delphilsp).
 
 ## Die Liste ist leer oder unvollständig
@@ -95,17 +108,17 @@ ist. Nur wenn dort dpcc gewählt ist, springt dpcc (siehe
 
 ## Zwei Tooltips erscheinen
 
-- Help Insight der IDE: dpcc schaltet es ab, die IDE liest den Schalter aber erst beim nächsten Start. Die IDE neu
-  starten.
-- Beim Debuggen der Wert-Tooltip der IDE: dpcc schaltet ihn nur ab, wenn die Seite dpcc mit **OK** geschlossen wird.
-  Die Seite einmal öffnen, OK, die IDE neu starten.
+- Die IDE liest ihre Schalter erst beim nächsten Start. dpcc stellt Help Insight, den Kurzhinweis Symbol-Insight und
+  beim Debuggen die Ausdrucksauswertung ab, sobald es der Code-Insight-Anbieter ist. Delphi neu starten.
+- Den Stand zeigt die Seite dpcc im Abschnitt **IDE** („Jetzt prüfen“).
 - Wer den Tooltip der IDE behalten will, schaltet „Eigener Tooltip beim Verweilen über Bezeichnern“ bzw. „Werte beim
   Debuggen zeigen“ aus.
 
 ## Help Insight fehlt nach der Deinstallation
 
-dpcc gibt Help Insight und den Wert-Tooltip nur zurück, solange es geladen ist. Wurde es entfernt, ohne vorher den
-Hauptschalter auszuschalten, beide in den Code-Insight-Optionen der IDE wieder einschalten. Die Registry-Werte stehen
+dpcc gibt den Anbieter und die Schalter der IDE nur zurück, solange es geladen ist. Wurde es entfernt, ohne vorher den
+Hauptschalter auszuschalten und Delphi neu zu starten, in den Code-Insight-Optionen der IDE DelphiLSP wählen und Help
+Insight, den Kurzhinweis Symbol-Insight und die Ausdrucksauswertung wieder einschalten. Die Registry-Werte stehen
 unter [Einstellungen](settings.md#was-dpcc-an-der-ide-umstellt).
 
 ## Meldungen im Meldungsfenster
@@ -119,7 +132,9 @@ nicht mehr von selbst neu (siehe [Der Server ist abgestürzt](#der-server-ist-ab
 | „dpcc: Server wiederholt abgestürzt – Der Server endete zweimal mit … innerhalb von 10 Minuten. dpcc startet ihn nicht mehr von selbst neu …“ | Der Server bleibt beendet, bis er von Hand neu gestartet wird. Dazu erscheint die Rückfrage „Server neu starten?“. |
 | „dpcc: … nach 3 Fehlern in 5 Minuten abgeschaltet (zuletzt: …); bis zum Neustart der IDE.“ | Die Sicherung hat eine Funktion abgeschaltet. Sie bleibt bis zum Neustart der IDE aus. Fehler von dpcc erreichen die IDE nie. |
 | „dpcc: Quelle „…“ nach 3 Fehlern in 5 Minuten abgeschaltet …“ | Nur diese Datenquelle ist aus; die übrigen laufen weiter. |
-| „dpcc zeigt den Tooltip selbst und hat Help Insight der IDE abgeschaltet …“ | siehe „Zwei Tooltips erscheinen“ |
+| „dpcc: dpcc hat den Code-Insight-Anbieter der IDE auf dpcc umgestellt; wirkt nach dem Neustart von Delphi.“ | Nach Hauptschalter an und OK, einmal je Sitzung. Bis zum Neustart ruft die IDE den bisherigen Anbieter. Siehe [Einstellungen](settings.md#was-dpcc-an-der-ide-umstellt). |
+| „dpcc: dpcc hat den Code-Insight-Anbieter der IDE wieder auf … gestellt; wirkt nach dem Neustart von Delphi …“ | Nach Hauptschalter aus und OK, einmal je Sitzung. |
+| „dpcc: Der Code-Insight-Anbieter ist nicht mehr dpcc …; dpcc ist aus …“ | Beim Start: dpcc hatte sich als Anbieter eingetragen, die IDE startete aber mit einem anderen (in den Optionen der IDE geändert oder von der IDE zurückgeschrieben). Zum Einschalten den Hauptschalter wieder setzen. |
 | „dpcc ist in den Optionen der IDE als Code-Insight-Anbieter für Delphi gewählt …“ | Einmal je Sitzung, wenn dpcc der gewählte Anbieter ist: Strg+Klick läuft über dpcc, Error Insight und die übrigen Dienste von DelphiLSP fehlen. Siehe [Bedienung](usage.md#wenn-dpcc-als-anbieter-gewählt-ist). |
 
 ## Der Server ist abgestürzt

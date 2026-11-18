@@ -96,14 +96,18 @@ begin
   FPage.OnResetHistory := Hooks.ResetHistory;
   // „Index neu aufbauen“ (S4); startet keinen Server, der nicht läuft.
   TDpccPageOptions.ConnectRebuild(FPage, Hooks.RestartIndex);
+  // Abschnitt „IDE“ (IDECHECK): Betriebsart, Anbieter, was dpcc gesetzt hat; nur gelesen.
+  TDpccPageOptions.ConnectIdeStatus(FPage);
   FPage.LoadFrom(TDpccIdeSettings.Current);
 end;
 
 procedure TDpccAddInOptions.DialogClosed(Accepted: Boolean);
 var
   mSettings: TDpccPluginSettings;
+  mWasEnabled, mIsEnabled: Boolean;
 begin
   try
+    mWasEnabled := TDpccIdeSettings.Current.Enabled;
     if Accepted and (FPage <> nil) then
     begin
       // Gespeicherter Stand, darüber die Werte der Seite; was die Seite nicht zeigt, bleibt, wie es ist.
@@ -111,10 +115,11 @@ begin
       FPage.SaveTo(mSettings);
       TDpccIdeSettings.Update(mSettings);
     end;
-    // Help Insight und Wert-Tooltip der IDE erst nach dem Dialog abgleichen: Mit OK
-    // schreibt die IDE danach ihre Editoroptionen aus dem Speicher zurück, auch die Schalter,
-    // die dpcc abgeschaltet hatte. Sonst zeigt sie ab dem nächsten Start wieder beide Tooltips.
-    // Die Strukturhervorhebung der IDE fasst dpcc seit S9 nicht mehr an.
+    mIsEnabled := TDpccIdeSettings.Current.Enabled;
+    // Betriebsart (IDECHECK) erst nach dem Dialog: Mit OK schreibt die IDE danach ihre Editoroptionen aus dem
+    // Speicher zurück, auch die Schalter, die dpcc gesetzt hat. Hauptschalter an stellt den Anbieter der IDE auf
+    // dpcc, aus wieder zurück; wirkt nach dem Neustart von Delphi. Die Strukturhervorhebung der IDE fasst dpcc seit
+    // S9 nicht mehr an.
     if Accepted then
     begin
       TDpccMainThread.ForceQueue(TDpccFeature.Settings,
@@ -123,7 +128,7 @@ begin
           TDpccGuard.Run(TDpccFeature.Settings,
             procedure
             begin
-              TDpccIdeInsightSwitch.Sync;
+              TDpccIdeInsightSwitch.AfterOptions(mWasEnabled, mIsEnabled);
             end);
         end);
     end;

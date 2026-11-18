@@ -4,7 +4,8 @@
 // Open Tools API:
 // - Es gibt genau eine Seite „dpcc“ ohne Unterseiten, Baum, Suche, Filter und Geändert-Markierung. cPageItems ist ihr
 //   Aufbau: Hauptschalter, dann die Abschnitte Vervollständigung, Beim Übernehmen, Parameter-Hint und Tooltip, Index
-//   mit zwölf Optionen und zwei Knöpfen. Die Seite (dpcc.UI.Settings.Page) baut genau diese Liste, und
+//   mit zwölf Optionen und zwei Knöpfen; seit IDECHECK zuletzt der Abschnitt IDE mit dem Knopf „Jetzt prüfen“
+//   (Statuszeilen zur Betriebsart, keine Einstellung). Die Seite (dpcc.UI.Settings.Page) baut genau diese Liste, und
 //   TDpccPluginSettings speichert genau diese Optionen; die Tests prüfen beides gegeneinander.
 // - TDpccFixedSettings: Optionen, die es seit OPT1 nicht mehr auf der Seite gibt, gelten mit ihrer bisherigen Vorgabe.
 //   Seit OPT2 lesen die Stellen, die sie brauchen, die Werte direkt von hier; TDpccPluginSettings hat keine Felder
@@ -17,7 +18,7 @@ interface
 
 type
   /// <summary>Abschnitt der Seite „dpcc“: oben der Hauptschalter, darunter die Abschnitte mit Überschrift.</summary>
-  TDpccPageSection = (psMaster, psCompletion, psCommit, psHints, psIndex);
+  TDpccPageSection = (psMaster, psCompletion, psCommit, psHints, psIndex, psIde);
 
   /// <summary>Art eines Elements der Seite.</summary>
   TDpccPageItemKind = (pkSetting, pkButton);
@@ -36,9 +37,13 @@ const
   cPageResetHistory = 'ResetHistory';
   /// <summary>Kennung des Knopfs „Index neu aufbauen“ (S4).</summary>
   cPageRebuildIndex = 'RebuildIndex';
-  /// <summary>Aufbau der Seite „dpcc“ (OPT1): Hauptschalter, zwölf Optionen in vier Abschnitten und zwei Knöpfe.
-  /// ListWidth ist „Breite automatisch“ (0 = automatisch) in der Zeile der sichtbaren Zeilen.</summary>
-  cPageItems: array[0..14] of TDpccPageItem = (
+  /// <summary>Kennung des Knopfs „Jetzt prüfen“ im Abschnitt IDE (IDECHECK): Betriebsart und Schalter der IDE.
+  /// </summary>
+  cPageCheckIde = 'CheckIde';
+  /// <summary>Aufbau der Seite „dpcc“ (OPT1): Hauptschalter, zwölf Optionen in vier Abschnitten und zwei Knöpfe;
+  /// dazu der Abschnitt IDE mit „Jetzt prüfen“ (IDECHECK). ListWidth ist „Breite automatisch“ (0 = automatisch) in
+  /// der Zeile der sichtbaren Zeilen.</summary>
+  cPageItems: array[0..15] of TDpccPageItem = (
     (Section: psMaster; Kind: pkSetting; Name: 'Enabled'),
     (Section: psCompletion; Kind: pkSetting; Name: 'AutoMinChars'),
     (Section: psCompletion; Kind: pkSetting; Name: 'CompletionListMode'),
@@ -53,7 +58,8 @@ const
     (Section: psHints; Kind: pkSetting; Name: 'HoverTooltip'),
     (Section: psHints; Kind: pkSetting; Name: 'DebugHoverValues'),
     (Section: psIndex; Kind: pkSetting; Name: 'IndexExtraSourceFolders'),
-    (Section: psIndex; Kind: pkButton; Name: cPageRebuildIndex));
+    (Section: psIndex; Kind: pkButton; Name: cPageRebuildIndex),
+    (Section: psIde; Kind: pkButton; Name: cPageCheckIde));
 
 type
   TDpccCompletionView = class

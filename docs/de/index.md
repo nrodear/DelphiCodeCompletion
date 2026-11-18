@@ -32,7 +32,7 @@ Version 0.1.0, für Delphi 13 (RAD Studio 37.0), Win32.
 | Vervollständigung | Strg+Leertaste | dpcc |
 | Parameterhilfe | Strg+Umschalt+Leertaste | dpcc |
 | Tooltip über Bezeichnern | Maus verweilt über einem Bezeichner | dpcc |
-| Liste, die nach „.“ von selbst aufgeht | Tippen von „.“ | DelphiLSP (IDE) |
+| Liste, die nach „.“ von selbst aufgeht | Tippen von „.“ | dpcc, wenn es der Code-Insight-Anbieter ist (Hauptschalter an); sonst DelphiLSP (IDE), dann ist dpcc aus |
 
 dpcc bedient Dateien mit den Endungen `.pas`, `.dpr`, `.dpk` und `.inc`. In allen anderen Dateien und bei
 ausgeschaltetem Hauptschalter bleibt die IDE zuständig.

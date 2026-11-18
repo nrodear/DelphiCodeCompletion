@@ -118,8 +118,14 @@ dependencies loaded until the IDE exits. This way no thread jumps into unloaded 
 ## Registration and shutdown
 
 `dpcc.IDE.Completion.Register` is the composition root. `Register` registers, one after the other: safety fuse and
-log, language, splash screen, Code Insight manager, key binding, forms, save notifier, Help Insight reconciliation,
-master switch, options page. Each step runs on its own; an error costs only that step and is written to the log.
+log, language, splash screen, mode (IDE context), Code Insight manager, key binding, forms, save notifier, master
+switch, options page. Each step runs on its own; an error costs only that step and is written to the log.
+
+The mode (dpcc is the Code Insight provider or off) is decided by `dpcc.Core.Settings.IdeCheck` without the registry
+(`TDpccIdeContext.Plan`: write actions and markers, `TDpccIdeCheck.Evaluate`: check); reading happens in
+`dpcc.IDE.Foundation.IdeSettingsCheck`, writing in `dpcc.IDE.Foundation.InsightSwitch` (at startup before the
+manager, after OK in the options dialog, on the choice in the IDE's Code Insight dialog via
+`IOTACodeInsightManagerEnvOptions` and on exit). See [Settings](settings.md#what-dpcc-changes-in-the-ide).
 
 `Unregister` shuts down in reverse order, also step by step. It runs when the IDE's main window is destroyed or in
 finalization, whichever comes first. At the end, the line “dpcc entladen in n ms …” (dpcc unloaded in n ms …) is in

@@ -52,9 +52,22 @@ dpcc passes the key on to the IDE if it does not serve the file:
 | The safety fuse has switched off completion. | The Messages window reports this (see below). Restart the IDE. |
 | The dpcc list stayed empty, and Ctrl+Space was pressed a second time at the same position. | Expected, see [Usage](usage.md#ide-list-when-dpcc-finds-nothing). After typing or at another position, Ctrl+Space asks dpcc again. |
 
+## No list opens after the dot
+
+Usually “Code completion: Auto invoke” is off in the IDE's Code Insight options (registry value
+`Auto Code Completions` = `False`). Then neither the IDE's list nor the dpcc list opens after “.”.
+
+- dpcc mode: dpcc sets the value to `True` itself when Delphi starts; takes effect after the next start.
+- IDE mode (DelphiLSP selected): dpcc only reports the difference, in the log (“IDE-Einstellungen: 1 Abweichung: Auto
+  Code Completions”) and on the dpcc page in the **IDE** section. Switch on “Auto invoke” in the IDE's Code Insight
+  options.
+
+Locations and expected values for Delphi 12 and 13: [Settings](settings.md#what-dpcc-changes-in-the-ide).
+
 ## The list after “.” looks different from the one with Ctrl+Space
 
-This is expected. The list that opens by itself after “.” comes from DelphiLSP. See
+Expected after switching dpcc on until Delphi is restarted: the list that opens by itself after “.” still comes from
+the previous provider (DelphiLSP). After the restart dpcc is the provider. See
 [Usage](usage.md#interaction-with-delphilsp).
 
 ## The list is empty or incomplete
@@ -98,16 +111,17 @@ is selected there does dpcc jump (see [Usage](usage.md#when-dpcc-is-selected-as-
 
 ## Two tooltips appear
 
-- The IDE's Help Insight: dpcc switches it off, but the IDE reads the switch only at its next start. Restart the IDE.
-- The IDE's value tooltip while debugging: dpcc switches it off only when the dpcc page is closed with **OK**. Open
-  the page once, OK, restart the IDE.
+- The IDE reads its switches only at its next start. dpcc switches off Help Insight, tooltip symbol insight and,
+  while debugging, tooltip expression evaluation as soon as it is the Code Insight provider. Restart Delphi.
+- The dpcc page shows the state in the **IDE** section (“Check now”).
 - If you want to keep the IDE's tooltip, switch off “Own tooltip when hovering identifiers” or “Show values while
   debugging”.
 
 ## Help Insight is missing after uninstalling
 
-dpcc hands Help Insight and the value tooltip back only while it is loaded. If it was removed without first turning
-off the master switch, switch both back on in the IDE's Code Insight options. The registry values are listed under
+dpcc hands back the provider and the IDE switches only while it is loaded. If it was removed without first turning
+off the master switch and restarting Delphi, select DelphiLSP in the IDE's Code Insight options and switch Help
+Insight, tooltip symbol insight and tooltip expression evaluation back on. The registry values are listed under
 [Settings](settings.md#what-dpcc-changes-in-the-ide).
 
 ## Messages in the Messages window
@@ -121,7 +135,9 @@ server has crashed twice with the same cause within 10 minutes, and dpcc no long
 | “dpcc: Server crashed repeatedly – The server ended twice with … within 10 minutes. dpcc no longer restarts it on its own …” | The server stays stopped until it is restarted manually. The prompt “Restart server?” appears for this. |
 | “dpcc: … switched off after 3 errors in 5 minutes (last: …) until the IDE is restarted.” | The safety fuse has switched off a feature. It stays off until the IDE is restarted. Errors in dpcc never reach the IDE. |
 | “dpcc: source "…" switched off after 3 errors in 5 minutes …” | Only this data source is off; the others keep running. |
-| “dpcc shows the tooltip itself and switched off the IDE's Help Insight …” | see “Two tooltips appear” |
+| “dpcc: dpcc switched the IDE's Code Insight provider to dpcc; takes effect after restarting Delphi.” | After master switch on and OK, once per session. Until the restart the IDE calls the previous provider. See [Settings](settings.md#what-dpcc-changes-in-the-ide). |
+| “dpcc: dpcc switched the IDE's Code Insight provider back to …; takes effect after restarting Delphi …” | After master switch off and OK, once per session. |
+| “dpcc: The Code Insight provider is no longer dpcc …; dpcc is off …” | At startup: dpcc had set itself as the provider, but the IDE started with another one (changed in the IDE options or written back by the IDE). To turn dpcc on, set the master switch again. |
 | “dpcc is selected as the Code Insight provider for Delphi in the IDE options …” | Once per session if dpcc is the selected provider: Ctrl+click goes through dpcc, Error Insight and the other DelphiLSP services are missing. See [Usage](usage.md#when-dpcc-is-selected-as-the-provider). |
 
 ## The server has crashed

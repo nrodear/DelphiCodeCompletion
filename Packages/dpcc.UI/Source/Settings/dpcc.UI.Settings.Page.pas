@@ -2,16 +2,17 @@
 
 // Seite „dpcc“ unter Tools › Optionen › Fremdhersteller (#227). Seit OPT1 eine einzige, schlichte Seite ohne Reiter,
 // Baum, Suchfeld, Filter, Experimental-Hinweis und Geändert-Markierung: oben der Hauptschalter, darunter die Abschnitte
-// Vervollständigung, Beim Übernehmen, Parameter-Hint und Tooltip, Index mit Überschrift (fett, Großbuchstaben,
-// gedämpft, mit Linie bis zum rechten Rand). Aufbau und Reihenfolge kommen aus cPageItems
+// Vervollständigung, Beim Übernehmen, Parameter-Hint und Tooltip, Index und (seit IDECHECK) IDE mit Überschrift (fett,
+// Großbuchstaben, gedämpft, mit Linie bis zum rechten Rand). Der Abschnitt IDE zeigt Statuszeilen zur Betriebsart
+// (Anbieter, was dpcc an der IDE gesetzt hat, Abweichungen); „Jetzt prüfen“ liest sie über OnIdeStatus neu. Aufbau und Reihenfolge kommen aus cPageItems
 // (dpcc.Core.Settings.CompletionView); die Seite baut genau diese Liste.
 // Reine VCL, im Code aufgebaut; die DFM ist leer, weil TCustomFrame.Create für abgeleitete Frames eine Ressource
 // verlangt. Laden und Speichern direkt über TDpccPluginSettings (LoadFrom, SaveTo); die IDE-Schicht liest und
 // schreibt Registry und settings.json (index.extraSourceFolders). Die Seite kennt den Server nicht und startet ihn
 // nicht: „Index neu aufbauen“ führt die IDE-Schicht aus (OnRebuildIndex), „Verlauf zurücksetzen“ ebenso
-// (OnResetHistory).
+// (OnResetHistory), die Statuszeilen des Abschnitts IDE ebenso (OnIdeStatus, nur gelesen).
 // Sperren: Hauptschalter aus → alle Optionen und „Verlauf zurücksetzen“ grau; „Werte beim Debuggen“ zusätzlich grau,
-// wenn „Eigener Tooltip“ aus ist. „Index neu aufbauen“ hängt wie bisher nicht am Hauptschalter.
+// wenn „Eigener Tooltip“ aus ist. „Index neu aufbauen“ und „Jetzt prüfen“ hängen nicht am Hauptschalter.
 // Layout: Beschriftungen links, Felder in einer gemeinsamen Spalte rechts davon. Die Spalte richtet sich nach der
 // längsten Beschriftung in der aktuellen Schrift (Deutsch oder Englisch, nach Skalierung und Schriftwechsel neu),
 // damit keine Beschriftung in ein Feld ragt. Höhen und Abstände über ScaleValue; die IDE skaliert die Seite mit dem
@@ -88,6 +89,10 @@ type
     FExtraSourceFolders: TEdit;
     FRebuild: TButton;
     FRebuildInfo: TLabel;
+    /// <summary>„Jetzt prüfen“ und die Statuszeilen des Abschnitts IDE (IDECHECK).</summary>
+    FCheckIde: TButton;
+    FIdeStatus: TLabel;
+    FOnIdeStatus: TFunc<string>;
     /// <summary>Breite der Liste beim Laden (0 = automatisch); gezogene Breiten bleiben, solange „Breite
     /// automatisch“ aus ist.</summary>
     FListWidth: Integer;
@@ -113,7 +118,9 @@ type
     procedure ToggleClick(Sender: TObject);
     procedure ResetHistoryClick(Sender: TObject);
     procedure RebuildClick(Sender: TObject);
+    procedure CheckIdeClick(Sender: TObject);
     procedure SetOnRebuildIndex(const AValue: TFunc<string>);
+    procedure SetOnIdeStatus(const AValue: TFunc<string>);
     procedure CMFontChanged(var AMessage: TMessage); message CM_FONTCHANGED;
   protected
     procedure CreateWnd; override;
@@ -148,6 +155,8 @@ type
     property ResetHistory: TButton read FResetHistory;
     property Rebuild: TButton read FRebuild;
     property RebuildInfo: TLabel read FRebuildInfo;
+    property CheckIde: TButton read FCheckIde;
+    property IdeStatus: TLabel read FIdeStatus;
     /// <summary>„Verlauf zurücksetzen“ der lernenden Gewichtung (#418).</summary>
     property OnResetHistory: TProc read FOnResetHistory write FOnResetHistory;
     /// <summary>„Index neu aufbauen“ (S4): leert die Index-Caches, baut den Index neu auf und liefert die Meldung
@@ -155,6 +164,9 @@ type
     property OnRebuildIndex: TFunc<string> read FOnRebuildIndex write SetOnRebuildIndex;
     /// <summary>Rückfrage vor dem Neuaufbau; Standard: Dialog mit Ja/Nein.</summary>
     property ConfirmRebuild: TFunc<Boolean> read FConfirmRebuild write FConfirmRebuild;
+    /// <summary>Statuszeilen des Abschnitts IDE (Betriebsart, Anbieter, was dpcc gesetzt hat, Abweichungen); beim
+    /// Setzen und mit „Jetzt prüfen“ gelesen. nil = Knopf gesperrt, keine Zeilen.</summary>
+    property OnIdeStatus: TFunc<string> read FOnIdeStatus write SetOnIdeStatus;
   end;
 
 implementation
@@ -179,6 +191,8 @@ const
   cFieldHeight = 25;
   cTitleHeight = 26;
   cButtonHeight = 29;
+  /// <summary>Höhe der Zeile mit „Jetzt prüfen“ und bis zu vier Statuszeilen (bei 96 dpi).</summary>
+  cIdeStatusHeight = 64;
   /// <summary>Abstand zwischen Beschriftung und Feld bzw. zwischen Elementen einer Zeile.</summary>
   cGap = 12;
   /// <summary>Platz für Kästchen und Rand eines Kontrollkästchens neben dem Text.</summary>
@@ -396,6 +410,24 @@ begin
     FRebuildInfo.Font.Color := StyleServices.GetSystemColor(clGrayText);
     AddEntry(AItem, FRebuild, nil);
   end
+  else if AItem.Name = cPageCheckIde then
+  begin
+    // „Jetzt prüfen“ (IDECHECK), rechts daneben die Statuszeilen der Betriebsart.
+    mRow := AddRow(cIdeStatusHeight);
+    FCheckIde := TButton.Create(Self);
+    FCheckIde.Parent := mRow;
+    FCheckIde.Top := ScaleValue(2);
+    FCheckIde.Caption := TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsCheckIde);
+    FCheckIde.OnClick := CheckIdeClick;
+    FIdeStatus := TLabel.Create(Self);
+    FIdeStatus.Parent := mRow;
+    FIdeStatus.AutoSize := False;
+    FIdeStatus.WordWrap := True;
+    FIdeStatus.ShowAccelChar := False;
+    FIdeStatus.Top := 0;
+    FIdeStatus.Font.Color := StyleServices.GetSystemColor(clGrayText);
+    AddEntry(AItem, FCheckIde, nil);
+  end
   else
   begin
     raise EArgumentException.CreateFmt('Unbekanntes Element der Optionsseite: %s', [AItem.Name]);
@@ -431,7 +463,8 @@ procedure TDpccSettingsPage.AddTitle(ASection: TDpccPageSection);
 const
   cIds: array[TDpccPageSection] of TDpccSettingsTextId = (TDpccSettingsTextId.SettingsEnabled,
     TDpccSettingsTextId.SettingsSectionCompletion, TDpccSettingsTextId.SettingsSectionCommit,
-    TDpccSettingsTextId.SettingsSectionHints, TDpccSettingsTextId.SettingsSectionIndex);
+    TDpccSettingsTextId.SettingsSectionHints, TDpccSettingsTextId.SettingsSectionIndex,
+    TDpccSettingsTextId.SettingsSectionIde);
 var
   mRow: TWinControl;
   mTitle: TDpccSettingsTitle;
@@ -582,6 +615,12 @@ begin
   FRebuildInfo.SetBounds(FRebuild.Left + FRebuild.Width + ScaleValue(cGap), 0,
     Max(ScaleValue(60), FRebuildInfo.Parent.Width - FRebuild.Left - FRebuild.Width - ScaleValue(cGap)),
     FRebuildInfo.Parent.Height);
+  // „Jetzt prüfen“ mit den Statuszeilen rechts daneben (Abschnitt IDE).
+  FCheckIde.SetBounds(ScaleValue(cIndent), FCheckIde.Top,
+    Max(ScaleValue(cButtonMinWidth), TextWidthFor(FCheckIde, FCheckIde.Caption) + ScaleValue(24)), FCheckIde.Height);
+  FIdeStatus.SetBounds(FCheckIde.Left + FCheckIde.Width + ScaleValue(cGap), 0,
+    Max(ScaleValue(60), FIdeStatus.Parent.Width - FCheckIde.Left - FCheckIde.Width - ScaleValue(cGap)),
+    FIdeStatus.Parent.Height);
 end;
 
 procedure TDpccSettingsPage.CreateWnd;
@@ -645,7 +684,7 @@ begin
   mOn := FMaster.Checked;
   for mEntry in FEntries do
   begin
-    if (mEntry.Control = FMaster) or (mEntry.Control = FRebuild) then
+    if (mEntry.Control = FMaster) or (mEntry.Control = FRebuild) or (mEntry.Control = FCheckIde) then
     begin
       Continue;
     end;
@@ -660,6 +699,8 @@ begin
   FResetHistory.Enabled := mOn and not FHistoryReset;
   // „Index neu aufbauen“ hängt wie bisher nicht am Hauptschalter, nur daran, ob die IDE-Schicht ihn ausführt.
   FRebuild.Enabled := Assigned(FOnRebuildIndex);
+  // „Jetzt prüfen“ liest nur; ohne IDE-Schicht (Tests ohne Haken) gesperrt.
+  FCheckIde.Enabled := Assigned(FOnIdeStatus);
 end;
 
 procedure TDpccSettingsPage.LoadFrom(const ASettings: TDpccPluginSettings);
@@ -765,6 +806,37 @@ begin
   Screen.Cursor := crHourGlass;
   try
     FRebuildInfo.Caption := FOnRebuildIndex();
+  finally
+    Screen.Cursor := mCursor;
+  end;
+end;
+
+procedure TDpccSettingsPage.SetOnIdeStatus(const AValue: TFunc<string>);
+begin
+  FOnIdeStatus := AValue;
+  if Assigned(FOnIdeStatus) then
+  begin
+    FIdeStatus.Caption := FOnIdeStatus();
+  end
+  else
+  begin
+    FIdeStatus.Caption := '';
+  end;
+  UpdateLocks;
+end;
+
+procedure TDpccSettingsPage.CheckIdeClick(Sender: TObject);
+var
+  mCursor: TCursor;
+begin
+  if not Assigned(FOnIdeStatus) then
+  begin
+    Exit;
+  end;
+  mCursor := Screen.Cursor;
+  Screen.Cursor := crHourGlass;
+  try
+    FIdeStatus.Caption := FOnIdeStatus();
   finally
     Screen.Cursor := mCursor;
   end;

@@ -8,6 +8,8 @@
 // Seit S7a ohne „Leiste anpassen …“ (#1101), Export, Import und „Alles zurücksetzen“ (#723) und F1 zur Einstellung
 // unter dem Fokus (#1886); seit S8 ohne die Projektdatei .dpcc (#486). Seit OPT1 ohne die Liste der angehefteten
 // Favoriten (#458): Strg+D in der Liste bleibt, favorites.json auch.
+// Seit IDECHECK der Abschnitt „IDE“: Statuszeilen zur Betriebsart (Anbieter, was dpcc gesetzt hat, Abweichungen) aus
+// der Registry, nur gelesen (TDpccIdeSettingsCheck.Status); „Jetzt prüfen“ liest neu.
 
 interface
 
@@ -26,13 +28,17 @@ type
     /// <summary>„Index neu aufbauen“ (S4): Caches löschen und über ARestart neu aufbauen; ARestart nil = nur die
     /// Caches löschen.</summary>
     class procedure ConnectRebuild(APage: TDpccSettingsPage; const ARestart: TDpccIndexRestart); static;
+    /// <summary>Abschnitt „IDE“: Status der Betriebsart nach den gespeicherten Einstellungen (IDECHECK).</summary>
+    class procedure ConnectIdeStatus(APage: TDpccSettingsPage); static;
   end;
 
 implementation
 
 uses
   dpcc.Common.Index.Adapters.CacheDirectory,
-  dpcc.UI.Settings.Strings;
+  dpcc.UI.Settings.Strings,
+  dpcc.IDE.Foundation.Settings,
+  dpcc.IDE.Foundation.IdeSettingsCheck;
 
 /// <summary>„Index neu aufbauen“ (S4): alle Index-Caches löschen, eine laufende Sitzung dafür anhalten und neu
 /// starten; Ergebnis als Meldung für die Seite.</summary>
@@ -81,6 +87,20 @@ begin
     function: string
     begin
       Result := RebuildIndex(mRestart);
+    end;
+end;
+
+class procedure TDpccPageOptions.ConnectIdeStatus(APage: TDpccSettingsPage);
+begin
+  APage.OnIdeStatus :=
+    function: string
+    begin
+      try
+        Result := TDpccIdeSettingsCheck.Status(TDpccIdeSettings.Current);
+      except
+        on E: Exception do
+          Result := E.Message;
+      end;
     end;
 end;
 

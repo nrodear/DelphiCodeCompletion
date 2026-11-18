@@ -145,6 +145,7 @@
         <DCCReference Include="Source\IDE\Hover\dpcc.IDE.Hover.DebugValue.pas"/>
         <DCCReference Include="Source\IDE\Hover\dpcc.IDE.Hover.Editor.pas"/>
         <DCCReference Include="Source\IDE\Foundation\dpcc.IDE.Foundation.InsightSwitch.pas"/>
+        <DCCReference Include="Source\IDE\Foundation\dpcc.IDE.Foundation.IdeSettingsCheck.pas"/>
         <DCCReference Include="Source\IDE\Forms\dpcc.IDE.Forms.Designer.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>

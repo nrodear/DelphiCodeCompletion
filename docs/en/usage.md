@@ -22,16 +22,18 @@ windows is open and needs the key.
 
 ## Interaction with DelphiLSP
 
-Delphi 13 passes automatic triggers (typing “.”, “(”, “,”) only to the Code Insight provider that is selected for
-Delphi in the IDE options. The default is DelphiLSP. As a result:
+Delphi 12 and 13 pass automatic triggers (typing “.”, “(”, “,”) only to the Code Insight provider that is selected
+for Delphi in the IDE options. The default is DelphiLSP. dpcc and DelphiLSP therefore do not run side by side but in
+two modes (details under [Settings](settings.md#what-dpcc-changes-in-the-ide)):
 
-- The list that opens by itself after “.” comes from DelphiLSP.
-- Ctrl+Space and Ctrl+Shift+Space come from dpcc.
+- **dpcc mode** (master switch on): dpcc is the provider. The list after “.”, the parameter hint on “(” and “,”,
+  Ctrl+Space, Ctrl+Shift+Space and the tooltip come from dpcc. dpcc sets the IDE switches it needs itself.
+- **IDE mode** (master switch off): DelphiLSP is the provider, dpcc is off. If DelphiLSP is selected when Delphi
+  starts, dpcc turns itself off.
+- Turning the master switch on switches the provider to dpcc, turning it off switches it back to DelphiLSP. This takes
+  effect after restarting Delphi; until then, the following applies to the old provider.
 - The list that opens by itself while you type a name (only if switched on, see
-  [Opening while typing](#opening-while-typing)) comes from dpcc: for this, dpcc watches the editor itself,
-  regardless of the selected provider.
-- Settings that only apply to automatic opening have no effect with this default. They are marked under
-  [Settings](settings.md).
+  [Opening while typing](#opening-while-typing)) comes from dpcc: for this, dpcc watches the editor itself.
 
 dpcc writes the selected provider to the log at startup (line “Code Insight für Delphi-Dateien: gewählt …”, Code
 Insight for Delphi files: selected …).
@@ -74,8 +76,8 @@ involved.
 - The IDE waits at most 1 second for dpcc. If it takes longer, it does not jump.
 
 The first time in each session, the Messages window says that dpcc is selected and what is missing then: Error
-Insight (error marks in the editor) and the other DelphiLSP services. If you need them, select DelphiLSP again;
-Ctrl+Space stays with dpcc even then.
+Insight (error marks in the editor) and the other DelphiLSP services. If you need them, turn the master switch off
+(or select DelphiLSP again in the IDE options); from the next start dpcc is then off.
 
 ## The list
 

@@ -8,7 +8,10 @@
 //     Server im IDE-Prozess (dpcc.IDE.Completion.Adapters);
 //   - Formulare an den Server für FieldByName- und Komponenten-Completion (Designer-Notifier, #402/#461);
 //   - den Speicher-Notifier für textDocument/didSave (ersetzt den Reloader);
-//   - Help Insight der IDE aus, solange der dpcc-Tooltip an ist (#442);
+//   - die Betriebsart (IDECHECK, TDpccIdeInsightSwitch): beim Start vor dem Manager nach dem gewählten
+//     Code-Insight-Anbieter (DelphiLSP → dpcc aus und eigene Änderungen zurück; dpcc → an und die nötigen Schalter
+//     der IDE gesetzt), die Wahl im Code-Insight-Dialog der IDE über den Manager (ManagerEnabled/Disabled) und beim
+//     Beenden der zuletzt gewollte Stand noch einmal;
 //   - den Hauptschalter ohne Neustart (#407): Springt er nach einer Änderung der Einstellungen um, startet der
 //     Manager beim Einschalten Sitzung und Server bzw. schließt beim Ausschalten seine Fenster
 //     (TDpccMasterSwitch);
@@ -315,6 +318,12 @@ procedure StartManager;
 var
   mServices: IOTACodeInsightServices;
 begin
+  // Wahl im Code-Insight-Dialog der IDE → Betriebsart (IDECHECK).
+  TDpccCodeInsightManager.OnProviderChoice :=
+    procedure(ASelected: Boolean)
+    begin
+      TDpccIdeInsightSwitch.ProviderChosen(ASelected);
+    end;
   if Supports(BorlandIDEServices, IOTACodeInsightServices, mServices) then
   begin
     ManagerInstance := TDpccCodeInsightManager.Create(CompletionAdapters);
@@ -327,6 +336,7 @@ procedure StopManager;
 var
   mServices: IOTACodeInsightServices;
 begin
+  TDpccCodeInsightManager.OnProviderChoice := nil;
   try
     if (ManagerIndex >= 0) and Supports(BorlandIDEServices, IOTACodeInsightServices, mServices) then
     begin
@@ -560,12 +570,22 @@ end;
 
 { Einstellungen }
 
-/// <summary>Help Insight der IDE aus, solange der dpcc-Tooltip an ist (#442); beim Start keine übrigen Eingriffe
-/// in die Registry der IDE (seit Rückbau R5). Die Strukturhervorhebung der IDE fasst dpcc seit S9 gar nicht mehr
-/// an.</summary>
-procedure SyncHelpInsight;
+/// <summary>Betriebsart beim Start (IDECHECK): ist DelphiLSP gewählt, schaltet dpcc sich aus und dreht eigene
+/// Änderungen zurück; ist dpcc gewählt, setzt es die nötigen Schalter der IDE. Vor dem Manager, damit er mit dem
+/// richtigen Hauptschalter startet. Die Strukturhervorhebung der IDE fasst dpcc seit S9 gar nicht mehr an.</summary>
+procedure ApplyIdeContext;
 begin
-  TDpccIdeInsightSwitch.SyncHelpInsight;
+  TDpccIdeInsightSwitch.ApplyAtStart;
+end;
+
+/// <summary>Beim Beenden von Delphi den zuletzt gewollten Stand erneut schreiben (die IDE kann ihn beim Speichern
+/// ihrer Optionen überschrieben haben); beim bloßen Entladen des Packages nicht.</summary>
+procedure IdeContextAtExit;
+begin
+  if Application.Terminated then
+  begin
+    TDpccIdeInsightSwitch.AtExit;
+  end;
 end;
 
 /// <summary>Hauptschalter umgeschaltet (#407): Der Manager reagiert nach dem laufenden Ereignis (etwa erst nach dem
@@ -590,7 +610,7 @@ procedure SettingsChanged;
 begin
   // Klarnamen in dpcc.log nur ausdrücklich (#1478, diagnostics.log.names).
   TDpccGuard.SetLogNames(TDpccIdeSettings.Current.LogNames);
-  SyncHelpInsight;
+  // Die Schalter der IDE gleicht seit IDECHECK nur noch TDpccIdeInsightSwitch ab (Start, OK, Wahl im Dialog).
   case MasterSwitch.Update(TDpccIdeSettings.Current.Enabled) of
     TDpccMasterSwitchChange.TurnedOn:
       QueueMasterSwitch(True);
@@ -669,12 +689,12 @@ begin
   // Einreihen in den Hauptthread wieder annehmen (nach einem früheren Unregister).
   TDpccMainThread.Start;
   InstallFoundation;
+  Start('IdeContext', ApplyIdeContext);
   Start('Notices', StartNotices);
   Start('Manager', StartManager);
   Start('Keys', StartKeys);
   Start('Forms', StartForms);
   Start('SaveNotifier', StartSaveNotifier);
-  Start('HelpInsight', SyncHelpInsight);
   // Ausgang für den Hauptschalter (#407): Stand beim Anmelden.
   MasterSwitch.Reset(TDpccIdeSettings.Current.Enabled);
   TDpccIdeSettings.OnChanged := SettingsChanged;
@@ -709,6 +729,7 @@ begin
     TDpccGuard.OnFailure := nil;
     TDpccGuard.RotatingLog.OnError := nil;
     TDpccIdeSettings.OnChanged := nil;
+    mTeardown.Step('IdeContext', IdeContextAtExit);
     mTeardown.Step('Options', TDpccOptionsRegistration.Unregister);
     mTeardown.Step('SaveNotifier', StopSaveNotifier);
     mTeardown.Step('Forms', StopForms);

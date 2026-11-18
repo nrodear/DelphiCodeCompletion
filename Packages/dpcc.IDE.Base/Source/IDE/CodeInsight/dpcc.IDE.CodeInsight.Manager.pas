@@ -11,6 +11,10 @@
 // im Hintergrund) → Crashes (Abstürze, #1355) → Manager (Open Tools API). Serverprozess,
 // Ordnerbeobachter und die Quellen von Vervollständigung und Parameter-Hint aus dem Kern setzt die
 // Kompositionswurzel ein (TDpccCodeInsightAdapters).
+// IOTACodeInsightManagerEnvOptions (IDECHECK, Delphi 12 und 13): Wählt der Nutzer im Code-Insight-Dialog der IDE dpcc
+// bzw. einen anderen Anbieter, ruft die IDE ManagerEnabled bzw. ManagerDisabled; der Manager reicht das an
+// OnProviderChoice weiter (Betriebsart, dpcc.IDE.Foundation.InsightSwitch). Die Is…Visible-Abfragen lassen alle
+// Elemente des Dialogs sichtbar wie bisher.
 
 interface
 
@@ -24,7 +28,7 @@ uses
 
 type
   TDpccCodeInsightManager = class(TDpccCodeInsightCrashes, IOTACodeInsightManager, IOTACodeInsightManager90,
-    IOTACodeInsightSelection)
+    IOTACodeInsightSelection, IOTACodeInsightManagerEnvOptions)
   private
     /// <summary>Haken der Editor-Anbindungen an diesen Manager.</summary>
     function EditorHooks: TDpccCodeInsightEditorHooks;
@@ -93,6 +97,25 @@ type
     function GetHelpInsightHtml: WideString;
     { IOTACodeInsightSelection }
     function GetDisplayName: string;
+    { IOTACodeInsightManagerEnvOptions }
+    function IsEnableErrorInsightVisible: Boolean;
+    function IsCodeCompleteAutoParensVisible: Boolean;
+    function IsCodeCompleteAutoInvokeVisible: Boolean;
+    function IsCodeCompleteHistoryVisible: Boolean;
+    function IsCodeCompleteShowReservedWordsVisible: Boolean;
+    function IsCodeParametersVisible: Boolean;
+    function IsEvalHintsVisible: Boolean;
+    function IsDeclInfoVisible: Boolean;
+    function IsToolTipHelpInsightVisible: Boolean;
+    function IsEnableAutoCompletionVisible: Boolean;
+    function IsBlockWrapStyleVisible: Boolean;
+    function GetCodeInsightUIName: string;
+    procedure ManagerDisabled;
+    procedure ManagerEnabled;
+  public
+    /// <summary>Wahl im Code-Insight-Dialog der IDE (True = dpcc gewählt, False = ein anderer Anbieter); setzt die
+    /// Kompositionswurzel. Läuft im Thread des Aufrufs der IDE (Hauptthread).</summary>
+    class var OnProviderChoice: TProc<Boolean>;
   end;
 
 implementation
@@ -516,6 +539,102 @@ begin
   // Der dpcc-Tooltip zeigt alles; die IDE soll keinen zweiten Tooltip öffnen.
   Result := '';
   Diagnose('GetHelpInsightHtml aufgerufen');
+end;
+
+{ IOTACodeInsightManagerEnvOptions }
+
+function TDpccCodeInsightManager.IsEnableErrorInsightVisible: Boolean;
+begin
+  Result := True;
+end;
+
+function TDpccCodeInsightManager.IsCodeCompleteAutoParensVisible: Boolean;
+begin
+  Result := True;
+end;
+
+function TDpccCodeInsightManager.IsCodeCompleteAutoInvokeVisible: Boolean;
+begin
+  Result := True;
+end;
+
+function TDpccCodeInsightManager.IsCodeCompleteHistoryVisible: Boolean;
+begin
+  Result := True;
+end;
+
+function TDpccCodeInsightManager.IsCodeCompleteShowReservedWordsVisible: Boolean;
+begin
+  Result := True;
+end;
+
+function TDpccCodeInsightManager.IsCodeParametersVisible: Boolean;
+begin
+  Result := True;
+end;
+
+function TDpccCodeInsightManager.IsEvalHintsVisible: Boolean;
+begin
+  Result := True;
+end;
+
+function TDpccCodeInsightManager.IsDeclInfoVisible: Boolean;
+begin
+  Result := True;
+end;
+
+function TDpccCodeInsightManager.IsToolTipHelpInsightVisible: Boolean;
+begin
+  Result := True;
+end;
+
+function TDpccCodeInsightManager.IsEnableAutoCompletionVisible: Boolean;
+begin
+  Result := True;
+end;
+
+function TDpccCodeInsightManager.IsBlockWrapStyleVisible: Boolean;
+begin
+  Result := True;
+end;
+
+function TDpccCodeInsightManager.GetCodeInsightUIName: string;
+begin
+  Result := cManagerName;
+end;
+
+/// <summary>Wahl im Dialog weiterreichen; während des Abbaus nicht mehr (die IDE meldet beim Abmelden des Managers
+/// unter Umständen ManagerDisabled).</summary>
+procedure ReportProviderChoice(ASelected: Boolean);
+var
+  mHandler: TProc<Boolean>;
+begin
+  if TDpccShutdown.Signalled then
+  begin
+    Exit;
+  end;
+  mHandler := TDpccCodeInsightManager.OnProviderChoice;
+  if Assigned(mHandler) then
+  begin
+    try
+      mHandler(ASelected);
+    except
+      on E: Exception do
+        TDpccGuard.Log('Wahl des Code-Insight-Anbieters: ' + TDpccGuard.ErrorText(E));
+    end;
+  end;
+end;
+
+procedure TDpccCodeInsightManager.ManagerDisabled;
+begin
+  Diagnose('ManagerDisabled');
+  ReportProviderChoice(False);
+end;
+
+procedure TDpccCodeInsightManager.ManagerEnabled;
+begin
+  Diagnose('ManagerEnabled');
+  ReportProviderChoice(True);
 end;
 
 function TDpccCodeInsightManager.GetEnabled: Boolean;

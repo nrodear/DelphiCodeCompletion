@@ -4,7 +4,7 @@
 // `TDpccStrings.Language`; jeder Aufruf liest sie neu. Eigene Unit, damit ein neuer Text des Features nicht
 // `dpcc.UI.Strings` ändert, die fast der ganze Kern verwendet; dort bleiben gemeinsame Texte.
 // Seit OPT1 nur noch die Texte der einen Seite „dpcc“: Hauptschalter, vier Abschnitte, zwölf Optionen, zwei Knöpfe
-// und die Meldungen von „Index neu aufbauen“. Texte der Reiter, des Baums, der Suche, des Filters, der
+// und die Meldungen von „Index neu aufbauen“; seit IDECHECK der Abschnitt „IDE“ mit „Jetzt prüfen“. Texte der Reiter, des Baums, der Suche, des Filters, der
 // Geändert-Markierung, der experimentellen Funktionen, der Favoritenliste und der fest verdrahteten Optionen sind
 // entfallen.
 
@@ -25,7 +25,9 @@ type
     SettingsParameterHints, SettingsHover, SettingsDebugHoverValues,
     // Index: zusätzliche Quellordner (L2) und „Index neu aufbauen“ (S4).
     SettingsIndexExtraSourceFolders, SettingsIndexRebuild, SettingsIndexRebuildConfirm, SettingsIndexRebuildLater,
-    SettingsIndexCacheFailed, SettingsIndexCacheCleared);
+    SettingsIndexCacheFailed, SettingsIndexCacheCleared,
+    // IDE: Betriebsart und Schalter der IDE (IDECHECK).
+    SettingsSectionIde, SettingsCheckIde);
 
   TDpccSettingsStrings = class
   public
@@ -42,7 +44,7 @@ uses
 
 const
   cTexts: array[TDpccLanguage, TDpccSettingsTextId] of string = (
-    ('Code Insight von dpcc (aus: eingebaute Code Insight der IDE)',
+    ('Code Insight von dpcc (stellt den Code-Insight-Anbieter der IDE auf dpcc um; aus = DelphiLSP)',
      'Vervollständigung',
      'Beim Übernehmen',
      'Parameter-Hint und Tooltip',
@@ -67,8 +69,10 @@ const
      'Alle Index-Caches löschen und den Index neu aufbauen? Der erste Aufbau kann einige Minuten dauern.',
      '%d Index-Caches gelöscht; der Index wird beim nächsten Start der Code Completion neu aufgebaut.',
      'Index-Cache konnte nicht gelöscht werden: %s',
-     '%d Index-Caches gelöscht; der Index wird neu aufgebaut.'),
-    ('Code Insight by dpcc (off: built-in Code Insight of the IDE)',
+     '%d Index-Caches gelöscht; der Index wird neu aufgebaut.',
+     'IDE',
+     'Jetzt prüfen'),
+    ('Code Insight by dpcc (switches the IDE''s Code Insight provider to dpcc; off = DelphiLSP)',
      'Completion',
      'When accepting',
      'Parameter hint and tooltip',
@@ -93,7 +97,9 @@ const
      'Delete all index caches and rebuild the index? The first build can take a few minutes.',
      '%d index caches deleted; the index is rebuilt the next time code completion starts.',
      'Index cache could not be deleted: %s',
-     '%d index caches deleted; the index is being rebuilt.'));
+     '%d index caches deleted; the index is being rebuilt.',
+     'IDE',
+     'Check now'));
 
 { TDpccSettingsStrings }
 

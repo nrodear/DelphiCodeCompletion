@@ -37,7 +37,7 @@ parenthèses.
 | Complétion | Ctrl+Espace | dpcc |
 | Aide aux paramètres | Ctrl+Maj+Espace | dpcc |
 | Infobulle sur les identificateurs | La souris s'attarde sur un identificateur | dpcc |
-| Liste qui s'ouvre d'elle-même après « . » | Saisie de « . » | DelphiLSP (IDE) |
+| Liste qui s'ouvre d'elle-même après « . » | Saisie de « . » | dpcc s'il est le fournisseur Code Insight (interrupteur principal activé) ; sinon DelphiLSP (IDE), et dpcc est désactivé |
 
 dpcc traite les fichiers portant les extensions `.pas`, `.dpr`, `.dpk` et `.inc`. Dans tous les autres fichiers, et
 lorsque l'interrupteur principal est désactivé, c'est l'IDE qui reste responsable.

@@ -5,9 +5,10 @@
 // seiner Tiefe. Die Linie steht links vor dem Einzug der Öffnerzeile bzw. vor
 // dem Schließer, wenn der weiter links steht (TFoo = class … end).
 // Die Strukturhervorhebung der IDE fasst dpcc seit S9 nicht mehr an (vorher
-// abgeschaltet, solange die eigenen Linien an waren). Switch gleicht seither
-// nur noch Help Insight und den Wert-Tooltip der IDE ab
-// (TDpccIdeInsightSwitch); die IDE liest diese Schalter nur beim Start.
+// abgeschaltet, solange die eigenen Linien an waren). Switch glich danach
+// Help Insight und den Wert-Tooltip der IDE ab; seit IDECHECK schaltet
+// TDpccIdeInsightSwitch nach TDpccIdeContext (dpcc.Core.Settings.IdeCheck,
+// Merker mit Wert davor), Switch hat keinen Aufrufer mehr.
 // Mit Besitzern (#653): Steht der Öffner allein am Zeilenanfang unter seiner
 // Anweisung (if … then / begin), beginnt die Linie samt Haken an der Zeile der
 // Anweisung und steht vor deren Einzug.

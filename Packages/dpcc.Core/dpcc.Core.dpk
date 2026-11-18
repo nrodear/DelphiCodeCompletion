@@ -92,6 +92,7 @@ contains
   dpcc.Core.Settings.JsonText in 'Source\Settings\dpcc.Core.Settings.JsonText.pas',
   dpcc.Core.Settings.Scopes in 'Source\Settings\dpcc.Core.Settings.Scopes.pas',
   dpcc.Core.Settings.CompletionView in 'Source\Settings\dpcc.Core.Settings.CompletionView.pas',
+  dpcc.Core.Settings.IdeCheck in 'Source\Settings\dpcc.Core.Settings.IdeCheck.pas',
   dpcc.Core.Settings.MasterSwitch in 'Source\Settings\dpcc.Core.Settings.MasterSwitch.pas',
   dpcc.Core.Completion.Ranking in 'Source\Completion\dpcc.Core.Completion.Ranking.pas',
   dpcc.Core.Completion.Sets in 'Source\Completion\dpcc.Core.Completion.Sets.pas',

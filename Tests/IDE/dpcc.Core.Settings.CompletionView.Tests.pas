@@ -124,11 +124,12 @@ end;
 procedure TDpccCompletionViewTests.PageShowsExactlyTwelveOptions;
 const
   // Erwarteter Aufbau der Seite (Auftrag OPT1): Abschnitt und Element; Knöpfe mit ihrer Kennung.
-  cSections: array[0..14] of TDpccPageSection = (psMaster, psCompletion, psCompletion, psCompletion, psCompletion,
-    psCompletion, psCompletion, psCommit, psCommit, psCommit, psHints, psHints, psHints, psIndex, psIndex);
-  cNames: array[0..14] of string = ('Enabled', 'AutoMinChars', 'CompletionListMode', 'VisibleRows', 'ListWidth',
+  // Seit IDECHECK zuletzt der Abschnitt IDE mit „Jetzt prüfen“ (keine Einstellung).
+  cSections: array[0..15] of TDpccPageSection = (psMaster, psCompletion, psCompletion, psCompletion, psCompletion,
+    psCompletion, psCompletion, psCommit, psCommit, psCommit, psHints, psHints, psHints, psIndex, psIndex, psIde);
+  cNames: array[0..15] of string = ('Enabled', 'AutoMinChars', 'CompletionListMode', 'VisibleRows', 'ListWidth',
     'Learning', 'ResetHistory', 'AutoParentheses', 'CommitCharacters', 'AutoUses', 'ParameterHints', 'HoverTooltip',
-    'DebugHoverValues', 'IndexExtraSourceFolders', 'RebuildIndex');
+    'DebugHoverValues', 'IndexExtraSourceFolders', 'RebuildIndex', 'CheckIde');
 var
   mIndex, mOptions, mButtons: Integer;
   mName: string;
@@ -151,9 +152,10 @@ begin
     end;
   end;
   Assert.AreEqual(12, mOptions, 'Optionen unter dem Hauptschalter');
-  Assert.AreEqual(2, mButtons, 'Knöpfe');
+  Assert.AreEqual(3, mButtons, 'Knöpfe');
   Assert.AreEqual(cPageResetHistory, cPageItems[6].Name);
   Assert.AreEqual(cPageRebuildIndex, cPageItems[14].Name);
+  Assert.AreEqual(cPageCheckIde, cPageItems[15].Name);
   Assert.AreEqual(13, Integer(Length(TDpccCompletionView.SettingNames)), 'Einstellungen samt Hauptschalter');
   // Gespeichert werden genau die Einstellungen der Seite, jede einmal.
   mStored := TDpccPluginSettings.StoredNames;

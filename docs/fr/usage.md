@@ -22,16 +22,20 @@ qu'une de ses fenêtres est ouverte et a besoin de la touche.
 
 ## Interaction avec DelphiLSP
 
-Delphi 13 ne transmet les déclencheurs automatiques (saisie de « . », « ( », « , ») qu'au fournisseur Code Insight
-choisi pour Delphi dans les options de l'IDE. La valeur par défaut est DelphiLSP. Il en découle :
+Delphi 12 et 13 ne transmettent les déclencheurs automatiques (saisie de « . », « ( », « , ») qu'au fournisseur Code
+Insight choisi pour Delphi dans les options de l'IDE. La valeur par défaut est DelphiLSP. dpcc et DelphiLSP ne
+fonctionnent donc pas côte à côte, mais dans deux modes (détails sous [Réglages](settings.md#ce-que-dpcc-modifie-dans-lide)) :
 
-- La liste qui s'ouvre d'elle-même après « . » vient de DelphiLSP.
-- Ctrl+Espace et Ctrl+Maj+Espace viennent de dpcc.
+- **Mode dpcc** (interrupteur principal activé) : dpcc est le fournisseur. La liste après « . », l'aide aux paramètres
+  sur « ( » et « , », Ctrl+Espace, Ctrl+Maj+Espace et l'infobulle viennent de dpcc. dpcc règle lui-même les options
+  de l'IDE dont il a besoin.
+- **Mode IDE** (interrupteur principal désactivé) : DelphiLSP est le fournisseur, dpcc est désactivé. Si DelphiLSP est
+  choisi au démarrage de Delphi, dpcc se désactive lui-même.
+- Activer l'interrupteur principal bascule le fournisseur sur dpcc, le désactiver le rétablit sur DelphiLSP. Cela prend
+  effet après le redémarrage de Delphi ; d'ici là, ce qui suit vaut pour l'ancien fournisseur.
 - La liste qui s'ouvre d'elle-même pendant la saisie d'un nom (seulement si activée, voir
   [Ouverture pendant la saisie](#ouverture-pendant-la-saisie)) vient de dpcc : pour cela, dpcc observe lui-même
-  l'éditeur, quel que soit le fournisseur choisi.
-- Les réglages qui n'agissent qu'à l'ouverture automatique sont sans effet avec cette valeur par défaut. Ils sont
-  signalés dans [Réglages](settings.md).
+  l'éditeur.
 
 Au démarrage, dpcc écrit dans le journal quel fournisseur est choisi (ligne « Code Insight für Delphi-Dateien:
 gewählt … », c'est-à-dire Code Insight pour les fichiers Delphi : choisi …).
@@ -76,8 +80,9 @@ comme d'habitude via DelphiLSP ; dpcc n'y participe pas.
 - L'IDE attend dpcc au plus 1 seconde. Si cela dure plus longtemps, elle ne saute pas.
 
 La première fois de chaque session, la fenêtre Messages indique que dpcc est choisi et ce qui manque alors : Error
-Insight (marques d'erreur dans l'éditeur) et les autres services de DelphiLSP. Si vous en avez besoin, choisissez de
-nouveau DelphiLSP ; Ctrl+Espace reste chez dpcc même dans ce cas.
+Insight (marques d'erreur dans l'éditeur) et les autres services de DelphiLSP. Si vous en avez besoin, désactivez
+l'interrupteur principal (ou choisissez de nouveau DelphiLSP dans les options de l'IDE) ; dpcc est alors désactivé à
+partir du prochain démarrage.
 
 ## La liste
 
