@@ -27,6 +27,7 @@
 {$DESCRIPTION 'dpcc UI (VCL-Oberfläche des Plugins, ohne ToolsAPI)'}
 {$RUNONLY}
 {$IMPLICITBUILD ON}
+{$LIBSUFFIX AUTO}
 
 // Laufzeit-Package mit der VCL-Oberfläche des Plugins (seit S7b, vorher Teil von dpcc.IDE.Base):
 // Completion-Liste, Hover- und Signatur-Hinweise, Optionsseite, Texte der Oberfläche. Erlaubt sind RTL,

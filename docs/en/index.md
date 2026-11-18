@@ -6,7 +6,8 @@ dpcc (Delphi Pascal Code Completion) is a plugin for the Delphi IDE. It provides
 parameter hint and a tooltip over identifiers. For this, it builds its own index of the project, search paths and
 library inside the IDE process.
 
-Version 0.1.0, for Delphi 13 (RAD Studio 37.0), Win32.
+Version 0.1.0, for Delphi 13 (RAD Studio 37.0), Win32. For Delphi 12 (RAD Studio 23.0) there is a separate
+project group without tests, see [Building for Delphi 12](installation.md#building-for-delphi-12).
 
 ## For users
 

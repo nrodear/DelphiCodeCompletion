@@ -74,8 +74,9 @@ uses in hints and in `settings.json`. “–” under “Registry value”: the 
 These options are no longer on the page. They have fixed values, the former defaults:
 
 - **Delay before automatic opening (for example after “.”): 150 ms** (`OpenDelayMs`, `completion.openDelayMs`).
-  Applies only to automatic opening, not to Ctrl+Space. With DelphiLSP as the selected provider it only applies to
-  opening while typing, which dpcc triggers itself (see [Usage](usage.md#interaction-with-delphilsp)).
+  Applies only to automatic opening (after “.” and while typing), not to Ctrl+Space. dpcc opens automatically only
+  in the dpcc mode; in the IDE mode (DelphiLSP selected) dpcc is off (see
+  [Usage](usage.md#interaction-with-delphilsp)).
 - **Pin favorites with Ctrl+D: on** (`Favorites`, `completion.favorites`). Ctrl+D in the open list pins or unpins;
   the favorites are still stored in `%APPDATA%\dpcc\favorites.json`. See [Usage](usage.md#favorites).
 - **Inherited members ranked lower and grouped by class: on** (`GroupInherited`, `completion.groupInherited`).
@@ -204,11 +205,13 @@ Key locations per version:
 
 | | Delphi 12 (BDS 23.0) | Delphi 13 (BDS 37.0) |
 |---|---|---|
-| DelphiLSP | `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal`; if missing, `Code Insight\Borland.EditOptions.Pascal` | `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` |
+| DelphiLSP | `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` | `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` |
 | dpcc | `Code Insight\Borland.EditOptions.Pascal` | `Code Insight\Borland.EditOptions.Pascal` |
 
 Under Delphi 12, the test machine had only the DelphiLSP location (plus HTML and StyleSheet), no
-`Borland.EditOptions.Pascal`; dpcc creates it when needed in the dpcc mode. If the checked key is missing entirely,
+`Borland.EditOptions.Pascal`; dpcc creates it when needed in the dpcc mode. Like Delphi 13, Delphi 12 reads the
+DelphiLSP switches only at the DelphiLSP location; `Borland.EditOptions.Pascal` is the option set of dpcc and does not
+count in the IDE mode (dpcc used to check it as a fallback under Delphi 12). If the checked key is missing entirely,
 the result says “key missing (IDE default)”; this is not an error. The log line reads for example
 “IDE-Einstellungen: 1 Abweichung: Auto Code Completions; Anbieter „Borland.CodeInsight.LSP.Pascal“, geprüft …”.
 

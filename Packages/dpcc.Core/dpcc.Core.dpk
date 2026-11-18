@@ -27,6 +27,7 @@
 {$DESCRIPTION 'dpcc Core (Logik des Plugins, ohne VCL und ToolsAPI)'}
 {$RUNONLY}
 {$IMPLICITBUILD ON}
+{$LIBSUFFIX AUTO}
 
 // Laufzeit-Package mit der Logik des Plugins (seit S7b, vorher Teil von dpcc.IDE.Base): LSP-Sitzung,
 // Completion-, Hover- und Signatur-Logik, Einstellungen, Sicherung und Diagnose. Erlaubt sind die RTL

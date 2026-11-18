@@ -27,6 +27,7 @@
 {$DESCRIPTION 'dpcc Text (nur RTL, gemeinsam für Server und Plugin)'}
 {$RUNONLY}
 {$IMPLICITBUILD ON}
+{$LIBSUFFIX AUTO}
 
 // Platform-Package mit Textcode, den Server und IDE-Plugin gleich brauchen
 //: Zeilen, Zeichenklassen, Kodierungserkennung, URIs,

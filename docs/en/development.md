@@ -7,6 +7,8 @@
 ## Requirements
 
 - Delphi 13 / RAD Studio 37.0, Win32 platform.
+- For Delphi 12 / RAD Studio 23.0 only the packages (`dpcc_d12.groupproj`), without tests: Delphi 12 does not ship
+  DUnitX for Win32.
 - DUnitX for the tests; it comes with RAD Studio.
 
 ## Building
@@ -33,6 +35,24 @@ the order.
 | DCUs | `Output\Win32\Debug\Dcu\<project>` |
 | Test program | `Output\Win32\Debug\Bin` |
 
+All eight packages carry the package version as a suffix (`{$LIBSUFFIX AUTO}`, in the `.dproj` `DllSuffix` =
+`$(Auto)`): `dpcc.Text370.bpl` … under Delphi 13, `dpcc.Text290.bpl` … under Delphi 12. The names in `requires`
+and the `.dcp` files stay without a suffix.
+
+**Delphi 12:** `dpcc_d12.groupproj` contains projects 1 to 8 with the same dependencies, without the test program.
+Each package `.dproj` has a group after the base group with the condition
+`'$(Base)'!='' and Exists('$(BDS)\bin\rtl290.bpl')`. It redirects DCUs, DCPs, BPLs and the DCP search path to
+`Output\290\…`. Under Delphi 13 there is no `rtl290.bpl` in `$(BDS)\bin`, so the group has no effect there.
+
+| Output under Delphi 12 | Folder |
+|---|---|
+| BPLs | `Output\290\Win32\Debug\Bpl` |
+| DCPs | `Output\290\Win32\Debug\Dcp` |
+| DCUs | `Output\290\Win32\Debug\Dcu\<project>` |
+
+In the Delphi 12 IDE, `…\Output\290\Win32\Debug\Bpl` belongs in the PATH (`Tools\IdePath.ps1 -BdsVersion 23.0`),
+and `dpcc.IDE.Base290.bpl` is installed; see [Installation](installation.md#building-for-delphi-12).
+
 **Command line:** The command-line compiler (`dcc32`, MSBuild) is locked in the Community and Starter editions of
 Delphi. With these editions, build the group in the IDE.
 
@@ -42,7 +62,7 @@ Build output does not belong in the repository (`.gitignore`: `Output/`, `*.dcu`
 
 ## Testing
 
-`Tests\dpcc.Completion.Tests.dproj` is a DUnitX console program. After building:
+`Tests\dpcc.Completion.Tests.dproj` is a DUnitX console program, only in the group for Delphi 13. After building:
 
 ```
 Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --exclude:Benchmark --exitbehavior:Continue

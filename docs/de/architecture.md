@@ -12,13 +12,13 @@ eigenen Server-Prozess gibt es nicht.
 
 ```
 IDE (bds.exe)
- ├─ dpcc.IDE.Base370.bpl   Plugin: Open Tools API, Tasten, Editor, Optionsseite
- │    ├─ dpcc.UI.bpl       Fenster: Liste, Tooltip, Parameterhilfe, Optionsseite
- │    └─ dpcc.Core.bpl     Logik: LSP-Client, Ablauf, Rangfolge, Einstellungen
+ ├─ dpcc.IDE.Base370.bpl      Plugin: Open Tools API, Tasten, Editor, Optionsseite
+ │    ├─ dpcc.UI370.bpl       Fenster: Liste, Tooltip, Parameterhilfe, Optionsseite
+ │    └─ dpcc.Core370.bpl     Logik: LSP-Client, Ablauf, Rangfolge, Einstellungen
  │          │  LSP über JSON-RPC, zwei Speicher-Pipes
  │          ▼
- └─ dpcc.Server.bpl        Completion-Server auf eigenem Thread
-      └─ dpcc.Common.bpl   Parser, Namensauflösung, Index, LSP-Funktionen
+ └─ dpcc.Server370.bpl        Completion-Server auf eigenem Thread
+      └─ dpcc.Common370.bpl   Parser, Namensauflösung, Index, LSP-Funktionen
 ```
 
 Der Hauptthread der IDE wartet nie auf den Server. Schreiben legt eine Nachricht nur in die Pipe; ein Lese-Thread
@@ -35,11 +35,12 @@ reicht die Antworten an den Client weiter, Ergebnisse kommen über eine eigene W
 | `dpcc.Server` | Text, WinBase, Common, Windows | Hülle des Completion-Servers; Quellen in `Application\Source\Shell` |
 | `dpcc.Core` | Text, WinBase, Common, Windows, Server | Logik des Plugins, ohne VCL und ToolsAPI |
 | `dpcc.UI` | Text, WinBase, Common, Windows, Server, Core; `vcl` | VCL-Oberfläche, ohne ToolsAPI |
-| `dpcc.IDE.Base` | alle obigen; `vcl`, `vclwinx`, `designide` | das Plugin; einziges Design-Time-Package, Endung nach Version (`370`) |
+| `dpcc.IDE.Base` | alle obigen; `vcl`, `vclwinx`, `designide` | das Plugin; einziges Design-Time-Package |
 | `dpcc.Completion.Tests` | linkt die DCUs | DUnitX-Testprogramm |
 
-Alle Packages außer `dpcc.IDE.Base` sind Laufzeit-Packages (`{$RUNONLY}`). Die Reihenfolge in `dpcc_d13.groupproj`
-folgt den Abhängigkeiten.
+Alle Packages außer `dpcc.IDE.Base` sind Laufzeit-Packages (`{$RUNONLY}`). Alle acht tragen die Package-Version als
+Endung (`{$LIBSUFFIX AUTO}`: `370` unter Delphi 13, `290` unter Delphi 12), die Namen in `requires` nicht. Die
+Reihenfolge in `dpcc_d13.groupproj` (Delphi 12: `dpcc_d12.groupproj`, ohne Tests) folgt den Abhängigkeiten.
 
 ### Regeln der Schichten
 

@@ -75,8 +75,9 @@ Registry, sondern in `settings.json` (siehe [Ablage](#ablage)).
 Diese Optionen stehen nicht mehr auf der Seite. Sie gelten fest mit ihrer bisherigen Vorgabe:
 
 - **Verzögerung bis zum automatischen Öffnen (etwa nach „.“): 150 ms** (`OpenDelayMs`, `completion.openDelayMs`).
-  Gilt nur für das automatische Öffnen, nicht für Strg+Leertaste. Mit DelphiLSP als gewähltem Anbieter wirkt sie nur
-  beim Öffnen beim Tippen, das dpcc selbst auslöst (siehe [Bedienung](usage.md#zusammenspiel-mit-delphilsp)).
+  Gilt nur für das automatische Öffnen (nach „.“ und beim Tippen), nicht für Strg+Leertaste. Automatisch öffnet
+  dpcc nur in der Betriebsart dpcc; in der Betriebsart IDE (DelphiLSP gewählt) ist dpcc aus (siehe
+  [Bedienung](usage.md#zusammenspiel-mit-delphilsp)).
 - **Favoriten anheften mit Strg+D: an** (`Favorites`, `completion.favorites`). Strg+D in der offenen Liste heftet an
   bzw. löst; die Favoriten liegen weiter in `%APPDATA%\dpcc\favorites.json`. Siehe
   [Bedienung](usage.md#favoriten).
@@ -208,11 +209,14 @@ Orte der Schlüssel je Version:
 
 | | Delphi 12 (BDS 23.0) | Delphi 13 (BDS 37.0) |
 |---|---|---|
-| DelphiLSP | `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal`; fehlt er, `Code Insight\Borland.EditOptions.Pascal` | `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` |
+| DelphiLSP | `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` | `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` |
 | dpcc | `Code Insight\Borland.EditOptions.Pascal` | `Code Insight\Borland.EditOptions.Pascal` |
 
 Unter Delphi 12 gab es auf dem Prüfrechner nur den Ort von DelphiLSP (dazu HTML und StyleSheet), keinen
-`Borland.EditOptions.Pascal`; dpcc legt ihn in der Betriebsart dpcc bei Bedarf an. Fehlt der geprüfte Schlüssel ganz,
+`Borland.EditOptions.Pascal`; dpcc legt ihn in der Betriebsart dpcc bei Bedarf an. Die Schalter von DelphiLSP liest
+Delphi 12 wie Delphi 13 nur am Ort von DelphiLSP; `Borland.EditOptions.Pascal` ist das Option Set von dpcc und
+zählt in der Betriebsart IDE nicht (früher prüfte dpcc es unter Delphi 12 ersatzweise). Fehlt der geprüfte
+Schlüssel ganz,
 steht im Ergebnis „Schlüssel fehlt (IDE-Vorgabe)“; das ist kein Fehler. Die Protokollzeile lautet etwa
 „IDE-Einstellungen: 1 Abweichung: Auto Code Completions; Anbieter „Borland.CodeInsight.LSP.Pascal“, geprüft …“.
 

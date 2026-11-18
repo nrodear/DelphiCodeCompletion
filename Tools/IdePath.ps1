@@ -5,9 +5,11 @@
 
 .DESCRIPTION
   dpcc.IDE.Base<Suffix>.bpl braucht zur Laufzeit dpcc.Text, dpcc.WinBase, dpcc.Common, dpcc.Windows,
-  dpcc.Server, dpcc.Core und dpcc.UI.bpl. Windows sucht abhaengige BPLs nicht im Ordner der Plugin-BPL, sondern ueber PATH. Dieses
-  Skript traegt den BPL-Ausgabeordner in die PATH-Ueberschreibung der IDE ein
+  dpcc.Server, dpcc.Core und dpcc.UI<Suffix>.bpl. Windows sucht abhaengige BPLs nicht im Ordner der Plugin-BPL, sondern
+  ueber PATH. Dieses Skript traegt den BPL-Ausgabeordner in die PATH-Ueberschreibung der IDE ein
   (HKCU\Software\Embarcadero\BDS\<Version>\Environment Variables, Wert PATH) und zeigt den Zustand an.
+  <Suffix> ist die Package-Version (LIBSUFFIX AUTO): 370 fuer Delphi 13 (BDS 37.0), 290 fuer Delphi 12 (BDS 23.0).
+  BPL-Ordner ohne -BplDir: Output\Win32\Debug\Bpl fuer Delphi 13, Output\290\Win32\Debug\Bpl fuer Delphi 12.
 
   Aktionen:
     Status  (Vorgabe) Zustand anzeigen, nichts aendern. Exit-Code 0 = alles in Ordnung, 1 = Eintrag fehlt,
@@ -21,6 +23,7 @@
   powershell -NoProfile -File Tools\IdePath.ps1
   powershell -NoProfile -File Tools\IdePath.ps1 -Action Add
   powershell -NoProfile -File Tools\IdePath.ps1 -Action Remove -BdsVersion 37.0
+  powershell -NoProfile -File Tools\IdePath.ps1 -BdsVersion 23.0
 #>
 [CmdletBinding()]
 param(
@@ -32,17 +35,26 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+$Major = 0
+if (-not [int]::TryParse(($BdsVersion -split '\.')[0], [ref]$Major) -or $Major -le 0) {
+  throw "Unbekannte BDS-Version '$BdsVersion' (erwartet z. B. 37.0 oder 23.0)."
+}
+# Package-Version (LIBSUFFIX AUTO): bis BDS 23.0 (Delphi 12) BDS + 6 (23.0 -> 290), ab BDS 37.0 (Delphi 13) gleich
+# (37.0 -> 370).
+if ($Major -le 23) { $Suffix = '{0}0' -f ($Major + 6) } else { $Suffix = '{0}0' -f $Major }
+# Delphi 13 baut nach Output\Win32\Debug, Delphi 12 nach Output\290\Win32\Debug (dpcc_d12.groupproj).
+if ($Major -ge 37) { $OutputPart = 'Output'; $Group = 'dpcc_d13' } else { $OutputPart = "Output\$Suffix"; $Group = 'dpcc_d12' }
+
 if ($BplDir -eq '') {
-  $BplDir = Join-Path (Split-Path -Parent $PSScriptRoot) 'Output\Win32\Debug\Bpl'
+  $BplDir = Join-Path (Split-Path -Parent $PSScriptRoot) "$OutputPart\Win32\Debug\Bpl"
 }
 $BplDir = [IO.Path]::GetFullPath($BplDir).TrimEnd('\')
 
 $EnvKey = "HKCU:\Software\Embarcadero\BDS\$BdsVersion\Environment Variables"
 $KnownKey = "HKCU:\Software\Embarcadero\BDS\$BdsVersion\Known Packages"
 $DpccKey = 'HKCU:\Software\dpcc\IdePlugin'
-$Suffix = ($BdsVersion -replace '\.', '')    # 37.0 -> 370
-$Required = @('dpcc.Text.bpl', 'dpcc.WinBase.bpl', 'dpcc.Common.bpl', 'dpcc.Windows.bpl', 'dpcc.Server.bpl',
-  'dpcc.Core.bpl', 'dpcc.UI.bpl', "dpcc.IDE.Base$Suffix.bpl")
+$Required = @('dpcc.Text', 'dpcc.WinBase', 'dpcc.Common', 'dpcc.Windows', 'dpcc.Server', 'dpcc.Core', 'dpcc.UI',
+  'dpcc.IDE.Base') | ForEach-Object { "$_$Suffix.bpl" }
 
 function Get-PathOverride {
   if (-not (Test-Path $EnvKey)) { return $null }
@@ -92,7 +104,7 @@ function Get-State {
 # Gibt nur den Exit-Code zurueck; die Meldung geht ueber Write-Host, damit sie nicht im Rueckgabewert landet.
 function Write-Result($AState) {
   if (-not $AState.DirExists -or $AState.Missing.Count -gt 0) {
-    Write-Host "FEHLT: BPL-Ordner oder BPLs fehlen ($BplDir) - erst die Gruppe dpcc_d13 bauen."
+    Write-Host "FEHLT: BPL-Ordner oder BPLs fehlen ($BplDir) - erst die Gruppe $Group bauen."
     return 2
   }
   if (-not $AState.HasEntry) {

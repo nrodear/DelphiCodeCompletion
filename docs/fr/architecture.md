@@ -12,13 +12,13 @@ deux tubes mémoire ; il n'y a pas de processus serveur distinct.
 
 ```
 IDE (bds.exe)
- ├─ dpcc.IDE.Base370.bpl   plugin : Open Tools API, touches, éditeur, page d'options
- │    ├─ dpcc.UI.bpl       fenêtres : liste, infobulle, aide aux paramètres, page d'options
- │    └─ dpcc.Core.bpl     logique : client LSP, déroulement, classement, réglages
+ ├─ dpcc.IDE.Base370.bpl      plugin : Open Tools API, touches, éditeur, page d'options
+ │    ├─ dpcc.UI370.bpl       fenêtres : liste, infobulle, aide aux paramètres, page d'options
+ │    └─ dpcc.Core370.bpl     logique : client LSP, déroulement, classement, réglages
  │          │  LSP via JSON-RPC, deux tubes mémoire
  │          ▼
- └─ dpcc.Server.bpl        serveur de complétion sur son propre thread
-      └─ dpcc.Common.bpl   analyseur, résolution de noms, index, fonctions LSP
+ └─ dpcc.Server370.bpl        serveur de complétion sur son propre thread
+      └─ dpcc.Common370.bpl   analyseur, résolution de noms, index, fonctions LSP
 ```
 
 Le thread principal de l'IDE n'attend jamais le serveur. Une écriture ne fait que déposer un message dans le tube ;
@@ -36,11 +36,12 @@ d'attente dédiée.
 | `dpcc.Server` | Text, WinBase, Common, Windows | enveloppe du serveur de complétion ; sources dans `Application\Source\Shell` |
 | `dpcc.Core` | Text, WinBase, Common, Windows, Server | logique du plugin, sans VCL ni ToolsAPI |
 | `dpcc.UI` | Text, WinBase, Common, Windows, Server, Core ; `vcl` | interface VCL, sans ToolsAPI |
-| `dpcc.IDE.Base` | tous les précédents ; `vcl`, `vclwinx`, `designide` | le plugin ; seul paquet de conception, suffixe selon la version (`370`) |
+| `dpcc.IDE.Base` | tous les précédents ; `vcl`, `vclwinx`, `designide` | le plugin ; seul paquet de conception |
 | `dpcc.Completion.Tests` | lie les DCU | programme de test DUnitX |
 
-Tous les paquets sauf `dpcc.IDE.Base` sont des paquets d'exécution (`{$RUNONLY}`). L'ordre dans
-`dpcc_d13.groupproj` suit les dépendances.
+Tous les paquets sauf `dpcc.IDE.Base` sont des paquets d'exécution (`{$RUNONLY}`). Les huit portent la version de
+paquet comme suffixe (`{$LIBSUFFIX AUTO}` : `370` sous Delphi 13, `290` sous Delphi 12), les noms dans `requires`
+non. L'ordre dans `dpcc_d13.groupproj` (Delphi 12 : `dpcc_d12.groupproj`, sans tests) suit les dépendances.
 
 ### Règles des couches
 

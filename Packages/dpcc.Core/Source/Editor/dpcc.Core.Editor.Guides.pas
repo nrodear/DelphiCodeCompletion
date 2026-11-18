@@ -5,10 +5,10 @@
 // seiner Tiefe. Die Linie steht links vor dem Einzug der Öffnerzeile bzw. vor
 // dem Schließer, wenn der weiter links steht (TFoo = class … end).
 // Die Strukturhervorhebung der IDE fasst dpcc seit S9 nicht mehr an (vorher
-// abgeschaltet, solange die eigenen Linien an waren). Switch glich danach
-// Help Insight und den Wert-Tooltip der IDE ab; seit IDECHECK schaltet
-// TDpccIdeInsightSwitch nach TDpccIdeContext (dpcc.Core.Settings.IdeCheck,
-// Merker mit Wert davor), Switch hat keinen Aufrufer mehr.
+// abgeschaltet, solange die eigenen Linien an waren). Help Insight und den
+// Wert-Tooltip der IDE schaltet seit IDECHECK TDpccIdeInsightSwitch nach
+// TDpccIdeContext (dpcc.Core.Settings.IdeCheck, Merker mit Wert davor); das
+// frühere TDpccGuides.Switch samt TDpccIdeStructure ist seit D12-PREP entfernt.
 // Mit Besitzern (#653): Steht der Öffner allein am Zeilenanfang unter seiner
 // Anweisung (if … then / begin), beginnt die Linie samt Haken an der Zeile der
 // Anweisung und steht vor deren Einzug.
@@ -30,13 +30,6 @@ type
     Routine: Integer;
   end;
 
-  /// <summary>Ein Schalter der IDE (Help Insight, Wert-Tooltip) und ob dpcc ihn abgeschaltet hat; der Name stammt
-  /// aus der Zeit, als dpcc die Strukturhervorhebung schaltete (bis S9).</summary>
-  TDpccIdeStructure = record
-    Enabled: Boolean;
-    DisabledByDpcc: Boolean;
-  end;
-
   TDpccGuides = class
   public
     /// <summary>Linien aller gepaarten Blöcke über mehrere Zeilen.</summary>
@@ -51,9 +44,6 @@ type
     /// <summary>Stiftbreite in Pixeln: AWidth (1–3, bei 100 %) skaliert mit der Zeilenhöhe
     /// gegenüber ABaseCellHeight (Zeilenhöhe bei 100 %).</summary>
     class function PenWidth(AWidth, ACellHeight, ABaseCellHeight: Integer): Integer; static;
-    /// <summary>Neuer Zustand eines IDE-Schalters: aus, wenn dpcc die Anzeige übernimmt (AOwnGuides),
-    /// sonst wieder an, wenn dpcc ihn abgeschaltet hatte.</summary>
-    class function Switch(const AState: TDpccIdeStructure; AOwnGuides: Boolean): TDpccIdeStructure; static;
   end;
 
 implementation
@@ -124,25 +114,6 @@ begin
     Exit(AWidth);
   end;
   Result := Max(1, Round(AWidth * ACellHeight / ABaseCellHeight));
-end;
-
-class function TDpccGuides.Switch(const AState: TDpccIdeStructure; AOwnGuides: Boolean): TDpccIdeStructure;
-begin
-  Result := AState;
-  if AOwnGuides then
-  begin
-    if AState.Enabled then
-    begin
-      Result.Enabled := False;
-      Result.DisabledByDpcc := True;
-    end;
-  end
-  else if AState.DisabledByDpcc then
-  begin
-    // Nur zurückdrehen, was dpcc selbst abgeschaltet hat.
-    Result.Enabled := True;
-    Result.DisabledByDpcc := False;
-  end;
 end;
 
 end.

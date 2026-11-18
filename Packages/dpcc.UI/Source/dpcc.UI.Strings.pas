@@ -22,7 +22,9 @@ type
     OptionalDefault, NoOverloadWith, MoreOverloads, KindClass, KindClassRef, KindObject, KindRecord, KindInterface,
     KindHelper, KindEnum, KindType, KindMethod, KindConstructor, KindRoutine, KindProperty, KindField, KindVariable,
     KindConstant, KindEnumMember, ProblemsConfidence, ConfidenceHigh,
-    ConfidenceMedium, ConfidenceLow, HelpInsightIdeOff, HelpInsightIdeOn, TooltipWatchesIdeOff, TooltipWatchesIdeOn,
+    // HelpInsightIdeOff/On und TooltipWatchesIdeOff/On gibt es seit D12-PREP nicht mehr (ohne Aufrufer seit
+    // IDECHECK; die Meldungen dazu kommen aus dpcc.Core.Settings.IdeCheck).
+    ConfidenceMedium, ConfidenceLow,
     AccessSignature, AccessParameter, DocTypeParams, DocValue, DocExample, DocSeeAlso, DocParams, DocReturns,
     DocExceptions, DocRemarks, DocUndocumented, DocMore, DocLess, DocCountParam, DocCountParams, DocCountTypeParam,
     DocCountTypeParams, DocCountException, DocCountExceptions, DocItemReturns, DocItemValue, DocItemRemarks,
@@ -94,13 +96,7 @@ const
      'Keine Überladung mit %d Parametern.', '… %d weitere',
      'Klasse', 'Klassenreferenz', 'Objekttyp', 'Record', 'Interface', 'Helfer', 'Aufzählung', 'Typ', 'Methode', 'Konstruktor', 'Routine', 'Property', 'Feld', 'Variable', 'Konstante', 'Aufzählungswert',
      'Konfidenz: %s', 'hoch', 'mittel', 'niedrig',
-     'dpcc zeigt den Tooltip selbst und hat Help Insight der IDE abgeschaltet; wirkt nach dem ' +
-       'nächsten Start von Delphi.',
-     'dpcc hat Help Insight der IDE wieder eingeschaltet; wirkt nach dem nächsten Start von Delphi.',
-     'dpcc zeigt Werte beim Debuggen im eigenen Tooltip und hat die Ausdrucksauswertung im Kurzhinweis der IDE ' +
-       'abgeschaltet; wirkt nach dem nächsten Start von Delphi.',
-     'dpcc hat die Ausdrucksauswertung im Kurzhinweis der IDE wieder eingeschaltet; wirkt nach dem nächsten ' +
-       'Start von Delphi.', 'dpcc Parameterhilfe', 'Parameter %d: %s',
+     'dpcc Parameterhilfe', 'Parameter %d: %s',
      'TYPPARAMETER',
      'WERT',
      'BEISPIEL',
@@ -157,13 +153,7 @@ const
     ( 'optional, default %s', 'No overload with %d parameters.', '… %d more',
      'Class', 'Class reference', 'Object type', 'Record', 'Interface', 'Helper', 'Enumeration', 'Type', 'Method', 'Constructor', 'Routine', 'Property', 'Field', 'Variable', 'Constant', 'Enumeration value',
      'Confidence: %s', 'high', 'medium', 'low',
-     'dpcc shows the tooltip itself and switched off the IDE''s Help Insight; takes effect after ' +
-       'the next start of Delphi.',
-     'dpcc switched the IDE''s Help Insight back on; takes effect after the next start of Delphi.',
-     'dpcc shows values while debugging in its own tooltip and switched off the IDE''s tooltip expression ' +
-       'evaluation; takes effect after the next start of Delphi.',
-     'dpcc switched the IDE''s tooltip expression evaluation back on; takes effect after the next start of ' +
-       'Delphi.', 'dpcc parameter info', 'Parameter %d: %s',
+     'dpcc parameter info', 'Parameter %d: %s',
      'TYPE PARAMETERS',
      'VALUE',
      'EXAMPLE',

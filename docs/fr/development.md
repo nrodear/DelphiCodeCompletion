@@ -7,6 +7,8 @@
 ## Prérequis
 
 - Delphi 13 / RAD Studio 37.0, plateforme Win32.
+- Pour Delphi 12 / RAD Studio 23.0, seulement les paquets (`dpcc_d12.groupproj`), sans tests : Delphi 12 ne fournit
+  pas DUnitX pour Win32.
 - DUnitX pour les tests ; il fait partie de RAD Studio.
 
 ## Compilation
@@ -33,6 +35,26 @@ l'ordre.
 | DCU | `Output\Win32\Debug\Dcu\<projet>` |
 | Programme de test | `Output\Win32\Debug\Bin` |
 
+Les huit paquets portent la version de paquet comme suffixe (`{$LIBSUFFIX AUTO}`, dans le `.dproj` `DllSuffix` =
+`$(Auto)`) : `dpcc.Text370.bpl` … sous Delphi 13, `dpcc.Text290.bpl` … sous Delphi 12. Les noms dans `requires`
+et les `.dcp` restent sans suffixe.
+
+**Delphi 12 :** `dpcc_d12.groupproj` contient les projets 1 à 8 avec les mêmes dépendances, sans le programme de
+test. Chaque `.dproj` des paquets a, après le groupe de base, un groupe avec la condition
+`'$(Base)'!='' and Exists('$(BDS)\bin\rtl290.bpl')`. Il redirige les DCU, DCP, BPL et le chemin de recherche des
+DCP vers `Output\290\…`. Sous Delphi 13, il n'y a pas de `rtl290.bpl` dans `$(BDS)\bin` ; le groupe y reste sans
+effet.
+
+| Sortie sous Delphi 12 | Dossier |
+|---|---|
+| BPL | `Output\290\Win32\Debug\Bpl` |
+| DCP | `Output\290\Win32\Debug\Dcp` |
+| DCU | `Output\290\Win32\Debug\Dcu\<projet>` |
+
+Dans l'IDE de Delphi 12, `…\Output\290\Win32\Debug\Bpl` doit figurer dans le PATH
+(`Tools\IdePath.ps1 -BdsVersion 23.0`), et c'est `dpcc.IDE.Base290.bpl` qui est installé ; voir
+[Installation](installation.md#compiler-pour-delphi-12).
+
 **Ligne de commande :** le compilateur en ligne de commande (`dcc32`, MSBuild) est bloqué dans les éditions Community
 et Starter de Delphi. Avec ces éditions, compiler le groupe dans l'IDE.
 
@@ -44,7 +66,8 @@ Les sorties de compilation n'ont pas leur place dans le dépôt (`.gitignore` :
 
 ## Tests
 
-`Tests\dpcc.Completion.Tests.dproj` est un programme console DUnitX. Après la compilation :
+`Tests\dpcc.Completion.Tests.dproj` est un programme console DUnitX, seulement dans le groupe pour Delphi 13. Après
+la compilation :
 
 ```
 Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --exclude:Benchmark --exitbehavior:Continue

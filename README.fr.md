@@ -20,27 +20,35 @@ Documentation détaillée : [docs/fr/index.md](docs/fr/index.md).
   le débogage, en plus la valeur de la variable.
 - **Complétion FieldByName** : noms de champs dans `FieldByName('…')` et composants des fiches (DFM) du projet.
 
-La liste qui s'ouvre d'elle-même après un « . » continue de venir de DelphiLSP. dpcc prend en charge Ctrl+Espace et
-Ctrl+Maj+Espace dans les fichiers qu'il traite. Détails : [Utilisation](docs/fr/usage.md).
+dpcc fonctionne dans l'un de deux modes, selon le fournisseur Code Insight choisi dans l'IDE pour Delphi. Dans le
+mode dpcc (interrupteur principal activé, fournisseur dpcc), la liste après « . » et l'aide aux paramètres à « ( »
+et « , » viennent aussi de dpcc. Dans le mode IDE (fournisseur DelphiLSP, par défaut), dpcc est désactivé.
+L'interrupteur principal change de fournisseur ; cela prend effet après le redémarrage de Delphi. Détails :
+[Utilisation](docs/fr/usage.md#interaction-avec-delphilsp) et
+[Réglages](docs/fr/settings.md#ce-que-dpcc-modifie-dans-lide).
 
 ## Prérequis
 
-- Delphi 13 / RAD Studio 37.0
+- Delphi 13 / RAD Studio 37.0 ; pour Delphi 12 / RAD Studio 23.0, il existe un groupe de projets distinct sans
+  tests (voir [Compiler pour Delphi 12](docs/fr/installation.md#compiler-pour-delphi-12))
 - Plateforme Win32 (l'IDE est un processus 32 bits)
 
 ## Compilation
 
 Ouvrir le groupe de projets `dpcc_d13.groupproj` dans l'IDE et compiler tous les projets (Win32, Debug). La sortie
-se trouve sous `Output\Win32\Debug` (les BPL dans `Bpl`, le programme de test dans `Bin`). Pour en savoir plus :
+se trouve sous `Output\Win32\Debug` (les BPL dans `Bpl`, le programme de test dans `Bin`). Pour Delphi 12, c'est
+`dpcc_d12.groupproj`, avec la sortie sous `Output\290\Win32\Debug`. Pour en savoir plus :
 [Développement](docs/fr/development.md).
 
 ## Installation
 
 1. Dans l'IDE, ajouter via **Component › Install Packages…** le fichier
    `Output\Win32\Debug\Bpl\dpcc.IDE.Base370.bpl`.
-2. `dpcc.IDE.Base370.bpl` a besoin à l'exécution des sept BPL `dpcc.Text`, `dpcc.WinBase`, `dpcc.Common`,
-   `dpcc.Windows`, `dpcc.Server`, `dpcc.Core` et `dpcc.UI`. Windows les recherche via le PATH. Le dossier
-   `Output\Win32\Debug\Bpl` doit donc figurer dans le PATH de l'IDE.
+2. `dpcc.IDE.Base370.bpl` a besoin à l'exécution des sept BPL `dpcc.Text370`, `dpcc.WinBase370`,
+   `dpcc.Common370`, `dpcc.Windows370`, `dpcc.Server370`, `dpcc.Core370` et `dpcc.UI370`. Windows les recherche
+   via le PATH. Le dossier `Output\Win32\Debug\Bpl` doit donc figurer dans le PATH de l'IDE.
+3. Sous Delphi 12, les fichiers s'appellent `…290.bpl` (plugin `dpcc.IDE.Base290.bpl`), le dossier est
+   `Output\290\Win32\Debug\Bpl`.
 
 ### Définir le PATH de l'IDE
 
@@ -71,7 +79,7 @@ En cas de problème : [Dépannage](docs/fr/troubleshooting.md).
 Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --exclude:Benchmark --exitbehavior:Continue
 ```
 
-Voir [Développement](docs/fr/development.md#tests).
+Voir [Développement](docs/fr/development.md#tests). Les tests n'existent que pour Delphi 13.
 
 ## Licence
 

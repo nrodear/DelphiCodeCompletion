@@ -27,7 +27,9 @@ type
     /// <summary>Delphi 12, DelphiLSP gewählt: Ort von DelphiLSP auch unter 23.0; Error Insight fehlt = an.</summary>
     [Test]
     procedure Delphi12StartWithDelphiLspUsesProviderKey;
-    /// <summary>Schlüssel fehlt ganz: Hinweis „Schlüssel fehlt“, kein Fehler; Regeln mit den Vorgaben der IDE.</summary>
+    /// <summary>Schlüssel fehlt ganz: Hinweis „Schlüssel fehlt“, kein Fehler; Regeln mit den Vorgaben der IDE. Gibt
+    /// es nur Borland.EditOptions.Pascal (Option Set von dpcc), bleibt es unter 12 und 13 beim Ort von DelphiLSP
+    /// (D12-PREP; vorher galt unter 23.0 Borland.EditOptions.Pascal als Ort der Version).</summary>
     [Test]
     [TestCase('Delphi 12', 'Software\Embarcadero\BDS\23.0')]
     [TestCase('Delphi 13', 'Software\Embarcadero\BDS\37.0')]
@@ -262,16 +264,12 @@ begin
   end;
   Assert.IsTrue(mHint, 'Hinweis zum Schlüssel');
   Assert.IsTrue(ContainsText(mResult.LogLine, 'Schlüssel fehlt'), mResult.LogLine);
-  // Den Ort der Version (unter 23.0 Borland.EditOptions.Pascal) gibt es: dann gilt er.
+  // Nur das Option Set von dpcc gibt es: DelphiLSP liest es weder unter 23.0 noch unter 37.0 (gelesener Stand von
+  // Delphi 12: Code Insight nur mit dem Ort von DelphiLSP, HTML und StyleSheet).
   mInput.AddKey(cPas);
-  if ABaseKey = cBase12 then
-  begin
-    Assert.AreEqual(cPas, TDpccIdeCheck.ActiveKey(mInput), 'Ort der Version unter 23.0');
-  end
-  else
-  begin
-    Assert.AreEqual(cLsp, TDpccIdeCheck.ActiveKey(mInput), 'unter 37.0 ist der Ort der Version der von DelphiLSP');
-  end;
+  Assert.AreEqual(cLsp, TDpccIdeCheck.ActiveKey(mInput), 'Ort von DelphiLSP, nicht das Option Set von dpcc');
+  mResult := TDpccIdeCheck.Evaluate(mInput);
+  Assert.IsTrue(mResult.ActiveKeyMissing, 'Ort von DelphiLSP fehlt weiter');
 end;
 
 procedure TDpccIdeCheckTests.Delphi13MasterOnSetsProviderAndSwitches;

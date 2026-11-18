@@ -6,7 +6,7 @@ Deutsch | [English](../en/installation.md) | [Français](../fr/installation.md)
 
 ## Voraussetzungen
 
-- Delphi 13 / RAD Studio 37.0.
+- Delphi 13 / RAD Studio 37.0. Für Delphi 12 / RAD Studio 23.0 siehe [Bauen für Delphi 12](#bauen-für-delphi-12).
 - Plattform Win32. Die IDE ist ein 32-Bit-Prozess, das Plugin ist deshalb ein Win32-Package.
 - Der Quelltext von dpcc. Es gibt keine fertigen BPLs; dpcc wird aus der Projektgruppe gebaut.
 
@@ -20,7 +20,7 @@ Die Ausgabe liegt unter `Output\Win32\Debug`:
 
 | Ordner | Inhalt |
 |---|---|
-| `Bpl` | die acht BPLs, darunter das Plugin `dpcc.IDE.Base370.bpl` |
+| `Bpl` | die acht BPLs mit der Endung `370` (Package-Version von Delphi 13), darunter das Plugin `dpcc.IDE.Base370.bpl` |
 | `Dcp` | die DCP-Dateien der Packages |
 | `Dcu` | die DCUs, je Projekt ein Unterordner |
 | `Bin` | das Testprogramm `dpcc.Completion.Tests.exe` |
@@ -28,23 +28,52 @@ Die Ausgabe liegt unter `Output\Win32\Debug`:
 Der Kommandozeilen-Compiler (`dcc32`, MSBuild) ist in den Editionen Community und Starter gesperrt; dort in der IDE
 bauen. Mehr dazu unter [Entwicklung](development.md).
 
+### Bauen für Delphi 12
+
+Für Delphi 12 (RAD Studio 23.0) gibt es die Gruppe `dpcc_d12.groupproj` mit denselben acht Packages, ohne das
+Testprogramm: Die Tests laufen nur unter Delphi 13.
+
+1. `dpcc_d12.groupproj` in der IDE von Delphi 12 öffnen.
+2. Plattform Win32, Konfiguration Debug.
+3. Alle Projekte der Gruppe bauen.
+
+Die Packages erkennen Delphi 12 selbst (an `rtl290.bpl` in `$(BDS)\bin`) und bauen in einen eigenen Ordner. So
+überschreiben sich die Dateien der beiden Versionen nicht.
+
+| | Delphi 13 | Delphi 12 |
+|---|---|---|
+| Gruppe | `dpcc_d13.groupproj` | `dpcc_d12.groupproj` |
+| Ausgabe | `Output\Win32\Debug` | `Output\290\Win32\Debug` |
+| Plugin | `dpcc.IDE.Base370.bpl` | `dpcc.IDE.Base290.bpl` |
+| übrige BPLs | `dpcc.Text370.bpl` … `dpcc.UI370.bpl` | `dpcc.Text290.bpl` … `dpcc.UI290.bpl` |
+| PATH der IDE | `…\Output\Win32\Debug\Bpl` | `…\Output\290\Win32\Debug\Bpl` |
+| Registry der IDE | `HKCU\Software\Embarcadero\BDS\37.0` | `HKCU\Software\Embarcadero\BDS\23.0` |
+| `Tools\IdePath.ps1` | ohne `-BdsVersion` | `-BdsVersion 23.0` |
+| Tests | ja | nein |
+
+Installieren und PATH wie unten, nur mit den Namen und Ordnern aus der Spalte Delphi 12: In der IDE von Delphi 12
+`Output\290\Win32\Debug\Bpl\dpcc.IDE.Base290.bpl` hinzufügen (die IDE trägt es unter
+`HKCU\Software\Embarcadero\BDS\23.0\Known Packages` ein) und `…\Output\290\Win32\Debug\Bpl` in den PATH der
+IDE von Delphi 12 setzen.
+
 ## Installieren
 
 1. In der IDE **Komponenten › Packages installieren** öffnen.
 2. **Hinzufügen** wählen und `Output\Win32\Debug\Bpl\dpcc.IDE.Base370.bpl` öffnen.
 3. Die IDE zeigt das Package mit der Beschreibung „dpcc (Code Insight-Manager)“.
 
-Installiert wird nur `dpcc.IDE.Base370.bpl`. Es braucht zur Laufzeit sieben weitere BPLs:
+Installiert wird nur `dpcc.IDE.Base370.bpl`. Es braucht zur Laufzeit sieben weitere BPLs (unter Delphi 12 mit der
+Endung `290` statt `370`):
 
 | BPL | Aufgabe |
 |---|---|
-| `dpcc.Text.bpl` | Texthilfen, nur RTL |
-| `dpcc.WinBase.bpl` | RTL und Windows-API |
-| `dpcc.Common.bpl` | Parser, Index, LSP-Teile, ohne Windows und VCL |
-| `dpcc.Windows.bpl` | Windows-spezifische Teile, ohne VCL |
-| `dpcc.Server.bpl` | der Completion-Server, läuft im IDE-Prozess |
-| `dpcc.Core.bpl` | Logik des Plugins, ohne VCL und ToolsAPI |
-| `dpcc.UI.bpl` | VCL-Oberfläche des Plugins |
+| `dpcc.Text370.bpl` | Texthilfen, nur RTL |
+| `dpcc.WinBase370.bpl` | RTL und Windows-API |
+| `dpcc.Common370.bpl` | Parser, Index, LSP-Teile, ohne Windows und VCL |
+| `dpcc.Windows370.bpl` | Windows-spezifische Teile, ohne VCL |
+| `dpcc.Server370.bpl` | der Completion-Server, läuft im IDE-Prozess |
+| `dpcc.Core370.bpl` | Logik des Plugins, ohne VCL und ToolsAPI |
+| `dpcc.UI370.bpl` | VCL-Oberfläche des Plugins |
 
 Die IDE lädt diese BPLs mit. Windows sucht sie aber nicht im Ordner der Plugin-BPL, sondern über den PATH.
 Der Ordner `Output\Win32\Debug\Bpl` muss deshalb im PATH der IDE stehen.
@@ -90,8 +119,8 @@ powershell -NoProfile -File Tools\IdePath.ps1 -Action Remove  # Eintrag wieder e
 | Parameter | Vorgabe | Bedeutung |
 |---|---|---|
 | `-Action` | `Status` | `Status`, `Check`, `Add` oder `Remove` |
-| `-BdsVersion` | `37.0` | Version der IDE in der Registry |
-| `-BplDir` | `Output\Win32\Debug\Bpl` im Repo | anderer BPL-Ordner |
+| `-BdsVersion` | `37.0` | Version der IDE in der Registry; `23.0` für Delphi 12 |
+| `-BplDir` | `Output\Win32\Debug\Bpl` im Repo, mit `-BdsVersion 23.0` `Output\290\Win32\Debug\Bpl` | anderer BPL-Ordner |
 
 Exit-Code von `Status` und `Check`:
 
@@ -128,6 +157,9 @@ Exit-Code von `Status` und `Check`:
 
 Baut man die Gruppe in der IDE, in der dpcc installiert ist, entlädt die IDE das Plugin dabei. dpcc meldet sich
 dafür Schritt für Schritt ab. Ein Neustart der IDE danach ist der sichere Weg.
+
+Ältere Stände bauten die sieben Laufzeit-Packages ohne Endung (`dpcc.Text.bpl` … `dpcc.UI.bpl`). Nach dem ersten
+Neubau liegen diese Dateien noch im BPL-Ordner; das Plugin lädt sie nicht mehr, sie können weg.
 
 ## Deinstallieren
 

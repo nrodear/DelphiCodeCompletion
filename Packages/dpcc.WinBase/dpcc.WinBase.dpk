@@ -27,6 +27,7 @@
 {$DESCRIPTION 'dpcc WinBase (RTL und Windows-API, gemeinsam für Server und Plugin)'}
 {$RUNONLY}
 {$IMPLICITBUILD ON}
+{$LIBSUFFIX AUTO}
 
 // Gegenstück zu dpcc.Text für Code, der die Windows-API braucht und den
 // Server und IDE-Plugin gleich brauchen (Prozessstart mit Handle-Liste).

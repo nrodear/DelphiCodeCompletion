@@ -15,9 +15,9 @@
 // (IOTAServices.GetBaseRegistryKey):
 //   - Anbieter: Editor\Source Options\Borland.EditOptions.Pascal, Wert "Insight Manager"
 //     (Borland.CodeInsight.LSP.Pascal = DelphiLSP, dpcc.CodeInsight = dpcc, die IDString des Managers);
-//   - DelphiLSP: Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal (gelesen unter 12 und 13; Delphi 12
-//     hatte auf dem Prüfrechner gar kein Borland.EditOptions.Pascal); fehlt er, der Ort der Version
-//     (TDpccCodeInsightKeys.VersionKey);
+//   - DelphiLSP: Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal, unter 12 und 13 gleich (Delphi 12
+//     hatte auf dem Prüfrechner gar kein Borland.EditOptions.Pascal; den früheren Ersatz "Ort der Version"
+//     Borland.EditOptions.Pascal unter 23.0 gibt es seit D12-PREP nicht mehr, das ist das Option Set von dpcc);
 //   - dpcc: Code Insight\Borland.EditOptions.Pascal (Option Set des dpcc-Managers);
 //   - InsightGlobalOptions: AutoInvokeCompletionOnParameterInsight.
 // Ein fehlender Wert gilt mit der Vorgabe der IDE (an bzw. -1); fehlt der geprüfte Schlüssel ganz, ist das kein
@@ -206,7 +206,7 @@ type
     cCodeInsightRoot = 'Code Insight';
     cEditOptionsPrefix = 'Borland.EditOptions.';
     cLspKey = 'Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal';
-    /// <summary>Option Set des dpcc-Managers (GetOptionSetName) und Ort bis Delphi 12.</summary>
+    /// <summary>Option Set des dpcc-Managers (GetOptionSetName), unter Delphi 12 und 13 gleich.</summary>
     cPascalKey = 'Code Insight\Borland.EditOptions.Pascal';
     cGlobalKey = 'InsightGlobalOptions';
     cAutoCodeCompletions = 'Auto Code Completions';
@@ -787,8 +787,6 @@ end;
 /// <summary>Orte in der Reihenfolge, in der ActiveKey sie versucht; der erste ist der Ersatz, wenn keiner da ist.
 /// </summary>
 function KeyCandidates(const AInput: TDpccIdeCheckInput): TArray<string>;
-var
-  mVersionKey: string;
 begin
   Result := nil;
   case TDpccIdeCheck.ProviderOf(AInput.ProviderId) of
@@ -804,15 +802,8 @@ begin
     // DelphiLSP, und ohne ermittelten Anbieter dessen Ort (Vorgabe der IDE).
     AddName(Result, TDpccIdeCheck.cLspKey);
   end;
-  if TDpccIdeCheck.ProviderOf(AInput.ProviderId) <> TDpccIdeProvider.Dpcc then
-  begin
-    // Danach der Ort der Version (#1246), falls es nur den gibt.
-    mVersionKey := TDpccCodeInsightKeys.VersionKey(AInput.BaseKey);
-    if mVersionKey <> '' then
-    begin
-      AddName(Result, TDpccIdeCheck.cCodeInsightRoot + '\' + mVersionKey);
-    end;
-  end;
+  // Kein Ersatz über die Version mehr: Delphi 12 liest DelphiLSP wie Delphi 13 nur am Ort von DelphiLSP;
+  // Borland.EditOptions.Pascal ist das Option Set von dpcc (gelesener Stand von 23.0, D12-PREP).
 end;
 
 class function TDpccIdeCheck.ActiveKey(const AInput: TDpccIdeCheckInput): string;
@@ -1085,8 +1076,8 @@ begin
   Result := SameText(AKey, TDpccIdeCheck.cSourceOptionsKey) and SameText(AName, TDpccIdeCheck.cProviderValue);
 end;
 
-/// <summary>Rückweg eines Merkers: nur wenn der Wert noch so steht, wie dpcc ihn schrieb (wie TDpccGuides.Switch:
-/// nur zurückdrehen, was dpcc selbst geändert hat).</summary>
+/// <summary>Rückweg eines Merkers: nur wenn der Wert noch so steht, wie dpcc ihn schrieb (nur zurückdrehen, was
+/// dpcc selbst geändert hat).</summary>
 procedure Restore(var APlan: TDpccIdeContextPlan; const AInput: TDpccIdeCheckInput; const AMarker: TDpccIdeMarker);
 var
   mValue: TDpccIdeRegValue;

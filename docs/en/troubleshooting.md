@@ -14,7 +14,8 @@ via the PATH.
 1. Close the IDE.
 2. Run `powershell -NoProfile -File Tools\IdePath.ps1` and read the output. The output is always in German; the
    last line is the result. “…” stands for the BPL folder, 37.0 is the BDS version of Delphi 13 (parameter
-   `-BdsVersion`):
+   `-BdsVersion`; for Delphi 12 `-BdsVersion 23.0`, then the message names the group dpcc_d12 and the folder
+   `Output\290\…`):
    - “FEHLT: BPL-Ordner oder BPLs fehlen (…) - erst die Gruppe dpcc_d13 bauen.” (MISSING: BPL folder or BPLs
      missing (…) - build the group dpcc_d13 first; exit code 2): The group has not been built completely. The list
      above shows the missing BPL with “[fehlt]” (missing). Build all projects.

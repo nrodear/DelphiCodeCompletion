@@ -27,6 +27,7 @@
 {$DESCRIPTION 'dpcc Windows (frei von VCL)'}
 {$RUNONLY}
 {$IMPLICITBUILD ON}
+{$LIBSUFFIX AUTO}
 
 // Platform-Package für Windows-spezifische Funktionen, ohne Abhängigkeit zur VCL.
 // Erlaubt sind RTL, Winapi.* und System.Win.* sowie dpcc.Common und dpcc.WinBase.

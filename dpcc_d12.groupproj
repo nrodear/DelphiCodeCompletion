@@ -1,0 +1,120 @@
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <PropertyGroup>
+        <ProjectGuid>{C0296FA0-3F6D-4641-AEB2-A67527BC2529}</ProjectGuid>
+    </PropertyGroup>
+    <ItemGroup>
+        <Projects Include="Packages\dpcc.Text\dpcc.Text.dproj">
+            <Dependencies/>
+        </Projects>
+        <Projects Include="Packages\dpcc.WinBase\dpcc.WinBase.dproj">
+            <Dependencies/>
+        </Projects>
+        <Projects Include="Packages\dpcc.Common\dpcc.Common.dproj">
+            <Dependencies>Packages\dpcc.Text\dpcc.Text.dproj</Dependencies>
+        </Projects>
+        <Projects Include="Packages\dpcc.Windows\dpcc.Windows.dproj">
+            <Dependencies>Packages\dpcc.Text\dpcc.Text.dproj;Packages\dpcc.WinBase\dpcc.WinBase.dproj;Packages\dpcc.Common\dpcc.Common.dproj</Dependencies>
+        </Projects>
+        <Projects Include="Packages\dpcc.Server\dpcc.Server.dproj">
+            <Dependencies>Packages\dpcc.Text\dpcc.Text.dproj;Packages\dpcc.WinBase\dpcc.WinBase.dproj;Packages\dpcc.Common\dpcc.Common.dproj;Packages\dpcc.Windows\dpcc.Windows.dproj</Dependencies>
+        </Projects>
+        <Projects Include="Packages\dpcc.Core\dpcc.Core.dproj">
+            <Dependencies>Packages\dpcc.Text\dpcc.Text.dproj;Packages\dpcc.WinBase\dpcc.WinBase.dproj;Packages\dpcc.Common\dpcc.Common.dproj;Packages\dpcc.Windows\dpcc.Windows.dproj;Packages\dpcc.Server\dpcc.Server.dproj</Dependencies>
+        </Projects>
+        <Projects Include="Packages\dpcc.UI\dpcc.UI.dproj">
+            <Dependencies>Packages\dpcc.Text\dpcc.Text.dproj;Packages\dpcc.WinBase\dpcc.WinBase.dproj;Packages\dpcc.Common\dpcc.Common.dproj;Packages\dpcc.Windows\dpcc.Windows.dproj;Packages\dpcc.Server\dpcc.Server.dproj;Packages\dpcc.Core\dpcc.Core.dproj</Dependencies>
+        </Projects>
+        <Projects Include="Packages\dpcc.IDE.Base\dpcc.IDE.Base.dproj">
+            <Dependencies>Packages\dpcc.Text\dpcc.Text.dproj;Packages\dpcc.WinBase\dpcc.WinBase.dproj;Packages\dpcc.Common\dpcc.Common.dproj;Packages\dpcc.Windows\dpcc.Windows.dproj;Packages\dpcc.Server\dpcc.Server.dproj;Packages\dpcc.Core\dpcc.Core.dproj;Packages\dpcc.UI\dpcc.UI.dproj</Dependencies>
+        </Projects>
+    </ItemGroup>
+    <ProjectExtensions>
+        <Borland.Personality>Default.Personality.12</Borland.Personality>
+        <Borland.ProjectType/>
+        <BorlandProject>
+            <Default.Personality/>
+        </BorlandProject>
+    </ProjectExtensions>
+    <Target Name="dpcc_Text">
+        <MSBuild Projects="Packages\dpcc.Text\dpcc.Text.dproj"/>
+    </Target>
+    <Target Name="dpcc_Text:Clean">
+        <MSBuild Projects="Packages\dpcc.Text\dpcc.Text.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="dpcc_Text:Make">
+        <MSBuild Projects="Packages\dpcc.Text\dpcc.Text.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="dpcc_WinBase">
+        <MSBuild Projects="Packages\dpcc.WinBase\dpcc.WinBase.dproj"/>
+    </Target>
+    <Target Name="dpcc_WinBase:Clean">
+        <MSBuild Projects="Packages\dpcc.WinBase\dpcc.WinBase.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="dpcc_WinBase:Make">
+        <MSBuild Projects="Packages\dpcc.WinBase\dpcc.WinBase.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="dpcc_Common" DependsOnTargets="dpcc_Text">
+        <MSBuild Projects="Packages\dpcc.Common\dpcc.Common.dproj"/>
+    </Target>
+    <Target Name="dpcc_Common:Clean" DependsOnTargets="dpcc_Text:Clean">
+        <MSBuild Projects="Packages\dpcc.Common\dpcc.Common.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="dpcc_Common:Make" DependsOnTargets="dpcc_Text:Make">
+        <MSBuild Projects="Packages\dpcc.Common\dpcc.Common.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="dpcc_Windows" DependsOnTargets="dpcc_Text;dpcc_WinBase;dpcc_Common">
+        <MSBuild Projects="Packages\dpcc.Windows\dpcc.Windows.dproj"/>
+    </Target>
+    <Target Name="dpcc_Windows:Clean" DependsOnTargets="dpcc_Text:Clean;dpcc_WinBase:Clean;dpcc_Common:Clean">
+        <MSBuild Projects="Packages\dpcc.Windows\dpcc.Windows.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="dpcc_Windows:Make" DependsOnTargets="dpcc_Text:Make;dpcc_WinBase:Make;dpcc_Common:Make">
+        <MSBuild Projects="Packages\dpcc.Windows\dpcc.Windows.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="dpcc_Server" DependsOnTargets="dpcc_Text;dpcc_WinBase;dpcc_Common;dpcc_Windows">
+        <MSBuild Projects="Packages\dpcc.Server\dpcc.Server.dproj"/>
+    </Target>
+    <Target Name="dpcc_Server:Clean" DependsOnTargets="dpcc_Text:Clean;dpcc_WinBase:Clean;dpcc_Common:Clean;dpcc_Windows:Clean">
+        <MSBuild Projects="Packages\dpcc.Server\dpcc.Server.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="dpcc_Server:Make" DependsOnTargets="dpcc_Text:Make;dpcc_WinBase:Make;dpcc_Common:Make;dpcc_Windows:Make">
+        <MSBuild Projects="Packages\dpcc.Server\dpcc.Server.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="dpcc_Core" DependsOnTargets="dpcc_Text;dpcc_WinBase;dpcc_Common;dpcc_Windows;dpcc_Server">
+        <MSBuild Projects="Packages\dpcc.Core\dpcc.Core.dproj"/>
+    </Target>
+    <Target Name="dpcc_Core:Clean" DependsOnTargets="dpcc_Text:Clean;dpcc_WinBase:Clean;dpcc_Common:Clean;dpcc_Windows:Clean;dpcc_Server:Clean">
+        <MSBuild Projects="Packages\dpcc.Core\dpcc.Core.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="dpcc_Core:Make" DependsOnTargets="dpcc_Text:Make;dpcc_WinBase:Make;dpcc_Common:Make;dpcc_Windows:Make;dpcc_Server:Make">
+        <MSBuild Projects="Packages\dpcc.Core\dpcc.Core.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="dpcc_UI" DependsOnTargets="dpcc_Text;dpcc_WinBase;dpcc_Common;dpcc_Windows;dpcc_Server;dpcc_Core">
+        <MSBuild Projects="Packages\dpcc.UI\dpcc.UI.dproj"/>
+    </Target>
+    <Target Name="dpcc_UI:Clean" DependsOnTargets="dpcc_Text:Clean;dpcc_WinBase:Clean;dpcc_Common:Clean;dpcc_Windows:Clean;dpcc_Server:Clean;dpcc_Core:Clean">
+        <MSBuild Projects="Packages\dpcc.UI\dpcc.UI.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="dpcc_UI:Make" DependsOnTargets="dpcc_Text:Make;dpcc_WinBase:Make;dpcc_Common:Make;dpcc_Windows:Make;dpcc_Server:Make;dpcc_Core:Make">
+        <MSBuild Projects="Packages\dpcc.UI\dpcc.UI.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="dpcc_IDE_Base" DependsOnTargets="dpcc_Text;dpcc_WinBase;dpcc_Common;dpcc_Windows;dpcc_Server;dpcc_Core;dpcc_UI">
+        <MSBuild Projects="Packages\dpcc.IDE.Base\dpcc.IDE.Base.dproj"/>
+    </Target>
+    <Target Name="dpcc_IDE_Base:Clean" DependsOnTargets="dpcc_Text:Clean;dpcc_WinBase:Clean;dpcc_Common:Clean;dpcc_Windows:Clean;dpcc_Server:Clean;dpcc_Core:Clean;dpcc_UI:Clean">
+        <MSBuild Projects="Packages\dpcc.IDE.Base\dpcc.IDE.Base.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="dpcc_IDE_Base:Make" DependsOnTargets="dpcc_Text:Make;dpcc_WinBase:Make;dpcc_Common:Make;dpcc_Windows:Make;dpcc_Server:Make;dpcc_Core:Make;dpcc_UI:Make">
+        <MSBuild Projects="Packages\dpcc.IDE.Base\dpcc.IDE.Base.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="Build">
+        <CallTarget Targets="dpcc_Text;dpcc_WinBase;dpcc_Common;dpcc_Windows;dpcc_Server;dpcc_Core;dpcc_UI;dpcc_IDE_Base"/>
+    </Target>
+    <Target Name="Clean">
+        <CallTarget Targets="dpcc_Text:Clean;dpcc_WinBase:Clean;dpcc_Common:Clean;dpcc_Windows:Clean;dpcc_Server:Clean;dpcc_Core:Clean;dpcc_UI:Clean;dpcc_IDE_Base:Clean"/>
+    </Target>
+    <Target Name="Make">
+        <CallTarget Targets="dpcc_Text:Make;dpcc_WinBase:Make;dpcc_Common:Make;dpcc_Windows:Make;dpcc_Server:Make;dpcc_Core:Make;dpcc_UI:Make;dpcc_IDE_Base:Make"/>
+    </Target>
+    <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
+</Project>

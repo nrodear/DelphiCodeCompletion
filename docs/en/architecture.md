@@ -12,13 +12,13 @@ server process.
 
 ```
 IDE (bds.exe)
- ├─ dpcc.IDE.Base370.bpl   plugin: Open Tools API, keys, editor, options page
- │    ├─ dpcc.UI.bpl       windows: list, tooltip, parameter hint, options page
- │    └─ dpcc.Core.bpl     logic: LSP client, flow, ranking, settings
+ ├─ dpcc.IDE.Base370.bpl      plugin: Open Tools API, keys, editor, options page
+ │    ├─ dpcc.UI370.bpl       windows: list, tooltip, parameter hint, options page
+ │    └─ dpcc.Core370.bpl     logic: LSP client, flow, ranking, settings
  │          │  LSP over JSON-RPC, two memory pipes
  │          ▼
- └─ dpcc.Server.bpl        completion server on its own thread
-      └─ dpcc.Common.bpl   parser, name resolution, index, LSP features
+ └─ dpcc.Server370.bpl        completion server on its own thread
+      └─ dpcc.Common370.bpl   parser, name resolution, index, LSP features
 ```
 
 The IDE's main thread never waits for the server. Writing only puts a message into the pipe; a reader thread passes
@@ -35,11 +35,12 @@ the responses on to the client, and results reach the main thread through a sepa
 | `dpcc.Server` | Text, WinBase, Common, Windows | shell of the completion server; sources in `Application\Source\Shell` |
 | `dpcc.Core` | Text, WinBase, Common, Windows, Server | plugin logic, without VCL and ToolsAPI |
 | `dpcc.UI` | Text, WinBase, Common, Windows, Server, Core; `vcl` | VCL user interface, without ToolsAPI |
-| `dpcc.IDE.Base` | all of the above; `vcl`, `vclwinx`, `designide` | the plugin; the only design-time package, suffix by version (`370`) |
+| `dpcc.IDE.Base` | all of the above; `vcl`, `vclwinx`, `designide` | the plugin; the only design-time package |
 | `dpcc.Completion.Tests` | links the DCUs | DUnitX test program |
 
-All packages except `dpcc.IDE.Base` are runtime packages (`{$RUNONLY}`). The order in `dpcc_d13.groupproj` follows
-the dependencies.
+All packages except `dpcc.IDE.Base` are runtime packages (`{$RUNONLY}`). All eight carry the package version as a
+suffix (`{$LIBSUFFIX AUTO}`: `370` under Delphi 13, `290` under Delphi 12), the names in `requires` do not. The
+order in `dpcc_d13.groupproj` (Delphi 12: `dpcc_d12.groupproj`, without tests) follows the dependencies.
 
 ### Layer rules
 

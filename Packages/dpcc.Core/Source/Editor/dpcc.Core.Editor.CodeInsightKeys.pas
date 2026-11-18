@@ -1,18 +1,20 @@
 ﻿unit dpcc.Core.Editor.CodeInsightKeys;
 
-// Orte der Code-Insight-Schalter der IDE in der Registry (#1246). Delphi 13
-// legt die Einstellungen je Code-Insight-Anbieter ab
-// (<Basis>\Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal),
-// Delphi 12 und älter je Quelltextart des Editors
-// (<Basis>\Code Insight\Borland.EditOptions.Pascal, die IDString von
-// IOTAEditOptions). dpcc schrieb bis #1246 nur den Ort von Delphi 13, unter
-// Delphi 12 blieb Help Insight deshalb an, und die IDE zeigte ihren Hinweis
-// neben dem dpcc-Tooltip. Zusätzlich zum Ort der Version gilt jeder
-// Unterschlüssel, der den Wert schon trägt: So trifft der Schalter auch einen
-// Ort, den die IDE selbst geschrieben hat.
+// Orte der Code-Insight-Schalter der IDE in der Registry (#1246) und die
+// Version aus dem Basisschlüssel. Delphi 12 und Delphi 13 legen die
+// Einstellungen gleich ab, je Option Set des Code-Insight-Anbieters unter
+// <Basis>\Code Insight: DelphiLSP unter
+// Borland.EditOptions.Borland.CodeInsight.LSP.Pascal, der dpcc-Manager unter
+// Borland.EditOptions.Pascal (GetOptionSetName). Gelesener Stand von
+// Delphi 12 (BDS 23.0) auf dem Prüfrechner: unter Code Insight nur
+// Borland.EditOptions.Borland.CodeInsight.LSP.Pascal, .HTML und .StyleSheet,
+// kein Borland.EditOptions.Pascal. Die frühere Annahme (bis D12-PREP), Delphi 12
+// lese die Schalter von DelphiLSP unter Borland.EditOptions.Pascal, traf
+// nicht zu; VersionKey, Targets und Marker sind deshalb entfernt.
 // Die Merker (was dpcc abgeschaltet hat) gelten je Version und Ort; vorher
 // teilten sich Delphi 12 und 13 einen Merker, und die eine IDE drehte zurück,
-// was die andere abgeschaltet hatte.
+// was die andere abgeschaltet hatte. Nur ab Delphi 13 gibt es noch Merker ohne
+// Version und Ort (UsesLegacyMarker).
 
 interface
 
@@ -22,24 +24,14 @@ type
     const
       /// <summary>Unter dem Basisschlüssel der IDE.</summary>
       cRoot = '\Code Insight';
-      /// <summary>Ort ab Delphi 13 (BDS 37.0).</summary>
+      /// <summary>Option Set von DelphiLSP, unter Delphi 12 (BDS 23.0) und 13 (BDS 37.0) gleich.</summary>
       cProviderKey = 'Borland.EditOptions.Borland.CodeInsight.LSP.Pascal';
-      /// <summary>Ort bis Delphi 12 (BDS 23.0).</summary>
-      cEditorKey = 'Borland.EditOptions.Pascal';
-      /// <summary>Erste Hauptversion mit cProviderKey.</summary>
+      /// <summary>Erste Hauptversion mit Merkern ohne Version und Ort (bis #1246, nur Delphi 13).</summary>
       cProviderVersion = 37;
     /// <summary>Versionsteil des Basisschlüssels (…\BDS\23.0 → 23.0); '' ohne.</summary>
     class function VersionText(const ABaseKey: string): string; static;
     /// <summary>Hauptversion aus dem Basisschlüssel (…\BDS\23.0 → 23); 0 ohne.</summary>
     class function MajorVersion(const ABaseKey: string): Integer; static;
-    /// <summary>Unterschlüssel von cRoot, den die IDE dieser Version liest; bei unbekannter Version ''.</summary>
-    class function VersionKey(const ABaseKey: string): string; static;
-    /// <summary>Unterschlüssel von cRoot, die zu schalten sind: zuerst der Ort der Version (bei unbekannter beide
-    /// bekannten), dann jeder aus AWithValue (Unterschlüssel, die den Wert schon tragen). Ohne Doppel.</summary>
-    class function Targets(const ABaseKey: string; const AWithValue: TArray<string>): TArray<string>; static;
-    /// <summary>Name des Merkers für AMarker an ASubKey unter dieser Version, z. B.
-    /// "IdeHelpInsightDisabled 23.0 Borland.EditOptions.Pascal".</summary>
-    class function Marker(const AMarker, ABaseKey, ASubKey: string): string; static;
     /// <summary>Gilt der alte Merker ohne Version und Ort (bis #1246) für ASubKey? Nur für den Ort, an dem dpcc
     /// damals geschrieben hat, und nur unter der Version, die ihn liest.</summary>
     class function UsesLegacyMarker(const ABaseKey, ASubKey: string): Boolean; static;
@@ -80,69 +72,6 @@ begin
     mText := mText.Substring(0, mDot);
   end;
   Result := StrToIntDef(mText, 0);
-end;
-
-class function TDpccCodeInsightKeys.VersionKey(const ABaseKey: string): string;
-var
-  mMajor: Integer;
-begin
-  mMajor := MajorVersion(ABaseKey);
-  if mMajor = 0 then
-  begin
-    Result := '';
-  end
-  else if mMajor >= cProviderVersion then
-  begin
-    Result := cProviderKey;
-  end
-  else
-  begin
-    Result := cEditorKey;
-  end;
-end;
-
-class function TDpccCodeInsightKeys.Targets(const ABaseKey: string; const AWithValue: TArray<string>): TArray<string>;
-
-  procedure Add(const AKey: string);
-  var
-    mKnown: string;
-  begin
-    if AKey = '' then
-    begin
-      Exit;
-    end;
-    for mKnown in Result do
-    begin
-      if SameText(mKnown, AKey) then
-      begin
-        Exit;
-      end;
-    end;
-    Result := Result + [AKey];
-  end;
-
-var
-  mKey: string;
-begin
-  Result := nil;
-  if VersionKey(ABaseKey) <> '' then
-  begin
-    Add(VersionKey(ABaseKey));
-  end
-  else
-  begin
-    Add(cProviderKey);
-    Add(cEditorKey);
-  end;
-  for mKey in AWithValue do
-  begin
-    Add(mKey);
-  end;
-end;
-
-class function TDpccCodeInsightKeys.Marker(const AMarker, ABaseKey, ASubKey: string): string;
-begin
-  Result := AMarker + ' ' + VersionText(ABaseKey) + ' ' + ASubKey;
 end;
 
 class function TDpccCodeInsightKeys.UsesLegacyMarker(const ABaseKey, ASubKey: string): Boolean;

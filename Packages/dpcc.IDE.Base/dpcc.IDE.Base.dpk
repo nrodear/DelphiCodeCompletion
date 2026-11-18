@@ -34,12 +34,14 @@
 // mit dem Server. Win32 für die klassische IDE, Win64 für die 64-Bit-IDE
 // (#281). LIBSUFFIX AUTO hängt die Package-Version an
 // (dpcc.IDE.Base290.bpl für Delphi 12, …370.bpl für Delphi 13), damit die
-// BPLs beider IDE-Versionen nebeneinander liegen können.
+// BPLs beider IDE-Versionen nebeneinander liegen können; das gilt für alle acht Packages
+// (dpcc.Text370.bpl …), die Namen in requires bleiben ohne Endung (sie meinen die .dcp).
 // Seit Schritt 2b (Server im IDE-Prozess, docs\Konzept-Completion-Schnitt.md Abschnitt 4.5; seit S1 der einzige
 // Betrieb, einen eigenen Server-Prozess gibt es nicht mehr) mit den Packages
 // des Servers: dpcc.Text und dpcc.WinBase (früher hier als Quelltext mitübersetzt; eine Unit darf nur in
 // einem geladenen Package stehen), dpcc.Common, dpcc.Windows und dpcc.Server. Die IDE lädt deren BPLs
-// mit; sie müssen über PATH auffindbar sein (Output\$(Platform)\$(Config)\Bpl, siehe Konzept, Schritt 2b).
+// mit; sie müssen über PATH auffindbar sein (Delphi 13: Output\$(Platform)\$(Config)\Bpl, Delphi 12:
+// Output\290\$(Platform)\$(Config)\Bpl; siehe Konzept, Schritt 2b).
 // Seit S7b nur noch die Anbindung an die IDE (ToolsAPI, Registrierung): Die Logik liegt in dpcc.Core, die
 // VCL-Oberfläche in dpcc.UI (beide Laufzeit-Packages, ebenfalls über PATH).
 

@@ -14,7 +14,8 @@ que via le PATH.
 1. Fermer l'IDE.
 2. Appeler `powershell -NoProfile -File Tools\IdePath.ps1` et lire la sortie. La sortie est toujours en allemand ;
    la dernière ligne est le résultat. « … » représente le dossier des BPL, 37.0 est la version BDS de Delphi 13
-   (paramètre `-BdsVersion`) :
+   (paramètre `-BdsVersion` ; pour Delphi 12 `-BdsVersion 23.0`, le message nomme alors le groupe dpcc_d12 et le
+   dossier `Output\290\…`) :
    - « FEHLT: BPL-Ordner oder BPLs fehlen (…) - erst die Gruppe dpcc_d13 bauen. » (MANQUANT : dossier des BPL ou
      BPL manquants (…) - compiler d'abord le groupe dpcc_d13 ; code de sortie 2) : le groupe n'est pas entièrement
      compilé. La liste au-dessus signale la BPL manquante par « [fehlt] » (manquant). Compiler tous les projets.

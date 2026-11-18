@@ -27,6 +27,7 @@
 {$DESCRIPTION 'dpcc Common (frei von Windows und VCL)'}
 {$RUNONLY}
 {$IMPLICITBUILD ON}
+{$LIBSUFFIX AUTO}
 
 // Platform-Package ohne Abhängigkeit zu Windows und VCL.
 // Erlaubt sind die plattformunabhängige RTL (System.*) und dpcc.Text

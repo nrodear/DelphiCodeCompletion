@@ -27,6 +27,7 @@
 {$DESCRIPTION 'dpcc Server (Completion-Server ohne Programmstart)'}
 {$RUNONLY}
 {$IMPLICITBUILD ON}
+{$LIBSUFFIX AUTO}
 
 // Schritt 2b (docs\Konzept-Completion-Schnitt.md, Abschnitt 4.5): die Hülle des Completion-Servers ab der Wurzel
 // Shell.Composition.CompletionServer und der In-Process-Betrieb (Shell.Composition.InProcess), ohne Programmstart.
