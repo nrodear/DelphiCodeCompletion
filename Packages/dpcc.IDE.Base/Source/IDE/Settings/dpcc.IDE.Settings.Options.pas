@@ -3,7 +3,9 @@
 // Meldet die Seite „dpcc“ unter Tools › Optionen › Drittanbieter an
 // (INTAAddInOptions, #227) und verbindet sie mit den Einstellungen in der
 // Registry. „Verlauf zurücksetzen“ leert die lernende Gewichtung (#418).
-// Die Liste der angehefteten Favoriten (#458) kommt aus TDpccIdeFavorites; „Entfernen“ wirkt sofort.
+// Seit OPT1 eine einzige Seite ohne Unterseiten, Baum, Suche und Knoten je Package: FrameCreated lädt die gespeicherten
+// Einstellungen (TDpccIdeSettings.Stored), OK schreibt die Werte der Seite darüber und speichert (Registry und für
+// index.extraSourceFolders settings.json). Die Liste der angehefteten Favoriten (#458) gibt es nicht mehr.
 // Die Unterseiten „Snippets“ und „Server“ gibt es seit S2 nicht mehr, die Seite „Index“ seit S4: Statt Kennzahlen,
 // „Index löschen“ und „Index-Cache löschen“ (Befehle an den Server, die den Server auch startete) steht auf der Seite
 // „Allgemein“ nur noch „Index neu aufbauen“ (Haken RestartIndex, dpcc.IDE.Settings.PageOptions).
@@ -45,12 +47,7 @@ uses
   Vcl.Forms,
   ToolsAPI,
   dpcc.Core.Settings.Plugin,
-  dpcc.Core.Settings.History,
-  dpcc.Core.Settings.NodeScope,
   dpcc.UI.Settings.Page,
-  dpcc.UI.Settings.Page.Completion,
-  dpcc.UI.Strings,
-  dpcc.UI.Settings.Strings,
   dpcc.IDE.Foundation.InsightSwitch,
   dpcc.IDE.Foundation.Settings;
 
@@ -58,15 +55,7 @@ type
   TDpccAddInOptions = class(TInterfacedObject, INTAAddInOptions)
   private
     FPage: TDpccSettingsPage;
-    /// <summary>Knoten je Package (#1903): Besitzer, Überschrift im Baum ('dpcc.Module.Tests') und im Kopf.
-    /// </summary>
-    FScope: TDpccSettingsNodeScope;
-    FCaption: string;
-    FTitle: string;
-    /// <summary>Stand beim Laden; gespeichert wird nur, was der Knoten daran geändert hat.</summary>
-    FLoaded: TDpccPluginSettings;
   public
-    constructor Create(const AScope: TDpccSettingsNodeScope; const ACaption, ATitle: string);
     function GetArea: string;
     function GetCaption: string;
     function GetFrameClass: TCustomFrameClass;
@@ -78,7 +67,7 @@ type
   end;
 
 var
-  /// <summary>Seite „dpcc“ (Completion-Schnitt: die Optionsseite selbst, ohne Übersicht und Module).</summary>
+  /// <summary>Seite „dpcc“ (seit OPT1 die einzige, ohne Unterseiten).</summary>
   Options: INTAAddInOptions;
   /// <summary>Gesetzt von Register, geleert von Unregister.</summary>
   Hooks: TDpccOptionsHooks;
@@ -91,17 +80,9 @@ begin
   Result := '';
 end;
 
-constructor TDpccAddInOptions.Create(const AScope: TDpccSettingsNodeScope; const ACaption, ATitle: string);
-begin
-  inherited Create;
-  FScope := AScope;
-  FCaption := ACaption;
-  FTitle := ATitle;
-end;
-
 function TDpccAddInOptions.GetCaption: string;
 begin
-  Result := FCaption;
+  Result := 'dpcc';
 end;
 
 function TDpccAddInOptions.GetFrameClass: TCustomFrameClass;
@@ -112,38 +93,22 @@ end;
 procedure TDpccAddInOptions.FrameCreated(AFrame: TCustomFrame);
 begin
   FPage := AFrame as TDpccSettingsPage;
-  FPage.Part<TDpccSettingsCompletionPart>.OnResetHistory := Hooks.ResetHistory;
-  TDpccPageOptions.ConnectFavorites(FPage);
+  FPage.OnResetHistory := Hooks.ResetHistory;
   // „Index neu aufbauen“ (S4); startet keinen Server, der nicht läuft.
   TDpccPageOptions.ConnectRebuild(FPage, Hooks.RestartIndex);
-  // Suchfeld über dem Baum (#1884): ohne Module nur Base. Andere Knoten gibt es seit S2 nicht mehr.
-  FPage.Search.OnInstalled :=
-    function(const ASwitch: string): Boolean
-    begin
-      Result := ASwitch = '';
-    end;
-  // Knoten je Package (#1903): nur, was diesem Knoten gehört.
-  FPage.SetTitle(FTitle);
-  FPage.ApplyScope(FScope);
-  FLoaded := TDpccIdeSettings.Stored;
-  FPage.LoadFrom(FLoaded);
+  FPage.LoadFrom(TDpccIdeSettings.Stored);
 end;
 
 procedure TDpccAddInOptions.DialogClosed(Accepted: Boolean);
 var
   mSettings: TDpccPluginSettings;
-  mTarget: IDpccMemorySettingsStore;
 begin
   try
     if Accepted and (FPage <> nil) then
     begin
-      // Nur die Änderungen dieses Knotens: Ein anderer Knoten hat vielleicht schon gespeichert (#1903).
-      mTarget := TDpccMemorySettingsStore.FromSettings(TDpccIdeSettings.Stored);
-      TDpccSettingsMerge.Changes(TDpccMemorySettingsStore.FromSettings(FLoaded),
-        TDpccMemorySettingsStore.FromSettings(FPage.CurrentSettings), mTarget);
+      // Gespeicherter Stand, darüber die Werte der Seite; was die Seite nicht zeigt, bleibt, wie es ist.
       mSettings := TDpccIdeSettings.Stored;
-      mSettings.Load(mTarget);
-      mSettings.Normalize;
+      FPage.SaveTo(mSettings);
       TDpccIdeSettings.Update(mSettings);
     end;
     // Help Insight und Wert-Tooltip der IDE erst nach dem Dialog abgleichen: Mit OK
@@ -193,10 +158,9 @@ begin
   if (Options = nil) and Supports(BorlandIDEServices, INTAEnvironmentOptionsServices, mServices) then
   begin
     Hooks := AHooks;
-    // Completion-Schnitt: nur die Seite „dpcc“ („Tastenkonflikte“ entfällt seit Rückbau R5, „Snippets“ und
-    // „Server“ seit S2).
-    Options := TDpccAddInOptions.Create(TDpccSettingsNodeScope.Base, 'dpcc',
-      TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsTitle));
+    // Nur die Seite „dpcc“ („Tastenkonflikte“ entfällt seit Rückbau R5, „Snippets“ und „Server“ seit S2, die
+    // Unterseiten seit OPT1).
+    Options := TDpccAddInOptions.Create;
     mServices.RegisterAddInOptions(Options);
   end;
 end;

@@ -109,8 +109,8 @@ would often have more than a thousand entries for a short start and take noticea
   finds nothing (for example in a comment spanning several lines), the list stays closed without a message.
 - In `uses`, after `raise` and in attribute brackets the same threshold applies; as with Ctrl+Space, the server
   decides which list comes. It still offers units that are not yet in `uses` (“+ Unit”) only from 2 characters on.
-- The delay before opening (`completion.openDelayMs`, default 150 ms) applies here too: if you keep typing quickly,
-  the list only comes in the pause, with the word typed up to then.
+- The fixed delay before opening (150 ms) applies here too: if you keep typing quickly, the list only comes in the
+  pause, with the word typed up to then.
 - If the typed word already is the name of the selected entry (for example `begin`), nothing is selected: Enter
   breaks the line instead of accepting the entry. An arrow key selects the entry.
 - After Esc the list does not open by itself again in the same word.
@@ -156,8 +156,9 @@ Depending on the settings, in addition:
 - **Expected type**: Matching entries are at the top under the heading “Matches …”, the others below.
 - **Inherited members**: Without a typed prefix, the class's own members come first, then one group “Inherited from
   …” per ancestor.
-- **List mode**: Optionally, entries without a match stay visible while typing. If there is then no match at the
-  top, nothing is selected; Enter belongs to the editor, an arrow key selects the first entry.
+- **List mode**: Optionally, entries without a match stay visible while typing in member lists after “.”. If there
+  is then no match at the top, nothing is selected; Enter belongs to the editor, an arrow key selects the first
+  entry.
 
 If you accept in the middle of a word, dpcc replaces the whole word.
 
@@ -182,9 +183,9 @@ If you accept in the middle of a word, dpcc replaces the whole word.
 
 ### Preview
 
-With the setting “Preview of the selected entry in the editor”, the missing part of the selected name appears in
-italics and dimmed after the cursor. It is only drawn; the file and the undo list stay untouched. The preview
-appears only if the name starts with what you typed and nothing follows the cursor. Default: off.
+The preview of the selected entry in the editor (the missing part of the name in italics and dimmed after the
+cursor) is switched off permanently; there is no longer an option for it (see
+[Settings](settings.md#fixed-values)).
 
 ## What the list offers
 
@@ -245,8 +246,8 @@ After a type name (`TFoo.`) the list only shows what can be called through the t
 
 If an identifier is in a unit that is not yet in `uses`, the row shows “+” and the name of that unit on the right,
 for example “+ System.SysUtils” for `FreeAndNil`. So “+ Unit” is not a fixed text; in this documentation “Unit”
-stands for the name. When accepting, dpcc adds the unit to `uses` (setting “Add the unit to uses automatically when
-accepting”). The name and the `uses` entry are a single undo step.
+stands for the name. When accepting, dpcc adds the unit to `uses` (setting “Add the unit to uses automatically”).
+The name and the `uses` entry are a single undo step.
 
 “+ Unit” also offers values of enumerations (for example `fsBold` from `Vcl.Graphics`). Generic types show their type
 parameters (`TList<T>`); only the name is inserted. If a `<` already follows the word, they come before types of the
@@ -324,22 +325,24 @@ The same list is used for “Implement interface”: missing methods, all checke
 
 ## Favorites
 
-With the setting “Pin favorites” (default: on), Ctrl+D in the open list pins or unpins the selected entry.
+Ctrl+D in the open list pins or unpins the selected entry. This is always on (see
+[Settings](settings.md#fixed-values)).
 
 - A favorite applies to a pair of type and member. The type is the declaring class, at unit level the unit. A
   favorite `TDataSet.Open` therefore applies to every dataset.
 - At most 5 favorites per type. Another one does not replace any; the footer reports “Already 5 favorites for …”.
 - Pinned entries are at the top if they match what you typed.
 - dpcc saves immediately to `%APPDATA%\dpcc\favorites.json`.
-- The list of favorites with “Remove” and “Remove all” is under [Settings](settings.md#completion).
+- There is no longer a list of favorites on the options page; to unpin, press Ctrl+D on the entry.
 
 ## Accepting
 
-What happens when accepting is configurable (area “Insertion”, see [Settings](settings.md#insertion)):
+What happens when accepting is mostly configurable (section “When accepting”, see
+[Settings](settings.md#when-accepting)):
 
 - **Parentheses**: For methods, dpcc adds the parentheses. If you type a “)” directly before the automatically
   inserted closing parenthesis, dpcc skips the automatic one instead of producing “))”.
-- **Case**: `showmessage` becomes `ShowMessage`.
+- **Case**: `showmessage` becomes `ShowMessage` (always on).
 - **Unit in uses**: see “+ Unit”.
 - **Commit characters**: “(”, “;” and “.” accept.
 
@@ -382,7 +385,7 @@ Ctrl+Shift+Space in a call shows the signatures of the called routine at the ope
 For `Format` and other format routines, a line names the placeholder for the argument at the cursor, for example
 “Placeholder 2 of 2 expects integer”. It warns about surplus arguments, invalid placeholders and type conflicts with
 literals. Placeholder and argument get the same background color in the editor while the parameter hint is open.
-Can be switched off with “Match and colour Format placeholders in the parameter hint”.
+This is always on and only goes away with the whole parameter hint (“Parameter hint on “(” and “,””).
 
 ## Hover
 
@@ -437,7 +440,7 @@ Comments are not stored in the index; the hover reads them on demand from the on
 
 ### Values while debugging
 
-If the program is paused and the setting “Values in the hover while debugging” is on, dpcc evaluates the expression
+If the program is paused and the setting “Show values while debugging” is on, dpcc evaluates the expression
 under the mouse through the IDE's debugger. The evaluation does not call anything in the program. The value is at
 the very top.
 

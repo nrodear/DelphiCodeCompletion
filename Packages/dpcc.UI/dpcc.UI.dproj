@@ -100,18 +100,6 @@
             <DesignClass>TFrame</DesignClass>
         </DCCReference>
         <DCCReference Include="Source\Settings\dpcc.UI.Settings.ChoiceBox.pas"/>
-        <DCCReference Include="Source\Settings\dpcc.UI.Settings.Bindings.pas"/>
-        <DCCReference Include="Source\Settings\dpcc.UI.Settings.Page.Sheets.pas"/>
-        <DCCReference Include="Source\Settings\dpcc.UI.Settings.Page.Host.pas"/>
-        <DCCReference Include="Source\Settings\dpcc.UI.Settings.Page.General.pas"/>
-        <DCCReference Include="Source\Settings\dpcc.UI.Settings.Page.Completion.pas"/>
-        <DCCReference Include="Source\Settings\dpcc.UI.Settings.Page.TeamFile.pas"/>
-        <DCCReference Include="Source\Settings\dpcc.UI.Settings.Page.EditorView.pas"/>
-        <DCCReference Include="Source\Settings\dpcc.UI.Settings.Page.Parts.pas"/>
-        <DCCReference Include="Source\Settings\dpcc.UI.Settings.Page.Nodes.pas"/>
-        <DCCReference Include="Source\Settings\dpcc.UI.Settings.Page.Tree.pas"/>
-        <DCCReference Include="Source\Settings\dpcc.UI.Settings.Marks.pas"/>
-        <DCCReference Include="Source\Settings\dpcc.UI.Settings.Group.pas"/>
         <DCCReference Include="Source\dpcc.UI.Strings.pas"/>
         <DCCReference Include="Source\CodeInsight\dpcc.UI.CodeInsight.Strings.pas"/>
         <DCCReference Include="Source\Completion\dpcc.UI.Completion.Strings.pas"/>
@@ -121,7 +109,6 @@
         <DCCReference Include="Source\Settings\dpcc.UI.Settings.Strings.pas"/>
         <DCCReference Include="Source\Hover\dpcc.UI.Hover.Tip.pas"/>
         <DCCReference Include="Source\Documentation\dpcc.UI.Documentation.View.pas"/>
-        <DCCReference Include="Source\Settings\dpcc.UI.Settings.Page.Search.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

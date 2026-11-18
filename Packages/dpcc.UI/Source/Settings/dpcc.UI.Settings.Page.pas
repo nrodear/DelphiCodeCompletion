@@ -1,120 +1,160 @@
 ﻿unit dpcc.UI.Settings.Page;
 
-// Seite „dpcc“ unter Tools › Optionen › Drittanbieter (#227). Reine VCL, im Code aufgebaut: Reiter je
-// Bereich, darin Steuerelemente untereinander; die IDE skaliert sie mit dem Dialog. Die DFM ist leer;
-// TCustomFrame.Create verlangt für abgeleitete Frames eine Ressource. Laden und Speichern über
-// TDpccPluginSettings; die IDE-Schicht liest und schreibt die Registry.
-// Die Tastenkürzel von Befehlspalette und Prüfung stehen auf der eigenen Seite „Tastenkonflikte“
-// (dpcc.UI.Settings.Keys, #494). Den Reiter „Robustheit“ gibt es seit S3 nicht mehr: Was die Sicherung nach
-// wiederholten Fehlern abschaltet (#493), bleibt bis zum Neustart der IDE aus.
-// Den Reiter „Index“ (Umfang, Verwendungen, Speichergrenze, Kennzahlen, Befehle an den Server) gibt es seit S4 nicht
-// mehr; auf „Allgemein“ steht nur „Index neu aufbauen“ (OnRebuildIndex, die IDE-Schicht führt es aus). Die Seite
-// kennt den Server nicht und startet ihn nicht.
-// Im Seitenkopf steht seit S3 nur der Titel (ohne Symbol).
-// Jeder Reiter bleibt niedriger als die Seite: Sonst scrollt die IDE ihren Bereich beim Reiterwechsel
-// zum Fokus, und die Seite „springt“.
-// Reiter Vervollständigung: angeheftete Favoriten (#458) an/aus, Liste („TDataSet.Open“) mit „Entfernen“
-// und „Alle entfernen“. Die Seite kennt die Ablage nicht; OnFavorites liefert die Liste, OnRemoveFavorites
-// löst die Schlüssel sofort (nicht erst mit OK).
-// Reveal (#628, „Einstellungen dazu …“ am gezeichneten Element): wählt den Reiter einer Einstellung über ihren
-// Schlüssel (Name der Plugin-Einstellung), rollt sie ins Bild, setzt den Fokus und hebt die Zeile fett hervor.
-// Bereich Prüfregeln (#909): Unterknoten „Prüffenster“ (problems.window*, problems.live) und „Compiler vorab“
-// (problems.compilerMerge, problems.showCompilerCode). Den Weg zu den Regeln (Dialoge der Einstellungsdateien
-// mit einem Knoten je Gruppe), Profile, Baseline und Unterdrückungen baut das Modul Prüfregeln als Abschnitt
-// (#1755).
-// Bereich Versionsverwaltung (#1285): Art (vcs.provider), Programme git und svn mit eigenem Pfad, „…“ und
-// „Prüfen“ (Version und Fundort, im Hintergrund über OnVcsCheck), Zeitlimit je Aufruf und „Aktuelles Projekt“
-// (beim ersten Zeigen der Seite einmal im Hintergrund abgefragt, OnVcsProject); Links auf die Seiten, die die
-// Anzeige steuern. Ohne Klick startet kein Prozess: Beim Öffnen zeigt OnVcsLocate nur, welche Datei gälte.
-// Bereich Issue-Tracker (#1280): nur der Modulschalter; Tracker, Abfrage, Start-Optionen, Muster und Zugang
-// (issues.*) baut das Modul Tracker als Abschnitt (#1455). Auf der Willkommensseite bleibt nur die Sektion an/aus
-// mit dem Sprung „Tracker-Einstellungen …“.
-// Abschnitte der Module (#1455): Jeder IDpccSettingsSectionProvider der Registry liefert
-// der Seite einen eigenen Abschnitt, den sie in den Reiter seines Bereichs baut (Bausteine über
-// IDpccSettingsSectionHost). Geht ein Modul, schließt die Seite seinen Abschnitt; seine Werte bleiben erhalten.
-// Suchfeld über dem Baum (#1884, settings.search): Treffer dieses Knotens zeigt die Seite selbst (Reveal), Treffer
-// anderer Knoten öffnet OnOpenSetting (die IDE-Schicht springt im offenen Dialog zum Knoten).
-// Completion-Schnitt: Nach dem Aufbau blendet ApplyView aus, was dpcc.Core.Settings.CompletionView nicht mehr zeigt;
-// die Suche findet nur, was hier sichtbar steht, und die Einstellungen der Seite „Tastenkonflikte“ (die Seite
-// „Server“ gibt es seit S2 nicht mehr).
-// Seit S7a baut die Seite die Teile ohne sichtbare Einstellung nicht mehr (Build, Farben, Befehle, EditorCode,
-// Prüfregeln, Start, Export/Import, Benachrichtigungen) und keine Abschnitte der Module: Es gab keine Module, die
-// welche anmelden. Was die Kommentare oben zu diesen Bereichen sagen, ist Geschichte.
-// Seit S8 baut sie auch die versteckten Schalter ohne Wirkung nicht mehr (Statusfeld, Diagnose, Tastenkürzel-Tipps,
-// Projektdatei, Inlay-Hints, Brotkrumenleiste, Minimap usw.; die Einstellungen gibt es nicht mehr). Rahmen und
-// Abschnittstitel sind schlicht wie im Hover (Linie oben bzw. Großbuchstaben, gedämpft, Linie), Farben aus dem
-// IDE-Thema.
+// Seite „dpcc“ unter Tools › Optionen › Fremdhersteller (#227). Seit OPT1 eine einzige, schlichte Seite ohne Reiter,
+// Baum, Suchfeld, Filter, Experimental-Hinweis und Geändert-Markierung: oben der Hauptschalter, darunter die Abschnitte
+// Vervollständigung, Beim Übernehmen, Parameter-Hint und Tooltip, Index mit Überschrift (fett, Großbuchstaben,
+// gedämpft, mit Linie bis zum rechten Rand). Aufbau und Reihenfolge kommen aus cPageItems
+// (dpcc.Core.Settings.CompletionView); die Seite baut genau diese Liste.
+// Reine VCL, im Code aufgebaut; die DFM ist leer, weil TCustomFrame.Create für abgeleitete Frames eine Ressource
+// verlangt. Laden und Speichern direkt über TDpccPluginSettings (LoadFrom, SaveTo); die IDE-Schicht liest und
+// schreibt Registry und settings.json (index.extraSourceFolders). Die Seite kennt den Server nicht und startet ihn
+// nicht: „Index neu aufbauen“ führt die IDE-Schicht aus (OnRebuildIndex), „Verlauf zurücksetzen“ ebenso
+// (OnResetHistory).
+// Sperren: Hauptschalter aus → alle Optionen und „Verlauf zurücksetzen“ grau; „Werte beim Debuggen“ zusätzlich grau,
+// wenn „Eigener Tooltip“ aus ist. „Index neu aufbauen“ hängt wie bisher nicht am Hauptschalter.
+// Layout: Beschriftungen links, Felder in einer gemeinsamen Spalte rechts davon. Die Spalte richtet sich nach der
+// längsten Beschriftung in der aktuellen Schrift (Deutsch oder Englisch, nach Skalierung und Schriftwechsel neu),
+// damit keine Beschriftung in ein Feld ragt. Höhen und Abstände über ScaleValue; die IDE skaliert die Seite mit dem
+// Dialog (High-DPI).
 
 interface
 
 uses
   System.Classes,
   System.SysUtils,
+  Winapi.Messages,
   Vcl.Controls,
   Vcl.Graphics,
   Vcl.StdCtrls,
   Vcl.Forms,
   dpcc.Core.Settings.Plugin,
-  dpcc.Core.Settings.Search,
-  dpcc.UI.Settings.ChoiceBox,
-  dpcc.UI.Settings.Page.Tree,
-  dpcc.UI.Settings.Page.Search;
+  dpcc.Core.Settings.CompletionView,
+  dpcc.UI.Settings.ChoiceBox;
+
+const
+  /// <summary>Höhe einer Zeile mit Kontrollkästchen (bei 96 dpi).</summary>
+  cCheckRowHeight = 21;
 
 type
-  TDpccSettingsPage = class(TDpccSettingsPageTree)
-  private
-    FTitle: TLabel;
-    FWidths: TDpccPluginSettings;
-    /// <summary>Reveal vor dem Fenster: folgt in CreateWnd.</summary>
-    FPendingReveal: string;
-    FExperimentalBanner: TWinControl;
-    FFilterRow: TWinControl;
-    FFilter: TDpccChoiceBox;
-    FOnOpenSetting: TProc<string, string>;
-    procedure ApplyReveal(const AKey: string);
-    /// <summary>AControl oder, wenn ein Hauptschalter es sperrt, dieser Schalter.</summary>
-    function RevealTarget(AControl: TControl): TControl;
-    procedure ExperimentalAllowClick(Sender: TObject);
-    procedure FilterChange(Sender: TObject);
-    procedure SearchOpen(AHit: TDpccSettingHit);
-    /// <summary>Kopf mit Titel.</summary>
-    procedure AddHeader;
-    /// <summary>Kopfzeile mit Hinweis und Knopf „Erlauben“, solange experimental.enabled aus ist (#834).</summary>
-    procedure AddExperimentalBanner;
-    /// <summary>Zeile unten mit dem Filter Alle / Geändert / Nur experimentelle (#834).</summary>
-    procedure AddFilterRow;
-    procedure LoadControls(const ASettings: TDpccPluginSettings);
-    /// <summary>Bindet die Elemente an ihre Einstellungen (Punkt, Kontextmenü, Zurücksetzen je Seite).</summary>
-    procedure BindControls;
-  protected
-    procedure CreateWnd; override;
+  /// <summary>Zeile der Seite (Beschriftung und Eingabefeld): zeichnet nichts selbst, der Hintergrund der Seite scheint
+  /// durch. Kein TPanel: Das zeichnet im IDE-Thema einen eigenen Hintergrund.</summary>
+  TDpccSettingsRow = class(TWinControl)
   public
     constructor Create(AOwner: TComponent); override;
-    /// <summary>Werte der Seite (ungespeichert) über den zuletzt geladenen.</summary>
-    function CurrentSettings: TDpccPluginSettings; override;
-    /// <summary>Punkte an geänderten Werten und Knöpfe neu setzen (#723).</summary>
-    procedure RefreshMarks; override;
-    /// <summary>Einstellungen ANames (Registry-Namen) auf der Seite auf den Standard setzen; gespeichert wird
-    /// erst mit OK (#723).</summary>
-    procedure ResetNames(const ANames: TArray<string>); override;
-    /// <summary>Alle Einstellungen des sichtbaren Reiters auf den Standard setzen (#723).</summary>
-    procedure ResetPage; override;
-    procedure LoadFrom(const ASettings: TDpccPluginSettings); override;
-    procedure SaveTo(var ASettings: TDpccPluginSettings);
-    /// <summary>Zeigt die Einstellung AKey (Name der Plugin-Einstellung, #628): Reiter, ins Bild rollen, Fokus,
-    /// Zeile fett. False, wenn die Seite den Schlüssel nicht kennt; ohne Fenster folgt es in CreateWnd.</summary>
-    function Reveal(const AKey: string): Boolean; override;
-    /// <summary>Zum Testen: Zahl der Reiter (Bereiche).</summary>
-    function SheetCountForTests: Integer;
-    /// <summary>Überschrift im Kopf (#1903: Name des Knotens, z. B. „Base“ oder „Tests“).</summary>
-    procedure SetTitle(const ACaption: string);
-    property ExperimentalBanner: TWinControl read FExperimentalBanner;
-    property Filter: TDpccChoiceBox read FFilter;
-    /// <summary>Treffer der Suche in einem anderen Knoten: Einstellung (Name) und Modulschalter ('' = Base).
+  end;
+
+  /// <summary>Überschrift eines Abschnitts: Text in Großbuchstaben, fett und gedämpft (clGrayText des IDE-Themas),
+  /// dahinter eine dünne Linie (clBtnShadow des Themas) bis zum rechten Rand.</summary>
+  TDpccSettingsTitle = class(TLabel)
+  protected
+    procedure Paint; override;
+  public
+    constructor Create(AOwner: TComponent); override;
+  end;
+
+  /// <summary>Element der Seite zu einem Eintrag von cPageItems.</summary>
+  TDpccSettingsPageEntry = record
+    Item: TDpccPageItem;
+    /// <summary>Eingabeelement (Kontrollkästchen, Feld, Auswahl) bzw. Knopf.</summary>
+    Control: TControl;
+    /// <summary>Beschriftung links neben dem Feld bzw. darüber; nil, wenn das Element sich selbst beschriftet.
     /// </summary>
-    property OnOpenSetting: TProc<string, string> read FOnOpenSetting write FOnOpenSetting;
-    /// <summary>Suchfeld über dem Baum (#1884).</summary>
-    property Search: TDpccSettingsSearchBox read FSearch;
+    Caption: TLabel;
+    /// <summary>Zeile, in der das Element steht.</summary>
+    Row: TWinControl;
+  end;
+
+  TDpccSettingsPage = class(TFrame)
+  private
+    FEntries: TArray<TDpccSettingsPageEntry>;
+    FTitles: array[TDpccPageSection] of TDpccSettingsTitle;
+    FRows: TArray<TWinControl>;
+    FNextTop: Integer;
+    FBuilt: Boolean;
+    FMaster: TCheckBox;
+    /// <summary>Zahlen als Auswahl (0 bis 10 bzw. 5 bis 20): ohne Fenster nutzbar, ohne Tippfehler.</summary>
+    FAutoMinChars: TDpccChoiceBox;
+    FListMode: TDpccChoiceBox;
+    FVisibleRows: TDpccChoiceBox;
+    FAutoWidth: TCheckBox;
+    FLearning: TCheckBox;
+    FResetHistory: TButton;
+    FAutoParentheses: TCheckBox;
+    FCommitCharacters: TCheckBox;
+    FAutoUses: TCheckBox;
+    FParameterHints: TCheckBox;
+    FHoverTooltip: TCheckBox;
+    FDebugHoverValues: TCheckBox;
+    FExtraSourceFolders: TEdit;
+    FRebuild: TButton;
+    FRebuildInfo: TLabel;
+    /// <summary>Breite der Liste beim Laden (0 = automatisch); gezogene Breiten bleiben, solange „Breite
+    /// automatisch“ aus ist.</summary>
+    FListWidth: Integer;
+    /// <summary>„Verlauf zurücksetzen“ wurde schon gedrückt: bleibt bis zum Schließen grau.</summary>
+    FHistoryReset: Boolean;
+    FOnResetHistory: TProc;
+    FOnRebuildIndex: TFunc<string>;
+    FConfirmRebuild: TFunc<Boolean>;
+    procedure Build;
+    procedure AddTitle(ASection: TDpccPageSection);
+    function AddRow(AHeight: Integer): TWinControl;
+    function AddCheckRow(const ACaption: string; AIndent: Integer;
+      ARowHeight: Integer = cCheckRowHeight): TCheckBox;
+    function AddLabel(ARow: TWinControl; const ACaption: string): TLabel;
+    function AddChoiceRow(const ACaption: string; const AItems: array of string;
+      out ACaptionLabel: TLabel): TDpccChoiceBox;
+    function AddNumberRow(const ACaption: string; AMin, AMax: Integer; out ACaptionLabel: TLabel): TDpccChoiceBox;
+    procedure AddEntry(const AItem: TDpccPageItem; AControl: TControl; ACaption: TLabel);
+    procedure BuildItem(const AItem: TDpccPageItem);
+    /// <summary>Spalte der Felder, Breiten und Lage abhängiger Elemente nach Schrift und Breite der Seite.</summary>
+    procedure ArrangeRows;
+    function CheckWidth(ACheck: TCheckBox): Integer;
+    procedure ToggleClick(Sender: TObject);
+    procedure ResetHistoryClick(Sender: TObject);
+    procedure RebuildClick(Sender: TObject);
+    procedure SetOnRebuildIndex(const AValue: TFunc<string>);
+    procedure CMFontChanged(var AMessage: TMessage); message CM_FONTCHANGED;
+  protected
+    procedure CreateWnd; override;
+    procedure Resize; override;
+    procedure ChangeScale(M, D: Integer; isDpiChange: Boolean); override;
+  public
+    constructor Create(AOwner: TComponent); override;
+    /// <summary>Werte von ASettings auf die Seite.</summary>
+    procedure LoadFrom(const ASettings: TDpccPluginSettings);
+    /// <summary>Werte der Seite nach ASettings; alles, was die Seite nicht zeigt, bleibt.</summary>
+    procedure SaveTo(var ASettings: TDpccPluginSettings);
+    /// <summary>Sperren neu setzen: Hauptschalter, Tooltip → Werte beim Debuggen, Knöpfe.</summary>
+    procedure UpdateLocks;
+    /// <summary>Element zum Namen aus cPageItems (Einstellung oder Knopf); nil, wenn die Seite ihn nicht kennt.
+    /// </summary>
+    function ControlOf(const AName: string): TControl;
+    /// <summary>Breite von AText in der Schrift von AControl (auch ohne Fenster).</summary>
+    function TextWidthFor(AControl: TControl; const AText: string): Integer;
+    /// <summary>Überschrift des Abschnitts; nil für psMaster.</summary>
+    function TitleOf(ASection: TDpccPageSection): TDpccSettingsTitle;
+    /// <summary>Elemente in der Reihenfolge der Seite.</summary>
+    property Entries: TArray<TDpccSettingsPageEntry> read FEntries;
+    /// <summary>Zeilen in der Reihenfolge der Seite (Überschriften eingeschlossen).</summary>
+    property Rows: TArray<TWinControl> read FRows;
+    property MasterSwitch: TCheckBox read FMaster;
+    property AutoWidth: TCheckBox read FAutoWidth;
+    property ListModeChoice: TDpccChoiceBox read FListMode;
+    property AutoMinCharsChoice: TDpccChoiceBox read FAutoMinChars;
+    property VisibleRowsChoice: TDpccChoiceBox read FVisibleRows;
+    property HoverTooltip: TCheckBox read FHoverTooltip;
+    property DebugHoverValues: TCheckBox read FDebugHoverValues;
+    property ResetHistory: TButton read FResetHistory;
+    property Rebuild: TButton read FRebuild;
+    property RebuildInfo: TLabel read FRebuildInfo;
+    /// <summary>„Verlauf zurücksetzen“ der lernenden Gewichtung (#418).</summary>
+    property OnResetHistory: TProc read FOnResetHistory write FOnResetHistory;
+    /// <summary>„Index neu aufbauen“ (S4): leert die Index-Caches, baut den Index neu auf und liefert die Meldung
+    /// für die Seite; nil = Knopf gesperrt.</summary>
+    property OnRebuildIndex: TFunc<string> read FOnRebuildIndex write SetOnRebuildIndex;
+    /// <summary>Rückfrage vor dem Neuaufbau; Standard: Dialog mit Ja/Nein.</summary>
+    property ConfirmRebuild: TFunc<Boolean> read FConfirmRebuild write FConfirmRebuild;
   end;
 
 implementation
@@ -122,449 +162,612 @@ implementation
 {$R *.dfm}
 
 uses
-  dpcc.Core.Settings.Transfer,
-  // Meldet dpcc.UI bei TDpccPluginModules an (S7b, Reste beim Entladen).
-  dpcc.UI.Foundation.Module,
-  dpcc.Core.Settings.Experimental,
-  dpcc.Core.Settings.History,
-  dpcc.Core.Settings.Groups,
-  dpcc.Core.Settings.CompletionView,
-  dpcc.UI.Settings.Page.Sheets,
-  dpcc.UI.Settings.Page.Host,
-  dpcc.UI.Settings.Page.Nodes,
-  dpcc.UI.Settings.Page.Parts,
-  dpcc.UI.Settings.Page.General,
-  dpcc.UI.Settings.Marks,
+  System.Math,
+  System.UITypes,
+  Vcl.Dialogs,
+  Vcl.Themes,
+  // dpcc.UI.Foundation.Module (Anmeldung bei TDpccPluginModules, S7b) steht im Package und läuft mit ihm an; die
+  // Seite bindet es nicht ein, damit die Test-Exe sie ohne das Package bauen kann.
   dpcc.UI.Settings.Strings,
-  dpcc.Core.Diagnostics.Hangs;
+  dpcc.Core.Completion.Ranking;
 
 const
-  /// <summary>Aktionen für den Einfrier-Wächter (Protokollnamen, nicht übersetzt).</summary>
-  cBuildActivity = 'Settings page: build';
-  cWindowActivity = 'Settings page: window';
+  /// <summary>Einrückung der Optionen unter einer Überschrift bzw. unter „Eigener Tooltip“ (bei 96 dpi).</summary>
+  cIndent = 16;
+  cSubIndent = 36;
+  /// <summary>Höhen der Zeilen (bei 96 dpi): Feld, Überschrift, Knopf (Kontrollkästchen: cCheckRowHeight).</summary>
+  cFieldHeight = 25;
+  cTitleHeight = 26;
+  cButtonHeight = 29;
+  /// <summary>Abstand zwischen Beschriftung und Feld bzw. zwischen Elementen einer Zeile.</summary>
+  cGap = 12;
+  /// <summary>Platz für Kästchen und Rand eines Kontrollkästchens neben dem Text.</summary>
+  cCheckGlyph = 26;
+  /// <summary>Breite des Pfeils einer Auswahl samt Rand.</summary>
+  cChoiceArrow = 36;
+  /// <summary>Mindestbreite der Knöpfe.</summary>
+  cButtonMinWidth = 140;
+
+{ TDpccSettingsRow }
+
+constructor TDpccSettingsRow.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  ControlStyle := ControlStyle + [csAcceptsControls, csParentBackground] - [csOpaque];
+  ParentBackground := True;
+  ParentColor := True;
+end;
+
+{ TDpccSettingsTitle }
+
+constructor TDpccSettingsTitle.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  AutoSize := False;
+  Transparent := True;
+  ShowAccelChar := False;
+  Font.Style := [fsBold];
+  // Die Farbe setzt Paint aus dem IDE-Thema; der Stil soll sie nicht durch die Textfarbe ersetzen.
+  StyleElements := StyleElements - [seFont];
+end;
+
+procedure TDpccSettingsTitle.Paint;
+var
+  mText: string;
+  mTextWidth, mGap, mLineY: Integer;
+begin
+  mText := Caption;
+  Canvas.Brush.Style := bsClear;
+  Canvas.Font := Font;
+  Canvas.Font.Color := StyleServices.GetSystemColor(clGrayText);
+  Canvas.TextOut(0, 0, mText);
+  // Dünne Trennlinie von hinter dem Text bis zum rechten Rand, auf halber Texthöhe.
+  mTextWidth := Canvas.TextWidth(mText);
+  mGap := ScaleValue(8);
+  mLineY := Canvas.TextHeight(mText) div 2;
+  if mTextWidth + mGap < ClientWidth then
+  begin
+    Canvas.Pen.Style := psSolid;
+    Canvas.Pen.Width := 1;
+    Canvas.Pen.Color := StyleServices.GetSystemColor(clBtnShadow);
+    Canvas.MoveTo(mTextWidth + mGap, mLineY);
+    Canvas.LineTo(ClientWidth, mLineY);
+  end;
+end;
 
 { TDpccSettingsPage }
 
 constructor TDpccSettingsPage.Create(AOwner: TComponent);
-var
-  mActivity: IInterface;
 begin
-  // Die IDE legt die Seite selbst an (auch für IDE Insight): ohne Aktion hieße ein Hänger hier im Bericht nur „–“.
-  mActivity := TDpccActivity.Scope(cBuildActivity);
   inherited Create(AOwner);
   Name := 'DpccSettingsPage';
-  Width := ScaleValue(480);
-  // Die Reiter tragen den Inhalt; scrollt die Seite selbst, springt sie beim Reiterwechsel zum Fokus.
-  AutoScroll := False;
-  // Mit Reitern reicht die Höhe des längsten Reiters; höher, und die IDE scrollt ihren Bereich beim
-  // Reiterwechsel zum Fokus (die Seite „springt“).
-  Height := ScaleValue(440);
-  // Kopf mit Titel.
-  AddHeader;
-  AddExperimentalBanner;
-  AddNavigation;
-  TDpccSettingsPageParts.Build(Self);
-  // „Einstellungen dazu …“ am gezeichneten Element (#628) und an Bereichen der Willkommensseite (#767).
-  BindControls;
-  AddFilterRow;
-  BuildNodes;
-  ApplyView;
+  Width := ScaleValue(520);
+  // Eine Seite ohne Reiter: Ist der Bereich der IDE kleiner als der Inhalt, rollt die Seite.
+  AutoScroll := True;
+  Build;
+  FBuilt := True;
+  ArrangeRows;
   UpdateLocks;
-  // Suche über die Einstellungen (#1884): Beschriftungen der Elemente und aktuelle Werte von der Seite.
-  FSearch.OnLabel :=
-    function(const AName: string): string
-    begin
-      Result := FMarks.TextOfName(AName);
-    end;
-  FSearch.OnSettings := CurrentSettings;
-  FSearch.OnShown :=
-    function(const AName: string): Boolean
-    var
-      mIndex: Integer;
-    begin
-      mIndex := Catalog.IndexOfName(AName);
-      Result := (mIndex >= 0) and ((TDpccCompletionView.PlaceOf(Catalog[mIndex]) = spKeys) or
-        SettingShown(AName));
-    end;
-  FSearch.OnOpen := SearchOpen;
 end;
 
-procedure TDpccSettingsPage.SearchOpen(AHit: TDpccSettingHit);
+procedure TDpccSettingsPage.Build;
+var
+  mItem: TDpccPageItem;
+  mSection: TDpccPageSection;
 begin
-  if SameText(AHit.Module, Scope.Switch) and Reveal(AHit.Name) then
+  FNextTop := 0;
+  mSection := psMaster;
+  for mItem in cPageItems do
   begin
-    Exit;
+    if mItem.Section <> mSection then
+    begin
+      mSection := mItem.Section;
+      AddTitle(mSection);
+    end;
+    BuildItem(mItem);
   end;
-  if Assigned(FOnOpenSetting) then
-  begin
-    FOnOpenSetting(AHit.Name, AHit.Module);
-  end;
+  // Ohne Ausrichtung der IDE (alClient) reicht die Höhe für alle Zeilen: Summe der Zeilen samt Rändern.
+  Height := FNextTop;
 end;
 
-procedure TDpccSettingsPage.AddHeader;
+procedure TDpccSettingsPage.BuildItem(const AItem: TDpccPageItem);
 var
-  mPanel: TWinControl;
-  mTitle: TLabel;
-begin
-  mPanel := TDpccSettingsRow.Create(Self);
-  mPanel.Parent := Self;
-  mPanel.Align := alTop;
-  mPanel.Height := mPanel.ScaleValue(40);
-  mTitle := TLabel.Create(Self);
-  mTitle.Parent := mPanel;
-  mTitle.Left := mTitle.ScaleValue(4);
-  mTitle.Top := mTitle.ScaleValue(12);
-  mTitle.Caption := TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsTitle);
-  mTitle.Font.Style := [fsBold];
-  FTitle := mTitle;
-end;
-
-procedure TDpccSettingsPage.AddExperimentalBanner;
-var
-  mText: TLabel;
-  mButton: TButton;
-begin
-  FExperimentalBanner := TDpccSettingsRow.Create(Self);
-  FExperimentalBanner.Parent := Self;
-  FExperimentalBanner.Align := alTop;
-  FExperimentalBanner.AlignWithMargins := True;
-  FExperimentalBanner.Top := FExperimentalBanner.ScaleValue(50);
-  FExperimentalBanner.Height := FExperimentalBanner.ScaleValue(28);
-  FExperimentalBanner.Visible := False;
-  mButton := TButton.Create(Self);
-  mButton.Parent := FExperimentalBanner;
-  mButton.Align := alRight;
-  mButton.Width := mButton.ScaleValue(90);
-  mButton.Caption := TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsExperimentalAllow);
-  mButton.OnClick := ExperimentalAllowClick;
-  mText := TLabel.Create(Self);
-  mText.Parent := FExperimentalBanner;
-  mText.Align := alClient;
-  mText.Layout := tlCenter;
-  mText.WordWrap := True;
-  mText.Caption := TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsExperimentalOff);
-end;
-
-procedure TDpccSettingsPage.AddFilterRow;
-var
+  mRow: TWinControl;
   mCaption: TLabel;
 begin
-  FFilterRow := TDpccSettingsRow.Create(Self);
-  FFilterRow.Parent := Self;
-  FFilterRow.Align := alBottom;
-  FFilterRow.AlignWithMargins := True;
-  FFilterRow.Height := FFilterRow.ScaleValue(26);
-  mCaption := TLabel.Create(Self);
-  mCaption.Parent := FFilterRow;
-  mCaption.Left := 0;
-  mCaption.Top := mCaption.ScaleValue(5);
-  mCaption.Caption := TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsFilter);
-  // Reihenfolge wie TDpccSettingsFilter.
-  FFilter := TDpccChoiceBox.Create(Self);
-  FFilter.Parent := FFilterRow;
-  FFilter.Left := FFilter.ScaleValue(60);
-  FFilter.Top := 1;
-  FFilter.Width := FFilter.ScaleValue(180);
-  FFilter.SetChoices([TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsFilterAll),
-    TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsFilterModified),
-    TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsFilterExperimental)]);
-  FFilter.Choice := 0;
-  FFilter.OnChange := FilterChange;
-  FMarks.MarkExperimental(TDpccExperimental.PluginNames(Catalog));
-end;
-
-procedure TDpccSettingsPage.ExperimentalAllowClick(Sender: TObject);
-begin
-  // Wie ein Klick auf das Kontrollkästchen: Punkte und Hinweis folgen über die Bindung.
-  Part<TDpccSettingsGeneralPart>.ExperimentalEnabled.Checked := True;
-end;
-
-procedure TDpccSettingsPage.FilterChange(Sender: TObject);
-begin
-  if (FFilter.Choice >= Ord(Low(TDpccSettingsFilter))) and (FFilter.Choice <= Ord(High(TDpccSettingsFilter))) then
+  mCaption := nil;
+  if AItem.Name = 'Enabled' then
   begin
-    FMarks.ApplyFilter(TDpccSettingsFilter(FFilter.Choice));
-  end;
-  // Knoten ohne Treffer fallen aus dem Baum (#890).
-  if ListReady(FTree) then
+    FMaster := AddCheckRow(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsEnabled), 0);
+    FMaster.OnClick := ToggleClick;
+    AddEntry(AItem, FMaster, nil);
+  end
+  else if AItem.Name = 'AutoMinChars' then
   begin
-    FillTree;
-  end;
-end;
-
-procedure TDpccSettingsPage.SetTitle(const ACaption: string);
-begin
-  FTitle.Caption := ACaption;
-end;
-
-function TDpccSettingsPage.Reveal(const AKey: string): Boolean;
-begin
-  Result := ControlOf(AKey) <> nil;
-  if not Result then
+    // L5: Tippen eines Bezeichners öffnet die Liste erst ab so vielen Zeichen (0 bis 10, 0 = nie).
+    FAutoMinChars := AddNumberRow(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsAutoMinChars), 0,
+      TDpccPluginSettings.cMaxAutoMinChars, mCaption);
+    AddEntry(AItem, FAutoMinChars, mCaption);
+  end
+  else if AItem.Name = 'CompletionListMode' then
   begin
-    Exit;
-  end;
-  if HandleAllocated then
+    // In der Reihenfolge von TDpccListMode.
+    FListMode := AddChoiceRow(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsListMode),
+      [TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsListModeFilter),
+      TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsListModeAll),
+      TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsListModeRest)], mCaption);
+    AddEntry(AItem, FListMode, mCaption);
+  end
+  else if AItem.Name = 'VisibleRows' then
   begin
-    ApplyReveal(AKey);
+    FVisibleRows := AddNumberRow(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsRows),
+      TDpccPluginSettings.cMinVisibleRows, TDpccPluginSettings.cMaxVisibleRows, mCaption);
+    AddEntry(AItem, FVisibleRows, mCaption);
+  end
+  else if AItem.Name = 'ListWidth' then
+  begin
+    // In der Zeile der sichtbaren Zeilen, rechts vom Feld.
+    mRow := FRows[High(FRows)];
+    FAutoWidth := TCheckBox.Create(Self);
+    FAutoWidth.Parent := mRow;
+    FAutoWidth.Top := ScaleValue(3);
+    FAutoWidth.Caption := TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsAutoWidth);
+    AddEntry(AItem, FAutoWidth, nil);
+  end
+  else if AItem.Name = 'Learning' then
+  begin
+    // Zeile mit Platz für den Knopf „Verlauf zurücksetzen“.
+    FLearning := AddCheckRow(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsLearning), cIndent,
+      cButtonHeight);
+    FLearning.Top := ScaleValue(6);
+    AddEntry(AItem, FLearning, nil);
+  end
+  else if AItem.Name = cPageResetHistory then
+  begin
+    // In der Zeile von „Häufig und zuletzt gewählte Einträge nach oben“, rechts davon.
+    FResetHistory := TButton.Create(Self);
+    FResetHistory.Parent := FLearning.Parent;
+    FResetHistory.Top := ScaleValue(2);
+    FResetHistory.Caption := TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsResetHistory);
+    FResetHistory.OnClick := ResetHistoryClick;
+    AddEntry(AItem, FResetHistory, nil);
+  end
+  else if AItem.Name = 'AutoParentheses' then
+  begin
+    FAutoParentheses := AddCheckRow(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsParentheses), cIndent);
+    AddEntry(AItem, FAutoParentheses, nil);
+  end
+  else if AItem.Name = 'CommitCharacters' then
+  begin
+    FCommitCharacters := AddCheckRow(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsCommitChars), cIndent);
+    AddEntry(AItem, FCommitCharacters, nil);
+  end
+  else if AItem.Name = 'AutoUses' then
+  begin
+    FAutoUses := AddCheckRow(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsAutoUses), cIndent);
+    AddEntry(AItem, FAutoUses, nil);
+  end
+  else if AItem.Name = 'ParameterHints' then
+  begin
+    FParameterHints := AddCheckRow(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsParameterHints), cIndent);
+    AddEntry(AItem, FParameterHints, nil);
+  end
+  else if AItem.Name = 'HoverTooltip' then
+  begin
+    FHoverTooltip := AddCheckRow(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsHover), cIndent);
+    FHoverTooltip.OnClick := ToggleClick;
+    AddEntry(AItem, FHoverTooltip, nil);
+  end
+  else if AItem.Name = 'DebugHoverValues' then
+  begin
+    // Unter dem Tooltip eingerückt: wirkt nur mit eigenem Tooltip.
+    FDebugHoverValues := AddCheckRow(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsDebugHoverValues),
+      cSubIndent);
+    AddEntry(AItem, FDebugHoverValues, nil);
+  end
+  else if AItem.Name = 'IndexExtraSourceFolders' then
+  begin
+    // L2: Beschriftung in einer Zeile, darunter das Feld über die ganze Breite (Pfade brauchen den Platz).
+    mRow := AddRow(cCheckRowHeight - 3);
+    mCaption := AddLabel(mRow, TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsIndexExtraSourceFolders));
+    mRow := AddRow(cFieldHeight);
+    FExtraSourceFolders := TEdit.Create(Self);
+    FExtraSourceFolders.Parent := mRow;
+    FExtraSourceFolders.Top := 1;
+    mCaption.FocusControl := FExtraSourceFolders;
+    AddEntry(AItem, FExtraSourceFolders, mCaption);
+  end
+  else if AItem.Name = cPageRebuildIndex then
+  begin
+    // „Index neu aufbauen“ (S4), rechts daneben das Ergebnis.
+    mRow := AddRow(cButtonHeight + 4);
+    FRebuild := TButton.Create(Self);
+    FRebuild.Parent := mRow;
+    FRebuild.Top := ScaleValue(2);
+    FRebuild.Caption := TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsIndexRebuild);
+    FRebuild.OnClick := RebuildClick;
+    FRebuildInfo := TLabel.Create(Self);
+    FRebuildInfo.Parent := mRow;
+    FRebuildInfo.AutoSize := False;
+    FRebuildInfo.WordWrap := True;
+    FRebuildInfo.ShowAccelChar := False;
+    FRebuildInfo.Top := 0;
+    // Gedämpfter Text in der Farbe des IDE-Themas (hell und dunkel).
+    FRebuildInfo.Font.Color := StyleServices.GetSystemColor(clGrayText);
+    AddEntry(AItem, FRebuild, nil);
   end
   else
   begin
-    FPendingReveal := AKey;
+    raise EArgumentException.CreateFmt('Unbekanntes Element der Optionsseite: %s', [AItem.Name]);
   end;
 end;
 
-/// <summary>Rollt AControl in seinem Kasten ins Bild.</summary>
-procedure ScrollToControl(AControl: TControl);
+procedure TDpccSettingsPage.AddEntry(const AItem: TDpccPageItem; AControl: TControl; ACaption: TLabel);
 var
-  mParent: TWinControl;
+  mEntry: TDpccSettingsPageEntry;
 begin
-  mParent := AControl.Parent;
-  while (mParent <> nil) and not (mParent is TScrollBox) do
+  mEntry.Item := AItem;
+  mEntry.Control := AControl;
+  mEntry.Caption := ACaption;
+  mEntry.Row := AControl.Parent;
+  FEntries := FEntries + [mEntry];
+end;
+
+function TDpccSettingsPage.AddRow(AHeight: Integer): TWinControl;
+begin
+  Result := TDpccSettingsRow.Create(Self);
+  Result.Parent := Self;
+  Result.Align := alTop;
+  Result.AlignWithMargins := True;
+  Result.Margins.SetBounds(ScaleValue(4), ScaleValue(1), ScaleValue(4), ScaleValue(1));
+  Result.Height := ScaleValue(AHeight);
+  // alTop stapelt nach Top: jede neue Zeile unter die vorige.
+  Result.Top := FNextTop;
+  Inc(FNextTop, Result.Height + Result.Margins.Top + Result.Margins.Bottom);
+  FRows := FRows + [Result];
+end;
+
+procedure TDpccSettingsPage.AddTitle(ASection: TDpccPageSection);
+const
+  cIds: array[TDpccPageSection] of TDpccSettingsTextId = (TDpccSettingsTextId.SettingsEnabled,
+    TDpccSettingsTextId.SettingsSectionCompletion, TDpccSettingsTextId.SettingsSectionCommit,
+    TDpccSettingsTextId.SettingsSectionHints, TDpccSettingsTextId.SettingsSectionIndex);
+var
+  mRow: TWinControl;
+  mTitle: TDpccSettingsTitle;
+begin
+  mRow := AddRow(cTitleHeight);
+  mTitle := TDpccSettingsTitle.Create(Self);
+  mTitle.Parent := mRow;
+  mTitle.Caption := AnsiUpperCase(TDpccSettingsStrings.Text(cIds[ASection]));
+  // Über die ganze Breite der Zeile: Die Linie reicht bis zum rechten Rand; Abstand nach oben trennt die Abschnitte.
+  mTitle.Align := alClient;
+  mTitle.AlignWithMargins := True;
+  mTitle.Margins.SetBounds(0, ScaleValue(9), 0, 0);
+  FTitles[ASection] := mTitle;
+end;
+
+function TDpccSettingsPage.AddCheckRow(const ACaption: string; AIndent, ARowHeight: Integer): TCheckBox;
+begin
+  Result := TCheckBox.Create(Self);
+  Result.Parent := AddRow(ARowHeight);
+  Result.Left := ScaleValue(AIndent);
+  Result.Top := ScaleValue(2);
+  Result.Caption := ACaption;
+end;
+
+function TDpccSettingsPage.AddLabel(ARow: TWinControl; const ACaption: string): TLabel;
+begin
+  Result := TLabel.Create(Self);
+  Result.Parent := ARow;
+  Result.ShowAccelChar := False;
+  Result.Caption := ACaption;
+  Result.Left := ScaleValue(cIndent);
+  Result.Top := ScaleValue(4);
+end;
+
+function TDpccSettingsPage.AddChoiceRow(const ACaption: string; const AItems: array of string;
+  out ACaptionLabel: TLabel): TDpccChoiceBox;
+var
+  mRow: TWinControl;
+begin
+  mRow := AddRow(cFieldHeight);
+  ACaptionLabel := AddLabel(mRow, ACaption);
+  Result := TDpccChoiceBox.Create(Self);
+  Result.Parent := mRow;
+  Result.Top := 1;
+  Result.SetChoices(AItems);
+  ACaptionLabel.FocusControl := Result;
+end;
+
+function TDpccSettingsPage.AddNumberRow(const ACaption: string; AMin, AMax: Integer;
+  out ACaptionLabel: TLabel): TDpccChoiceBox;
+var
+  mItems: TArray<string>;
+  mValue: Integer;
+begin
+  mItems := nil;
+  for mValue := AMin to AMax do
   begin
-    mParent := mParent.Parent;
+    mItems := mItems + [IntToStr(mValue)];
   end;
-  if mParent is TScrollBox then
+  Result := AddChoiceRow(ACaption, mItems, ACaptionLabel);
+  // Eintrag 0 ist AMin; so lesen LoadFrom und SaveTo den Wert.
+  Result.Tag := AMin;
+end;
+
+/// <summary>Breite einer Auswahl: längster Eintrag samt Pfeil.</summary>
+function ChoiceWidth(APage: TDpccSettingsPage; ABox: TDpccChoiceBox; const AItems: array of string): Integer;
+var
+  mItem: string;
+begin
+  Result := 0;
+  for mItem in AItems do
   begin
-    TScrollBox(mParent).ScrollInView(AControl);
+    Result := Max(Result, APage.TextWidthFor(ABox, mItem));
+  end;
+  Inc(Result, APage.ScaleValue(cChoiceArrow));
+end;
+
+type
+  /// <summary>Zugriff auf die geschützte Schrift eines Elements.</summary>
+  TControlFont = class(TControl);
+
+function TDpccSettingsPage.TextWidthFor(AControl: TControl; const AText: string): Integer;
+var
+  mBitmap: TBitmap;
+begin
+  // Ohne Fenster messen (die IDE und die Tests bauen die Seite, bevor sie eines hat): Schrift des Elements auf der
+  // Leinwand eines Bitmaps; die Höhe der Schrift ist schon auf die Skalierung des Elements umgerechnet.
+  mBitmap := TBitmap.Create;
+  try
+    mBitmap.Canvas.Font.Assign(TControlFont(AControl).Font);
+    Result := mBitmap.Canvas.TextWidth(AText);
+  finally
+    mBitmap.Free;
   end;
 end;
 
-/// <summary>Zeile hervorheben: Kontrollkästchen fett, sonst die Beschriftung der Zeile.</summary>
-procedure HighlightRow(AControl: TControl);
-var
-  mChild: Integer;
+function TDpccSettingsPage.CheckWidth(ACheck: TCheckBox): Integer;
 begin
-  if AControl is TCheckBox then
+  Result := TextWidthFor(ACheck, ACheck.Caption) + ScaleValue(cCheckGlyph);
+end;
+
+procedure TDpccSettingsPage.ArrangeRows;
+var
+  mEntry: TDpccSettingsPageEntry;
+  mFieldLeft, mRowWidth: Integer;
+begin
+  if not FBuilt then
   begin
-    TCheckBox(AControl).Font.Style := [fsBold];
     Exit;
   end;
-  if AControl.Parent = nil then
+  // Spalte der Felder: rechts von der längsten Beschriftung links eines Felds.
+  mFieldLeft := ScaleValue(cIndent);
+  for mEntry in FEntries do
   begin
-    Exit;
-  end;
-  for mChild := 0 to AControl.Parent.ControlCount - 1 do
-  begin
-    if AControl.Parent.Controls[mChild] is TLabel then
+    if (mEntry.Caption <> nil) and (mEntry.Control.Parent = mEntry.Caption.Parent) then
     begin
-      TLabel(AControl.Parent.Controls[mChild]).Font.Style := [fsBold];
+      mFieldLeft := Max(mFieldLeft, mEntry.Caption.Left + TextWidthFor(mEntry.Caption, mEntry.Caption.Caption));
     end;
   end;
-end;
-
-/// <summary>Fokus nur mit sichtbarer Form: CanFocus allein lässt eine noch verborgene Form durch („kann den Fokus
-/// nicht erhalten“).</summary>
-procedure FocusShown(AControl: TControl);
-begin
-  if (AControl is TWinControl) and TWinControl(AControl).CanFocus and (GetParentForm(AControl) <> nil) and
-    GetParentForm(AControl).Visible then
+  Inc(mFieldLeft, ScaleValue(cGap));
+  // Auswahlen so breit wie ihr längster Eintrag; „Breite automatisch“ rechts neben den sichtbaren Zeilen.
+  FAutoMinChars.SetBounds(mFieldLeft, FAutoMinChars.Top, ChoiceWidth(Self, FAutoMinChars, ['10']),
+    FAutoMinChars.Height);
+  FVisibleRows.SetBounds(mFieldLeft, FVisibleRows.Top, ChoiceWidth(Self, FVisibleRows, ['20']), FVisibleRows.Height);
+  FListMode.SetBounds(mFieldLeft, FListMode.Top, ChoiceWidth(Self, FListMode,
+    [TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsListModeFilter),
+    TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsListModeAll),
+    TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsListModeRest)]), FListMode.Height);
+  // Kontrollkästchen so breit wie ihr Text.
+  for mEntry in FEntries do
   begin
-    TWinControl(AControl).SetFocus;
-  end;
-end;
-
-function TDpccSettingsPage.RevealTarget(AControl: TControl): TControl;
-var
-  mNames: TArray<string>;
-  mLock: TDpccSettingsLock;
-  mMaster: TControl;
-begin
-  // Gesperrt (#890): den Hauptschalter zeigen, der sie freigibt.
-  Result := AControl;
-  mNames := FMarks.NamesOf(AControl);
-  if (Length(mNames) = 0) or (FGroups = nil) then
-  begin
-    Exit;
-  end;
-  mLock := LockOfName(mNames[0]);
-  if mLock.Locked then
-  begin
-    mMaster := FMarks.ControlOfName(mLock.Master);
-    if mMaster <> nil then
+    if mEntry.Control is TCheckBox then
     begin
-      Result := mMaster;
+      mEntry.Control.Width := CheckWidth(TCheckBox(mEntry.Control));
     end;
   end;
-end;
-
-procedure TDpccSettingsPage.ApplyReveal(const AKey: string);
-var
-  mControl: TControl;
-begin
-  FPendingReveal := '';
-  mControl := ControlOf(AKey);
-  if mControl = nil then
-  begin
-    Exit;
-  end;
-  mControl := RevealTarget(mControl);
-  // Knoten des Elements wählen, wie ein Klick im Baum links.
-  SelectPage(PageOf(mControl));
-  ScrollToControl(mControl);
-  HighlightRow(mControl);
-  FocusShown(mControl);
-end;
-
-// Art und Hauptbranch je Projekt (#1286): wie die Tabelle Projekte der Seite Issue-Tracker (#1261), dieselbe
-// Auflösung (dpcc.Core.Projects.Matching).
-
-procedure TDpccSettingsPage.BindControls;
-var
-  mPart: TDpccSettingsPagePart;
-  mIndex: Integer;
-begin
-  for mPart in FParts do
-  begin
-    mPart.BindMarks;
-  end;
-  // Gebundene Elemente erst jetzt: Die Markierung übernimmt OnClick und Hint, die der Aufbau gesetzt hat.
-  for mIndex := 0 to FBindings.Count - 1 do
-  begin
-    FMarks.Bind(FBindings.Item(mIndex).Control, [FBindings.Item(mIndex).Name]);
-  end;
-end;
-
-function TDpccSettingsPage.CurrentSettings: TDpccPluginSettings;
-begin
-  Result := FWidths;
-  SaveTo(Result);
-end;
-
-procedure TDpccSettingsPage.RefreshMarks;
-begin
-  FExperimentalBanner.Visible := FMarks.HasExperimental and
-    not Part<TDpccSettingsGeneralPart>.ExperimentalEnabled.Checked;
-  UpdateLocks;
-  // Geänderte Werte ändern sich mit jeder Eingabe; der Filter folgt, auch im Baum.
-  if FMarks.Filter = sfModified then
-  begin
-    FMarks.ApplyFilter(sfModified);
-    if ListReady(FTree) then
-    begin
-      FillTree;
-    end;
-  end;
-end;
-
-procedure TDpccSettingsPage.ResetNames(const ANames: TArray<string>);
-begin
-  if Length(ANames) = 0 then
-  begin
-    Exit;
-  end;
-  LoadFrom(TDpccSettingsTransfer.ResetNames(Catalog, CurrentSettings, ANames));
-end;
-
-procedure TDpccSettingsPage.ResetPage;
-var
-  mCurrent, mIndex: Integer;
-  mNames: TArray<string>;
-begin
-  // Ohne Fenster hängen die Reiter noch nicht am PageControl.
-  mCurrent := ActiveNode;
-  if mCurrent < 0 then
-  begin
-    Exit;
-  end;
-  // Unterpunkt: nur seine Einstellungen; Hauptknoten: der ganze Bereich mit allen Unterpunkten (#890).
-  if FNodePages[mCurrent].Node <> '' then
-  begin
-    mNames := FMarks.NamesIn(FNodePages[mCurrent].Box);
-  end
-  else
-  begin
-    mNames := nil;
-    for mIndex := 0 to High(FNodePages) do
-    begin
-      if FNodePages[mIndex].Area = FNodePages[mCurrent].Area then
-      begin
-        mNames := mNames + FMarks.NamesIn(FNodePages[mIndex].Box);
-      end;
-    end;
-  end;
-  ResetNames(mNames);
+  FAutoWidth.Left := FVisibleRows.Left + FVisibleRows.Width + ScaleValue(cGap);
+  // „Verlauf zurücksetzen“ rechts neben dem Lernen.
+  FResetHistory.SetBounds(FLearning.Left + FLearning.Width + ScaleValue(cGap), FResetHistory.Top,
+    Max(ScaleValue(cButtonMinWidth), TextWidthFor(FResetHistory, FResetHistory.Caption) + ScaleValue(24)),
+    FResetHistory.Height);
+  // Feld der Quellordner über die ganze Breite; „Index neu aufbauen“ mit dem Ergebnis rechts daneben.
+  mRowWidth := FExtraSourceFolders.Parent.Width;
+  FExtraSourceFolders.SetBounds(ScaleValue(cIndent), FExtraSourceFolders.Top,
+    Max(ScaleValue(120), mRowWidth - ScaleValue(cIndent)), FExtraSourceFolders.Height);
+  FRebuild.SetBounds(ScaleValue(cIndent), FRebuild.Top,
+    Max(ScaleValue(cButtonMinWidth), TextWidthFor(FRebuild, FRebuild.Caption) + ScaleValue(24)), FRebuild.Height);
+  FRebuildInfo.SetBounds(FRebuild.Left + FRebuild.Width + ScaleValue(cGap), 0,
+    Max(ScaleValue(60), FRebuildInfo.Parent.Width - FRebuild.Left - FRebuild.Width - ScaleValue(cGap)),
+    FRebuildInfo.Parent.Height);
 end;
 
 procedure TDpccSettingsPage.CreateWnd;
-var
-  mPage: TDpccSettingsNodePage;
-  mPart: TDpccSettingsPagePart;
-  mActivity: IInterface;
 begin
-  mActivity := TDpccActivity.Scope(cWindowActivity);
   inherited CreateWnd;
-  // Je Knoten ein Reiter, in der Reihenfolge des Baums.
-  for mPage in FNodePages do
-  begin
-    if mPage.Sheet.PageControl = nil then
-    begin
-      mPage.Sheet.PageControl := FPages;
-      mPage.Sheet.TabVisible := False;
-    end;
-  end;
-  // Der Baum braucht ein Fenster für seine Knoten (wie die Reiter); zeigt die zuletzt gewählte Seite.
-  FillTree;
-  // Listen der Teile brauchen ein Fenster; vorher bleiben sie leer.
-  for mPart in FParts do
-  begin
-    mPart.WindowReady;
-  end;
-  // Gewünschte Einstellung (#628) erst mit Fenster zeigen.
-  if FPendingReveal <> '' then
-  begin
-    ApplyReveal(FPendingReveal);
-  end;
+  ArrangeRows;
 end;
 
+procedure TDpccSettingsPage.Resize;
+begin
+  inherited Resize;
+  ArrangeRows;
+end;
 
-// Prüfregeln (#909).
+procedure TDpccSettingsPage.ChangeScale(M, D: Integer; isDpiChange: Boolean);
+begin
+  inherited ChangeScale(M, D, isDpiChange);
+  ArrangeRows;
+end;
 
+procedure TDpccSettingsPage.CMFontChanged(var AMessage: TMessage);
+begin
+  inherited;
+  // Schrift des Dialogs (ParentFont): Beschriftungen werden breiter oder schmaler.
+  ArrangeRows;
+end;
+
+function TDpccSettingsPage.ControlOf(const AName: string): TControl;
+var
+  mEntry: TDpccSettingsPageEntry;
+begin
+  for mEntry in FEntries do
+  begin
+    if SameText(mEntry.Item.Name, AName) then
+    begin
+      Exit(mEntry.Control);
+    end;
+  end;
+  Result := nil;
+end;
+
+function TDpccSettingsPage.TitleOf(ASection: TDpccPageSection): TDpccSettingsTitle;
+begin
+  Result := FTitles[ASection];
+end;
+
+procedure TDpccSettingsPage.ToggleClick(Sender: TObject);
+begin
+  UpdateLocks;
+end;
+
+procedure TDpccSettingsPage.UpdateLocks;
+var
+  mEntry: TDpccSettingsPageEntry;
+  mOn: Boolean;
+begin
+  if not FBuilt then
+  begin
+    Exit;
+  end;
+  mOn := FMaster.Checked;
+  for mEntry in FEntries do
+  begin
+    if (mEntry.Control = FMaster) or (mEntry.Control = FRebuild) then
+    begin
+      Continue;
+    end;
+    mEntry.Control.Enabled := mOn;
+    if mEntry.Caption <> nil then
+    begin
+      mEntry.Caption.Enabled := mOn;
+    end;
+  end;
+  // Werte beim Debuggen zeigt nur der eigene Tooltip.
+  FDebugHoverValues.Enabled := mOn and FHoverTooltip.Checked;
+  FResetHistory.Enabled := mOn and not FHistoryReset;
+  // „Index neu aufbauen“ hängt wie bisher nicht am Hauptschalter, nur daran, ob die IDE-Schicht ihn ausführt.
+  FRebuild.Enabled := Assigned(FOnRebuildIndex);
+end;
 
 procedure TDpccSettingsPage.LoadFrom(const ASettings: TDpccPluginSettings);
 begin
-  // Während des Ladens lösen die Elemente keine Neuberechnung der Punkte aus.
-  FMarks.BeginLoad;
-  try
-    LoadControls(ASettings);
-  finally
-    FMarks.EndLoad;
-  end;
-  RefreshMarks;
-end;
-
-procedure TDpccSettingsPage.LoadControls(const ASettings: TDpccPluginSettings);
-var
-  mPart: TDpccSettingsPagePart;
-begin
-  FWidths := ASettings;
-  FSearch.SetAvailable(ASettings.SettingsSearch);
-  FBindings.Load(TDpccMemorySettingsStore.FromSettings(ASettings));
-  for mPart in FParts do
-  begin
-    mPart.Load(ASettings);
-  end;
+  FMaster.Checked := ASettings.Enabled;
+  FAutoMinChars.Choice := EnsureRange(ASettings.AutoMinChars, 0, TDpccPluginSettings.cMaxAutoMinChars) -
+    FAutoMinChars.Tag;
+  FListMode.Choice := Ord(TDpccListModes.ModeOf(ASettings.CompletionListMode));
+  FVisibleRows.Choice := EnsureRange(ASettings.VisibleRows, TDpccPluginSettings.cMinVisibleRows,
+    TDpccPluginSettings.cMaxVisibleRows) - FVisibleRows.Tag;
+  FListWidth := ASettings.ListWidth;
+  FAutoWidth.Checked := ASettings.ListWidth = 0;
+  FLearning.Checked := ASettings.Learning;
+  FAutoParentheses.Checked := ASettings.AutoParentheses;
+  FCommitCharacters.Checked := ASettings.CommitCharacters;
+  FAutoUses.Checked := ASettings.AutoUses;
+  FParameterHints.Checked := ASettings.ParameterHints;
+  FHoverTooltip.Checked := ASettings.HoverTooltip;
+  FDebugHoverValues.Checked := ASettings.DebugHoverValues;
+  FExtraSourceFolders.Text := ASettings.IndexExtraSourceFolders;
+  UpdateLocks;
 end;
 
 procedure TDpccSettingsPage.SaveTo(var ASettings: TDpccPluginSettings);
-var
-  mPart: TDpccSettingsPagePart;
-  mStore: IDpccMemorySettingsStore;
 begin
-  mStore := TDpccMemorySettingsStore.FromSettings(ASettings);
-  FBindings.Save(mStore);
-  ASettings.Load(mStore);
-  for mPart in FParts do
+  ASettings.Enabled := FMaster.Checked;
+  if FAutoMinChars.Choice >= 0 then
   begin
-    mPart.Save(ASettings);
+    ASettings.AutoMinChars := FAutoMinChars.Tag + FAutoMinChars.Choice;
   end;
+  if (FListMode.Choice >= Ord(Low(TDpccListMode))) and (FListMode.Choice <= Ord(High(TDpccListMode))) then
+  begin
+    ASettings.CompletionListMode := TDpccListModes.cModeNames[TDpccListMode(FListMode.Choice)];
+  end;
+  if FVisibleRows.Choice >= 0 then
+  begin
+    ASettings.VisibleRows := FVisibleRows.Tag + FVisibleRows.Choice;
+  end;
+  // Automatisch: gezogene Breite vergessen; aus: die zuletzt gezogene bzw. eine mittlere Breite.
+  if FAutoWidth.Checked then
+  begin
+    ASettings.ListWidth := 0;
+  end
+  else if FListWidth = 0 then
+  begin
+    ASettings.ListWidth := TDpccPluginSettings.cMinListWidth + 160;
+  end
+  else
+  begin
+    ASettings.ListWidth := FListWidth;
+  end;
+  ASettings.Learning := FLearning.Checked;
+  ASettings.AutoParentheses := FAutoParentheses.Checked;
+  ASettings.CommitCharacters := FCommitCharacters.Checked;
+  ASettings.AutoUses := FAutoUses.Checked;
+  ASettings.ParameterHints := FParameterHints.Checked;
+  ASettings.HoverTooltip := FHoverTooltip.Checked;
+  ASettings.DebugHoverValues := FDebugHoverValues.Checked;
+  ASettings.IndexExtraSourceFolders := Trim(FExtraSourceFolders.Text);
   ASettings.Normalize;
 end;
 
-
-function TDpccSettingsPage.SheetCountForTests: Integer;
+procedure TDpccSettingsPage.ResetHistoryClick(Sender: TObject);
 begin
-  Result := Length(FSheets);
+  if Assigned(FOnResetHistory) then
+  begin
+    FOnResetHistory();
+  end;
+  FHistoryReset := True;
+  UpdateLocks;
+end;
+
+procedure TDpccSettingsPage.SetOnRebuildIndex(const AValue: TFunc<string>);
+begin
+  FOnRebuildIndex := AValue;
+  UpdateLocks;
+end;
+
+procedure TDpccSettingsPage.RebuildClick(Sender: TObject);
+var
+  mConfirmed: Boolean;
+  mCursor: TCursor;
+begin
+  if not Assigned(FOnRebuildIndex) then
+  begin
+    Exit;
+  end;
+  if Assigned(FConfirmRebuild) then
+  begin
+    mConfirmed := FConfirmRebuild();
+  end
+  else
+  begin
+    mConfirmed := MessageDlg(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsIndexRebuildConfirm),
+      mtConfirmation, [mbYes, mbNo], 0) = mrYes;
+  end;
+  if not mConfirmed then
+  begin
+    Exit;
+  end;
+  // Laufende Sitzung anhalten, Caches löschen und neu starten dauert ein paar Sekunden.
+  mCursor := Screen.Cursor;
+  Screen.Cursor := crHourGlass;
+  try
+    FRebuildInfo.Caption := FOnRebuildIndex();
+  finally
+    Screen.Cursor := mCursor;
+  end;
 end;
 
 end.

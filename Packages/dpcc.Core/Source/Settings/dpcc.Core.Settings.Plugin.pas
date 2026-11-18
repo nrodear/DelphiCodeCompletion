@@ -380,7 +380,6 @@ type
       write FCodeActions.GenerateMenuRecentFirst;
     property GenerateMenuShowCommandNames: Boolean read FCodeActions.GenerateMenuShowCommandNames
       write FCodeActions.GenerateMenuShowCommandNames;
-    property XmlDocExpand: string read FEditorInsight.XmlDocExpand write FEditorInsight.XmlDocExpand;
     property XmlDocMaxLines: Integer read FEditorInsight.XmlDocMaxLines write FEditorInsight.XmlDocMaxLines;
     property QuickToggleKey: Integer read FEditingKeys.QuickToggleKey write FEditingKeys.QuickToggleKey;
     property QuickToggleKeyPriority: Boolean read FKeyPriorities.QuickToggleKeyPriority

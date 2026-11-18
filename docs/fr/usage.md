@@ -115,8 +115,8 @@ demanderait un temps de calcul sensible.
 - Dans `uses`, après `raise` et entre les crochets d'attribut, le même seuil s'applique ; comme avec Ctrl+Espace,
   le serveur décide quelle liste vient. Il ne propose toujours les unités qui ne figurent pas encore dans `uses`
   (« + Unit ») qu'à partir de 2 caractères.
-- Le délai avant ouverture (`completion.openDelayMs`, 150 ms par défaut) s'applique ici aussi : qui continue de
-  saisir rapidement n'obtient la liste que pendant la pause, avec le mot saisi jusque-là.
+- Le délai fixe avant ouverture (150 ms) s'applique ici aussi : qui continue de saisir rapidement n'obtient la
+  liste que pendant la pause, avec le mot saisi jusque-là.
 - Si le mot saisi est déjà le nom de l'entrée choisie (par exemple `begin`), rien n'est sélectionné : Entrée coupe
   la ligne au lieu d'accepter l'entrée. Une touche fléchée sélectionne l'entrée.
 - Après Échap, la liste ne se rouvre plus d'elle-même dans le même mot.
@@ -163,9 +163,9 @@ S'y ajoutent, selon les réglages :
   en dessous.
 - **Membres hérités** : sans début saisi, les membres propres viennent d'abord, puis un groupe
   « Inherited from … » (hérité de …) par ancêtre.
-- **Mode de liste** : au choix, les entrées sans correspondance restent aussi visibles pendant la saisie. Si aucun
-  résultat n'est alors en haut, rien n'est sélectionné ; Entrée revient à l'éditeur, une touche fléchée sélectionne
-  la première entrée.
+- **Mode de liste** : au choix, dans les listes des membres après « . », les entrées sans correspondance restent
+  aussi visibles pendant la saisie. Si aucun résultat n'est alors en haut, rien n'est sélectionné ; Entrée revient à
+  l'éditeur, une touche fléchée sélectionne la première entrée.
 
 Si l'on accepte au milieu d'un mot, dpcc remplace le mot entier.
 
@@ -190,10 +190,9 @@ Si l'on accepte au milieu d'un mot, dpcc remplace le mot entier.
 
 ### Aperçu
 
-Avec le réglage « Preview of the selected entry in the editor » (aperçu de l'entrée sélectionnée dans l'éditeur), la
-partie encore manquante du nom sélectionné apparaît en italique et atténuée derrière le curseur. Elle est seulement
-dessinée ; le fichier et la liste d'annulation restent intacts. L'aperçu n'apparaît que si le nom commence par la
-saisie et que plus rien ne suit le curseur. Valeur par défaut : désactivé.
+L'aperçu de l'entrée sélectionnée dans l'éditeur (la partie encore manquante du nom en italique et atténuée
+derrière le curseur) est désactivé de façon fixe ; il n'existe plus d'option pour cela (voir
+[Réglages](settings.md#valeurs-fixes)).
 
 ## Ce que la liste propose
 
@@ -256,8 +255,8 @@ constructeurs, `class var`, `class property`, constantes, types imbriqués et va
 Si un identificateur se trouve dans une unité qui ne figure pas encore dans `uses`, la ligne affiche à droite « + »
 et le nom de cette unité, par exemple « + System.SysUtils » pour `FreeAndNil`. « + Unit » n'est donc pas un texte
 fixe ; dans cette documentation, « Unit » représente le nom. Lors de l'acceptation, dpcc ajoute l'unité dans `uses`
-(réglage « Add the unit to uses automatically when accepting », ajouter automatiquement l'unité à uses lors de
-l'acceptation). Le nom et l'entrée `uses` forment une seule étape d'annulation.
+(réglage « Add the unit to uses automatically », ajouter automatiquement l'unité à uses). Le nom et l'entrée `uses`
+forment une seule étape d'annulation.
 
 « + Unit » propose aussi les valeurs des énumérations (par exemple `fsBold` de `Vcl.Graphics`). Les types génériques
 affichent leurs paramètres de type (`TList<T>`) ; seul le nom est inséré. Si un `<` suit déjà le mot, ils viennent
@@ -341,8 +340,8 @@ Entrée insère celles qui sont cochées.
 
 ## Favoris
 
-Avec le réglage « Pin favorites » (épingler les favoris ; valeur par défaut : activé), Ctrl+D dans la liste ouverte
-épingle l'entrée sélectionnée ou la détache.
+Ctrl+D dans la liste ouverte épingle l'entrée sélectionnée ou la détache. C'est toujours activé (voir
+[Réglages](settings.md#valeurs-fixes)).
 
 - Un favori vaut pour une paire type et membre. Le type est la classe déclarante, au niveau de l'unité c'est l'unité.
   Un favori `TDataSet.Open` vaut donc pour tout ensemble de données.
@@ -350,16 +349,16 @@ Avec le réglage « Pin favorites » (épingler les favoris ; valeur par déf
   favorites for … » (déjà 5 favoris pour …).
 - Les entrées épinglées sont en haut si elles correspondent à la saisie.
 - dpcc enregistre immédiatement dans `%APPDATA%\dpcc\favorites.json`.
-- La liste des favoris, avec « Remove » (retirer) et « Remove all » (tout retirer), se trouve sous
-  [Réglages](settings.md#completion).
+- Il n'y a plus de liste des favoris sur la page des options ; on détache un favori avec Ctrl+D sur l'entrée.
 
 ## Acceptation
 
-Ce qui se passe lors de l'acceptation est réglable (zone « Insertion », voir [Réglages](settings.md#insertion)) :
+Ce qui se passe lors de l'acceptation est en grande partie réglable (section « When accepting », lors de
+l'acceptation, voir [Réglages](settings.md#when-accepting)) :
 
 - **Parenthèses** : pour les méthodes, dpcc ajoute les parenthèses. Si l'on tape un « ) » juste devant la parenthèse
   fermante insérée automatiquement, dpcc saute celle-ci au lieu de produire « )) ».
-- **Casse** : `showmessage` devient `ShowMessage`.
+- **Casse** : `showmessage` devient `ShowMessage` (toujours activé).
 - **Unité dans uses** : voir « + Unit ».
 - **Caractères de validation** : « ( », « ; » et « . » acceptent.
 
@@ -408,8 +407,7 @@ Pour `Format` et les autres routines de formatage, une ligne indique l'espace r�
 le curseur, par exemple « Placeholder 2 of 2 expects integer » (l'espace réservé 2 sur 2 attend un entier). Elle
 avertit en cas d'arguments en trop, d'espaces réservés invalides et de conflits de type avec des littéraux. L'espace
 réservé et l'argument reçoivent dans l'éditeur la même couleur de fond, tant que l'aide aux paramètres est ouverte.
-Désactivable avec « Match and colour Format placeholders in the parameter hint » (associer et colorer les espaces
-réservés de Format dans l'aide aux paramètres).
+C'est toujours activé et ne disparaît qu'avec l'aide aux paramètres entière (« Parameter hint on “(” and “,” »).
 
 ## Survol
 
@@ -470,8 +468,8 @@ déclaration.
 
 ### Valeurs pendant le débogage
 
-Si le programme est arrêté et que le réglage « Values in the hover while debugging » (valeurs dans le survol pendant
-le débogage) est activé, dpcc évalue l'expression sous la souris au moyen du débogueur de l'IDE. L'évaluation
+Si le programme est arrêté et que le réglage « Show values while debugging » (afficher les valeurs pendant le
+débogage) est activé, dpcc évalue l'expression sous la souris au moyen du débogueur de l'IDE. L'évaluation
 n'appelle rien dans le programme. La valeur figure tout en haut.
 
 ### Help Insight

@@ -133,8 +133,8 @@ Vervollständigung, Hover oder Parameterhilfe sie brauchen.
 
 Units, die die Installation nur als `.dcu` mitbringt (DUnitX, DUnit, FireDAC …), kennt dpcc aus der IDE nur mit ihren
 Typen (siehe [oben](#was-im-index-steht)). Liegt ihr Quelltext auf der Platte, nennt man seinen Ordner auf der Seite
-**Allgemein** unter „Zusätzliche Quellordner“ (`index.extraSourceFolders` in `settings.json`, siehe
-[Einstellungen](settings.md#allgemein)):
+**dpcc** unter „Zusätzliche Quellordner“ (`index.extraSourceFolders` in `settings.json`, siehe
+[Einstellungen](settings.md#index)):
 
 - mehrere Ordner mit `;` getrennt, in `settings.json` auch als Liste;
 - Unterordner zählen mit, außer `.git`, `__history` und `__recovery`; höchstens 2000 Ordner; `index.exclude` gilt;
@@ -245,7 +245,7 @@ Liegt die Herkunft eines Caches auf einem Laufwerk, das gerade fehlt (USB, Netz)
 
 ## Index neu aufbauen
 
-**Tools › Optionen › Drittanbieter › dpcc › Allgemein › Index neu aufbauen**:
+**Tools › Optionen › Drittanbieter › dpcc › Index neu aufbauen**:
 
 1. dpcc fragt nach: „Alle Index-Caches löschen und den Index neu aufbauen? Der erste Aufbau kann einige Minuten
    dauern.“

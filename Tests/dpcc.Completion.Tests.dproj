@@ -209,6 +209,14 @@
         <DCCReference Include="IDE\dpcc.UI.Strings.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.UI\Source\Completion\dpcc.UI.Completion.Strings.pas"/>
         <DCCReference Include="IDE\dpcc.UI.Completion.Strings.Tests.pas"/>
+        <DCCReference Include="..\Packages\dpcc.UI\Source\Settings\dpcc.UI.Settings.ChoiceBox.pas"/>
+        <DCCReference Include="..\Packages\dpcc.UI\Source\Settings\dpcc.UI.Settings.Strings.pas"/>
+        <DCCReference Include="..\Packages\dpcc.UI\Source\Settings\dpcc.UI.Settings.Page.pas">
+            <Form>DpccSettingsPage</Form>
+            <FormType>dfm</FormType>
+            <DesignClass>TFrame</DesignClass>
+        </DCCReference>
+        <DCCReference Include="IDE\dpcc.UI.Settings.Page.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Completion\Providers\dpcc.Core.Completion.Providers.XmlDoc.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Completion\dpcc.Core.Completion.Placeholders.pas"/>
         <DCCReference Include="IDE\dpcc.Core.Completion.Placeholders.Tests.pas"/>

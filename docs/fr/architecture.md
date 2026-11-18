@@ -89,7 +89,7 @@ ses dépendances chargé jusqu'à la fin de l'IDE. Ainsi, aucun thread ne saute 
 | `Lsp` | client LSP, session (initialize, synchronisation des documents, requêtes), adaptateur vers le serveur dans le processus, gestion des plantages |
 | `Completion` | déroulement de la liste (`TDpccCompletionController`), filtrage, classement, favoris, historique, mode ensemble, espaces réservés, aperçu |
 | `Hover`, `Signature`, `Documentation` | contenu de l'infobulle et de l'aide aux paramètres, présentation du XMLDoc |
-| `Settings` | réglages du plugin, catalogue, verrouillages, options visibles (`dpcc.Core.Settings.CompletionView`) |
+| `Settings` | réglages du plugin, catalogue, verrouillages, structure de la page d'options et valeurs fixes (`dpcc.Core.Settings.CompletionView`) |
 | `Diagnostics` | fusible de sécurité (`TDpccGuard`), journal, file d'attente vers le thread principal, démontage |
 | `Localization` | langue des textes |
 

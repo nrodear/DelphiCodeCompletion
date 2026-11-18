@@ -141,13 +141,14 @@ Nach dem Muster der vorhandenen Optionen:
    (`dpcc.Core.Settings.Plugin`).
 2. Eintrag im Katalog `dpcc.Core.Settings.PluginSchemaData` mit `x-key`, `x-area` und `x-page`. Die Datei wird von
    Hand gepflegt.
-3. Sichtbarkeit: `dpcc.Core.Settings.CompletionView` zeigt die Seiten (`x-page`) „Vervollständigung“, „Einfügen“
-   und „Hints“ ganz. Von anderen Seiten zeigt es nur einzelne Schlüssel: den Hauptschalter `completion.enabled`
-   (Bereich „Allgemein“, `cPluginKeys`) und alle Schlüssel `hints.*`. Den Knopf „Index neu aufbauen“ im Bereich
-   „Allgemein“ setzt die Seite selbst. Eine neue Option auf einer anderen Seite muss in `cPluginKeys` stehen.
-4. Bedienelement im Teil der Seite, etwa `dpcc.UI.Settings.Page.Completion`, mit `BindCheck('<Registry-Name>', …)`.
-5. Beschriftung deutsch und englisch in `dpcc.UI.Settings.Strings`.
-6. Test.
+3. Seite: Die Optionsseite baut `cPageItems` aus `dpcc.Core.Settings.CompletionView` (Abschnitt und Reihenfolge).
+   Eine neue Option kommt in `cPageItems`, in `TDpccSettingsPage.BuildItem`, `LoadFrom` und `SaveTo`
+   (`dpcc.UI.Settings.Page`) und mit ihrer Beschriftung deutsch und englisch in `dpcc.UI.Settings.Strings`.
+4. Fest verdrahtete Werte: Eine Option ohne Platz auf der Seite bekommt ihren festen Wert in `TDpccFixedSettings`
+   (`dpcc.Core.Settings.CompletionView`); angewendet wird er in den wirksamen Einstellungen der IDE-Schicht
+   (`TDpccIdeSettings.Current`, `dpcc.IDE.Foundation.Settings`).
+5. Test: `dpcc.Core.Settings.CompletionView.Tests` und `dpcc.UI.Settings.Page.Tests` (die Seite headless in der
+   Test-Exe) prüfen Aufbau und Seite.
 
 ## Beitragen
 

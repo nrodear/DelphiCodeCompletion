@@ -9,6 +9,10 @@
 // keine versteckten Schalter ohne Wirkung der Reiter Allgemein und Hints mehr (weder im Katalog noch gespeichert);
 // der versteckte, aber wirksame Hauptschalter experimental.enabled bleibt. Seit S9: keine Schalter Paarfärbung und
 // Blocklinien (highlight.pairColors/pairGuides) mehr; dpcc fasst die Strukturhervorhebung der IDE nicht mehr an.
+// Seit OPT1: eine einzige Seite mit genau zwölf Optionen unter dem Hauptschalter und zwei Knöpfen (cPageItems); die
+// übrigen Optionen der früheren Unterseiten sind fest verdrahtet (TDpccFixedSettings), alte Werte wirken nicht mehr;
+// „XMLDoc beim Öffnen“ (hints.xmlDocExpand) ist entfallen, Plugin und Server überlesen alte Werte ohne Meldung. Die
+// Seite „Tastenkonflikte“ gibt es nicht mehr.
 
 interface
 
@@ -19,10 +23,22 @@ type
   [TestFixture]
   TDpccCompletionViewTests = class
   public
+    /// <summary>OPT1: Die Seite zeigt genau den Hauptschalter und zwölf Optionen in vier Abschnitten, dazu zwei
+    /// Knöpfe; alles andere ist versteckt.</summary>
     [Test]
-    procedure CompletionSettingsStayOnMainPage;
+    procedure PageShowsExactlyTwelveOptions;
+    /// <summary>OPT1: Die festen Werte sind die bisherigen Vorgaben (z. B. OpenDelayMs 150, FixCase an), stehen nicht
+    /// auf der Seite und setzen sich gegen alte Werte durch; der Rest bleibt.</summary>
     [Test]
-    procedure KeysHaveOwnPage;
+    procedure FixedSettingsKeepFormerDefaults;
+    /// <summary>OPT1: hints.xmlDocExpand (und davor hints.xmlDocFull) gibt es weder im Katalog noch gespeichert noch
+    /// in settings.json umgeleitet; alte Werte in Registry und settings.json lösen keine Meldung aus und ändern nichts.
+    /// </summary>
+    [Test]
+    procedure XmlDocExpandIsIgnoredSilently;
+    /// <summary>Die Seite „Tastenkonflikte“ gibt es seit Rückbau R5 nicht mehr: Tasten sind versteckt.</summary>
+    [Test]
+    procedure KeysAreHidden;
     /// <summary>S1: Pfad und Betriebsart eines eigenen Server-Prozesses gibt es nicht mehr.</summary>
     [Test]
     procedure ServerProcessSettingsAreGone;
@@ -89,21 +105,169 @@ end;
 
 { TDpccCompletionViewTests }
 
-procedure TDpccCompletionViewTests.CompletionSettingsStayOnMainPage;
+procedure TDpccCompletionViewTests.PageShowsExactlyTwelveOptions;
+const
+  // Erwarteter Aufbau der Seite (Auftrag OPT1): Abschnitt und Element; Knöpfe mit ihrer Kennung.
+  cSections: array[0..14] of TDpccPageSection = (psMaster, psCompletion, psCompletion, psCompletion, psCompletion,
+    psCompletion, psCompletion, psCommit, psCommit, psCommit, psHints, psHints, psHints, psIndex, psIndex);
+  cNames: array[0..14] of string = ('Enabled', 'AutoMinChars', 'CompletionListMode', 'VisibleRows', 'ListWidth',
+    'Learning', 'ResetHistory', 'AutoParentheses', 'CommitCharacters', 'AutoUses', 'ParameterHints', 'HoverTooltip',
+    'DebugHoverValues', 'IndexExtraSourceFolders', 'RebuildIndex');
 var
   mCatalog: TDpccSettingsCatalog;
+  mIndex, mOptions, mButtons, mShown: Integer;
   mName: string;
+begin
+  Assert.AreEqual(Integer(Length(cNames)), Integer(Length(cPageItems)), 'Elemente');
+  mOptions := 0;
+  mButtons := 0;
+  for mIndex := 0 to High(cPageItems) do
+  begin
+    Assert.AreEqual(cNames[mIndex], cPageItems[mIndex].Name, 'Element ' + IntToStr(mIndex));
+    Assert.AreEqual(Ord(cSections[mIndex]), Ord(cPageItems[mIndex].Section), cNames[mIndex] + ': Abschnitt');
+    if cPageItems[mIndex].Kind = pkButton then
+    begin
+      Inc(mButtons);
+    end
+    else if cPageItems[mIndex].Section <> psMaster then
+    begin
+      Inc(mOptions);
+    end;
+  end;
+  Assert.AreEqual(12, mOptions, 'Optionen unter dem Hauptschalter');
+  Assert.AreEqual(2, mButtons, 'Knöpfe');
+  Assert.AreEqual(cPageResetHistory, cPageItems[6].Name);
+  Assert.AreEqual(cPageRebuildIndex, cPageItems[14].Name);
+  Assert.AreEqual(13, Integer(Length(TDpccCompletionView.SettingNames)), 'Einstellungen samt Hauptschalter');
+  mCatalog := TDpccSettingsCatalog.CreateDefault;
+  try
+    for mName in TDpccCompletionView.SettingNames do
+    begin
+      Assert.AreEqual(Ord(spMain), Ord(PlaceOfName(mCatalog, mName)), mName);
+    end;
+    // Fest verdrahtet bzw. nur noch über settings.json: nicht mehr auf der Seite.
+    for mName in TDpccFixedSettings.Names + ['XmlDocMaxLines', 'ExperimentalEnabled', 'SettingsSearch',
+      'SettingsMarkModified'] do
+    begin
+      Assert.AreEqual(Ord(spHidden), Ord(PlaceOfName(mCatalog, mName)), mName);
+    end;
+    // Genau die 13 Einstellungen der Seite gelten als gezeigt.
+    mShown := 0;
+    for mIndex := 0 to mCatalog.Count - 1 do
+    begin
+      if TDpccCompletionView.ShowsSetting(mCatalog[mIndex]) then
+      begin
+        Inc(mShown);
+        Assert.IsTrue(MatchText(mCatalog[mIndex].Name, TDpccCompletionView.SettingNames), mCatalog[mIndex].Name);
+      end;
+    end;
+    Assert.AreEqual(13, mShown, 'gezeigte Einstellungen im Katalog');
+  finally
+    mCatalog.Free;
+  end;
+end;
+
+procedure TDpccCompletionViewTests.FixedSettingsKeepFormerDefaults;
+var
+  mSettings, mDefaults: TDpccPluginSettings;
+  mFixed, mDefault: IDpccMemorySettingsStore;
+  mName: string;
+begin
+  mDefaults := TDpccPluginSettings.Defaults;
+  // Die festen Werte sind die bisherigen Vorgaben.
+  Assert.AreEqual(150, TDpccFixedSettings.cOpenDelayMs, 'OpenDelayMs');
+  Assert.AreEqual(mDefaults.OpenDelayMs, TDpccFixedSettings.cOpenDelayMs, 'OpenDelayMs = Vorgabe');
+  Assert.IsTrue(TDpccFixedSettings.cFixCase and mDefaults.FixCase, 'FixCase an');
+  Assert.IsTrue(TDpccFixedSettings.cFavorites and mDefaults.Favorites, 'Favorites an');
+  Assert.IsTrue(TDpccFixedSettings.cGroupInherited and mDefaults.GroupInherited, 'GroupInherited an');
+  Assert.IsTrue(TDpccFixedSettings.cCompletionVariantBranch and mDefaults.CompletionVariantBranch,
+    'CompletionVariantBranch an');
+  Assert.AreEqual('members', TDpccFixedSettings.cCompletionListScope, 'CompletionListScope');
+  Assert.AreEqual(mDefaults.CompletionListScope, TDpccFixedSettings.cCompletionListScope, 'Scope = Vorgabe');
+  Assert.IsFalse(TDpccFixedSettings.cPreview or mDefaults.Preview, 'Preview aus');
+  Assert.IsTrue(TDpccFixedSettings.cFormatPlaceholders and mDefaults.FormatPlaceholders, 'FormatPlaceholders an');
+  Assert.AreEqual(0, mDefaults.XmlDocMaxLines, 'XmlDocMaxLines 0 (nur noch settings.json)');
+  Assert.AreEqual(8, Integer(Length(TDpccFixedSettings.Names)), 'feste Einstellungen');
+  // Alte, abweichende Werte (Registry) setzen sich nicht durch; die Optionen der Seite bleiben unberührt.
+  mSettings := mDefaults;
+  mSettings.OpenDelayMs := 900;
+  mSettings.Favorites := False;
+  mSettings.GroupInherited := False;
+  mSettings.CompletionVariantBranch := False;
+  mSettings.CompletionListScope := 'everywhere';
+  mSettings.Preview := True;
+  mSettings.FixCase := False;
+  mSettings.FormatPlaceholders := False;
+  mSettings.VisibleRows := 14;
+  mSettings.AutoMinChars := 3;
+  mSettings.Learning := False;
+  TDpccFixedSettings.Apply(mSettings);
+  mFixed := TDpccMemorySettingsStore.FromSettings(mSettings);
+  mDefault := TDpccMemorySettingsStore.FromSettings(mDefaults);
+  for mName in TDpccFixedSettings.Names do
+  begin
+    Assert.IsTrue(MatchText(mName, mDefault.Names), mName + ' gespeichert');
+    Assert.AreEqual(mDefault.Text(mName), mFixed.Text(mName), mName);
+  end;
+  Assert.AreEqual(150, mSettings.OpenDelayMs, 'OpenDelayMs fest');
+  Assert.IsTrue(mSettings.FixCase, 'FixCase fest');
+  Assert.AreEqual(14, mSettings.VisibleRows, 'VisibleRows bleibt');
+  Assert.AreEqual(3, mSettings.AutoMinChars, 'AutoMinChars bleibt');
+  Assert.IsFalse(mSettings.Learning, 'Learning bleibt');
+  // Keine feste Einstellung steht auf der Seite.
+  for mName in TDpccFixedSettings.Names do
+  begin
+    Assert.IsFalse(MatchText(mName, TDpccCompletionView.SettingNames), mName + ' auf der Seite');
+  end;
+end;
+
+procedure TDpccCompletionViewTests.XmlDocExpandIsIgnoredSilently;
+var
+  mCatalog: TDpccSettingsCatalog;
+  mStore, mSaved: IDpccMemorySettingsStore;
+  mSettings: TDpccPluginSettings;
+  mRouted: TDpccRoutedSetting;
+  mServer: TServerSettings;
+  mIssues: TArray<TConfigurationIssue>;
+  mIndex: Integer;
 begin
   mCatalog := TDpccSettingsCatalog.CreateDefault;
   try
-    for mName in ['Enabled', 'OpenDelayMs', 'AutoMinChars', 'VisibleRows', 'AutoUses', 'ParameterHints',
-      'HoverTooltip', 'XmlDocExpand', 'XmlDocMaxLines'] do
+    Assert.IsTrue(mCatalog.IndexOfName('XmlDocExpand') < 0, 'XmlDocExpand im Katalog');
+    Assert.IsTrue(mCatalog.IndexOfName('XmlDocMaxLines') >= 0, 'XmlDocMaxLines bleibt');
+    for mIndex := 0 to mCatalog.Count - 1 do
     begin
-      Assert.AreEqual(Ord(spMain), Ord(PlaceOfName(mCatalog, mName)), mName);
+      Assert.IsFalse(MatchText(mCatalog[mIndex].Key, ['hints.xmlDocExpand', 'hints.xmlDocFull']),
+        mCatalog[mIndex].Key);
     end;
   finally
     mCatalog.Free;
   end;
+  // Plugin: ein alter Registry-Wert wird weder gelesen noch zurückgeschrieben; die übrigen Werte gelten.
+  mStore := TDpccMemorySettingsStore.FromSettings(TDpccPluginSettings.Defaults);
+  mStore.WriteString('XmlDocExpand', 'expanded');
+  mStore.WriteInteger('XmlDocFull', 1);
+  mStore.WriteInteger('XmlDocMaxLines', 7);
+  mSettings := TDpccPluginSettings.Defaults;
+  mSettings.Load(mStore);
+  Assert.AreEqual(7, mSettings.XmlDocMaxLines, 'XmlDocMaxLines gelesen');
+  mSaved := TDpccMemorySettingsStore.FromSettings(mSettings);
+  Assert.IsFalse(MatchText('XmlDocExpand', mSaved.Names), 'XmlDocExpand gespeichert');
+  Assert.IsFalse(MatchText('XmlDocFull', mSaved.Names), 'XmlDocFull gespeichert');
+  Assert.IsFalse(TDpccSettingsScopes.TryRouted('XmlDocExpand', mRouted), 'XmlDocExpand umgeleitet');
+  Assert.IsFalse(TDpccSettingsScopes.TryRouted('XmlDocFull', mRouted), 'XmlDocFull umgeleitet');
+  Assert.IsTrue(TDpccSettingsScopes.TryRouted('XmlDocMaxLines', mRouted), 'XmlDocMaxLines umgeleitet');
+  Assert.AreEqual('hints.xmlDocMaxLines', mRouted.Path);
+  // Server: alte Werte in settings.json ohne Meldung, auch ungültige; xmlDocMaxLines wirkt weiter.
+  mServer := TConfigurationParser.Parse('{"hints": {"xmlDocExpand": "expanded", "xmlDocFull": true, ' +
+    '"xmlDocMaxLines": 7}}', mIssues);
+  Assert.AreEqual(0, Integer(Length(mIssues)), 'Meldungen');
+  Assert.AreEqual(7, mServer.Hints.XmlDocMaxLines, 'xmlDocMaxLines');
+  TConfigurationParser.Parse('{"hints": {"xmlDocExpand": 3, "xmlDocFull": "ja"}}', mIssues);
+  Assert.AreEqual(0, Integer(Length(mIssues)), 'Meldungen bei ungültigen alten Werten');
+  // Unbekanntes in hints meldet der Server weiter.
+  TConfigurationParser.Parse('{"hints": {"xmlDocExpandX": "expanded"}}', mIssues);
+  Assert.AreEqual(1, Integer(Length(mIssues)), 'unbekannter Schlüssel');
 end;
 
 procedure TDpccCompletionViewTests.PlainListSwitchesAreGone;
@@ -130,24 +294,25 @@ begin
       Assert.IsFalse((mCatalog[mIndex].Source = asPlugin) and StartsText('suggestions.', mCatalog[mIndex].Key),
         mCatalog[mIndex].Key);
     end;
-    for mName in ['Learning', 'Favorites', 'GroupInherited'] do
+    // Lernen steht auf der Seite; Favoriten und Gruppierung sind seit OPT1 fest verdrahtet.
+    Assert.AreEqual(Ord(spMain), Ord(PlaceOfName(mCatalog, 'Learning')), 'Learning');
+    for mName in ['Favorites', 'GroupInherited'] do
     begin
-      Assert.AreEqual(Ord(spMain), Ord(PlaceOfName(mCatalog, mName)), mName);
+      Assert.AreEqual(Ord(spHidden), Ord(PlaceOfName(mCatalog, mName)), mName);
     end;
   finally
     mCatalog.Free;
   end;
 end;
 
-procedure TDpccCompletionViewTests.KeysHaveOwnPage;
-
+procedure TDpccCompletionViewTests.KeysAreHidden;
 var
   mCatalog: TDpccSettingsCatalog;
 begin
   mCatalog := TDpccSettingsCatalog.CreateDefault;
   try
-    Assert.AreEqual(Ord(spKeys), Ord(PlaceOfName(mCatalog, 'CompletionKey')));
-    Assert.AreEqual(Ord(spKeys), Ord(PlaceOfName(mCatalog, 'SignatureKeyPriority')));
+    Assert.AreEqual(Ord(spHidden), Ord(PlaceOfName(mCatalog, 'CompletionKey')));
+    Assert.AreEqual(Ord(spHidden), Ord(PlaceOfName(mCatalog, 'SignatureKeyPriority')));
     Assert.AreEqual(Ord(spHidden), Ord(PlaceOfName(mCatalog, 'PaletteKey')));
     Assert.AreEqual(Ord(spHidden), Ord(PlaceOfName(mCatalog, 'QuickToggleKey')));
   finally

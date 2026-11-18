@@ -16,6 +16,8 @@
 // Abgesicherter Start (#722): Vor jeder gespeicherten Änderung kommt der alte
 // Stand in die Einstellungsstände (%APPDATA%\dpcc\settings-history.json),
 // höchstens safeMode.keepSettingsHistory; Restore setzt auf einen davon zurück.
+// Fest verdrahtet (OPT1): Current liefert für die Optionen, die es auf der Seite nicht mehr gibt
+// (TDpccFixedSettings), immer die bisherige Vorgabe; Stored behält einen alten Registry-Wert, der so liegen bleibt.
 // Experimentelle Funktionen (#834): Ohne Hauptschalter experimental.enabled
 // liefert Current für jede Einstellung mit x-experimental die Vorgabe; Stored
 // behält den gespeicherten Wert.
@@ -131,6 +133,7 @@ uses
   dpcc.Core.Settings.Scopes,
   dpcc.Core.Settings.Renames,
   dpcc.Core.Settings.Experimental,
+  dpcc.Core.Settings.CompletionView,
   dpcc.Core.Diagnostics.Guard,
   dpcc.Core.Files.DataFile,
   dpcc.UI.Strings;
@@ -362,11 +365,16 @@ begin
   end;
 end;
 
-/// <summary>Gespeichert, darüber Sitzungswerte, Einstellungen ausgeschalteter Module auf „aus“ (#1454), ohne
-/// Hauptschalter experimentelle Werte auf Vorgabe.</summary>
+/// <summary>Gespeichert mit den fest verdrahteten Werten (OPT1: Optionen ohne Platz auf der Seite gelten mit ihrer
+/// Vorgabe, ein alter Registry-Wert wirkt nicht), darüber Sitzungswerte, Einstellungen ausgeschalteter Module auf
+/// „aus“ (#1454), ohne Hauptschalter experimentelle Werte auf Vorgabe.</summary>
 function EffectiveSettings: TDpccPluginSettings;
+var
+  mFixed: TDpccPluginSettings;
 begin
-  Result := TDpccExperimental.Apply(TDpccModuleSwitches.Apply(GState.Session.Apply(GState.Stored,
+  mFixed := GState.Stored;
+  TDpccFixedSettings.Apply(mFixed);
+  Result := TDpccExperimental.Apply(TDpccModuleSwitches.Apply(GState.Session.Apply(mFixed,
     TDpccIdeSettings.QuickToggles), TDpccIdeSettings.ModuleSwitches), TDpccIdeSettings.ExperimentalEntries);
 end;
 

@@ -132,8 +132,8 @@ hover or parameter help need them.
 ### Additional source folders
 
 dpcc knows units that the installation only ships as `.dcu` (DUnitX, DUnit, FireDAC …) from the IDE only with their
-types (see [above](#what-the-index-contains)). If their source code is on disk, name its folder on the **General** page
-under “Additional source folders” (`index.extraSourceFolders` in `settings.json`, see [Settings](settings.md#general)):
+types (see [above](#what-the-index-contains)). If their source code is on disk, name its folder on the **dpcc** page
+under “Additional source folders” (`index.extraSourceFolders` in `settings.json`, see [Settings](settings.md#index)):
 
 - several folders separated by `;`, in `settings.json` also as a list;
 - subfolders count too, except `.git`, `__history` and `__recovery`; at most 2000 folders; `index.exclude` applies;
@@ -244,7 +244,7 @@ If the origin of a cache is on a drive that is currently missing (USB, network),
 
 ## Rebuilding the index
 
-**Tools › Options › Third Party › dpcc › General › Rebuild index**:
+**Tools › Options › Third Party › dpcc › Rebuild index**:
 
 1. dpcc asks: “Delete all index caches and rebuild the index? The first build can take a few minutes.”
 2. It stops a running session, deletes all index caches that are not locked, and restarts the session.

@@ -56,18 +56,6 @@ contains
   dpcc.UI.Popup.Tip in 'Source\Popup\dpcc.UI.Popup.Tip.pas',
   dpcc.UI.Settings.Page in 'Source\Settings\dpcc.UI.Settings.Page.pas' {DpccSettingsPage: TFrame},
   dpcc.UI.Settings.ChoiceBox in 'Source\Settings\dpcc.UI.Settings.ChoiceBox.pas',
-  dpcc.UI.Settings.Bindings in 'Source\Settings\dpcc.UI.Settings.Bindings.pas',
-  dpcc.UI.Settings.Page.Sheets in 'Source\Settings\dpcc.UI.Settings.Page.Sheets.pas',
-  dpcc.UI.Settings.Page.Host in 'Source\Settings\dpcc.UI.Settings.Page.Host.pas',
-  dpcc.UI.Settings.Page.General in 'Source\Settings\dpcc.UI.Settings.Page.General.pas',
-  dpcc.UI.Settings.Page.Completion in 'Source\Settings\dpcc.UI.Settings.Page.Completion.pas',
-  dpcc.UI.Settings.Page.TeamFile in 'Source\Settings\dpcc.UI.Settings.Page.TeamFile.pas',
-  dpcc.UI.Settings.Page.EditorView in 'Source\Settings\dpcc.UI.Settings.Page.EditorView.pas',
-  dpcc.UI.Settings.Page.Parts in 'Source\Settings\dpcc.UI.Settings.Page.Parts.pas',
-  dpcc.UI.Settings.Page.Nodes in 'Source\Settings\dpcc.UI.Settings.Page.Nodes.pas',
-  dpcc.UI.Settings.Page.Tree in 'Source\Settings\dpcc.UI.Settings.Page.Tree.pas',
-  dpcc.UI.Settings.Marks in 'Source\Settings\dpcc.UI.Settings.Marks.pas',
-  dpcc.UI.Settings.Group in 'Source\Settings\dpcc.UI.Settings.Group.pas',
   dpcc.UI.Strings in 'Source\dpcc.UI.Strings.pas',
   dpcc.UI.CodeInsight.Strings in 'Source\CodeInsight\dpcc.UI.CodeInsight.Strings.pas',
   dpcc.UI.Completion.Strings in 'Source\Completion\dpcc.UI.Completion.Strings.pas',
@@ -76,7 +64,6 @@ contains
   dpcc.UI.Hover.Strings in 'Source\Hover\dpcc.UI.Hover.Strings.pas',
   dpcc.UI.Settings.Strings in 'Source\Settings\dpcc.UI.Settings.Strings.pas',
   dpcc.UI.Hover.Tip in 'Source\Hover\dpcc.UI.Hover.Tip.pas',
-  dpcc.UI.Documentation.View in 'Source\Documentation\dpcc.UI.Documentation.View.pas',
-  dpcc.UI.Settings.Page.Search in 'Source\Settings\dpcc.UI.Settings.Page.Search.pas';
+  dpcc.UI.Documentation.View in 'Source\Documentation\dpcc.UI.Documentation.View.pas';
 
 end.

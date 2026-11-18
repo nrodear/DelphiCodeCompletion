@@ -115,9 +115,8 @@ begin
   Result := [
     // index.projectGroup/searchPaths/libraryPaths/usages und memoryBudgetMb schickt das Plugin seit S4 nicht mehr:
     // Der Server nimmt feste Werte (dpcc.Common.Configuration).
-    TextSetting('XmlDocExpand', 'hints.xmlDocExpand'),
-    // Vor #770: XmlDocFull liest TDpccPluginSettings.Load nur noch, um XmlDocExpand zu übernehmen.
-    LegacySetting('XmlDocFull', 'hints.xmlDocFull', True),
+    // hints.xmlDocExpand (und davor hints.xmlDocFull) schickt das Plugin seit OPT1 nicht mehr: „XMLDoc beim Öffnen“
+    // ist entfallen; ein alter Wert in settings.json bleibt liegen, der Server überliest ihn ohne Meldung.
     Setting('XmlDocMaxLines', 'hints.xmlDocMaxLines', False),
     Setting('SlashCommands', 'slashCommands.enabled', True),
     // inlayHints.parameterNames schickt das Plugin seit S8 nicht mehr (der Schalter InlayHints ist entfallen).

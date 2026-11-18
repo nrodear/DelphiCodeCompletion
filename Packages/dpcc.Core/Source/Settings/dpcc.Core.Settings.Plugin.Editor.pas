@@ -205,9 +205,8 @@ type
     /// <summary>Befehle „Eigenschaftsregeln anwenden“ (#309) für Formular, Projekt und Projektgruppe in der
     /// Befehlspalette; aus = die Befehle verschwinden. Regel dfm-property und Schnellkorrektur bleiben.</summary>
     DfmPropertyRules: Boolean;
-    /// <summary>XMLDoc in Tooltip und Detailpanel beim Öffnen (#770, hints.xmlDocExpand in settings.json):
-    /// collapsed, last (wie zuletzt), expanded. Ersetzt XmlDocFull (1 = expanded, 0 = collapsed).</summary>
-    XmlDocExpand: string;
+    // „XMLDoc beim Öffnen“ (XmlDocExpand, hints.xmlDocExpand, #770) gibt es seit OPT1 nicht mehr: Der Tooltip zeigt
+    // die XMLDoc immer aufgeklappt. Alte Werte in Registry und settings.json bleiben liegen und wirken nicht.
     /// <summary>Höchstens so viele Zeilen Doku ohne Scrollen, 0 = bis zur Bildschirmhöhe (#654).</summary>
     XmlDocMaxLines: Integer;
     /// <summary>Dateiübergreifendes Zurücknehmen von dpcc-Änderungen (#721, undo.multiFile).</summary>
@@ -726,24 +725,6 @@ const
   cDefaultIgnoreColors = 'clWindow, clBtnFace, clWindowText, clDefault';
   cDefaultNameSources = 'caption, label, handler, dataField';
 
-/// <summary>XmlDocExpand lesen; fehlt der Wert, gilt XmlDocFull von vor #770, sonst ADefault.</summary>
-function ReadXmlDocExpand(const AStore: IDpccSettingsStore; const ADefault: string): string;
-begin
-  Result := AStore.ReadString('XmlDocExpand', '');
-  // Vor #770: XmlDocFull übernehmen.
-  if Result = '' then
-  begin
-    case AStore.ReadInteger('XmlDocFull', -1) of
-      0:
-        Result := 'collapsed';
-      1:
-        Result := 'expanded';
-    else
-      Result := ADefault;
-    end;
-  end;
-end;
-
 /// <summary>Präfix für Blockkommentare (#696): Steuerzeichen werden Leerzeichen, höchstens acht Zeichen; Leerraum
 /// am Rand bleibt (' * ').</summary>
 function NormalizedBlockPrefix(const AText: string): string;
@@ -852,7 +833,6 @@ begin
   Result.BaselineUpdate := True;
   Result.MetricsReport := True;
   Result.DfmPropertyRules := True;
-  Result.XmlDocExpand := 'last';
   Result.XmlDocMaxLines := 0;
   Result.UndoMultiFile := True;
   Result.UndoMultiFileDepth := 20;
@@ -866,7 +846,6 @@ end;
 procedure TDpccPluginEditorInsightSettings.Normalize;
 begin
   XmlDocMaxLines := EnsureRange(XmlDocMaxLines, 0, cMaxXmlDocLines);
-  XmlDocExpand := Choice(XmlDocExpand, ['last', 'collapsed', 'expanded']);
   UndoMultiFileDepth := EnsureRange(UndoMultiFileDepth, cMinUndoDepth, cMaxUndoDepth);
   UndoMultiFileMaxSizeMb := EnsureRange(UndoMultiFileMaxSizeMb, cMinUndoMaxSizeMb, cMaxUndoMaxSizeMb);
   if SameText(Trim(UndoMultiFileOnConflict), 'abort') then
@@ -904,14 +883,6 @@ begin
   AIo.Flag('BaselineUpdate', BaselineUpdate);
   AIo.Flag('MetricsReport', MetricsReport);
   AIo.Flag('DfmPropertyRules', DfmPropertyRules);
-  if AIo.Writing then
-  begin
-    AIo.Text('XmlDocExpand', XmlDocExpand);
-  end
-  else
-  begin
-    XmlDocExpand := ReadXmlDocExpand(AIo.Store, XmlDocExpand);
-  end;
   AIo.Number('XmlDocMaxLines', XmlDocMaxLines);
   AIo.Flag('UndoMultiFile', UndoMultiFile);
   AIo.Number('UndoMultiFileDepth', UndoMultiFileDepth);

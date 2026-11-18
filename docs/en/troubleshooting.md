@@ -48,7 +48,7 @@ dpcc passes the key on to the IDE if it does not serve the file:
 | Cause | Fix |
 |---|---|
 | The file does not end in `.pas`, `.dpr`, `.dpk` or `.inc`. | Expected. |
-| The master switch is off. | **Tools › Options › Third Party › dpcc › General**, turn on “Code Insight by dpcc”. |
+| The master switch is off. | **Tools › Options › Third Party › dpcc**, turn on “Code Insight by dpcc”. |
 | The safety fuse has switched off completion. | The Messages window reports this (see below). Restart the IDE. |
 | The dpcc list stayed empty, and Ctrl+Space was pressed a second time at the same position. | Expected, see [Usage](usage.md#ide-list-when-dpcc-finds-nothing). After typing or at another position, Ctrl+Space asks dpcc again. |
 
@@ -66,7 +66,7 @@ This is expected. The list that opens by itself after “.” comes from DelphiL
   [Index and cache](index-cache.md#what-the-index-contains).
 - A unit is missing although its file is in the search path: search `dpcc.log` for “Datei nicht lesbar” (file not
   readable). The index skips a file that cannot be read or parsed.
-- The index seems outdated: **Rebuild index** on the **General** page.
+- The index seems outdated: **Rebuild index** on the **dpcc** page (section **Index**).
 - If dpcc finds nothing at a position, a second Ctrl+Space there opens the IDE list (see
   [Usage](usage.md#ide-list-when-dpcc-finds-nothing)).
 
@@ -76,7 +76,7 @@ DUnitX, DUnit and FireDAC come with the installation only as `.dcu`. Without sou
 the packages the IDE has loaded, and their members only once a project names the unit in its `uses`. Constants and
 routines outside of types are then missing.
 
-- If the source code is available (for example a clone of DUnitX), enter its folder on the **General** page under
+- If the source code is available (for example a clone of DUnitX), enter its folder on the **dpcc** page under
   “Additional source folders”. After that “+ Unit” suggests for example `TestFixtureAttribute` and `Assert`. See
   [Index and cache](index-cache.md#additional-source-folders).
 - A reference such as `$(DUnitX)` in a search path only works if the variable is among the environment variables of
@@ -101,8 +101,8 @@ is selected there does dpcc jump (see [Usage](usage.md#when-dpcc-is-selected-as-
 - The IDE's Help Insight: dpcc switches it off, but the IDE reads the switch only at its next start. Restart the IDE.
 - The IDE's value tooltip while debugging: dpcc switches it off only when the dpcc page is closed with **OK**. Open
   the page once, OK, restart the IDE.
-- If you want to keep the IDE's tooltip, switch off “Own tooltip when hovering identifiers” or “Values in the hover
-  while debugging”.
+- If you want to keep the IDE's tooltip, switch off “Own tooltip when hovering identifiers” or “Show values while
+  debugging”.
 
 ## Help Insight is missing after uninstalling
 
@@ -208,6 +208,6 @@ every 10 minutes, as soon as a request ends. Example:
 
 ## Settings back to default
 
-- One option: right-click, “Reset to default”.
-- One area: right-click, “Reset the whole page to default”.
+- One option: set it back to the default by hand on the **dpcc** page; the defaults are listed under
+  [Settings](settings.md).
 - Everything: see [Settings](settings.md#storage).

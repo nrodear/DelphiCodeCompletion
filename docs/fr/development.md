@@ -146,15 +146,14 @@ Sur le modèle des options existantes :
    `TDpccPluginSettings` (`dpcc.Core.Settings.Plugin`).
 2. Entrée dans le catalogue `dpcc.Core.Settings.PluginSchemaData` avec `x-key`, `x-area` et `x-page`. Le fichier est
    tenu à jour à la main.
-3. Visibilité : `dpcc.Core.Settings.CompletionView` affiche entièrement les pages (`x-page`) « Vervollständigung »
-   (Completion), « Einfügen » (Insertion) et « Hints ». Des autres pages, il n'affiche que certaines clés :
-   l'interrupteur principal `completion.enabled` (zone « General », `cPluginKeys`) et toutes les clés `hints.*`. La
-   page ajoute elle-même le bouton « Rebuild index » (reconstruire l'index) dans la zone « General ». Une nouvelle
-   option d'une autre page doit figurer dans `cPluginKeys`.
-4. Contrôle dans la partie correspondante de la page, par exemple `dpcc.UI.Settings.Page.Completion`, avec
-   `BindCheck('<nom-registre>', …)`.
-5. Libellé en allemand et en anglais dans `dpcc.UI.Settings.Strings`.
-6. Test.
+3. Page : la page des options construit `cPageItems` à partir de `dpcc.Core.Settings.CompletionView` (section et
+   ordre). Une nouvelle option va dans `cPageItems`, dans `TDpccSettingsPage.BuildItem`, `LoadFrom` et `SaveTo`
+   (`dpcc.UI.Settings.Page`) et, avec son libellé en allemand et en anglais, dans `dpcc.UI.Settings.Strings`.
+4. Valeurs fixes : une option sans place sur la page reçoit sa valeur fixe dans `TDpccFixedSettings`
+   (`dpcc.Core.Settings.CompletionView`) ; elle est appliquée dans les réglages effectifs de la couche IDE
+   (`TDpccIdeSettings.Current`, `dpcc.IDE.Foundation.Settings`).
+5. Test : `dpcc.Core.Settings.CompletionView.Tests` et `dpcc.UI.Settings.Page.Tests` (la page sans affichage dans
+   l'exécutable de test) vérifient la structure et la page.
 
 ## Contribuer
 

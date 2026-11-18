@@ -88,7 +88,7 @@ Abhängigkeiten bis zum Ende der IDE geladen. So springt kein Thread in entladen
 | `Lsp` | LSP-Client, Sitzung (initialize, Dokumentabgleich, Anfragen), Adapter zum Server im Prozess, Absturzbehandlung |
 | `Completion` | Ablauf der Liste (`TDpccCompletionController`), Filtern, Rangfolge, Favoriten, Verlauf, Mengenmodus, Platzhalter, Vorschau |
 | `Hover`, `Signature`, `Documentation` | Inhalt von Tooltip und Parameterhilfe, XMLDoc-Darstellung |
-| `Settings` | Plugin-Einstellungen, Katalog, Sperren, sichtbare Optionen (`dpcc.Core.Settings.CompletionView`) |
+| `Settings` | Plugin-Einstellungen, Katalog, Sperren, Aufbau der Optionsseite und fest eingestellte Werte (`dpcc.Core.Settings.CompletionView`) |
 | `Diagnostics` | Sicherung (`TDpccGuard`), Protokoll, Warteschlange zum Hauptthread, Abbau |
 | `Localization` | Sprache der Texte |
 

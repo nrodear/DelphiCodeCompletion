@@ -145,8 +145,8 @@ charge les symboles d'une unité lorsque la complétion, le survol ou l'aide aux
 
 Les unités que l'installation ne livre qu'en `.dcu` (DUnitX, DUnit, FireDAC …) ne sont connues de dpcc, par l'IDE,
 qu'avec leurs types (voir [plus haut](#contenu-de-lindex)). Si leur code source se trouve sur le disque, indiquez son
-dossier dans la page **General** sous « Additional source folders » (dossiers source supplémentaires,
-`index.extraSourceFolders` dans `settings.json`, voir [Réglages](settings.md#general)) :
+dossier dans la page **dpcc** sous « Additional source folders » (dossiers source supplémentaires,
+`index.extraSourceFolders` dans `settings.json`, voir [Réglages](settings.md#index)) :
 
 - plusieurs dossiers séparés par `;`, dans `settings.json` aussi sous forme de liste ;
 - les sous-dossiers comptent aussi, sauf `.git`, `__history` et `__recovery` ; au plus 2000 dossiers ; `index.exclude`
@@ -265,7 +265,7 @@ Si l'origine d'un cache se trouve sur un lecteur actuellement absent (USB, rése
 
 ## Reconstruire l'index
 
-**Tools › Options › Third Party › dpcc › General › Rebuild index** (reconstruire l'index) :
+**Tools › Options › Third Party › dpcc › Rebuild index** (reconstruire l'index) :
 
 1. dpcc demande confirmation : « Delete all index caches and rebuild the index? The first build can take a few
    minutes. » (supprimer tous les caches d'index et reconstruire l'index ? La première construction peut prendre

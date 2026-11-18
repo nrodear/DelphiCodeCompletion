@@ -164,22 +164,18 @@ type
     class function Default: TNavigationSettings; static;
   end;
 
-  /// <summary>Anzeige von XMLDoc in Hover und Detailpanel des Plugins (#654, #770). Der Server bereitet die Doku
-  /// immer vollständig auf und gibt die Werte nur weiter.</summary>
+  /// <summary>Anzeige von XMLDoc in Hover und Detailpanel des Plugins (#654). Der Server bereitet die Doku
+  /// immer vollständig auf und gibt die Werte nur weiter. hints.xmlDocExpand (#770, davor hints.xmlDocFull) gibt es
+  /// seit OPT1 nicht mehr: Der Tooltip zeigt die XMLDoc immer aufgeklappt; ein alter Wert bleibt ohne Meldung.
+  /// </summary>
   THintSettings = record
   public const
     cMaxXmlDocLines = 50;
-    cExpandCollapsed = 'collapsed';
-    cExpandLast = 'last';
-    cExpandExpanded = 'expanded';
     cUnitContentsOff = 'off';
     cUnitContentsTypes = 'types';
     cUnitContentsUsedFirst = 'usedFirst';
     cUnitContentsAll = 'all';
   public
-    /// <summary>XMLDoc beim Öffnen (#770): ExpandCollapsed nur Summary mit „Mehr anzeigen“, ExpandLast wie
-    /// zuletzt in der Sitzung, ExpandExpanded alle Abschnitte. Ersetzt xmlDocFull aus #654.</summary>
-    XmlDocExpand: string;
     /// <summary>Doku-Zeilen, ab denen der Inhalt scrollt; 0 = unbegrenzt.</summary>
     XmlDocMaxLines: Integer;
     /// <summary>Hover über Komponentenklassen (#110): published-Properties und Ereignisse samt geerbter.</summary>
@@ -1261,7 +1257,6 @@ end;
 
 class function THintSettings.Default: THintSettings;
 begin
-  Result.XmlDocExpand := cExpandLast;
   Result.XmlDocMaxLines := 0;
   Result.PublishedMembers := True;
   Result.UnitContents := cUnitContentsUsedFirst;

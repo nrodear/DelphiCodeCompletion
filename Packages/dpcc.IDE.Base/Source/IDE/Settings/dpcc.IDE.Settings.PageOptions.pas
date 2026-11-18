@@ -1,13 +1,13 @@
 ﻿unit dpcc.IDE.Settings.PageOptions;
 
-// Haken der Optionsseite „dpcc“ zu anderen Teilen der IDE-Schicht: angeheftete Favoriten (#458) und „Index neu
-// aufbauen“ (S4, Seite „Allgemein“): laufende Sitzung anhalten, Index-Caches löschen (TIndexCacheDirectory.Clear, wie früher
+// Haken der Optionsseite „dpcc“ zu anderen Teilen der IDE-Schicht: „Index neu aufbauen“ (S4, seit OPT1 im Abschnitt
+// „Index“ der einen Seite): laufende Sitzung anhalten, Index-Caches löschen (TIndexCacheDirectory.Clear, wie früher
 // „Index-Cache löschen“ #184) und die Sitzung neu starten. Kennzahlen, „Index löschen“ und andere Befehle an den Server
 // schickt die Seite seit S4 nicht mehr (der schlanke Server kennt kein workspace/executeCommand); sie startet den
-// Server auch nicht. Ohne Zustand; die Seite hält die Methodenreferenzen.
+// Server auch nicht. Ohne Zustand; die Seite hält die Methodenreferenz.
 // Seit S7a ohne „Leiste anpassen …“ (#1101), Export, Import und „Alles zurücksetzen“ (#723) und F1 zur Einstellung
-// unter dem Fokus (#1886): Diese Teile der Seite waren ausgeblendet bzw. ohne Hilfe-Anbieter. Seit S8 ohne die
-// Projektdatei .dpcc (#486): Der Reiter war ausgeblendet, und sonst las niemand die Datei.
+// unter dem Fokus (#1886); seit S8 ohne die Projektdatei .dpcc (#486). Seit OPT1 ohne die Liste der angehefteten
+// Favoriten (#458): Strg+D in der Liste bleibt, favorites.json auch.
 
 interface
 
@@ -23,23 +23,16 @@ type
 
   TDpccPageOptions = class
   public
-    /// <summary>„Index neu aufbauen“ (S4) auf der Seite „Allgemein“: Caches löschen und über ARestart neu aufbauen;
-    /// ARestart nil = nur die Caches löschen.</summary>
+    /// <summary>„Index neu aufbauen“ (S4): Caches löschen und über ARestart neu aufbauen; ARestart nil = nur die
+    /// Caches löschen.</summary>
     class procedure ConnectRebuild(APage: TDpccSettingsPage; const ARestart: TDpccIndexRestart); static;
-    /// <summary>Angeheftete Favoriten (#458).</summary>
-    class procedure ConnectFavorites(APage: TDpccSettingsPage); static;
   end;
 
 implementation
 
 uses
-  dpcc.Core.Diagnostics.Guard,
   dpcc.Common.Index.Adapters.CacheDirectory,
-  dpcc.UI.Settings.Strings,
-  dpcc.Core.Completion.Favorites,
-  dpcc.IDE.Completion.Favorites,
-  dpcc.UI.Settings.Page.General,
-  dpcc.UI.Settings.Page.Completion;
+  dpcc.UI.Settings.Strings;
 
 /// <summary>„Index neu aufbauen“ (S4): alle Index-Caches löschen, eine laufende Sitzung dafür anhalten und neu
 /// starten; Ergebnis als Meldung für die Seite.</summary>
@@ -84,28 +77,10 @@ var
   mRestart: TDpccIndexRestart;
 begin
   mRestart := ARestart;
-  APage.Part<TDpccSettingsGeneralPart>.OnRebuildIndex :=
+  APage.OnRebuildIndex :=
     function: string
     begin
       Result := RebuildIndex(mRestart);
-    end;
-end;
-
-class procedure TDpccPageOptions.ConnectFavorites(APage: TDpccSettingsPage);
-begin
-  APage.Part<TDpccSettingsFavoritesPart>.OnRemoveFavorites :=
-    procedure(AKeys: TArray<string>)
-    begin
-      TDpccGuard.Run(TDpccFeature.Settings,
-        procedure
-        begin
-          TDpccIdeFavorites.Remove(AKeys);
-        end);
-    end;
-  APage.Part<TDpccSettingsFavoritesPart>.OnFavorites :=
-    function: TArray<TDpccFavorite>
-    begin
-      Result := TDpccIdeFavorites.Items;
     end;
 end;
 

@@ -26,9 +26,8 @@ uses
 
 type
   /// <summary>Texte der Unit in beiden Sprachen (#1458).</summary>
-  TEditorOptionsText = (EndMarkerMinLinesMustBeAWhole, ImpactDepthMustBeAWhole, XmlDocExpandMustBeCollapsedLast,
-    HintsXmlDocFullIsDeprecatedUse, XmlDocMaxLinesMustBeAWhole, RationaleMarkersMustBeAList,
-    RationaleMarkersMustNotContainAn, AllowedAreAutoMultilineAnd, AllowedAreSLineBreak1310, MaxLineLengthMustBeAWhole,
+  TEditorOptionsText = (EndMarkerMinLinesMustBeAWhole, ImpactDepthMustBeAWhole, XmlDocMaxLinesMustBeAWhole,
+    RationaleMarkersMustBeAList, RationaleMarkersMustNotContainAn, AllowedAreAutoMultilineAnd, AllowedAreSLineBreak1310, MaxLineLengthMustBeAWhole,
     MemberOrderMustBeAList, ExitKeywordsMustBeAList, AllowedAreFuzzyAndPrefix, AllowedArePrivateProtectedAnd,
     AllowedAreAsAndCast, AllowedArePrivateAndProtected, AllowedArePrefixAndUses, AllowedAreOffHelperAnd,
     AllowedAreFreeAndFreeAndNil, ExpectedIsAUnitName, UnknownEntryInMemberOrder, UnitContentsMustBeOffTypes);
@@ -39,10 +38,6 @@ const
      En: '"endMarkerMinLines" must be a whole number from 1'),
     (De: '"impactDepth" muss eine ganze Zahl von 1 bis 5 sein';
      En: '"impactDepth" must be a whole number from 1 to 5'),
-    (De: '"xmlDocExpand" muss "collapsed", "last" oder "expanded" sein';
-     En: '"xmlDocExpand" must be "collapsed", "last" or "expanded"'),
-    (De: '"hints.xmlDocFull" ist veraltet, stattdessen "hints.xmlDocExpand" verwenden';
-     En: '"hints.xmlDocFull" is deprecated, use "hints.xmlDocExpand" instead'),
     (De: '"xmlDocMaxLines" muss eine ganze Zahl von 0 bis %d sein';
      En: '"xmlDocMaxLines" must be a whole number from 0 to %d'),
     (De: '"rationaleMarkers" muss eine Liste von Marken sein'; En: '"rationaleMarkers" must be a list of markers'),
@@ -178,44 +173,12 @@ end;
 
 { hints }
 
-/// <summary>xmlDocExpand; True, wenn der Wert gilt.</summary>
-function ReadXmlDocExpand(AReader: TConfigurationReader; AValue: TJsonNode; var AHints: THintSettings): Boolean;
-var
-  mIndex: Integer;
+/// <summary>hints.xmlDocExpand (#770) und davor hints.xmlDocFull (#654) gibt es seit OPT1 nicht mehr: Der Tooltip
+/// zeigt die XMLDoc immer aufgeklappt. Ein vorhandener Wert bleibt ohne Wirkung und ohne Meldung (wie
+/// index.officeAndWinRt).</summary>
+procedure IgnoreXmlDocExpand(AReader: TConfigurationReader; AValue: TJsonNode; const AKey: string;
+  var ASettings: TServerSettings);
 begin
-  Result := AReader.ExpectChoice(AValue, 'xmlDocExpand', [THintSettings.cExpandCollapsed, THintSettings.cExpandLast,
-    THintSettings.cExpandExpanded], cTexts[TEditorOptionsText.XmlDocExpandMustBeCollapsedLast].Text, mIndex);
-  if Result then
-  begin
-    AHints.XmlDocExpand := AValue.Value;
-  end;
-end;
-
-/// <summary>Veraltet seit #770: true = expanded, false = collapsed, solange xmlDocExpand fehlt.</summary>
-procedure ReadXmlDocFull(AReader: TConfigurationReader; ANode: TJsonNode; AIndex: Integer; AExpandSet: Boolean;
-  var AHints: THintSettings);
-var
-  mFull: Boolean;
-begin
-  mFull := True;
-  if not AReader.ExpectBoolean(ANode[AIndex], 'xmlDocFull', mFull) then
-  begin
-    Exit;
-  end;
-  AReader.Report(ANode.KeyStarts[AIndex], ANode.KeyStarts[AIndex] + Length(ANode.Keys[AIndex]) + 2,
-    cTexts[TEditorOptionsText.HintsXmlDocFullIsDeprecatedUse].Text, False);
-  if AExpandSet then
-  begin
-    Exit;
-  end;
-  if mFull then
-  begin
-    AHints.XmlDocExpand := THintSettings.cExpandExpanded;
-  end
-  else
-  begin
-    AHints.XmlDocExpand := THintSettings.cExpandCollapsed;
-  end;
 end;
 
 procedure ReadXmlDocMaxLines(AReader: TConfigurationReader; AValue: TJsonNode; const AKey: string;
@@ -284,14 +247,14 @@ begin
 end;
 
 const
-  cHintMembers: array[0..3] of TMemberOption = ((Key: 'xmlDocMaxLines'; Read: ReadXmlDocMaxLines),
+  cHintMembers: array[0..5] of TMemberOption = ((Key: 'xmlDocMaxLines'; Read: ReadXmlDocMaxLines),
     (Key: 'rationaleMarkers'; Read: ReadRationaleMarkers), (Key: 'adrFolder'; Read: ReadAdrFolder),
-    (Key: 'unitContents'; Read: ReadUnitContents));
+    (Key: 'unitContents'; Read: ReadUnitContents), (Key: 'xmlDocExpand'; Read: IgnoreXmlDocExpand),
+    (Key: 'xmlDocFull'; Read: IgnoreXmlDocExpand));
 
 procedure ReadHints(AReader: TConfigurationReader; ANode: TJsonNode; var ASettings: TServerSettings);
 var
   mIndex: Integer;
-  mExpandSet: Boolean;
   mFlags: TArray<TFlagOption>;
 begin
   if not AReader.ExpectObject(ANode, 'hints') then
@@ -300,19 +263,9 @@ begin
   end;
   mFlags := [TFlagOption.Create('publishedMembers', ASettings.Hints.PublishedMembers),
     TFlagOption.Create('rationale', ASettings.Hints.Rationale)];
-  mExpandSet := False;
   for mIndex := 0 to ANode.Count - 1 do
   begin
-    // xmlDocFull wirkt nur, wenn davor kein gültiges xmlDocExpand stand.
-    if ANode.Keys[mIndex] = 'xmlDocExpand' then
-    begin
-      mExpandSet := ReadXmlDocExpand(AReader, ANode[mIndex], ASettings.Hints) or mExpandSet;
-    end
-    else if ANode.Keys[mIndex] = 'xmlDocFull' then
-    begin
-      ReadXmlDocFull(AReader, ANode, mIndex, mExpandSet, ASettings.Hints);
-    end
-    else if not AReader.ReadFlag(ANode, mIndex, mFlags) and
+    if not AReader.ReadFlag(ANode, mIndex, mFlags) and
       not AReader.ReadMember(ANode, mIndex, cHintMembers, ASettings) then
     begin
       AReader.ReportUnknown(ANode, mIndex, 'hints');

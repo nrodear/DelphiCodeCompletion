@@ -45,7 +45,7 @@ dpcc gibt die Taste an die IDE weiter, wenn es die Datei nicht bedient:
 | Ursache | Abhilfe |
 |---|---|
 | Die Datei endet nicht auf `.pas`, `.dpr`, `.dpk` oder `.inc`. | Erwartet. |
-| Der Hauptschalter ist aus. | **Tools › Optionen › Drittanbieter › dpcc › Allgemein**, „Code Insight von dpcc“ einschalten. |
+| Der Hauptschalter ist aus. | **Tools › Optionen › Drittanbieter › dpcc**, „Code Insight von dpcc“ einschalten. |
 | Die Sicherung hat die Vervollständigung abgeschaltet. | Das Meldungsfenster nennt das (siehe unten). Die IDE neu starten. |
 | Die Liste von dpcc blieb leer, und Strg+Leertaste kam ein zweites Mal an derselben Stelle. | Erwartet, siehe [Bedienung](usage.md#liste-der-ide-wenn-dpcc-nichts-findet). Nach einer Eingabe oder an einer anderen Stelle fragt Strg+Leertaste wieder dpcc. |
 
@@ -63,7 +63,7 @@ Das ist erwartet. Die Liste, die nach „.“ von selbst aufgeht, kommt von Delp
   Siehe [Index und Cache](index-cache.md#was-im-index-steht).
 - Eine Unit fehlt, obwohl ihre Datei im Suchpfad liegt: In `dpcc.log` nach „Datei nicht lesbar“ suchen. Eine Datei,
   die sich nicht lesen oder parsen lässt, übergeht der Index.
-- Der Index scheint veraltet: **Index neu aufbauen** auf der Seite **Allgemein**.
+- Der Index scheint veraltet: **Index neu aufbauen** auf der Seite **dpcc** (Abschnitt **Index**).
 - Findet dpcc an einer Stelle nichts, öffnet ein zweites Strg+Leertaste dort die Liste der IDE (siehe
   [Bedienung](usage.md#liste-der-ide-wenn-dpcc-nichts-findet)).
 
@@ -73,7 +73,7 @@ DUnitX, DUnit und FireDAC liegen der Installation nur als `.dcu` bei. Ohne Quell
 Packages, die die IDE geladen hat, und ihre Mitglieder erst, wenn ein Projekt die Unit in den `uses` nennt. Konstanten
 und Routinen außerhalb von Typen fehlen dann.
 
-- Liegt der Quelltext vor (etwa ein Klon von DUnitX), seinen Ordner auf der Seite **Allgemein** unter „Zusätzliche
+- Liegt der Quelltext vor (etwa ein Klon von DUnitX), seinen Ordner auf der Seite **dpcc** unter „Zusätzliche
   Quellordner“ eintragen. Danach schlägt „+ Unit“ etwa `TestFixtureAttribute` und `Assert` vor. Siehe
   [Index und Cache](index-cache.md#zusätzliche-quellordner).
 - Ein Verweis wie `$(DUnitX)` in einem Suchpfad wirkt nur, wenn die Variable in den Umgebungsvariablen der IDE oder
@@ -99,8 +99,8 @@ ist. Nur wenn dort dpcc gewählt ist, springt dpcc (siehe
   starten.
 - Beim Debuggen der Wert-Tooltip der IDE: dpcc schaltet ihn nur ab, wenn die Seite dpcc mit **OK** geschlossen wird.
   Die Seite einmal öffnen, OK, die IDE neu starten.
-- Wer den Tooltip der IDE behalten will, schaltet „Eigener Tooltip beim Verweilen über Bezeichnern“ bzw. „Werte im
-  Hover beim Debuggen“ aus.
+- Wer den Tooltip der IDE behalten will, schaltet „Eigener Tooltip beim Verweilen über Bezeichnern“ bzw. „Werte beim
+  Debuggen zeigen“ aus.
 
 ## Help Insight fehlt nach der Deinstallation
 
@@ -207,6 +207,6 @@ Auch „run start … mem n MB“ und die Zeilen „index … mem n MB“ nennen
 
 ## Einstellungen auf Vorgabe
 
-- Eine Option: Rechtsklick, „Auf Standard zurücksetzen“.
-- Ein Bereich: Rechtsklick, „Ganze Seite auf Standard zurücksetzen“.
+- Eine Option: auf der Seite **dpcc** von Hand auf die Vorgabe stellen; die Vorgaben stehen unter
+  [Einstellungen](settings.md).
 - Alles: siehe [Einstellungen](settings.md#ablage).

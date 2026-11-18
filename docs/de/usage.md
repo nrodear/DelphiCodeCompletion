@@ -110,8 +110,8 @@ Anfang oft über tausend Einträge und bräuchte spürbar Rechenzeit.
 - In `uses`, nach `raise` und in Attributklammern gilt dieselbe Schwelle; welche Liste kommt, entscheidet wie bei
   Strg+Leertaste der Server. Units, die noch nicht in `uses` stehen („+ Unit“), bietet er weiterhin erst ab
   2 Zeichen an.
-- Die Verzögerung bis zum Öffnen (`completion.openDelayMs`, Vorgabe 150 ms) gilt auch hier: Wer zügig weitertippt,
-  bekommt die Liste erst in der Pause, mit dem bis dahin getippten Wort.
+- Die feste Verzögerung bis zum Öffnen (150 ms) gilt auch hier: Wer zügig weitertippt, bekommt die Liste erst in
+  der Pause, mit dem bis dahin getippten Wort.
 - Ist das getippte Wort schon der Name des gewählten Eintrags (etwa `begin`), ist nichts gewählt: Enter bricht die
   Zeile um, statt den Eintrag zu übernehmen. Eine Pfeiltaste wählt den Eintrag.
 - Nach Esc öffnet die Liste im selben Wort nicht wieder von selbst.
@@ -157,8 +157,9 @@ Dazu kommen, je nach Einstellung:
 - **Erwarteter Typ**: Passende Einträge stehen oben unter der Überschrift „Passt zu …“, darunter die übrigen.
 - **Geerbte Member**: Ohne getippten Anfang stehen die eigenen Member zuerst, dann je Vorfahr eine Gruppe
   „Geerbt von …“.
-- **Listenmodus**: Wahlweise bleiben beim Tippen auch Einträge ohne Treffer sichtbar. Steht dann kein Treffer oben,
-  ist nichts gewählt; Enter gehört dem Editor, eine Pfeiltaste wählt den ersten Eintrag.
+- **Listenmodus**: Wahlweise bleiben in Mitgliederlisten nach „.“ beim Tippen auch Einträge ohne Treffer sichtbar.
+  Steht dann kein Treffer oben, ist nichts gewählt; Enter gehört dem Editor, eine Pfeiltaste wählt den ersten
+  Eintrag.
 
 Übernimmt man mitten in einem Wort, ersetzt dpcc das ganze Wort.
 
@@ -183,9 +184,9 @@ Dazu kommen, je nach Einstellung:
 
 ### Vorschau
 
-Mit der Einstellung „Vorschau des gewählten Eintrags im Editor“ steht der noch fehlende Teil des gewählten Namens
-kursiv und gedämpft hinter dem Cursor. Nur gezeichnet; Datei und Undo-Liste bleiben unberührt. Die Vorschau
-erscheint nur, wenn der Name mit dem Getippten beginnt und hinter dem Cursor nichts mehr steht. Vorgabe: aus.
+Die Vorschau des gewählten Eintrags im Editor (der noch fehlende Teil des Namens kursiv und gedämpft hinter dem
+Cursor) ist fest ausgeschaltet; eine Option dafür gibt es nicht mehr (siehe
+[Einstellungen](settings.md#fest-eingestellte-werte)).
 
 ## Was die Liste anbietet
 
@@ -247,8 +248,8 @@ Nach einem Typnamen (`TFoo.`) zeigt die Liste nur, was über den Typ aufrufbar i
 
 Steht ein Bezeichner in einer Unit, die noch nicht in `uses` steht, zeigt die Zeile rechts „+“ und den Namen dieser
 Unit, etwa „+ System.SysUtils“ bei `FreeAndNil`. „+ Unit“ ist also kein fester Text; „Unit“ steht in dieser Doku für
-den Namen. Beim Übernehmen trägt dpcc die Unit in `uses` ein (Einstellung „Unit beim Übernehmen automatisch in uses
-eintragen“). Name und `uses`-Eintrag sind ein einziger Undo-Schritt.
+den Namen. Beim Übernehmen trägt dpcc die Unit in `uses` ein (Einstellung „Unit automatisch in uses eintragen“).
+Name und `uses`-Eintrag sind ein einziger Undo-Schritt.
 
 „+ Unit“ bietet auch Werte von Aufzählungen an (etwa `fsBold` aus `Vcl.Graphics`). Generische Typen zeigen ihre
 Typparameter (`TList<T>`), eingefügt wird nur der Name. Steht hinter dem Wort schon ein `<`, kommen sie vor
@@ -326,24 +327,24 @@ Dieselbe Liste dient für „Interface implementieren“: fehlende Methoden, all
 
 ## Favoriten
 
-Mit der Einstellung „Favoriten anheften“ (Vorgabe: an) heftet Strg+D in der offenen Liste den gewählten Eintrag an
-oder löst ihn.
+Strg+D in der offenen Liste heftet den gewählten Eintrag an oder löst ihn. Das ist fest eingeschaltet (siehe
+[Einstellungen](settings.md#fest-eingestellte-werte)).
 
 - Ein Favorit gilt für ein Paar aus Typ und Member. Der Typ ist die deklarierende Klasse, auf Unit-Ebene die Unit.
   Ein Favorit `TDataSet.Open` gilt damit für jede Datenmenge.
 - Höchstens 5 Favoriten je Typ. Ein weiterer ersetzt keinen; die Fußzeile meldet „Schon 5 Favoriten bei …“.
 - Angeheftete Einträge stehen oben, wenn sie zum Getippten passen.
 - dpcc speichert sofort in `%APPDATA%\dpcc\favorites.json`.
-- Die Liste der Favoriten mit „Entfernen“ und „Alle entfernen“ steht unter
-  [Einstellungen](settings.md#vervollständigung).
+- Eine Liste der Favoriten auf der Optionsseite gibt es nicht mehr; gelöst wird mit Strg+D auf dem Eintrag.
 
 ## Übernehmen
 
-Was beim Übernehmen passiert, ist einstellbar (Bereich „Einfügen“, siehe [Einstellungen](settings.md#einfügen)):
+Was beim Übernehmen passiert, ist größtenteils einstellbar (Abschnitt „Beim Übernehmen“, siehe
+[Einstellungen](settings.md#beim-übernehmen)):
 
 - **Klammern**: Bei Methoden ergänzt dpcc die Klammern. Tippt man direkt vor der automatisch eingefügten
   schließenden Klammer ein „)“, überspringt dpcc die automatische, statt „))“ zu erzeugen.
-- **Schreibweise**: `showmessage` wird zu `ShowMessage`.
+- **Schreibweise**: `showmessage` wird zu `ShowMessage` (fest eingeschaltet).
 - **Unit in uses**: siehe „+ Unit“.
 - **Commit-Zeichen**: „(“, „;“ und „.“ übernehmen.
 
@@ -386,7 +387,7 @@ Strg+Umschalt+Leertaste in einem Aufruf zeigt die Signaturen der aufgerufenen Ro
 Bei `Format` und anderen Formatroutinen nennt eine Zeile den Platzhalter zum Argument am Cursor, etwa „Platzhalter 2
 von 2 erwartet ganzzahlig“. Sie warnt bei überzähligen Argumenten, ungültigen Platzhaltern und Typkonflikten mit
 Literalen. Platzhalter und Argument bekommen im Editor dieselbe Hintergrundfarbe, solange die Parameterhilfe offen
-ist. Abschaltbar mit „Platzhalter von Format im Parameter-Hint zuordnen und einfärben“.
+ist. Das ist fest eingeschaltet und entfällt nur mit der ganzen Parameterhilfe („Parameter-Hint bei „(“ und „,““).
 
 ## Hover
 
@@ -441,7 +442,7 @@ Kommentare stehen nicht im Index; der Hover liest sie bei Bedarf aus der einen D
 
 ### Werte beim Debuggen
 
-Ist das Programm angehalten und die Einstellung „Werte im Hover beim Debuggen“ an, wertet dpcc den Ausdruck unter
+Ist das Programm angehalten und die Einstellung „Werte beim Debuggen zeigen“ an, wertet dpcc den Ausdruck unter
 der Maus über den Debugger der IDE aus. Die Auswertung ruft nichts im Programm auf. Der Wert steht ganz oben.
 
 ### Help Insight

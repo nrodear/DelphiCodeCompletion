@@ -19,6 +19,7 @@
 // Seit L2 von Hand: IndexOfficeAndWinRt (index.officeAndWinRt) entfällt, neu ist IndexExtraSourceFolders
 // (index.extraSourceFolders, Text mit ";" zwischen den Ordnern).
 // Seit L5 von Hand: neu ist AutoMinChars (completion.autoMinChars, 0 bis 10); Vorgabe seit NAV 0 (aus, vorher 5).
+// Seit OPT1 von Hand: XmlDocExpand (hints.xmlDocExpand, früher hints.xmlDocFull) entfällt.
 
 interface
 
@@ -570,9 +571,8 @@ const
       '      "x-key": "commands.editorContextMenu.contextual",' + #10 + '      "x-area": "codeActions",' + #10 + '      "x-page": "Befehle",' + #10 + '      "x-control": "Kontrollkästchen",' + #10 + '      "x-caption": "Kontextmenü dpcc: nur passende Einträge",' + #10 + '      "x-captionEn": "dpcc context menu: only fitting entries",' + #10 + '      "x-issue": "#2102"' + #10 + '    },' + #10 +
       '    "EditorContextMenuGroups": {' + #10 + '      "type": "string",' + #10 + '      "default": "navigation,edit,analysis,findings,debug,tests,notes",' + #10,
     '      "description": "Untermenüs im Untermenü dpcc des Editor-Kontextmenüs, kommagetrennt: navigation, edit (Bearbeiten), analysis (Suchen und analysieren), findings (Befunde), debug (Debuggen), tests' + ', notes (Notizen und Lesezeichen); unbekannte Namen fallen weg. Fehlende Untermenüs bleiben über Tastenkürzel, das Menü dpcc und die Befehlspalette erreichbar.",' + #10 +
-      '      "x-key": "commands.editorContextMenu.groups",' + #10 + '      "x-area": "codeActions",' + #10 + '      "x-page": "Befehle",' + #10 + '      "x-parent": "commands.editorContextMenu.contextual",' + #10 + '      "x-control": "Kontrollkästchen je Art",' + #10 + '      "x-issue": "#2102"' + #10 + '    },' + #10 + '    "XmlDocExpand": {' + #10 + '      "type": "string",' + #10 +
-      '      "enum": [' + #10 + '        "collapsed",' + #10 + '        "last",' + #10 + '        "expanded"' + #10 + '      ],' + #10 + '      "default": "last",' + #10 + '      "x-key": "hints.xmlDocExpand",' + #10 + '      "x-area": "editor",' + #10 + '      "x-page": "Editor",' + #10 + '      "x-formerKeys": [' + #10,
-    '        "hints.xmlDocFull",' + #10 + '        "XmlDocFull"' + #10 + '      ],' + #10 + '      "x-issue": "#770"' + #10 + '    },' + #10 + '    "XmlDocMaxLines": {' + #10 +
+      '      "x-key": "commands.editorContextMenu.groups",' + #10 + '      "x-area": "codeActions",' + #10 + '      "x-page": "Befehle",' + #10 + '      "x-parent": "commands.editorContextMenu.contextual",' + #10 + '      "x-control": "Kontrollkästchen je Art",' + #10 + '      "x-issue": "#2102"' + #10 + '    },' + #10,
+    '    "XmlDocMaxLines": {' + #10 +
       '      "type": "integer",' + #10 + '      "default": 0,' + #10 + '      "x-key": "hints.xmlDocMaxLines",' + #10 + '      "x-area": "editor",' + #10 + '      "x-page": "Editor",' + #10 +
       '      "x-parent": ""' + #10 + '    },' + #10,
     '    "QuickToggleKey": {' + #10 + '      "type": "integer",' + #10 + '      "default": 57409,' + #10 + '      "x-key": "keys.quickToggles",' + #10 + '      "x-area": "keys",' + #10 +

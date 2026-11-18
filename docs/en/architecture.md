@@ -88,7 +88,7 @@ dependencies loaded until the IDE exits. This way no thread jumps into unloaded 
 | `Lsp` | LSP client, session (initialize, document synchronization, requests), adapter to the in-process server, crash handling |
 | `Completion` | flow of the list (`TDpccCompletionController`), filtering, ranking, favorites, history, set mode, placeholders, preview |
 | `Hover`, `Signature`, `Documentation` | contents of tooltip and parameter hint, XMLDoc rendering |
-| `Settings` | plugin settings, catalog, locks, visible options (`dpcc.Core.Settings.CompletionView`) |
+| `Settings` | plugin settings, catalog, locks, layout of the options page and fixed values (`dpcc.Core.Settings.CompletionView`) |
 | `Diagnostics` | safety fuse (`TDpccGuard`), log, queue to the main thread, shutdown |
 | `Localization` | language of the texts |
 

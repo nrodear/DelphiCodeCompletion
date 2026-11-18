@@ -651,12 +651,12 @@ var
   mData: TDpccHoverData;
 begin
   // Anzeige der XMLDoc (#654): Höchstzeilen meldet der Server (hints aus settings.json), sonst die Optionen des
-  // Plugins (dieselben Werte, #227). Aufgeklappt ist sie im Tooltip immer (keine Klicks).
+  // Plugins (dieselben Werte, #227). Aufgeklappt ist sie im Tooltip immer (keine Klicks); „XMLDoc beim Öffnen“
+  // (hints.xmlDocExpand) gibt es seit OPT1 nicht mehr.
   mData := AData;
   if not mData.Display.Known then
   begin
-    mData.Display := TDpccDocDisplay.Create(TDpccDocDisplay.ExpandOf(TDpccIdeSettings.Current.XmlDocExpand),
-      TDpccIdeSettings.Current.XmlDocMaxLines);
+    mData.Display := TDpccDocDisplay.Create(TDpccDocExpand.Last, TDpccIdeSettings.Current.XmlDocMaxLines);
   end;
   FShownData := mData;
   // Aussehen der Code-Insight-Liste der IDE (S3c): Apply setzt Fläche, Namen und Art aus dem Farbschema des Editors

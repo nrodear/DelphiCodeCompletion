@@ -50,7 +50,7 @@ dpcc transmet la touche à l'IDE lorsqu'il ne traite pas le fichier :
 | Cause | Solution |
 |---|---|
 | Le fichier ne se termine pas par `.pas`, `.dpr`, `.dpk` ou `.inc`. | Comportement attendu. |
-| L'interrupteur principal est désactivé. | **Tools › Options › Third Party › dpcc › General**, activer « Code Insight by dpcc » (Code Insight de dpcc). |
+| L'interrupteur principal est désactivé. | **Tools › Options › Third Party › dpcc**, activer « Code Insight by dpcc » (Code Insight de dpcc). |
 | Le fusible de sécurité a désactivé la complétion. | La fenêtre Messages le signale (voir plus bas). Redémarrer l'IDE. |
 | La liste de dpcc est restée vide, et Ctrl+Espace a été pressé une seconde fois au même endroit. | Comportement attendu, voir [Utilisation](usage.md#liste-de-lide-quand-dpcc-ne-trouve-rien). Après une saisie ou à un autre endroit, Ctrl+Espace interroge de nouveau dpcc. |
 
@@ -69,7 +69,7 @@ C'est le comportement attendu. La liste qui s'ouvre d'elle-même après « . �
   bibliothèque, dpcc ne la connaît pas. Voir [Index et cache](index-cache.md#contenu-de-lindex).
 - Une unité manque alors que son fichier se trouve dans le chemin de recherche : chercher « Datei nicht lesbar »
   (fichier illisible) dans `dpcc.log`. L'index ignore un fichier qu'il ne peut ni lire ni analyser.
-- L'index semble périmé : **Rebuild index** (reconstruire l'index) sur la page **General**.
+- L'index semble périmé : **Rebuild index** (reconstruire l'index) sur la page **dpcc** (section **Index**).
 - Si dpcc ne trouve rien à un endroit, un second Ctrl+Espace y ouvre la liste de l'IDE (voir
   [Utilisation](usage.md#liste-de-lide-quand-dpcc-ne-trouve-rien)).
 
@@ -79,7 +79,7 @@ DUnitX, DUnit et FireDAC ne sont livrés avec l'installation qu'en `.dcu`. Sans 
 par les paquets que l'IDE a chargés, et leurs membres seulement lorsqu'un projet cite l'unité dans ses `uses`. Les
 constantes et les routines hors des types manquent alors.
 
-- Si le code source est disponible (par exemple un clone de DUnitX), indiquer son dossier dans la page **General** sous
+- Si le code source est disponible (par exemple un clone de DUnitX), indiquer son dossier dans la page **dpcc** sous
   « Additional source folders » (dossiers source supplémentaires). « + Unit » propose ensuite par exemple
   `TestFixtureAttribute` et `Assert`. Voir [Index et cache](index-cache.md#dossiers-source-supplémentaires).
 - Une référence comme `$(DUnitX)` dans un chemin de recherche n'agit que si la variable figure dans les variables
@@ -106,7 +106,7 @@ saute que s'il y est choisi (voir [Utilisation](usage.md#quand-dpcc-est-choisi-c
 - Pendant le débogage, l'infobulle de valeur de l'IDE : dpcc ne la désactive que lorsque la page dpcc est fermée
   avec **OK**. Ouvrir la page une fois, OK, redémarrer l'IDE.
 - Qui veut garder l'infobulle de l'IDE désactive « Own tooltip when hovering identifiers » (infobulle propre au
-  survol des identificateurs) ou « Values in the hover while debugging » (valeurs dans le survol pendant le
+  survol des identificateurs) ou « Show values while debugging » (afficher les valeurs pendant le
   débogage).
 
 ## Help Insight manque après la désinstallation
@@ -215,6 +215,6 @@ l'index et au moins toutes les 10 minutes, dès qu'une requête se termine. Exem
 
 ## Réglages par défaut
 
-- Une option : clic droit, « Reset to default » (rétablir la valeur par défaut).
-- Une zone : clic droit, « Reset the whole page to default » (rétablir toute la page par défaut).
+- Une option : la remettre à la main à sa valeur par défaut sur la page **dpcc** ; les valeurs par défaut figurent
+  dans [Réglages](settings.md).
 - Tout : voir [Réglages](settings.md#stockage).
