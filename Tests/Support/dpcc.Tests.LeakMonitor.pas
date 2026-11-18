@@ -105,9 +105,6 @@ uses
   DUnitX.ServiceLocator,
   dpcc.Common.Localization.Texts,
   dpcc.Core.Files.DataFile,
-  dpcc.Core.Settings.Catalog,
-  dpcc.Core.Settings.Plugin,
-  dpcc.Core.Settings.Transfer,
   dpcc.Core.Diagnostics.Guard,
   dpcc.Core.Diagnostics.TimeLimit;
 
@@ -251,37 +248,6 @@ begin
   end;
 end;
 
-/// <summary>Katalog, Export und Import der Einstellungen (#723) einmal durchlaufen: Was dabei beim ersten
-/// Gebrauch bleibt, träfe sonst je nach Reihenfolge einen anderen Test als Leck.</summary>
-procedure PrewarmSettingsTransfer;
-var
-  Catalog: TDpccSettingsCatalog;
-  State: TDpccSettingsState;
-  Exported: TDpccExportResult;
-  Environment: TDpccSettingsEnvironment;
-  Index: Integer;
-begin
-  Environment :=
-    function(const AName: string): string
-    begin
-      Result := '';
-    end;
-  Catalog := TDpccSettingsCatalog.CreateDefault;
-  try
-    State := TDpccSettingsState.Create(TDpccPluginSettings.Defaults, '');
-    // Gemeinsamer Speicher mit allen Standardwerten (DefaultValues): entsteht beim ersten DefaultJson.
-    for Index := 0 to Catalog.Count - 1 do
-    begin
-      TDpccSettingsTransfer.DefaultJson(Catalog, Index);
-    end;
-    Exported := TDpccSettingsTransfer.ExportSettings(Catalog, State, TDpccExportOptions.ForBackup, Environment);
-    TDpccSettingsTransfer.Apply(Catalog, State, TDpccSettingsTransfer.Preview(Catalog, State,
-      TDpccSettingsTransfer.ParseFile(Exported.Text), TDpccImportOptions.Create(imMerge, nil, Environment)));
-  finally
-    Catalog.Free;
-  end;
-end;
-
 /// <summary>Dateifehler einmal auslösen: Die RTL lädt dabei Ressourcen-Strings (EFOpenError, EFCreateError, EInOutError) und
 /// behält sie bis Programmende; das träfe sonst den ersten Test mit einer gesperrten oder fehlenden Datei.</summary>
 procedure PrewarmFileErrors;
@@ -390,7 +356,6 @@ begin
   finally
     Json.Free;
   end;
-  PrewarmSettingsTransfer;
   PrewarmFileErrors;
   PrewarmDataFiles;
   // Dateien ohne BOM liest TFile.ReadAllText mit TEncoding.Default (Singleton beim ersten Gebrauch, z. B. im

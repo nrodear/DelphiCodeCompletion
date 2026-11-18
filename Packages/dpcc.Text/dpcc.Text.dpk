@@ -55,7 +55,6 @@ contains
   dpcc.Text.Entities in 'Source\Entities\dpcc.Text.Entities.pas',
   dpcc.Text.Defines in 'Source\Defines\dpcc.Text.Defines.pas',
   dpcc.Text.Checkin in 'Source\Checkin\dpcc.Text.Checkin.pas',
-  dpcc.Text.DebugDisplay in 'Source\DebugDisplay\dpcc.Text.DebugDisplay.pas',
-  dpcc.Text.StepFilter in 'Source\StepFilter\dpcc.Text.StepFilter.pas';
+  dpcc.Text.DebugDisplay in 'Source\DebugDisplay\dpcc.Text.DebugDisplay.pas';
 
 end.

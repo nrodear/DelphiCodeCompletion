@@ -78,7 +78,8 @@ These options are no longer on the page. They have fixed values, the former defa
   in the variant part of a record (`case … of`) get the label “branch 0”, “branch 1” and so on.
 - **List mode applies to: member lists after “.”** (`CompletionListScope`, `completion.listMode.scope` =
   `members`). “While typing, show” only takes effect there.
-- **Preview of the selected entry in the editor: off** (`Preview`, `completion.preview`).
+- **Preview of the selected entry in the editor: removed** (formerly `Preview`, `completion.preview`, most
+  recently fixed to off). Since the settings clean-up, the code for it is gone as well.
 - **Fix the case when accepting (showmessage → ShowMessage): on** (`FixCase`, `completion.fixCase`). Replaces the
   typed word with the spelling of the declaration.
 - **Match and colour Format placeholders in the parameter hint: on** (`FormatPlaceholders`,
@@ -100,14 +101,26 @@ These options are no longer on the page. They have fixed values, the former defa
   no longer writes the key.
 - If you had changed one of the options that are now [fixed](#fixed-values), the change is lost without a message.
   The old values under `HKCU\Software\dpcc\IdePlugin` stay in place and are ignored.
+- OK only saves the values of the page: the master switch and eleven options in the registry,
+  `index.extraSourceFolders` in `settings.json`. Formerly every OK wrote about 600 registry values (including hidden
+  settings of former tabs, keys, module switches and experimental switches) plus server keys in `settings.json`:
+  `slashCommands.enabled`, `codeLens.metrics`, `metrics`, `experimental.enabled`, `compiler.onSave`,
+  `architecture.*`, `query.enabled`, `ruleChecks.enabled`, `hotspots.*`, `references.*`, `navigation.*`, `tests.*`,
+  `issues.*` and `vcs.*`. All of these values stay in place: dpcc no longer reads the old registry values, and the
+  server keeps reading the keys in `settings.json` without a message. Without them, its defaults apply; they match
+  the values the plugin used to write.
+- “Show values while debugging” now depends only on its own option (and, on the page, on the own tooltip). The
+  former hidden module switch `debug.enabled` (registry value `DebugEnabled`) no longer turns it off.
+- dpcc no longer writes the settings history `%APPDATA%\dpcc\settings-history.json`. An existing file stays in
+  place and can be deleted.
 
 ## Storage
 
 | Location | Contents |
 |---|---|
-| `HKCU\Software\dpcc\IdePlugin` | all options on the page except `index.extraSourceFolders`. Switches and numbers as DWORD (switches 0/1), choices as text (`filter`, `all`, `rest`). Also the markers for the IDE switches (below) and `PathOverrideBackup` from `Tools\IdePath.ps1`. Old values of the fixed options stay in place but have no effect. |
-| `%APPDATA%\dpcc\settings.json` | `index.extraSourceFolders` (from the page) and `hints.xmlDocMaxLines` (adjustable only in the file). The in-process server reads the file itself and watches it. The registry value `XmlDocMaxLines` from an older version is taken over once, as long as the file does not have the key yet; after that only `settings.json` applies. An old value `hints.xmlDocExpand` or `hints.xmlDocFull` has no effect. |
-| `%APPDATA%\dpcc\settings-history.json` | earlier states of the settings; before every saved change, dpcc stores the old state there |
+| `HKCU\Software\dpcc\IdePlugin` | all options on the page except `index.extraSourceFolders`. Switches and numbers as DWORD (switches 0/1), choices as text (`filter`, `all`, `rest`). Also the markers for the IDE switches (below) and `PathOverrideBackup` from `Tools\IdePath.ps1`. Read only, never written: the support switch `LogNames` (see [Troubleshooting](troubleshooting.md)). Old values of the fixed and the removed options stay in place but have no effect; dpcc no longer writes them. |
+| `%APPDATA%\dpcc\settings.json` | `index.extraSourceFolders` (from the page) and `hints.xmlDocMaxLines` (adjustable only in the file). The in-process server reads the file itself and watches it. dpcc only reads `hints.xmlDocMaxLines` and never writes the key; if it is missing from the file, a registry value `XmlDocMaxLines` from an older version applies, otherwise 0. dpcc does not touch other keys in the file. An old value `hints.xmlDocExpand` or `hints.xmlDocFull` has no effect. |
+| `%APPDATA%\dpcc\settings-history.json` | only from older versions: earlier states of the settings. dpcc no longer writes or reads the file; it can be deleted. |
 | `%APPDATA%\dpcc\usage.json` | history of the learned ranking |
 | `%APPDATA%\dpcc\favorites.json` | pinned favorites |
 

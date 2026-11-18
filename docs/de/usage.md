@@ -185,7 +185,7 @@ Dazu kommen, je nach Einstellung:
 ### Vorschau
 
 Die Vorschau des gewählten Eintrags im Editor (der noch fehlende Teil des Namens kursiv und gedämpft hinter dem
-Cursor) ist fest ausgeschaltet; eine Option dafür gibt es nicht mehr (siehe
+Cursor) gibt es nicht mehr; sie war zuletzt fest ausgeschaltet (siehe
 [Einstellungen](settings.md#fest-eingestellte-werte)).
 
 ## Was die Liste anbietet

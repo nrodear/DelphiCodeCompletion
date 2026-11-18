@@ -67,7 +67,8 @@ type
     [Test]
     procedure HeldLibraryCacheIsNotReadAgain;
     /// <summary>L2: index.officeAndWinRt gibt es nicht mehr (ein alter Wert bleibt ohne Meldung); an seiner Stelle
-    /// steht index.extraSourceFolders (Text mit ";" oder Liste), nach settings.json umgeleitet und auf „Allgemein“.
+    /// steht index.extraSourceFolders (Text mit ";" oder Liste), nach settings.json umgeleitet und auf der Seite „dpcc“
+    /// (Abschnitt Index).
     /// </summary>
     [Test]
     procedure ExtraSourceFoldersReplaceOfficeSwitch;
@@ -97,7 +98,6 @@ uses
   dpcc.Common.Configuration.Parser,
   dpcc.Core.Settings.Plugin,
   dpcc.Core.Settings.Scopes,
-  dpcc.Core.Settings.Catalog,
   dpcc.Core.Settings.CompletionView,
   dpcc.Common.Index.ProjectFiles,
   dpcc.Common.Index.Adapters.CacheDirectory,
@@ -344,8 +344,7 @@ var
   mRequest: TIndexRequest;
   mIssues: TArray<TConfigurationIssue>;
 begin
-  // Katalog und Leser der Einstellungen legen beim ersten Mal Tabellen an.
-  TDpccSettingsCatalog.CreateDefault.Free;
+  // Der Leser der Einstellungen legt beim ersten Mal Tabellen an.
   TConfigurationParser.Parse('{"index": {"officeAndWinRt": true, "extraSourceFolders": ["a"]}}', mIssues);
   FFiles := TCountingIndexFileSystem.Create;
   FFileSystem := FFiles;
@@ -511,7 +510,6 @@ var
   mIssues: TArray<TConfigurationIssue>;
   mSettings: TServerSettings;
   mRouted: TDpccRoutedSetting;
-  mCatalog: TDpccSettingsCatalog;
 begin
   Assert.AreEqual(0, Integer(Length(TServerSettings.Default.IndexExtraSourceFolders)), 'Server: Vorgabe leer');
   // Ein alter Wert in settings.json bleibt ohne Wirkung und ohne Meldung.
@@ -529,13 +527,9 @@ begin
   Assert.IsTrue(TDpccSettingsScopes.TryRouted('IndexExtraSourceFolders', mRouted), 'umgeleitet');
   Assert.AreEqual('index.extraSourceFolders', mRouted.Path, 'Schlüssel');
   Assert.IsTrue(mRouted.Text, 'als Text');
-  mCatalog := TDpccSettingsCatalog.CreateDefault;
-  try
-    Assert.IsTrue(TDpccCompletionView.ShowsName(mCatalog, 'IndexExtraSourceFolders'), 'auf der Optionsseite');
-    Assert.IsFalse(TDpccCompletionView.ShowsName(mCatalog, 'IndexOfficeAndWinRt'), 'alter Schalter nicht mehr');
-  finally
-    mCatalog.Free;
-  end;
+  Assert.IsTrue(MatchText('IndexExtraSourceFolders', TDpccCompletionView.SettingNames), 'auf der Optionsseite');
+  Assert.IsFalse(MatchText('IndexOfficeAndWinRt', TDpccCompletionView.SettingNames), 'alter Schalter nicht mehr');
+  Assert.IsFalse(MatchText('IndexOfficeAndWinRt', TDpccPluginSettings.StoredNames), 'alter Schalter gespeichert');
 end;
 
 procedure TDpccMemoryPhase1Tests.OfficeAndWinRtAlwaysInLibrary;

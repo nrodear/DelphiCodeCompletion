@@ -184,7 +184,7 @@ If you accept in the middle of a word, dpcc replaces the whole word.
 ### Preview
 
 The preview of the selected entry in the editor (the missing part of the name in italics and dimmed after the
-cursor) is switched off permanently; there is no longer an option for it (see
+cursor) no longer exists; it was most recently switched off permanently (see
 [Settings](settings.md#fixed-values)).
 
 ## What the list offers

@@ -141,19 +141,22 @@ D'après le code existant :
 
 Sur le modèle des options existantes :
 
-1. Champ, valeur par défaut, limites et lecture/écriture dans le record approprié, par exemple
-   `dpcc.Core.Settings.Plugin.Completion` (`Defaults`, `Normalize`, `Exchange`), et la propriété dans
-   `TDpccPluginSettings` (`dpcc.Core.Settings.Plugin`).
-2. Entrée dans le catalogue `dpcc.Core.Settings.PluginSchemaData` avec `x-key`, `x-area` et `x-page`. Le fichier est
-   tenu à jour à la main.
+1. Champ, valeur par défaut et limites dans `TDpccPluginSettings` (`dpcc.Core.Settings.Plugin` : champ,
+   `Defaults`, `Normalize`), lecture et écriture dans `Exchange` sous le nom de registre (la clé utilisée dans la
+   documentation suit en commentaire). Une valeur en lecture seule (comme `XmlDocMaxLines`) ne figure pas dans
+   `Exchange`, mais dans `Load` et dans `ReadOnlyNames`. Depuis le nettoyage, il n'existe plus de catalogue des
+   réglages.
+2. Emplacement : si le serveur lit aussi la valeur, elle se trouve dans `settings.json` et reçoit une entrée dans
+   `TDpccSettingsScopes.Routed` (`dpcc.Core.Settings.Scopes`) ; sinon elle se trouve dans le registre.
 3. Page : la page des options construit `cPageItems` à partir de `dpcc.Core.Settings.CompletionView` (section et
    ordre). Une nouvelle option va dans `cPageItems`, dans `TDpccSettingsPage.BuildItem`, `LoadFrom` et `SaveTo`
    (`dpcc.UI.Settings.Page`) et, avec son libellé en allemand et en anglais, dans `dpcc.UI.Settings.Strings`.
-4. Valeurs fixes : une option sans place sur la page reçoit sa valeur fixe dans `TDpccFixedSettings`
-   (`dpcc.Core.Settings.CompletionView`) ; elle est appliquée dans les réglages effectifs de la couche IDE
-   (`TDpccIdeSettings.Current`, `dpcc.IDE.Foundation.Settings`).
-5. Test : `dpcc.Core.Settings.CompletionView.Tests` et `dpcc.UI.Settings.Page.Tests` (la page sans affichage dans
-   l'exécutable de test) vérifient la structure et la page.
+4. Valeurs fixes : une option sans place sur la page ne devient pas un champ, mais une constante dans
+   `TDpccFixedSettings` (`dpcc.Core.Settings.CompletionView`), que le code qui en a besoin lit directement.
+   `TDpccIdeSettings.Current` (`dpcc.IDE.Foundation.Settings`) est exactement l'état enregistré.
+5. Test : `dpcc.Core.Settings.CompletionView.Tests` vérifie que `TDpccPluginSettings.StoredNames` correspond
+   exactement aux réglages de la page et que rien d'autre n'est enregistré ni redirigé ;
+   `dpcc.UI.Settings.Page.Tests` vérifie la page sans affichage dans l'exécutable de test.
 
 ## Contribuer
 

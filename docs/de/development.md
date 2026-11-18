@@ -136,19 +136,21 @@ Aus dem bestehenden Code:
 
 Nach dem Muster der vorhandenen Optionen:
 
-1. Feld, Vorgabe, Grenzen und Lesen/Schreiben im passenden Record, etwa `dpcc.Core.Settings.Plugin.Completion`
-   (`Defaults`, `Normalize`, `Exchange`), und die Eigenschaft in `TDpccPluginSettings`
-   (`dpcc.Core.Settings.Plugin`).
-2. Eintrag im Katalog `dpcc.Core.Settings.PluginSchemaData` mit `x-key`, `x-area` und `x-page`. Die Datei wird von
-   Hand gepflegt.
+1. Feld, Vorgabe und Grenzen in `TDpccPluginSettings` (`dpcc.Core.Settings.Plugin`: Feld, `Defaults`,
+   `Normalize`), Lesen und Schreiben in `Exchange` unter dem Registry-Namen (der Schlüssel der Doku steht als
+   Kommentar dahinter). Ein nur gelesener Wert (wie `XmlDocMaxLines`) steht nicht in `Exchange`, sondern in `Load`
+   und in `ReadOnlyNames`. Einen Katalog der Einstellungen gibt es seit dem Aufräumen nicht mehr.
+2. Ort: Liest auch der Server den Wert, liegt er in `settings.json` und bekommt einen Eintrag in
+   `TDpccSettingsScopes.Routed` (`dpcc.Core.Settings.Scopes`); sonst liegt er in der Registry.
 3. Seite: Die Optionsseite baut `cPageItems` aus `dpcc.Core.Settings.CompletionView` (Abschnitt und Reihenfolge).
    Eine neue Option kommt in `cPageItems`, in `TDpccSettingsPage.BuildItem`, `LoadFrom` und `SaveTo`
    (`dpcc.UI.Settings.Page`) und mit ihrer Beschriftung deutsch und englisch in `dpcc.UI.Settings.Strings`.
-4. Fest verdrahtete Werte: Eine Option ohne Platz auf der Seite bekommt ihren festen Wert in `TDpccFixedSettings`
-   (`dpcc.Core.Settings.CompletionView`); angewendet wird er in den wirksamen Einstellungen der IDE-Schicht
-   (`TDpccIdeSettings.Current`, `dpcc.IDE.Foundation.Settings`).
-5. Test: `dpcc.Core.Settings.CompletionView.Tests` und `dpcc.UI.Settings.Page.Tests` (die Seite headless in der
-   Test-Exe) prüfen Aufbau und Seite.
+4. Fest verdrahtete Werte: Eine Option ohne Platz auf der Seite wird kein Feld, sondern eine Konstante in
+   `TDpccFixedSettings` (`dpcc.Core.Settings.CompletionView`), die die Stelle, die sie braucht, direkt liest.
+   `TDpccIdeSettings.Current` (`dpcc.IDE.Foundation.Settings`) ist genau der gespeicherte Stand.
+5. Test: `dpcc.Core.Settings.CompletionView.Tests` prüft, dass `TDpccPluginSettings.StoredNames` genau die
+   Einstellungen der Seite sind und nichts anderes gespeichert oder umgeleitet wird;
+   `dpcc.UI.Settings.Page.Tests` prüft die Seite headless in der Test-Exe.
 
 ## Beitragen
 

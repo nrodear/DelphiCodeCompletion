@@ -61,6 +61,7 @@ uses
   dpcc.Core.Lsp.Session,
   dpcc.IDE.Completion.History,
   dpcc.IDE.Completion.Favorites,
+  dpcc.Core.Settings.CompletionView,
   dpcc.IDE.Foundation.Settings,
   dpcc.IDE.Foundation.EditorBuffer,
   dpcc.IDE.Foundation.EditorStyle;
@@ -178,17 +179,18 @@ procedure TDpccEditorCompletionOpen.ApplyOptions;
 begin
   FPopup.VisibleRows := TDpccIdeSettings.Current.VisibleRows;
   FPopup.ManualListWidth := TDpccIdeSettings.Current.ListWidth;
-  // Gruppen geerbter Member (#419), lernende Gewichtung (#418).
-  FController.GroupInherited := TDpccIdeSettings.Current.GroupInherited;
-  FPopup.DimInherited := TDpccIdeSettings.Current.GroupInherited;
-  // Marke „Zweig 0“ an Feldern varianter Records (#846).
-  FPopup.ShowVariantBranch := TDpccIdeSettings.Current.CompletionVariantBranch;
+  // Fest seit OPT1 (TDpccFixedSettings): Gruppen geerbter Member (#419), Marke „Zweig 0“ an Feldern varianter
+  // Records (#846), Listenmodus nur für Mitgliederlisten (#497).
+  FController.GroupInherited := TDpccFixedSettings.cGroupInherited;
+  FPopup.DimInherited := TDpccFixedSettings.cGroupInherited;
+  FPopup.ShowVariantBranch := TDpccFixedSettings.cCompletionVariantBranch;
   // Einträge ohne Treffer zeigen (#497).
   FController.ListMode := TDpccListModes.ModeOf(TDpccIdeSettings.Current.CompletionListMode);
-  FController.ListScope := TDpccListModes.ScopeOf(TDpccIdeSettings.Current.CompletionListScope);
+  FController.ListScope := TDpccListModes.ScopeOf(TDpccFixedSettings.cCompletionListScope);
   // Während der Server indiziert, liefert er den vorhandenen Stand; die Fußzeile sagt es (#492).
   FPopup.Limited := IndexingNow;
   FPopup.Target := ActiveTarget;
+  // Lernende Gewichtung (#418).
   if TDpccIdeSettings.Current.Learning then
   begin
     FController.Usage := TDpccIdeHistory.Instance;
@@ -197,15 +199,8 @@ begin
   begin
     FController.Usage := nil;
   end;
-  // Favoriten (#458): abgeschaltet keine Sonderstellung und kein Strg+D.
-  if TDpccIdeSettings.Current.Favorites then
-  begin
-    FController.Favorites := TDpccIdeFavorites.Instance;
-  end
-  else
-  begin
-    FController.Favorites := nil;
-  end;
+  // Favoriten (#458, fest an seit OPT1): angeheftete Einträge oben, Strg+D in der Liste.
+  FController.Favorites := TDpccIdeFavorites.Instance;
 end;
 
 procedure TDpccEditorCompletionOpen.StartDelay(const AView: IOTAEditView; ALine, ACharacter: Integer;
@@ -217,7 +212,7 @@ begin
   FDelay.Character := ACharacter;
   FDelay.Window := AWindow;
   FDelay.State := WindowState(AView, AWindow, AWindow);
-  FDelay.Timer.Interval := Cardinal(TDpccIdeSettings.Current.OpenDelayMs);
+  FDelay.Timer.Interval := TDpccFixedSettings.cOpenDelayMs;
   FDelay.Timer.Enabled := True;
 end;
 
@@ -291,8 +286,9 @@ begin
     Exit;
   end;
   CancelDelay;
-  // Verzögerung bis zum Öffnen (ARG-046): nur beim automatischen Auslösen; DelayTimerTick ruft wieder auf.
-  if mAutomatic and not FDelay.Running and (TDpccIdeSettings.Current.OpenDelayMs > 0) then
+  // Verzögerung bis zum Öffnen (ARG-046, fest TDpccFixedSettings.cOpenDelayMs): nur beim automatischen Auslösen;
+  // DelayTimerTick ruft wieder auf.
+  if mAutomatic and not FDelay.Running then
   begin
     StartDelay(AView, mCursor.Line, mCharacter, mWindow, ASource);
     Exit(True);

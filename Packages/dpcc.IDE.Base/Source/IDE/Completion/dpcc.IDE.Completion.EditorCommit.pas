@@ -52,6 +52,7 @@ uses
   dpcc.Core.Completion.Matching,
   dpcc.Core.Completion.Parentheses,
   dpcc.Core.Lsp.Session,
+  dpcc.Core.Settings.CompletionView,
   dpcc.IDE.Foundation.Settings,
   dpcc.IDE.Foundation.EditorBuffer,
   dpcc.Text.Lines;
@@ -179,12 +180,12 @@ begin
   begin
     NewText := Item.Name;
   end;
-  // Schreibweise (#433): abgeschaltet bleibt das Getippte, nur der Rest kommt dazu.
+  // Schreibweise (#433, fest an seit OPT1): abgeschaltet bliebe das Getippte, nur der Rest käme dazu.
   mWordStart := Owner.FOpen.WordStart;
   if (mWordStart >= 0) and (Character >= mWordStart) then
   begin
     NewText := TDpccCompletionMatcher.CommitText(Copy(LineText, mWordStart + 1, Character - mWordStart), NewText,
-      TDpccIdeSettings.Current.FixCase);
+      TDpccFixedSettings.cFixCase);
   end;
   if Item.HasTextEdit then
   begin

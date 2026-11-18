@@ -37,8 +37,8 @@
 //     automatischer Auslöser (mit Verzögerung, Esc-Sperre). Darunter keine Anfrage. Nur in Dateien, die dpcc bedient (OnHandles), nicht im
 //     Platzhalter-Modus und nicht, solange die Liste der IDE offen ist (OnIdeListOpen). Eine offene Liste filtert
 //     wie bisher weiter; Strg+Leertaste öffnet bei jeder Länge.
-// Aufgeteilt in eine Kette von Stufen (dpcc.IDE.Completion.EditorState …EditorCommit); hier Tasten, Weitertippen
-// und Vorschau.
+// Aufgeteilt in eine Kette von Stufen (dpcc.IDE.Completion.EditorState …EditorCommit); hier Tasten und
+// Weitertippen. Die Vorschau im Editor (#434) ist seit OPT2 entfallen (war fest aus).
 
 interface
 
@@ -73,9 +73,6 @@ type
     /// <summary>Neues Präfix: lokal weiterfiltern, bei Bedarf im Hintergrund neu fragen.</summary>
     procedure Refilter(const ALineText: string; ALine, ACharacter: Integer);
     procedure TimerTick(Sender: TObject);
-    procedure UpdatePreview;
-    /// <summary>Rest des gewählten Namens hinter dem Cursor (#434); '' ohne Vorschau.</summary>
-    function PreviewText: string;
     /// <summary>Gehört die Taste gerade dem Popup?</summary>
     function WantsKey(AKey: TDpccNavigationKey): Boolean;
     /// <summary>Gewählten Eintrag als Favorit (#458) anheften bzw. lösen (Strg+D). Speichert und zeigt das Ergebnis
@@ -136,7 +133,6 @@ uses
   dpcc.Core.Diagnostics.MainThread,
   dpcc.Core.Diagnostics.Guard,
   dpcc.Core.Completion.Parentheses,
-  dpcc.Core.Completion.Preview,
   dpcc.Core.Completion.Favorites,
   dpcc.IDE.Foundation.KeyHook,
   dpcc.IDE.Foundation.Settings,
@@ -600,51 +596,10 @@ begin
   end;
 end;
 
-function TDpccEditorCompletion.PreviewText: string;
-var
-  mItem: TDpccCompletionItem;
-  mLineText: string;
-  mCharacter: Integer;
-begin
-  Result := '';
-  if not TDpccIdeSettings.Current.Preview or not FController.Visible or not FController.SelectedItem(mItem) then
-  begin
-    Exit;
-  end;
-  if (FOpen.View = nil) or (FOpen.View.Buffer = nil) or (FOpen.View.CursorPos.Line <> FOpen.Line) then
-  begin
-    Exit;
-  end;
-  mLineText := TDpccEditorBuffer.LineText(FOpen.View, FOpen.Line);
-  mCharacter := TLspSession.ColumnToIndex(mLineText, FOpen.View.CursorPos.Col,
-    TDpccEditorBuffer.TabWidth(FOpen.View.Buffer));
-  Result := TDpccPreview.RestOf(mItem.Name, FController.Prefix, Copy(mLineText, mCharacter + 1, MaxInt));
-end;
-
-procedure TDpccEditorCompletion.UpdatePreview;
-var
-  mText: string;
-begin
-  if FPreview = nil then
-  begin
-    Exit;
-  end;
-  mText := PreviewText;
-  if mText = '' then
-  begin
-    FPreview.Clear;
-  end
-  else
-  begin
-    FPreview.Show(FOpen.View.Buffer.FileName, FOpen.Line, FOpen.View.CursorPos.Col, mText);
-  end;
-end;
-
 procedure TDpccEditorCompletion.TimerTick(Sender: TObject);
 begin
   try
     Recheck;
-    UpdatePreview;
   except
     on E: Exception do
     begin

@@ -283,11 +283,11 @@ begin
     Assert.AreEqual(13 - TDpccPluginSettings.cMinVisibleRows, mPage.VisibleRowsChoice.Choice, 'Auswahl Zeilen');
     Assert.AreEqual(2, mPage.ListModeChoice.Choice, 'Listenmodus');
     Assert.IsFalse(mPage.AutoWidth.Checked, 'Breite automatisch');
-    // Gespeichert in die Vorgabe mit abweichenden Werten, die die Seite nicht zeigt: Die bleiben.
+    // Gespeichert in die Vorgabe mit abweichenden Werten, die die Seite nicht zeigt (seit OPT2 nur noch die nur
+    // gelesenen): Die bleiben.
     mTarget := TDpccPluginSettings.Defaults;
-    mTarget.OpenDelayMs := 700;
-    mTarget.Preview := True;
     mTarget.XmlDocMaxLines := 9;
+    mTarget.LogNames := True;
     mPage.SaveTo(mTarget);
     Assert.IsFalse(mTarget.Enabled, 'Enabled');
     Assert.AreEqual(4, mTarget.AutoMinChars, 'AutoMinChars');
@@ -302,9 +302,8 @@ begin
     Assert.IsFalse(mTarget.HoverTooltip, 'HoverTooltip');
     Assert.IsFalse(mTarget.DebugHoverValues, 'DebugHoverValues');
     Assert.AreEqual('C:\A;C:\B', mTarget.IndexExtraSourceFolders, 'IndexExtraSourceFolders');
-    Assert.AreEqual(700, mTarget.OpenDelayMs, 'OpenDelayMs bleibt liegen');
-    Assert.IsTrue(mTarget.Preview, 'Preview bleibt liegen');
     Assert.AreEqual(9, mTarget.XmlDocMaxLines, 'XmlDocMaxLines bleibt');
+    Assert.IsTrue(mTarget.LogNames, 'LogNames bleibt');
     // Und zurück zur Vorgabe.
     mPage.LoadFrom(TDpccPluginSettings.Defaults);
     mTarget := mLoaded;

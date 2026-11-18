@@ -90,7 +90,6 @@
         <DCCReference Include="Source\Defines\dpcc.Text.Defines.pas"/>
         <DCCReference Include="Source\Checkin\dpcc.Text.Checkin.pas"/>
         <DCCReference Include="Source\DebugDisplay\dpcc.Text.DebugDisplay.pas"/>
-        <DCCReference Include="Source\StepFilter\dpcc.Text.StepFilter.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

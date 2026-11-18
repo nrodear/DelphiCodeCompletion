@@ -1,6 +1,6 @@
 ﻿unit dpcc.Core.Completion.Parentheses.Tests;
 
-// Tests für Klammern beim Übernehmen (#430) und die Vorschau im Editor (#434).
+// Tests für Klammern beim Übernehmen (#430). Die Vorschau im Editor (#434) ist seit OPT2 samt Tests entfallen.
 
 interface
 
@@ -26,20 +26,10 @@ type
     procedure CallOpenedAfterIdentifier;
   end;
 
-  [TestFixture]
-  TDpccPreviewTests = class
-  public
-    [Test]
-    procedure ShowsRestOfName;
-    [Test]
-    procedure NothingWhenTextFollowsOrNoMatch;
-  end;
-
 implementation
 
 uses
-  dpcc.Core.Completion.Parentheses,
-  dpcc.Core.Completion.Preview;
+  dpcc.Core.Completion.Parentheses;
 
 procedure TDpccParenthesesTests.WantsParenthesesOnlyForRoutinesWithParameters;
 begin
@@ -111,8 +101,6 @@ begin
   Assert.AreEqual(-1, RemoveAt);
 end;
 
-{ TDpccPreviewTests }
-
 procedure TDpccParenthesesTests.CallOpenedAfterIdentifier;
 begin
   Assert.IsTrue(TDpccParentheses.CallOpened('  Total := CalcDiscount(', 24));
@@ -127,22 +115,7 @@ begin
   Assert.IsFalse(TDpccParentheses.CallOpened('(', 1));
 end;
 
-procedure TDpccPreviewTests.ShowsRestOfName;
-begin
-  Assert.AreEqual('Strings', TDpccPreview.RestOf('AddStrings', 'Add', ''));
-  Assert.AreEqual('Strings', TDpccPreview.RestOf('AddStrings', 'add', '   '), 'Groß-/Kleinschreibung egal');
-  Assert.AreEqual('BeginUpdate', TDpccPreview.RestOf('BeginUpdate', '', ''));
-end;
-
-procedure TDpccPreviewTests.NothingWhenTextFollowsOrNoMatch;
-begin
-  Assert.AreEqual('', TDpccPreview.RestOf('AddStrings', 'Add', ');'), 'würde Text verdecken');
-  Assert.AreEqual('', TDpccPreview.RestOf('Count', 'Add', ''), 'passt nicht');
-  Assert.AreEqual('', TDpccPreview.RestOf('Add', 'Add', ''), 'schon vollständig');
-end;
-
 initialization
   TDUnitX.RegisterTestFixture(TDpccParenthesesTests);
-  TDUnitX.RegisterTestFixture(TDpccPreviewTests);
 
 end.

@@ -86,9 +86,9 @@ Abhängigkeiten bis zum Ende der IDE geladen. So springt kein Thread in entladen
 | Ordner | Inhalt |
 |---|---|
 | `Lsp` | LSP-Client, Sitzung (initialize, Dokumentabgleich, Anfragen), Adapter zum Server im Prozess, Absturzbehandlung |
-| `Completion` | Ablauf der Liste (`TDpccCompletionController`), Filtern, Rangfolge, Favoriten, Verlauf, Mengenmodus, Platzhalter, Vorschau |
+| `Completion` | Ablauf der Liste (`TDpccCompletionController`), Filtern, Rangfolge, Favoriten, Verlauf, Mengenmodus, Platzhalter |
 | `Hover`, `Signature`, `Documentation` | Inhalt von Tooltip und Parameterhilfe, XMLDoc-Darstellung |
-| `Settings` | Plugin-Einstellungen, Katalog, Sperren, Aufbau der Optionsseite und fest eingestellte Werte (`dpcc.Core.Settings.CompletionView`) |
+| `Settings` | Plugin-Einstellungen (`TDpccPluginSettings`: genau die Werte der Seite, dazu zwei nur gelesene), Ablage in Registry und `settings.json` (`dpcc.Core.Settings.Scopes`), Aufbau der Optionsseite und fest eingestellte Werte (`dpcc.Core.Settings.CompletionView`), Hauptschalter ohne Neustart |
 | `Diagnostics` | Sicherung (`TDpccGuard`), Protokoll, Warteschlange zum Hauptthread, Abbau |
 | `Localization` | Sprache der Texte |
 
@@ -106,7 +106,7 @@ Abhängigkeiten bis zum Ende der IDE geladen. So springt kein Thread in entladen
 
 | Ordner | Inhalt |
 |---|---|
-| `Completion` | Wurzel `dpcc.IDE.Completion.Register`, Vervollständigung im Editor (Kette State → Open → Commit → Editor), Platzhalter, Vorschau, Favoriten, Verlauf, Speicher-Notifier |
+| `Completion` | Wurzel `dpcc.IDE.Completion.Register`, Vervollständigung im Editor (Kette State → Open → Commit → Editor), Platzhalter, Favoriten, Verlauf, Speicher-Notifier |
 | `CodeInsight` | Code-Insight-Manager (Kette State → Session → Commands → Crashes → Manager) |
 | `Hover` | Tooltip im Editor, Werte über den Debugger |
 | `Signature` | Parameterhilfe im Editor, Farben der Format-Platzhalter |

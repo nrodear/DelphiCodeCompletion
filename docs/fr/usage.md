@@ -191,7 +191,7 @@ Si l'on accepte au milieu d'un mot, dpcc remplace le mot entier.
 ### Aperçu
 
 L'aperçu de l'entrée sélectionnée dans l'éditeur (la partie encore manquante du nom en italique et atténuée
-derrière le curseur) est désactivé de façon fixe ; il n'existe plus d'option pour cela (voir
+derrière le curseur) n'existe plus ; il était en dernier lieu désactivé de façon fixe (voir
 [Réglages](settings.md#valeurs-fixes)).
 
 ## Ce que la liste propose

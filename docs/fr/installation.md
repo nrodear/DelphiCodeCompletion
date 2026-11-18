@@ -142,7 +142,7 @@ Ce qui reste ensuite et peut être supprimé à la main :
 | Emplacement | Contenu |
 |---|---|
 | `HKCU\Software\dpcc\IdePlugin` | réglages, marqueurs pour les réglages de l'IDE, `PathOverrideBackup` |
-| `%APPDATA%\dpcc` | `settings.json`, `settings-history.json`, `usage.json` (historique), `favorites.json` (favoris) |
+| `%APPDATA%\dpcc` | `settings.json`, `usage.json` (historique), `favorites.json` (favoris), issu de versions antérieures `settings-history.json` |
 | `%LOCALAPPDATA%\dpcc` | `Logs` (journal), `Index` (caches d'index) |
 | dossier des BPL | `dpcc.IDE.Expert370.log`, si le journal de diagnostic était activé |
 

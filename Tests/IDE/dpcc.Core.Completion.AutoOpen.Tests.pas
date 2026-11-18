@@ -54,8 +54,7 @@ uses
   dpcc.Core.Completion.Contract,
   dpcc.Core.Completion.Controller,
   dpcc.Core.Completion.AutoOpen,
-  dpcc.Core.Settings.Plugin,
-  dpcc.Core.Settings.Plugin.Completion;
+  dpcc.Core.Settings.Plugin;
 
 type
   TCountingView = class(TInterfacedObject, IDpccCompletionView)
@@ -533,8 +532,8 @@ procedure TDpccAutoOpenTests.SettingDefaultAndRange;
 var
   mSettings: TDpccPluginSettings;
 begin
-  Assert.AreEqual(Integer(TDpccAutoOpen.cDefaultMinChars), Integer(cDefaultAutoMinChars));
-  Assert.AreEqual(Integer(TDpccAutoOpen.cMaxMinChars), Integer(cMaxAutoMinChars));
+  Assert.AreEqual(Integer(TDpccAutoOpen.cDefaultMinChars), Integer(TDpccPluginSettings.cDefaultAutoMinChars));
+  Assert.AreEqual(Integer(TDpccAutoOpen.cMaxMinChars), Integer(TDpccPluginSettings.cMaxAutoMinChars));
   // Vorgabe 0 = aus (Entscheidung des Nutzers nach L5, vorher 5); einschaltbar bis 10.
   Assert.AreEqual(0, TDpccPluginSettings.Defaults.AutoMinChars);
   Assert.AreEqual(0, Integer(TDpccAutoOpen.cDefaultMinChars));

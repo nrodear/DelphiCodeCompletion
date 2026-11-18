@@ -142,7 +142,7 @@ What remains afterwards and can be deleted by hand:
 | Location | Contents |
 |---|---|
 | `HKCU\Software\dpcc\IdePlugin` | settings, markers for the IDE switches, `PathOverrideBackup` |
-| `%APPDATA%\dpcc` | `settings.json`, `settings-history.json`, `usage.json` (history), `favorites.json` (favorites) |
+| `%APPDATA%\dpcc` | `settings.json`, `usage.json` (history), `favorites.json` (favorites), from older versions `settings-history.json` |
 | `%LOCALAPPDATA%\dpcc` | `Logs` (log), `Index` (index caches) |
 | BPL folder | `dpcc.IDE.Expert370.log`, if the diagnostic log was on |
 

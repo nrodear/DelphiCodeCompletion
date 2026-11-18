@@ -87,8 +87,9 @@ Ces options ne figurent plus sur la page. Elles ont une valeur fixe, leur ancien
   (`case … of`), la marque « branch 0 », « branch 1 », etc. (branche 0, branche 1) est affichée.
 - **List mode applies to (le mode de liste s'applique à) : member lists after “.” (listes des membres après « . »)**
   (`CompletionListScope`, `completion.listMode.scope` = `members`). « While typing, show » n'agit que là.
-- **Preview of the selected entry in the editor (aperçu de l'entrée sélectionnée dans l'éditeur) : désactivé**
-  (`Preview`, `completion.preview`).
+- **Preview of the selected entry in the editor (aperçu de l'entrée sélectionnée dans l'éditeur) : supprimé**
+  (auparavant `Preview`, `completion.preview`, en dernier lieu désactivé de façon fixe). Depuis le nettoyage des
+  réglages, le code correspondant a lui aussi disparu.
 - **Fix the case when accepting (corriger la casse lors de l'acceptation ; showmessage → ShowMessage) : activé**
   (`FixCase`, `completion.fixCase`). Remplace le mot saisi par la graphie de la déclaration.
 - **Match and colour Format placeholders in the parameter hint (associer et colorer les espaces réservés de Format
@@ -113,14 +114,28 @@ Ces options ne figurent plus sur la page. Elles ont une valeur fixe, leur ancien
   et est ignorée sans message ; dpcc n'écrit plus la clé.
 - Qui avait modifié l'une des options désormais [fixes](#valeurs-fixes) perd cette modification sans message. Les
   anciennes valeurs sous `HKCU\Software\dpcc\IdePlugin` restent en place et sont ignorées.
+- OK n'enregistre plus que les valeurs de la page : l'interrupteur principal et onze options dans le registre,
+  `index.extraSourceFolders` dans `settings.json`. Auparavant, chaque OK écrivait environ 600 valeurs de registre
+  (y compris des réglages masqués d'anciens onglets, des raccourcis, des interrupteurs de modules et des
+  interrupteurs expérimentaux) ainsi que des clés du serveur dans `settings.json` : `slashCommands.enabled`,
+  `codeLens.metrics`, `metrics`, `experimental.enabled`, `compiler.onSave`, `architecture.*`, `query.enabled`,
+  `ruleChecks.enabled`, `hotspots.*`, `references.*`, `navigation.*`, `tests.*`, `issues.*` et `vcs.*`. Toutes ces
+  valeurs restent en place : dpcc ne lit plus les anciennes valeurs de registre, et le serveur continue de lire les
+  clés de `settings.json` sans message. En leur absence, ses valeurs par défaut s'appliquent ; elles correspondent à
+  celles que le plugin écrivait auparavant.
+- « Show values while debugging » (afficher les valeurs pendant le débogage) ne dépend plus que de sa propre option
+  (et, sur la page, de l'infobulle propre). L'ancien interrupteur de module masqué `debug.enabled` (valeur de
+  registre `DebugEnabled`) ne la désactive plus.
+- dpcc n'écrit plus l'historique des réglages `%APPDATA%\dpcc\settings-history.json`. Un fichier existant reste en
+  place et peut être supprimé.
 
 ## Stockage
 
 | Emplacement | Contenu |
 |---|---|
-| `HKCU\Software\dpcc\IdePlugin` | toutes les options de la page sauf `index.extraSourceFolders`. Interrupteurs et nombres en DWORD (interrupteurs 0/1), choix en texte (`filter`, `all`, `rest`). En plus, les marqueurs pour les réglages de l'IDE (plus bas) et `PathOverrideBackup` de `Tools\IdePath.ps1`. Les anciennes valeurs des options fixes restent en place, mais sans effet. |
-| `%APPDATA%\dpcc\settings.json` | `index.extraSourceFolders` (depuis la page) et `hints.xmlDocMaxLines` (réglable uniquement dans le fichier). Le serveur dans le processus de l'IDE lit lui-même le fichier et le surveille. La valeur de registre `XmlDocMaxLines` d'une version antérieure est reprise une fois, tant que le fichier ne contient pas encore la clé ; ensuite, seul `settings.json` compte. Une ancienne valeur `hints.xmlDocExpand` ou `hints.xmlDocFull` reste sans effet. |
-| `%APPDATA%\dpcc\settings-history.json` | états antérieurs des réglages ; avant chaque modification enregistrée, dpcc y dépose l'ancien état |
+| `HKCU\Software\dpcc\IdePlugin` | toutes les options de la page sauf `index.extraSourceFolders`. Interrupteurs et nombres en DWORD (interrupteurs 0/1), choix en texte (`filter`, `all`, `rest`). En plus, les marqueurs pour les réglages de l'IDE (plus bas) et `PathOverrideBackup` de `Tools\IdePath.ps1`. Lu seulement, jamais écrit : l'interrupteur de support `LogNames` (voir [Dépannage](troubleshooting.md)). Les anciennes valeurs des options fixes et des options supprimées restent en place, mais sans effet ; dpcc ne les écrit plus. |
+| `%APPDATA%\dpcc\settings.json` | `index.extraSourceFolders` (depuis la page) et `hints.xmlDocMaxLines` (réglable uniquement dans le fichier). Le serveur dans le processus de l'IDE lit lui-même le fichier et le surveille. dpcc lit seulement `hints.xmlDocMaxLines` et n'écrit jamais la clé ; si elle manque dans le fichier, une valeur de registre `XmlDocMaxLines` d'une version antérieure s'applique, sinon 0. dpcc ne touche pas aux autres clés du fichier. Une ancienne valeur `hints.xmlDocExpand` ou `hints.xmlDocFull` reste sans effet. |
+| `%APPDATA%\dpcc\settings-history.json` | uniquement issu de versions antérieures : états antérieurs des réglages. dpcc n'écrit ni ne lit plus ce fichier ; il peut être supprimé. |
 | `%APPDATA%\dpcc\usage.json` | historique de la pondération apprise |
 | `%APPDATA%\dpcc\favorites.json` | favoris épinglés |
 

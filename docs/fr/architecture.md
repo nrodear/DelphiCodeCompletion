@@ -87,9 +87,9 @@ ses dépendances chargé jusqu'à la fin de l'IDE. Ainsi, aucun thread ne saute 
 | Dossier | Contenu |
 |---|---|
 | `Lsp` | client LSP, session (initialize, synchronisation des documents, requêtes), adaptateur vers le serveur dans le processus, gestion des plantages |
-| `Completion` | déroulement de la liste (`TDpccCompletionController`), filtrage, classement, favoris, historique, mode ensemble, espaces réservés, aperçu |
+| `Completion` | déroulement de la liste (`TDpccCompletionController`), filtrage, classement, favoris, historique, mode ensemble, espaces réservés |
 | `Hover`, `Signature`, `Documentation` | contenu de l'infobulle et de l'aide aux paramètres, présentation du XMLDoc |
-| `Settings` | réglages du plugin, catalogue, verrouillages, structure de la page d'options et valeurs fixes (`dpcc.Core.Settings.CompletionView`) |
+| `Settings` | réglages du plugin (`TDpccPluginSettings` : exactement les valeurs de la page, plus deux en lecture seule), stockage dans le registre et `settings.json` (`dpcc.Core.Settings.Scopes`), structure de la page d'options et valeurs fixes (`dpcc.Core.Settings.CompletionView`), interrupteur principal sans redémarrage |
 | `Diagnostics` | fusible de sécurité (`TDpccGuard`), journal, file d'attente vers le thread principal, démontage |
 | `Localization` | langue des textes |
 
@@ -107,7 +107,7 @@ ses dépendances chargé jusqu'à la fin de l'IDE. Ainsi, aucun thread ne saute 
 
 | Dossier | Contenu |
 |---|---|
-| `Completion` | racine `dpcc.IDE.Completion.Register`, complétion dans l'éditeur (chaîne State → Open → Commit → Editor), espaces réservés, aperçu, favoris, historique, notificateur d'enregistrement |
+| `Completion` | racine `dpcc.IDE.Completion.Register`, complétion dans l'éditeur (chaîne State → Open → Commit → Editor), espaces réservés, favoris, historique, notificateur d'enregistrement |
 | `CodeInsight` | gestionnaire Code Insight (chaîne State → Session → Commands → Crashes → Manager) |
 | `Hover` | infobulle dans l'éditeur, valeurs via le débogueur |
 | `Signature` | aide aux paramètres dans l'éditeur, couleurs des espaces réservés de Format |

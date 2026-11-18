@@ -133,6 +133,7 @@ uses
   dpcc.IDE.Foundation.EditorBuffer,
   dpcc.IDE.Foundation.EditorStyle,
   dpcc.IDE.Foundation.Settings,
+  dpcc.Core.Settings.CompletionView,
   dpcc.Core.Lsp.Session;
 
 /// <summary>Größe des Editorfensters (Client-Bereich); (0, 0) ohne Fenster.</summary>
@@ -435,7 +436,8 @@ begin
   end;
   FHint.Anchor := mAnchor;
   FHint.Above := Assigned(FCompletionOpen) and FCompletionOpen();
-  FHint.FormatPlaceholders := TDpccIdeSettings.Current.FormatPlaceholders;
+  // Platzhalter von Format zuordnen und einfärben (#451): fest an seit OPT1.
+  FHint.FormatPlaceholders := TDpccFixedSettings.cFormatPlaceholders;
   FController.Close;
   FDismissed.OpenParen := -1;
   FFormat.Text := mSpot.Text;

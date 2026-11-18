@@ -86,9 +86,9 @@ dependencies loaded until the IDE exits. This way no thread jumps into unloaded 
 | Folder | Contents |
 |---|---|
 | `Lsp` | LSP client, session (initialize, document synchronization, requests), adapter to the in-process server, crash handling |
-| `Completion` | flow of the list (`TDpccCompletionController`), filtering, ranking, favorites, history, set mode, placeholders, preview |
+| `Completion` | flow of the list (`TDpccCompletionController`), filtering, ranking, favorites, history, set mode, placeholders |
 | `Hover`, `Signature`, `Documentation` | contents of tooltip and parameter hint, XMLDoc rendering |
-| `Settings` | plugin settings, catalog, locks, layout of the options page and fixed values (`dpcc.Core.Settings.CompletionView`) |
+| `Settings` | plugin settings (`TDpccPluginSettings`: exactly the values of the page, plus two read-only ones), storage in the registry and `settings.json` (`dpcc.Core.Settings.Scopes`), layout of the options page and fixed values (`dpcc.Core.Settings.CompletionView`), master switch without restart |
 | `Diagnostics` | safety fuse (`TDpccGuard`), log, queue to the main thread, shutdown |
 | `Localization` | language of the texts |
 
@@ -106,7 +106,7 @@ dependencies loaded until the IDE exits. This way no thread jumps into unloaded 
 
 | Folder | Contents |
 |---|---|
-| `Completion` | composition root `dpcc.IDE.Completion.Register`, completion in the editor (chain State → Open → Commit → Editor), placeholders, preview, favorites, history, save notifier |
+| `Completion` | composition root `dpcc.IDE.Completion.Register`, completion in the editor (chain State → Open → Commit → Editor), placeholders, favorites, history, save notifier |
 | `CodeInsight` | Code Insight manager (chain State → Session → Commands → Crashes → Manager) |
 | `Hover` | tooltip in the editor, values via the debugger |
 | `Signature` | parameter hint in the editor, colors of the Format placeholders |

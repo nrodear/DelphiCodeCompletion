@@ -4,8 +4,8 @@
 // und Schließen. Die Klasse ist nach Aufgaben in eine Kette geteilt, damit jede Stufe überschaubar bleibt:
 //   TDpccEditorCompletionState (Zustand, Schließen, Tastatur-Hook) → TDpccEditorCompletionOpen (Öffnen,
 //   Verzögerung) → TDpccEditorCompletionCommit (Übernehmen, Einträge mit Platzhaltern einsetzen) →
-//   TDpccEditorCompletion (dpcc.IDE.Completion.Editor: Tasten, Weitertippen,
-//   Vorschau). Aufrufer verwenden nur TDpccEditorCompletion; Beschreibung des Ablaufs dort.
+//   TDpccEditorCompletion (dpcc.IDE.Completion.Editor: Tasten,
+//   Weitertippen). Aufrufer verwenden nur TDpccEditorCompletion; Beschreibung des Ablaufs dort.
 
 interface
 
@@ -23,7 +23,6 @@ uses
   dpcc.Core.Completion.Parentheses,
   dpcc.Core.Editor.CloseRules,
   dpcc.Core.Lsp.Session,
-  dpcc.IDE.Completion.Preview,
   dpcc.IDE.Completion.Placeholders,
   dpcc.UI.Completion.Popup,
   dpcc.IDE.Foundation.KeyHook;
@@ -105,8 +104,6 @@ type
     // Automatisch eingefügte ")" nach dem Übernehmen (#430).
     FAutoParen: TDpccAutoParen;
     FOnOpenSignature: TProc;
-    // Vorschau des gewählten Eintrags im Editor (#434).
-    FPreview: TDpccEditorPreview;
     FController: TDpccCompletionController;
     FTimer: TTimer;
     FDelay: TDpccEditorDelay;
@@ -174,7 +171,7 @@ uses
   dpcc.UI.Completion.Strings;
 
 const
-  /// <summary>Takt, in dem die offene Liste Cursor und Vorschau prüft.</summary>
+  /// <summary>Takt, in dem die offene Liste den Cursor prüft.</summary>
   cTickMs = 50;
 
 /// <summary>Größe des Editorfensters (Client-Bereich); (0, 0) ohne Fenster.</summary>
@@ -200,7 +197,7 @@ begin
     var
       mSettings: TDpccPluginSettings;
     begin
-      mSettings := TDpccIdeSettings.Stored;
+      mSettings := TDpccIdeSettings.Current;
       mSettings.ListWidth := AListWidth;
       TDpccIdeSettings.Update(mSettings);
     end;
@@ -232,7 +229,6 @@ begin
   WirePopup;
   FFallback := TDpccCompletionFallback.Create;
   WireFallback;
-  FPreview := TDpccEditorPreview.Create;
   FTimer := TTimer.Create(nil);
   FTimer.Enabled := False;
   FTimer.Interval := cTickMs;
@@ -242,11 +238,10 @@ end;
 
 destructor TDpccEditorCompletionState.Destroy;
 begin
-  // Erst schließen und Anfragen beenden, solange Zeitgeber und Vorschau noch bestehen; dann freigeben.
+  // Erst schließen und Anfragen beenden, solange die Zeitgeber noch bestehen; dann freigeben.
   Shutdown;
   RemoveKeyHook;
   FreeAndNil(FPlaceholders);
-  FreeAndNil(FPreview);
   FTimer.Free;
   FDelay.Timer.Free;
   FController.Free;
@@ -364,10 +359,6 @@ procedure TDpccEditorCompletionState.Close;
 begin
   CancelDelay;
   FController.Close;
-  if FPreview <> nil then
-  begin
-    FPreview.Clear;
-  end;
   ActiveChanged;
 end;
 
@@ -385,10 +376,6 @@ end;
 procedure TDpccEditorCompletionState.ActiveChanged;
 begin
   FTimer.Enabled := FController.Active;
-  if not FController.Active and (FPreview <> nil) then
-  begin
-    FPreview.Clear;
-  end;
   if FController.Active then
   begin
     InstallKeyHook;

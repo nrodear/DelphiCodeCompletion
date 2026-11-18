@@ -2,28 +2,20 @@
 
 // Was Tools › Optionen › Fremdhersteller › dpcc zeigt und was fest verdrahtet ist (seit OPT1), ohne VCL und ohne
 // Open Tools API:
-// - Seit OPT1 gibt es genau eine Seite „dpcc“ ohne Unterseiten (früher Allgemein, Vervollständigung, Einfügen, Hints)
-//   und ohne Baum, Suche, Filter und Geändert-Markierung. cPageItems ist ihr Aufbau: Hauptschalter, dann die
-//   Abschnitte Vervollständigung, Beim Übernehmen, Parameter-Hint und Tooltip, Index mit zwölf Optionen und zwei
-//   Knöpfen. Die Seite (dpcc.UI.Settings.Page) baut genau diese Liste; der Test prüft beides gegeneinander.
+// - Es gibt genau eine Seite „dpcc“ ohne Unterseiten, Baum, Suche, Filter und Geändert-Markierung. cPageItems ist ihr
+//   Aufbau: Hauptschalter, dann die Abschnitte Vervollständigung, Beim Übernehmen, Parameter-Hint und Tooltip, Index
+//   mit zwölf Optionen und zwei Knöpfen. Die Seite (dpcc.UI.Settings.Page) baut genau diese Liste, und
+//   TDpccPluginSettings speichert genau diese Optionen; die Tests prüfen beides gegeneinander.
 // - TDpccFixedSettings: Optionen, die es seit OPT1 nicht mehr auf der Seite gibt, gelten mit ihrer bisherigen Vorgabe.
-//   Abweichende alte Werte in der Registry bleiben liegen und werden still ignoriert (Apply in den wirksamen
-//   Einstellungen der IDE-Schicht). hints.xmlDocMaxLines bleibt über settings.json einstellbar (der Server liest die
-//   Datei selbst); „XMLDoc beim Öffnen“ (hints.xmlDocExpand) gibt es nicht mehr.
-// - Einstellungen des Servers (settings.json, dpcc.json) zeigt dpcc seit S2 nicht; die Seite „Tastenkonflikte“ gibt
-//   es seit Rückbau R5 nicht mehr.
-// Die Werte selbst bleiben unangetastet (Registry, settings.json, dpcc.json); was hier fehlt, zeigt dpcc nur nicht an.
+//   Seit OPT2 lesen die Stellen, die sie brauchen, die Werte direkt von hier; TDpccPluginSettings hat keine Felder
+//   mehr dafür. Abweichende alte Werte in der Registry bleiben liegen und werden nicht gelesen. hints.xmlDocMaxLines
+//   bleibt über settings.json einstellbar (TDpccPluginSettings.XmlDocMaxLines, nur gelesen). Die Vorschau im Editor
+//   (completion.preview, fest aus) ist samt Code entfallen.
+// - Einstellungen des Servers (settings.json, dpcc.json) zeigt dpcc seit S2 nicht.
 
 interface
 
-uses
-  dpcc.Core.Settings.Catalog,
-  dpcc.Core.Settings.Plugin;
-
 type
-  /// <summary>Wo eine Einstellung steht: gar nicht oder auf der Seite „dpcc“.</summary>
-  TDpccSettingPlace = (spHidden, spMain);
-
   /// <summary>Abschnitt der Seite „dpcc“: oben der Hauptschalter, darunter die Abschnitte mit Überschrift.</summary>
   TDpccPageSection = (psMaster, psCompletion, psCommit, psHints, psIndex);
 
@@ -35,7 +27,7 @@ type
     Section: TDpccPageSection;
     Kind: TDpccPageItemKind;
     /// <summary>pkSetting: Name in TDpccPluginSettings.Load/Save (Registry-Name); pkButton: Kennung des Knopfs
-    /// (TDpccCompletionView.cResetHistory, cRebuildIndex).</summary>
+    /// (cPageResetHistory, cPageRebuildIndex).</summary>
     Name: string;
   end;
 
@@ -69,45 +61,32 @@ type
     /// <summary>Namen der Einstellungen auf der Seite in der Reihenfolge von cPageItems (mit Hauptschalter).
     /// </summary>
     class function SettingNames: TArray<string>; static;
-    /// <summary>Ort der Plugin-Einstellung AEntry; spHidden = nicht mehr angezeigt.</summary>
-    class function PlaceOf(const AEntry: TDpccCatalogEntry): TDpccSettingPlace; static;
-    /// <summary>Zeigt dpcc die Plugin-Einstellung AEntry noch an?</summary>
-    class function ShowsSetting(const AEntry: TDpccCatalogEntry): Boolean; static;
-    /// <summary>Wie ShowsSetting nach Registry-Name; False, wenn der Katalog den Namen nicht kennt.</summary>
-    class function ShowsName(ACatalog: TDpccSettingsCatalog; const AName: string): Boolean; static;
   end;
 
   /// <summary>Optionen, die seit OPT1 nicht mehr auf der Seite stehen: Sie gelten fest mit ihrer bisherigen
   /// Vorgabe. Ein abweichender alter Wert in der Registry bleibt liegen und wirkt nicht mehr.</summary>
   TDpccFixedSettings = class
   public const
-    /// <summary>Verzögerung bis zum Öffnen der Liste nach „.“ (ARG-046).</summary>
+    /// <summary>Verzögerung bis zum Öffnen der Liste nach „.“ (ARG-046, früher completion.openDelayMs).</summary>
     cOpenDelayMs = 150;
-    /// <summary>Favoriten anheften (Strg+D, #458); favorites.json bleibt.</summary>
+    /// <summary>Favoriten anheften (Strg+D, #458, früher completion.favorites); favorites.json bleibt.</summary>
     cFavorites = True;
-    /// <summary>Geerbte Member nachrangig und nach Klasse gruppiert (#419).</summary>
+    /// <summary>Geerbte Member nachrangig, nach Klasse gruppiert und gedämpft (#419, früher
+    /// completion.groupInherited).</summary>
     cGroupInherited = True;
-    /// <summary>Zweig varianter Record-Felder zeigen (#846).</summary>
+    /// <summary>Zweig varianter Record-Felder zeigen (#846, früher completion.variantBranch).</summary>
     cCompletionVariantBranch = True;
-    /// <summary>Listenmodus gilt nur für Mitgliederlisten nach „.“ (#497).</summary>
+    /// <summary>Listenmodus gilt nur für Mitgliederlisten nach „.“ (#497, früher completion.listMode.scope).
+    /// </summary>
     cCompletionListScope = 'members';
-    /// <summary>Vorschau des gewählten Eintrags im Editor (#434): aus.</summary>
-    cPreview = False;
-    /// <summary>Schreibweise beim Übernehmen korrigieren (#433).</summary>
+    /// <summary>Schreibweise beim Übernehmen korrigieren (#433, früher completion.fixCase).</summary>
     cFixCase = True;
-    /// <summary>Platzhalter von Format im Parameter-Hint zuordnen und einfärben (#451).</summary>
+    /// <summary>Platzhalter von Format im Parameter-Hint zuordnen und einfärben (#451, früher
+    /// completion.formatPlaceholders).</summary>
     cFormatPlaceholders = True;
-  public
-    /// <summary>Registry-Namen der fest verdrahteten Einstellungen.</summary>
-    class function Names: TArray<string>; static;
-    /// <summary>Setzt in ASettings die fest verdrahteten Werte; alles andere bleibt.</summary>
-    class procedure Apply(var ASettings: TDpccPluginSettings); static;
   end;
 
 implementation
-
-uses
-  System.StrUtils;
 
 { TDpccCompletionView }
 
@@ -123,49 +102,6 @@ begin
       Result := Result + [mItem.Name];
     end;
   end;
-end;
-
-class function TDpccCompletionView.PlaceOf(const AEntry: TDpccCatalogEntry): TDpccSettingPlace;
-begin
-  // Einstellungen des Servers haben seit S2 keine Seite mehr.
-  if (AEntry.Source = asPlugin) and MatchText(AEntry.Name, SettingNames) then
-  begin
-    Exit(spMain);
-  end;
-  Result := spHidden;
-end;
-
-class function TDpccCompletionView.ShowsSetting(const AEntry: TDpccCatalogEntry): Boolean;
-begin
-  Result := PlaceOf(AEntry) <> spHidden;
-end;
-
-class function TDpccCompletionView.ShowsName(ACatalog: TDpccSettingsCatalog; const AName: string): Boolean;
-var
-  mIndex: Integer;
-begin
-  mIndex := ACatalog.IndexOfName(AName);
-  Result := (mIndex >= 0) and ShowsSetting(ACatalog[mIndex]);
-end;
-
-{ TDpccFixedSettings }
-
-class function TDpccFixedSettings.Names: TArray<string>;
-begin
-  Result := ['OpenDelayMs', 'Favorites', 'GroupInherited', 'CompletionVariantBranch', 'CompletionListScope', 'Preview',
-    'FixCase', 'FormatPlaceholders'];
-end;
-
-class procedure TDpccFixedSettings.Apply(var ASettings: TDpccPluginSettings);
-begin
-  ASettings.OpenDelayMs := cOpenDelayMs;
-  ASettings.Favorites := cFavorites;
-  ASettings.GroupInherited := cGroupInherited;
-  ASettings.CompletionVariantBranch := cCompletionVariantBranch;
-  ASettings.CompletionListScope := cCompletionListScope;
-  ASettings.Preview := cPreview;
-  ASettings.FixCase := cFixCase;
-  ASettings.FormatPlaceholders := cFormatPlaceholders;
 end;
 
 end.

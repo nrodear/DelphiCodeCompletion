@@ -4,8 +4,8 @@
 // (INTAAddInOptions, #227) und verbindet sie mit den Einstellungen in der
 // Registry. „Verlauf zurücksetzen“ leert die lernende Gewichtung (#418).
 // Seit OPT1 eine einzige Seite ohne Unterseiten, Baum, Suche und Knoten je Package: FrameCreated lädt die gespeicherten
-// Einstellungen (TDpccIdeSettings.Stored), OK schreibt die Werte der Seite darüber und speichert (Registry und für
-// index.extraSourceFolders settings.json). Die Liste der angehefteten Favoriten (#458) gibt es nicht mehr.
+// Einstellungen (TDpccIdeSettings.Current), OK schreibt die Werte der Seite darüber und speichert (Registry und für
+// index.extraSourceFolders settings.json); seit OPT2 nur noch genau diese Werte. Die Liste der angehefteten Favoriten (#458) gibt es nicht mehr.
 // Die Unterseiten „Snippets“ und „Server“ gibt es seit S2 nicht mehr, die Seite „Index“ seit S4: Statt Kennzahlen,
 // „Index löschen“ und „Index-Cache löschen“ (Befehle an den Server, die den Server auch startete) steht auf der Seite
 // „Allgemein“ nur noch „Index neu aufbauen“ (Haken RestartIndex, dpcc.IDE.Settings.PageOptions).
@@ -96,7 +96,7 @@ begin
   FPage.OnResetHistory := Hooks.ResetHistory;
   // „Index neu aufbauen“ (S4); startet keinen Server, der nicht läuft.
   TDpccPageOptions.ConnectRebuild(FPage, Hooks.RestartIndex);
-  FPage.LoadFrom(TDpccIdeSettings.Stored);
+  FPage.LoadFrom(TDpccIdeSettings.Current);
 end;
 
 procedure TDpccAddInOptions.DialogClosed(Accepted: Boolean);
@@ -107,7 +107,7 @@ begin
     if Accepted and (FPage <> nil) then
     begin
       // Gespeicherter Stand, darüber die Werte der Seite; was die Seite nicht zeigt, bleibt, wie es ist.
-      mSettings := TDpccIdeSettings.Stored;
+      mSettings := TDpccIdeSettings.Current;
       FPage.SaveTo(mSettings);
       TDpccIdeSettings.Update(mSettings);
     end;
