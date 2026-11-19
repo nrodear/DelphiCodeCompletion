@@ -19,6 +19,11 @@
 //   gesendeten mit dem geänderten Text, die Ereignis-Zuordnungen und einzeilige
 //   Eigenschaften (Eigenschaftsregeln, #309) setzt dpcc im Designer über RTTI.
 //   Andere Änderungen an offenen Formularen lehnt dpcc ab.
+// - Nur Formulare mit offenem Designer (Hänger beim Öffnen einer Formular-Unit): dpcc geht nicht mehr über
+//   ModuleFileEditors aller Module (das konnte Designer laden), sondern merkt sich die Designer aus DesignerOpened
+//   bzw. der ersten Änderung (beim Laden des Plugins schon offene VCL-Designer aus Screen.CustomForms). Die
+//   Formulardatei folgt aus dem Modul des Formulars (FindFormModule, .dfm bzw. .fmx neben der Unit). Der Abgleich
+//   aller Formulare (Start, neue Sitzung) verteilt sich auf die Takte des Timers, höchstens cFormsPerTick je Takt.
 // Nur im Hauptthread.
 
 interface
@@ -68,14 +73,29 @@ type
     FTexts: TDictionary<string, string>;
     /// <summary>Wurzelkomponente → Formulardatei, für DesignerClosed.</summary>
     FRoots: TDictionary<TComponent, string>;
+    /// <summary>Offene Designer je Wurzel (DesignerOpened bis DesignerClosed).</summary>
+    FDesigners: TDictionary<TComponent, IDesigner>;
+    /// <summary>Wurzeln, die der laufende Abgleich aller Formulare noch senden muss.</summary>
+    FPendingAll: TList<TComponent>;
     procedure Tick(Sender: TObject);
     /// <summary>Formular von ADesigner geändert; nil: welches, ist unbekannt (alle senden).</summary>
     procedure Changed(const ADesigner: IDesigner);
+    /// <summary>ADesigner ist offen: merken.</summary>
+    procedure Remember(const ADesigner: IDesigner);
     procedure Closed(ARoot: TComponent);
-    procedure SyncAll(ASession: TLspSession);
+    /// <summary>Beim Laden schon offene VCL-Designer (Screen.CustomForms) merken.</summary>
+    procedure ScanOpenDesigners;
+    /// <summary>Abgleich aller offenen Formulare beginnen; gesendet wird in SyncPending.</summary>
+    procedure StartAll;
+    /// <summary>Höchstens AMax Formulare des Abgleichs aller senden.</summary>
+    procedure SyncPending(ASession: TLspSession; AMax: Integer);
     /// <summary>Nur die geänderten Formulare (FDirtyRoots) senden.</summary>
     procedure SyncDirty(ASession: TLspSession);
-    procedure SyncEditor(ASession: TLspSession; const AEditor: IOTAFormEditor; ARoot: TComponent);
+    procedure SyncForm(ASession: TLspSession; ARoot: TComponent; const ADesigner: IDesigner);
+    /// <summary>Formulardatei zu ARoot (über das Modul, sonst die zuletzt bekannte); '' wenn unbekannt.</summary>
+    function FileNameOf(ARoot: TComponent): string;
+    /// <summary>Offenes Formular zu AFileName.</summary>
+    function FindOpen(const AFileName: string; out ARoot: TComponent; out ADesigner: IDesigner): Boolean;
     procedure Log(const AText: string);
   public
     /// <summary>ASessionOf: laufende Sitzung, ohne den Server zu starten; ALog: Diagnoseprotokoll.</summary>
@@ -105,6 +125,7 @@ implementation
 
 uses
   System.TypInfo,
+  Vcl.Forms,
   dpcc.Core.Diagnostics.Guard,
   dpcc.Core.Forms.Text,
   dpcc.IDE.Foundation.EditorSnapshot,
@@ -156,86 +177,61 @@ end;
 
 const
   cSyncDelayMs = 500;
+  /// <summary>Takt, solange der Abgleich aller Formulare läuft.</summary>
+  cPendingIntervalMs = 100;
+  /// <summary>Höchstens so viele Formulare je Takt beim Abgleich aller.</summary>
+  cFormsPerTick = 2;
 
 function Key(const AFileName: string): string;
 begin
   Result := AnsiUpperCase(AFileName);
 end;
 
-function FormEditors: TArray<IOTAFormEditor>;
+/// <summary>Formulardatei zu ARoot über das Modul seines Formulars (FindFormModule): .dfm neben der Unit, .fmx nur,
+/// wenn es nur diese gibt. Fasst keine Editoren des Moduls an (die könnten den Designer laden). '' ohne Modul.
+/// </summary>
+function ResolveFormFile(ARoot: TComponent): string;
 var
   mServices: IOTAModuleServices;
-  mIndex, mFileIndex: Integer;
   mModule: IOTAModule;
-  mEditor: IOTAFormEditor;
+  mBase: string;
 begin
-  Result := nil;
-  if not Supports(BorlandIDEServices, IOTAModuleServices, mServices) then
+  Result := '';
+  if (ARoot = nil) or (ARoot.Name = '') or not Supports(BorlandIDEServices, IOTAModuleServices, mServices) then
   begin
     Exit;
   end;
-  for mIndex := 0 to mServices.ModuleCount - 1 do
+  mModule := mServices.FindFormModule(ARoot.Name);
+  if (mModule = nil) or (mModule.FileName = '') then
   begin
-    mModule := mServices.Modules[mIndex];
-    for mFileIndex := 0 to mModule.ModuleFileCount - 1 do
-    begin
-      if Supports(mModule.ModuleFileEditors[mFileIndex], IOTAFormEditor, mEditor) then
-      begin
-        Result := Result + [mEditor];
-      end;
-    end;
+    Exit;
+  end;
+  mBase := mModule.FileName;
+  if SameText(ExtractFileExt(mBase), '.dfm') or SameText(ExtractFileExt(mBase), '.fmx') then
+  begin
+    Exit(mBase);
+  end;
+  if FileExists(ChangeFileExt(mBase, '.fmx')) and not FileExists(ChangeFileExt(mBase, '.dfm')) then
+  begin
+    Result := ChangeFileExt(mBase, '.fmx');
+  end
+  else
+  begin
+    Result := ChangeFileExt(mBase, '.dfm');
   end;
 end;
 
-function EditorOf(const AFileName: string): IOTAFormEditor;
+function TextOf(ARoot: TComponent; const ADesigner: IDesigner): string;
 var
-  mEditor: IOTAFormEditor;
-begin
-  Result := nil;
-  for mEditor in FormEditors do
-  begin
-    if SameText(mEditor.FileName, AFileName) then
-    begin
-      Exit(mEditor);
-    end;
-  end;
-end;
-
-function RootOf(const AEditor: IOTAFormEditor): TComponent;
-var
-  mComponent: INTAComponent;
-begin
-  Result := nil;
-  if (AEditor <> nil) and Supports(AEditor.GetRootComponent, INTAComponent, mComponent) then
-  begin
-    Result := mComponent.GetComponent;
-  end;
-end;
-
-function DesignerOf(const AEditor: IOTAFormEditor): IDesigner;
-var
-  mNative: INTAFormEditor;
-begin
-  Result := nil;
-  if Supports(AEditor, INTAFormEditor, mNative) then
-  begin
-    Result := mNative.FormDesigner;
-  end;
-end;
-
-function TextOf(const AEditor: IOTAFormEditor): string;
-var
-  mRoot: TComponent;
   mDesigner: IDesigner;
 begin
   Result := '';
-  mRoot := RootOf(AEditor);
-  mDesigner := DesignerOf(AEditor);
-  if (mRoot = nil) or (mDesigner = nil) then
+  if (ARoot = nil) or (ADesigner = nil) then
   begin
     Exit;
   end;
-  Result := TDpccFormText.Write(mRoot,
+  mDesigner := ADesigner;
+  Result := TDpccFormText.Write(ARoot,
     function(AMethod: TMethod): string
     begin
       Result := mDesigner.GetMethodName(AMethod);
@@ -582,7 +578,10 @@ begin
   FLog := ALog;
   FTexts := TDictionary<string, string>.Create;
   FRoots := TDictionary<TComponent, string>.Create;
+  FDesigners := TDictionary<TComponent, IDesigner>.Create;
+  FPendingAll := TList<TComponent>.Create;
   FDirtyRoots := TList<TComponent>.Create;
+  ScanOpenDesigners;
   FNotification := TNotification.Create;
   FNotification.FOwner := Self;
   FNotificationRef := FNotification;
@@ -608,6 +607,8 @@ begin
   UnregisterDesignNotification(FNotificationRef);
   FNotificationRef := nil;
   FDirtyRoots.Free;
+  FPendingAll.Free;
+  FDesigners.Free;
   FRoots.Free;
   FTexts.Free;
   inherited;
@@ -621,6 +622,44 @@ begin
   end;
 end;
 
+procedure TDpccIdeForms.Remember(const ADesigner: IDesigner);
+var
+  mRoot: TComponent;
+begin
+  if ADesigner = nil then
+  begin
+    Exit;
+  end;
+  mRoot := ADesigner.Root;
+  if mRoot <> nil then
+  begin
+    FDesigners.AddOrSetValue(mRoot, ADesigner);
+  end;
+end;
+
+procedure TDpccIdeForms.ScanOpenDesigners;
+var
+  mIndex: Integer;
+  mForm: TCustomForm;
+  mDesigner: IDesigner;
+begin
+  // Nur VCL-Formulare mit gesetztem Designer; andere (FireMonkey) kommen mit DesignerOpened bzw. der ersten
+  // Änderung dazu.
+  try
+    for mIndex := 0 to Screen.CustomFormCount - 1 do
+    begin
+      mForm := Screen.CustomForms[mIndex];
+      if (mForm <> nil) and (mForm.Designer <> nil) and Supports(mForm.Designer, IDesigner, mDesigner) then
+      begin
+        Remember(mDesigner);
+      end;
+    end;
+  except
+    on E: Exception do
+      Log('Offene Designer nicht gelesen: ' + E.Message);
+  end;
+end;
+
 procedure TDpccIdeForms.Changed(const ADesigner: IDesigner);
 var
   mRoot: TComponent;
@@ -629,6 +668,7 @@ begin
   if ADesigner <> nil then
   begin
     mRoot := ADesigner.Root;
+    Remember(ADesigner);
   end;
   if mRoot = nil then
   begin
@@ -643,6 +683,7 @@ begin
   // Erst nach einer Pause senden: Beim Ziehen kommt eine Meldung je Mausbewegung.
   FDirty := True;
   FTimer.Enabled := False;
+  FTimer.Interval := cSyncDelayMs;
   FTimer.Enabled := True;
 end;
 
@@ -661,6 +702,7 @@ begin
       if mSession = nil then
       begin
         FLastSession := nil;
+        FPendingAll.Clear;
         Exit;
       end;
       // Neue Sitzung (Serverstart, Neustart): alles neu schicken.
@@ -671,75 +713,150 @@ begin
         FDirty := True;
         FAll := True;
       end;
-      if not FDirty then
+      if FDirty then
       begin
-        Exit;
+        FDirty := False;
+        if FAll then
+        begin
+          StartAll;
+        end
+        else
+        begin
+          SyncDirty(mSession);
+        end;
       end;
-      FDirty := False;
-      if FAll then
+      // Der Abgleich aller verteilt sich auf die Takte: Ein Formular in Text zu wandeln kostet im Hauptthread
+      // spürbar Zeit.
+      if FPendingAll.Count > 0 then
       begin
-        SyncAll(mSession);
-      end
-      else
-      begin
-        SyncDirty(mSession);
+        SyncPending(mSession, cFormsPerTick);
       end;
     end);
+  // Solange der Abgleich aller läuft, öfter; sonst im gewohnten Takt.
+  if FPendingAll.Count > 0 then
+  begin
+    if FTimer.Interval <> cPendingIntervalMs then
+    begin
+      FTimer.Interval := cPendingIntervalMs;
+    end;
+  end
+  else if FTimer.Interval <> cSyncDelayMs then
+  begin
+    FTimer.Interval := cSyncDelayMs;
+  end;
 end;
 
-procedure TDpccIdeForms.SyncAll(ASession: TLspSession);
+procedure TDpccIdeForms.StartAll;
 var
-  mEditor: IOTAFormEditor;
   mRoot: TComponent;
 begin
   FAll := False;
   FDirtyRoots.Clear;
-  for mEditor in FormEditors do
+  FPendingAll.Clear;
+  for mRoot in FDesigners.Keys do
   begin
-    mRoot := RootOf(mEditor);
-    if mRoot <> nil then
+    FPendingAll.Add(mRoot);
+  end;
+end;
+
+procedure TDpccIdeForms.SyncPending(ASession: TLspSession; AMax: Integer);
+var
+  mRoot: TComponent;
+  mDesigner: IDesigner;
+  mDone: Integer;
+begin
+  mDone := 0;
+  while (FPendingAll.Count > 0) and (mDone < AMax) do
+  begin
+    mRoot := FPendingAll[0];
+    FPendingAll.Delete(0);
+    // Inzwischen geschlossen: übergehen.
+    if FDesigners.TryGetValue(mRoot, mDesigner) then
     begin
-      SyncEditor(ASession, mEditor, mRoot);
+      SyncForm(ASession, mRoot, mDesigner);
+      Inc(mDone);
     end;
   end;
 end;
 
 procedure TDpccIdeForms.SyncDirty(ASession: TLspSession);
 var
-  mEditor: IOTAFormEditor;
   mRoot: TComponent;
+  mDesigner: IDesigner;
 begin
   if FDirtyRoots.Count = 0 then
   begin
     Exit;
   end;
-  for mEditor in FormEditors do
+  for mRoot in FDirtyRoots do
   begin
-    mRoot := RootOf(mEditor);
-    if (mRoot <> nil) and FDirtyRoots.Contains(mRoot) then
+    if FDesigners.TryGetValue(mRoot, mDesigner) then
     begin
-      SyncEditor(ASession, mEditor, mRoot);
+      SyncForm(ASession, mRoot, mDesigner);
     end;
   end;
   FDirtyRoots.Clear;
 end;
 
-procedure TDpccIdeForms.SyncEditor(ASession: TLspSession; const AEditor: IOTAFormEditor; ARoot: TComponent);
-var
-  mText, mPrevious: string;
+function TDpccIdeForms.FileNameOf(ARoot: TComponent): string;
 begin
+  Result := '';
   try
-    FRoots.AddOrSetValue(ARoot, AEditor.FileName);
-    mText := TextOf(AEditor);
-    if (mText = '') or (FTexts.TryGetValue(Key(AEditor.FileName), mPrevious) and (mPrevious = mText)) then
+    Result := ResolveFormFile(ARoot);
+  except
+    on E: Exception do
+      Log('Formulardatei nicht ermittelt: ' + E.Message);
+  end;
+  if Result = '' then
+  begin
+    // Zuletzt bekannte Datei (etwa während die IDE das Modul umbenennt).
+    if not FRoots.TryGetValue(ARoot, Result) then
+    begin
+      Result := '';
+    end;
+  end;
+end;
+
+function TDpccIdeForms.FindOpen(const AFileName: string; out ARoot: TComponent; out ADesigner: IDesigner): Boolean;
+var
+  mPair: TPair<TComponent, IDesigner>;
+begin
+  ARoot := nil;
+  ADesigner := nil;
+  for mPair in FDesigners do
+  begin
+    if SameText(FileNameOf(mPair.Key), AFileName) then
+    begin
+      ARoot := mPair.Key;
+      ADesigner := mPair.Value;
+      Exit(True);
+    end;
+  end;
+  Result := False;
+end;
+
+procedure TDpccIdeForms.SyncForm(ASession: TLspSession; ARoot: TComponent; const ADesigner: IDesigner);
+var
+  mText, mPrevious, mFileName: string;
+begin
+  mFileName := '';
+  try
+    mFileName := FileNameOf(ARoot);
+    if mFileName = '' then
     begin
       Exit;
     end;
-    ASession.Sync(AEditor.FileName, mText);
-    FTexts.AddOrSetValue(Key(AEditor.FileName), mText);
+    FRoots.AddOrSetValue(ARoot, mFileName);
+    mText := TextOf(ARoot, ADesigner);
+    if (mText = '') or (FTexts.TryGetValue(Key(mFileName), mPrevious) and (mPrevious = mText)) then
+    begin
+      Exit;
+    end;
+    ASession.Sync(mFileName, mText);
+    FTexts.AddOrSetValue(Key(mFileName), mText);
   except
     on E: Exception do
-      Log(Format('Formular %s nicht gesendet: %s', [ExtractFileName(AEditor.FileName), E.Message]));
+      Log(Format('Formular %s nicht gesendet: %s', [ExtractFileName(mFileName), E.Message]));
   end;
 end;
 
@@ -748,6 +865,9 @@ var
   mFileName: string;
   mSession: TLspSession;
 begin
+  FDesigners.Remove(ARoot);
+  FPendingAll.Remove(ARoot);
+  FDirtyRoots.Remove(ARoot);
   if not FRoots.TryGetValue(ARoot, mFileName) then
   begin
     Exit;
@@ -780,7 +900,9 @@ begin
     FCurrent.FTexts.Clear;
   end;
   FCurrent.FDirty := False;
-  FCurrent.SyncAll(ASession);
+  // Ausdrücklich verlangt (etwa vor dem Umbenennen): alle offenen Formulare sofort, aber nur mit offenem Designer.
+  FCurrent.StartAll;
+  FCurrent.SyncPending(ASession, MaxInt);
 end;
 
 class function TDpccIdeForms.SentText(const AFileName: string; out AText: string): Boolean;
@@ -790,14 +912,24 @@ begin
 end;
 
 class function TDpccIdeForms.CurrentText(const AFileName: string; out AText: string): Boolean;
+var
+  mRoot: TComponent;
+  mDesigner: IDesigner;
 begin
-  AText := TextOf(EditorOf(AFileName));
+  AText := '';
+  if (FCurrent <> nil) and FCurrent.FindOpen(AFileName, mRoot, mDesigner) then
+  begin
+    AText := TextOf(mRoot, mDesigner);
+  end;
   Result := AText <> '';
 end;
 
 class function TDpccIdeForms.IsOpen(const AFileName: string): Boolean;
+var
+  mRoot: TComponent;
+  mDesigner: IDesigner;
 begin
-  Result := RootOf(EditorOf(AFileName)) <> nil;
+  Result := (FCurrent <> nil) and FCurrent.FindOpen(AFileName, mRoot, mDesigner);
 end;
 
 class function TDpccIdeForms.Check(const AFileName: string; const AEdits: TArray<TLspTextEdit>;
@@ -829,7 +961,6 @@ end;
 class function TDpccIdeForms.Apply(const AFileName: string; const AChanges: TArray<TDpccFormEventChange>;
   const AProperties: TArray<TDpccFormPropertyChange>): string;
 var
-  mEditor: IOTAFormEditor;
   mDesigner: IDesigner;
   mRoot: TComponent;
   mTargets: TArray<TComponent>;
@@ -837,10 +968,10 @@ var
   mValueTargets: TArray<TObject>;
   mIndex: Integer;
 begin
-  mEditor := EditorOf(AFileName);
-  mRoot := RootOf(mEditor);
-  mDesigner := DesignerOf(mEditor);
-  if (mRoot = nil) or (mDesigner = nil) then
+  mRoot := nil;
+  mDesigner := nil;
+  if (FCurrent = nil) or not FCurrent.FindOpen(AFileName, mRoot, mDesigner) or (mRoot = nil) or
+    (mDesigner = nil) then
   begin
     Exit(UiText(TDesignerText.FormIsNoLongerOpen));
   end;

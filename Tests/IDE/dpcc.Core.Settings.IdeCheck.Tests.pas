@@ -79,6 +79,18 @@ type
     /// <summary>Statuszeilen und Protokollzeilen.</summary>
     [Test]
     procedure StatusAndLogLines;
+    /// <summary>Auto Invoke („Automatisch aufrufen“) wird gelesen; in der Betriebsart dpcc Soll True: gesetzt mit
+    /// Merker (Wert davor), mit dem Hauptschalter aus wieder zurück; fehlt er, passt die Vorgabe der IDE.</summary>
+    [Test]
+    procedure AutoInvokeIsSetAndRestored;
+    /// <summary>Unter DelphiLSP ist Auto Invoke = False nur eine Abweichung im Protokoll, dpcc schreibt nichts.
+    /// </summary>
+    [Test]
+    procedure AutoInvokeOnlyCheckedUnderDelphiLsp;
+    /// <summary>Beschriftungen: Auto Code Completions = „Programmierhilfe“, Auto Invoke = „Automatisch aufrufen“
+    /// (de/en).</summary>
+    [Test]
+    procedure AutoInvokeCaptions;
   end;
 
 implementation
@@ -234,8 +246,8 @@ begin
   mResult := TDpccIdeCheck.Evaluate(mInput);
   Assert.AreEqual(cLsp, mResult.ActiveKey, 'auch unter 23.0 der Ort von DelphiLSP');
   Assert.AreEqual(0, CountOf(mResult, TDpccIdeSeverity.Deviation), 'keine Abweichung: ' + mResult.Report);
-  // Auto Code Completions, Auto Code Parameters, Error Insight (fehlt = an).
-  Assert.AreEqual(3, Integer(Length(mResult.Findings)), 'Regeln unter DelphiLSP');
+  // Auto Code Completions, Auto Invoke (fehlt = an), Auto Code Parameters, Error Insight (fehlt = an).
+  Assert.AreEqual(4, Integer(Length(mResult.Findings)), 'Regeln unter DelphiLSP');
 end;
 
 procedure TDpccIdeCheckTests.MissingKeyIsHintWithDefaults(ABaseKey: string);
@@ -634,6 +646,123 @@ begin
   TDpccTextLanguage.Current := TDpccLanguage.English;
   mStatus := TDpccIdeContext.StatusText(mInput);
   Assert.IsTrue(StartsText('Mode dpcc', mStatus), mStatus);
+end;
+
+procedure TDpccIdeCheckTests.AutoInvokeIsSetAndRestored;
+var
+  mInput: TDpccIdeCheckInput;
+  mPlan: TDpccIdeContextPlan;
+  mWrite: TDpccIdeWrite;
+  mMarker: TDpccIdeMarker;
+  mFound: Boolean;
+begin
+  Assert.IsTrue(MatchText(TDpccIdeCheck.cAutoInvoke, TDpccIdeCheck.CodeInsightValueNames), 'wird gelesen');
+  Assert.AreEqual('Auto Invoke', TDpccIdeCheck.cAutoInvoke, 'Name des Werts in der Registry');
+  // Fehlt der Wert, gilt die Vorgabe der IDE (an): nichts zu schreiben.
+  mInput := Delphi13;
+  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.MasterOn);
+  Assert.IsFalse(HasWrite(mPlan, cPas, TDpccIdeCheck.cAutoInvoke, mWrite), 'Vorgabe passt');
+  // Aus am Ort von dpcc: setzen, mit Merker und Wert davor.
+  mInput := Delphi13;
+  mInput.SetValue(cPas, TDpccIdeCheck.cAutoInvoke, 'False');
+  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.MasterOn);
+  Assert.IsTrue(HasWrite(mPlan, cPas, TDpccIdeCheck.cAutoInvoke, mWrite), 'Auto Invoke gesetzt');
+  Assert.AreEqual('True', mWrite.Value);
+  Assert.IsFalse(mWrite.Delete, 'geschrieben, nicht gelöscht');
+  Assert.IsTrue(MatchText(TDpccIdeCheck.cAutoInvoke, mPlan.SetNames), 'als gesetzt gemeldet');
+  Assert.IsTrue(ContainsText(mPlan.LogLine, TDpccIdeCheck.cAutoInvoke), mPlan.LogLine);
+  mFound := False;
+  for mMarker in mPlan.MarkerWrites do
+  begin
+    if SameText(mMarker.Name, TDpccIdeCheck.cAutoInvoke) then
+    begin
+      mFound := True;
+      Assert.AreEqual(cPas, mMarker.Key, 'Ort des Merkers');
+      Assert.AreEqual('True', mMarker.Written, 'geschrieben');
+      Assert.IsTrue(mMarker.OriginalExists and (mMarker.Original = 'False'), 'Wert davor');
+      Assert.AreEqual('IdeSet 37.0 Code Insight\Borland.EditOptions.Pascal\Auto Invoke', mMarker.StoreName);
+    end;
+  end;
+  Assert.IsTrue(mFound, 'Merker für Auto Invoke');
+  mPlan.ApplyTo(mInput);
+  Assert.AreEqual('True', ValueOf(mInput, cPas, TDpccIdeCheck.cAutoInvoke), 'danach an');
+  Assert.AreEqual(0, CountOf(TDpccIdeCheck.Evaluate(mInput), TDpccIdeSeverity.Deviation), 'danach passt alles');
+  // Gegenprüfung nach OK: nichts mehr zu tun.
+  Assert.IsFalse(TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.MasterOn).HasChanges, 'idempotent');
+  // Die IDE schreibt ihren Stand zurück (Auto Invoke wieder False): die Gegenprüfung setzt ihn erneut, der Merker
+  // behält den Wert vor der ersten Änderung.
+  mInput.SetValue(cPas, TDpccIdeCheck.cAutoInvoke, 'False');
+  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.MasterOn);
+  Assert.IsTrue(HasWrite(mPlan, cPas, TDpccIdeCheck.cAutoInvoke, mWrite) and (mWrite.Value = 'True'),
+    'erneut gesetzt');
+  mPlan.ApplyTo(mInput);
+  // Hauptschalter aus: zurück auf False, Merker entfällt.
+  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.MasterOff);
+  Assert.IsTrue(HasWrite(mPlan, cPas, TDpccIdeCheck.cAutoInvoke, mWrite), 'zurückgedreht');
+  Assert.AreEqual('False', mWrite.Value, 'Wert davor');
+  Assert.IsTrue(MatchText(TDpccIdeCheck.cAutoInvoke, mPlan.RestoredNames), 'als zurückgedreht gemeldet');
+  mPlan.ApplyTo(mInput);
+  Assert.AreEqual('False', ValueOf(mInput, cPas, TDpccIdeCheck.cAutoInvoke), 'wie vorher');
+  Assert.IsFalse(mInput.TryGetMarker(cPas, TDpccIdeCheck.cAutoInvoke, mMarker), 'Merker entfallen');
+end;
+
+procedure TDpccIdeCheckTests.AutoInvokeOnlyCheckedUnderDelphiLsp;
+var
+  mInput: TDpccIdeCheckInput;
+  mPlan: TDpccIdeContextPlan;
+  mResult: TDpccIdeCheckResult;
+  mWrite: TDpccIdeWrite;
+begin
+  mInput := Delphi12;
+  mInput.SetValue(cLsp, TDpccIdeCheck.cAutoInvoke, 'False');
+  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.Start);
+  Assert.AreEqual(Ord(TDpccIdeMode.Ide), Ord(mPlan.Mode), 'Betriebsart IDE');
+  Assert.IsFalse(HasWrite(mPlan, cLsp, TDpccIdeCheck.cAutoInvoke, mWrite), 'unter DelphiLSP nichts schreiben');
+  Assert.AreEqual(0, Integer(Length(mPlan.Writes)), 'nichts zu schreiben');
+  mPlan.ApplyTo(mInput);
+  mResult := TDpccIdeCheck.Evaluate(mInput);
+  Assert.AreEqual('Auto Invoke', string.Join(',', mResult.DeviationNames), 'nur Protokoll: Abweichung');
+  Assert.IsTrue(ContainsText(mResult.LogLine, '1 Abweichung: Auto Invoke'), mResult.LogLine);
+end;
+
+procedure TDpccIdeCheckTests.AutoInvokeCaptions;
+var
+  mInput: TDpccIdeCheckInput;
+  mResult: TDpccIdeCheckResult;
+  mFinding: TDpccIdeFinding;
+  mCompletions, mInvoke: string;
+begin
+  mInput := Delphi12;
+  mInput.Dpcc.Enabled := False;
+  mResult := TDpccIdeCheck.Evaluate(mInput);
+  mCompletions := '';
+  mInvoke := '';
+  for mFinding in mResult.Findings do
+  begin
+    if SameText(mFinding.ValueName, TDpccIdeCheck.cAutoCodeCompletions) then
+    begin
+      mCompletions := mFinding.Caption;
+    end
+    else if SameText(mFinding.ValueName, TDpccIdeCheck.cAutoInvoke) then
+    begin
+      mInvoke := mFinding.Caption;
+    end;
+  end;
+  Assert.AreEqual('Programmierhilfe', mCompletions, 'Auto Code Completions (de)');
+  Assert.AreEqual('Automatisch aufrufen', mInvoke, 'Auto Invoke (de)');
+  TDpccTextLanguage.Current := TDpccLanguage.English;
+  mResult := TDpccIdeCheck.Evaluate(mInput);
+  for mFinding in mResult.Findings do
+  begin
+    if SameText(mFinding.ValueName, TDpccIdeCheck.cAutoCodeCompletions) then
+    begin
+      Assert.AreEqual('Code completion', mFinding.Caption, 'Auto Code Completions (en)');
+    end
+    else if SameText(mFinding.ValueName, TDpccIdeCheck.cAutoInvoke) then
+    begin
+      Assert.AreEqual('Auto invoke', mFinding.Caption, 'Auto Invoke (en)');
+    end;
+  end;
 end;
 
 initialization

@@ -256,7 +256,16 @@ begin
   Result.EnsureSession :=
     function: Boolean
     begin
-      Result := EnsureSession;
+      // Hover und Tippen: Hat die IDE den Manager abgeschaltet (SetEnabled), startet kein Server; eine laufende
+      // Sitzung bleibt nutzbar. EnsureSession wartet nie.
+      if FEnabled then
+      begin
+        Result := EnsureSession;
+      end
+      else
+      begin
+        Result := RunningSession <> nil;
+      end;
     end;
   Result.RunningSession :=
     function: TLspSession
@@ -311,7 +320,9 @@ begin
     FEditors.ReleaseViews;
   end;
   FOnServerChanged := nil;
-  StopSession;
+  // Start abbrechen, Sitzung im Hintergrund stoppen und begrenzt (cUnloadWaitMs) auf alle Start- und Stopp-Threads
+  // warten: Nach dem Entladen darf keiner mehr laufen.
+  ShutdownSession;
   TDpccEditorSnapshots.Uninstall;
   TDpccIdeLineTracker.Uninstall;
   // Die Threads geben sich nicht selbst frei: Erst wenn sie beendet sind, läuft nichts mehr im Code des Plugins,
@@ -357,7 +368,9 @@ begin
   end;
   try
     mView := TDpccCodeInsightQueries.CurrentEditView;
-    if (mView <> nil) and (mView.Buffer <> nil) and EnsureSession then
+    // Hauptschalter und Datei vor dem Start prüfen; EnsureSession wartet nie (ohne Sitzung kein Hinweis).
+    if (mView <> nil) and (mView.Buffer <> nil) and FEnabled and Handles(mView.Buffer.FileName) and EnsureSession
+      then
     begin
       Result := TDpccCodeInsightQueries.HintAt(FSession, mView, HintLine, HintCol,
         procedure(AMessage: string)
@@ -412,8 +425,19 @@ begin
         Diagnose('Gehe zu Definition: keine Editoransicht');
         mOutcome := TDpccGotoOutcome.NoView;
       end
+      else if not FEnabled or not Handles(mView.Buffer.FileName) then
+      begin
+        // Hauptschalter aus oder keine Datei von dpcc: ohne Sitzung wie bisher, kein Start.
+        Diagnose('Gehe zu Definition: dpcc bedient die Datei nicht');
+        mOutcome := TDpccGotoOutcome.NoSession;
+      end
       else if not EnsureSession then
       begin
+        // Der Start läuft im Hintergrund; bis dahin wie ohne Server.
+        if StartPending then
+        begin
+          Diagnose('Gehe zu Definition: dpcc startet noch');
+        end;
         mOutcome := TDpccGotoOutcome.NoSession;
       end
       else if not FSession.Offers(cDefinitionMethod) then
@@ -646,9 +670,10 @@ procedure TDpccCodeInsightManager.SetEnabled(Value: Boolean);
 begin
   FEnabled := Value;
   Diagnose('SetEnabled(' + BoolToStr(Value, True) + ')');
-  if not Value then
+  if not Value and not FShutDown then
   begin
-    StopSession;
+    // Nie im Hauptthread warten: Start abbrechen, Sitzung im Hintergrund stoppen.
+    StopSessionAsync('SetEnabled(False)');
   end;
 end;
 
@@ -762,16 +787,21 @@ end;
 function TDpccCodeInsightManager.InvokeCodeCompletion(HowInvoked: TOTAInvokeType; var Str: string): Boolean;
 var
   mActivity: IInterface;
+  mView: IOTAEditView;
 begin
   mActivity := TDpccActivity.Scope('Vervollständigung öffnen');
   // False: Die IDE zeigt keine eigene Liste; unser Popup übernimmt (#407, #410).
   Result := False;
   Diagnose(Format('InvokeCodeCompletion(%d, %d Zeichen)', [Ord(HowInvoked), Length(Str)]));
   try
-    // Start nur hier im Hauptthread; die Quellen bekommen danach die laufende Sitzung.
-    // Ohne Server liefern die übrigen Quellen trotzdem.
-    EnsureSession;
-    Completion.Invoke(TDpccCodeInsightQueries.CurrentEditView, HowInvoked <> itManual);
+    // Start nur hier im Hauptthread und nur für Dateien, die dpcc bei Hauptschalter an bedient; er läuft im
+    // Hintergrund, die Quellen bekommen die laufende Sitzung. Ohne Server liefern die übrigen Quellen trotzdem.
+    mView := TDpccCodeInsightQueries.CurrentEditView;
+    if FEnabled and (mView <> nil) and (mView.Buffer <> nil) and Handles(mView.Buffer.FileName) then
+    begin
+      EnsureSession;
+    end;
+    Completion.Invoke(mView, HowInvoked <> itManual);
   except
     on E: Exception do
     begin
@@ -785,6 +815,7 @@ function TDpccCodeInsightManager.InvokeParameterCodeInsight(HowInvoked: TOTAInvo
   var SelectedIndex: Integer): Boolean;
 var
   mActivity: IInterface;
+  mView: IOTAEditView;
 begin
   // False: Die IDE zeigt keine eigene Parameterhilfe; unser Hint übernimmt (#436).
   Result := False;
@@ -796,9 +827,13 @@ begin
   mActivity := TDpccActivity.Scope('Parameterhilfe');
   Diagnose(Format('InvokeParameterCodeInsight(%d)', [Ord(HowInvoked)]));
   try
-    // Start nur hier im Hauptthread.
-    EnsureSession;
-    FEditors.Signature.Invoke(TDpccCodeInsightQueries.CurrentEditView);
+    // Start nur hier im Hauptthread, nur bei Hauptschalter an und für Dateien von dpcc; er läuft im Hintergrund.
+    mView := TDpccCodeInsightQueries.CurrentEditView;
+    if FEnabled and (mView <> nil) and (mView.Buffer <> nil) and Handles(mView.Buffer.FileName) then
+    begin
+      EnsureSession;
+    end;
+    FEditors.Signature.Invoke(mView);
   except
     on E: Exception do
     begin
@@ -877,15 +912,21 @@ begin
       // Sicherung die Vervollständigung. Nach zwei gleichen Abstürzen startet EnsureSession nicht (FCrashes).
       if FEnabled and not TDpccGuard.Disabled(TDpccFeature.Completion) then
       begin
+        // Stößt den Start nur an; er läuft im Hintergrund.
         EnsureSession;
       end;
     end
-    else if FEditors <> nil then
+    else
     begin
-      // HandlesFile liest den Schalter bei jedem Aufruf: Die IDE nimmt ab jetzt wieder ihre Code Insight. Der Server
-      // bleibt (#407): Die Optionsseite startet ihn für Kennzahlen ohnehin, ein Stopp wartete im Hauptthread auf
-      // laufende Anfragen, und schnelles Umschalten zählte jeden Start als Neustart mit Meldung.
-      FEditors.CloseViews;
+      // Ein Start, der noch läuft, wird verworfen (sein Ergebnis im Hintergrund gestoppt).
+      CancelStart('Hauptschalter aus');
+      if FEditors <> nil then
+      begin
+        // HandlesFile liest den Schalter bei jedem Aufruf: Die IDE nimmt ab jetzt wieder ihre Code Insight. Der
+        // Server bleibt (#407): Die Optionsseite startet ihn für Kennzahlen ohnehin, und schnelles Umschalten zählte
+        // jeden Start als Neustart mit Meldung.
+        FEditors.CloseViews;
+      end;
     end;
   except
     on E: Exception do

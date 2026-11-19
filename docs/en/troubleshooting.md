@@ -55,13 +55,14 @@ dpcc passes the key on to the IDE if it does not serve the file:
 
 ## No list opens after the dot
 
-Usually “Code completion: Auto invoke” is off in the IDE's Code Insight options (registry value
-`Auto Code Completions` = `False`). Then neither the IDE's list nor the dpcc list opens after “.”.
+Usually “Code completion” is off in the IDE's Code Insight options (registry value `Auto Code Completions` =
+`False`). Then neither the IDE's list nor the dpcc list opens after “.”. A second possible reason: “Auto invoke” is off
+(`Auto Invoke` = `False`); then the IDE does not invoke code completion after “.” by itself.
 
-- dpcc mode: dpcc sets the value to `True` itself when Delphi starts; takes effect after the next start.
+- dpcc mode: dpcc sets both values to `True` itself when Delphi starts; takes effect after the next start.
 - IDE mode (DelphiLSP selected): dpcc only reports the difference, in the log (“IDE-Einstellungen: 1 Abweichung: Auto
-  Code Completions”) and on the dpcc page in the **IDE** section. Switch on “Auto invoke” in the IDE's Code Insight
-  options.
+  Code Completions”) and on the dpcc page in the **IDE** section. Switch on “Code completion” and “Auto invoke” in the
+  IDE's Code Insight options.
 
 Locations and expected values for Delphi 12 and 13: [Settings](settings.md#what-dpcc-changes-in-the-ide).
 

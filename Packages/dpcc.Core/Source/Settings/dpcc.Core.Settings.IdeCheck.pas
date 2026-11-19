@@ -211,6 +211,9 @@ type
     cGlobalKey = 'InsightGlobalOptions';
     cAutoCodeCompletions = 'Auto Code Completions';
     cAutoInvokeDelay = 'Auto Invoke Delay';
+    /// <summary>„Automatisch aufrufen“ der Code-Vervollständigung (REG_SZ True/False); Auto Code Completions ist
+    /// „Programmierhilfe“.</summary>
+    cAutoInvoke = 'Auto Invoke';
     cAutoCodeParameters = 'Auto Code Parameters';
     cDeclarationInformation = 'Declaration Information';
     cHelpInsight = 'Help Insight';
@@ -238,8 +241,8 @@ type
     cMarkerPrefix = 'IdeSet ';
   public
     /// <summary>Werte, die dpcc in der Betriebsart dpcc setzt, nach den dpcc-Einstellungen: Anbieter = dpcc, Auto Code
-    /// Completions = True, Auto Invoke Delay = -1, Auto Code Parameters = True, bei eigenem Tooltip Help Insight und
-    /// Declaration Information = False, mit Werten beim Debuggen ToolTip Watches = False,
+    /// Completions = True, Auto Invoke = True, Auto Invoke Delay = -1, Auto Code Parameters = True, bei eigenem
+    /// Tooltip Help Insight und Declaration Information = False, mit Werten beim Debuggen ToolTip Watches = False,
     /// AutoInvokeCompletionOnParameterInsight = False.</summary>
     class function Targets(const ADpcc: TDpccIdeDpccState): TArray<TDpccIdeTarget>; static;
     /// <summary>Passt der Wert (fehlend: Vorgabe der IDE) zu ATarget?</summary>
@@ -284,12 +287,12 @@ type
     MissingValue, SeverityOk, SeverityDeviation, SeverityHint, ReportProvider, ReportKey, ReportActualExpected,
     ReportActual, ReportReason, SummaryNone, SummaryOne, SummaryMore, SummaryHintOne, SummaryHintMore, StatusModeDpcc,
     StatusModeIde, StatusPendingDpcc, StatusPendingIde, StatusSet, StatusSetNone, NoticeSwitchedToDpcc,
-    NoticeSwitchedToIde, NoticeProviderLost);
+    NoticeSwitchedToIde, NoticeProviderLost, CaptionAutoInvoke, ReasonAutoInvoke);
 
 const
   cTexts: array[TDpccLanguage, TIdeCheckText] of string = (
     ('Code-Insight-Anbieter für Delphi',
-     'Code-Vervollständigung: Automatisch aufrufen',
+     'Programmierhilfe',
      'Code-Vervollständigung: Verzögerung beim Tippen',
      'Code-Parameter: Automatisch aufrufen',
      'Kurzhinweis Symbol-Insight',
@@ -339,9 +342,11 @@ const
      'dpcc hat den Code-Insight-Anbieter der IDE wieder auf %s gestellt; wirkt nach dem Neustart von Delphi. Bis ' +
        'dahin ruft die IDE weiter den bisherigen Anbieter.',
      'Der Code-Insight-Anbieter ist nicht mehr dpcc (in den Optionen der IDE geändert oder von der IDE ' +
-       'zurückgeschrieben); dpcc ist aus. Zum Einschalten den Hauptschalter der Seite dpcc wieder setzen.'),
+       'zurückgeschrieben); dpcc ist aus. Zum Einschalten den Hauptschalter der Seite dpcc wieder setzen.',
+     'Automatisch aufrufen',
+     'Aus: Die IDE ruft die Vervollständigung nach „.“ nicht von selbst auf.'),
     ('Code Insight provider for Delphi',
-     'Code completion: Auto invoke',
+     'Code completion',
      'Code completion: Delay while typing',
      'Code parameters: Auto invoke',
      'Tooltip symbol insight',
@@ -391,7 +396,9 @@ const
      'dpcc switched the IDE''s Code Insight provider back to %s; takes effect after restarting Delphi. Until then ' +
        'the IDE keeps calling the previous provider.',
      'The Code Insight provider is no longer dpcc (changed in the IDE options or written back by the IDE); dpcc ' +
-       'is off. To turn it on, set the master switch on the dpcc page again.'));
+       'is off. To turn it on, set the master switch on the dpcc page again.',
+     'Auto invoke',
+     'Off: the IDE does not invoke code completion after “.” by itself.'));
 
 function Txt(AId: TIdeCheckText): string;
 begin
@@ -776,6 +783,7 @@ class function TDpccIdeCheck.CodeInsightValueNames: TArray<string>;
 begin
   Result := nil;
   AddName(Result, cAutoCodeCompletions);
+  AddName(Result, cAutoInvoke);
   AddName(Result, cAutoInvokeDelay);
   AddName(Result, cAutoCodeParameters);
   AddName(Result, cDeclarationInformation);
@@ -960,6 +968,8 @@ begin
     // Betriebsart IDE: was DelphiLSP (bzw. der andere Anbieter) braucht; dpcc ändert hier nichts, nur Protokoll.
     AddFinding(Result, TargetFinding(AInput, NewTarget(mKey, cAutoCodeCompletions, 'True', TDpccIdeValueKind.Flag,
       TIdeCheckText.CaptionAutoCompletions, TIdeCheckText.ReasonAutoCompletions)));
+    AddFinding(Result, TargetFinding(AInput, NewTarget(mKey, cAutoInvoke, 'True', TDpccIdeValueKind.Flag,
+      TIdeCheckText.CaptionAutoInvoke, TIdeCheckText.ReasonAutoInvoke)));
     AddFinding(Result, TargetFinding(AInput, NewTarget(mKey, cAutoCodeParameters, 'True', TDpccIdeValueKind.Flag,
       TIdeCheckText.CaptionAutoParameters, TIdeCheckText.ReasonAutoParameters)));
     // Error Insight liefert nur DelphiLSP; ohne Wert gilt die Vorgabe der IDE: an.
@@ -982,6 +992,8 @@ begin
     TDpccIdeCheck.cDpccId, TDpccIdeValueKind.Text, TIdeCheckText.CaptionProvider, TIdeCheckText.ReasonProvider)];
   Result := Result + [NewTarget(cKey, TDpccIdeCheck.cAutoCodeCompletions, 'True', TDpccIdeValueKind.Flag,
     TIdeCheckText.CaptionAutoCompletions, TIdeCheckText.ReasonAutoCompletions)];
+  Result := Result + [NewTarget(cKey, TDpccIdeCheck.cAutoInvoke, 'True', TDpccIdeValueKind.Flag,
+    TIdeCheckText.CaptionAutoInvoke, TIdeCheckText.ReasonAutoInvoke)];
   Result := Result + [NewTarget(cKey, TDpccIdeCheck.cAutoInvokeDelay, '-1', TDpccIdeValueKind.Number,
     TIdeCheckText.CaptionAutoInvokeDelay, TIdeCheckText.ReasonAutoInvokeDelay)];
   Result := Result + [NewTarget(cKey, TDpccIdeCheck.cAutoCodeParameters, 'True', TDpccIdeValueKind.Flag,

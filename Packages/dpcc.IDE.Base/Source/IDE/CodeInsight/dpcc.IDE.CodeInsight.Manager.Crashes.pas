@@ -16,6 +16,7 @@ interface
 
 uses
   System.SysUtils,
+  System.JSON,
   dpcc.Core.Lsp.Client,
   dpcc.Core.Lsp.Session,
   dpcc.Core.Lsp.CrashCases,
@@ -25,20 +26,16 @@ type
   /// <summary>Ende und Abstürze des Servers, Absturzfälle und übersprungene Anfragen.</summary>
   TDpccCodeInsightCrashes = class(TDpccCodeInsightCommands)
   protected
-    /// <summary>Der Server endete von selbst (Lese-Thread): Ursache, Laufzeit und letzte Anfrage
+    /// <summary>Der Server endete von selbst (Hauptthread, aus ClientClosed): Ursache, Laufzeit und letzte Anfrage
     /// ins Protokoll, Ursache ins Statusfeld; nach zwei gleichen Abstürzen anhalten (ServerHeld).</summary>
     procedure ServerEnded(const AInfo: TLspCloseInfo); override;
     /// <summary>Hauptthread: Statusfeld und Benachrichtigung mit Neustart und Fehlerbericht.</summary>
     procedure ServerHeld(ACode: Cardinal);
     /// <summary>Hauptthread nach ServerEnded: anhalten oder die Ursache ins Statusfeld.</summary>
     procedure ServerEndedMain(ACode: Cardinal; AContinues: Boolean);
-    procedure AcceptNotifications(ASession: TLspSession); override;
-    /// <summary>dpcc/crashCase und dpcc/crashSkip (#1355) in den Hauptthread; dpcc/ideMembersWanted an
-    /// QueueIdeMembers.</summary>
-    procedure AcceptDpccNotifications(ASession: TLspSession);
-    /// <summary>Fall oder übersprungene Anfrage im Hauptthread melden, solange ASession die Sitzung ist.</summary>
-    procedure QueueCrashCase(ASession: TLspSession; const ACase: TDpccCrashCase);
-    procedure QueueCrashSkip(ASession: TLspSession; const ASkip: TDpccCrashSkip);
+    /// <summary>Hauptthread: dpcc/crashCase und dpcc/crashSkip (#1355) melden; dpcc/ideMembersWanted an die Stufe
+    /// Session.</summary>
+    procedure DpccNotified(const AMethod: string; AParams: TJSONValue); override;
     procedure CrashCaseSaved(const ACase: TDpccCrashCase);
     procedure CrashSkipChanged(const ASkip: TDpccCrashSkip);
     /// <summary>„Erneut versuchen“ einer übersprungenen Anfrage an AUri.</summary>
@@ -48,7 +45,6 @@ type
 implementation
 
 uses
-  System.JSON,
   dpcc.UI.Strings,
   dpcc.UI.CodeInsight.Strings,
   dpcc.Core.Status.Lines,
@@ -144,74 +140,31 @@ begin
     mActions);
 end;
 
-procedure TDpccCodeInsightCrashes.AcceptNotifications(ASession: TLspSession);
-begin
-  inherited AcceptNotifications(ASession);
-  AcceptDpccNotifications(ASession);
-end;
-
-procedure TDpccCodeInsightCrashes.AcceptDpccNotifications(ASession: TLspSession);
+procedure TDpccCodeInsightCrashes.DpccNotified(const AMethod: string; AParams: TJSONValue);
 var
-  mManager: TDpccCodeInsightCrashes;
-begin
-  mManager := Self;
-  ASession.OnDpccNotification :=
-    procedure(const AMethod: string; const AParams: TJSONValue)
-    var
-      mCase: TDpccCrashCase;
-      mSkip: TDpccCrashSkip;
-    begin
-      // Im Lese-Thread lesen: AParams gehört dem Aufrufer und lebt nicht bis in den Hauptthread.
-      if AMethod = TDpccCrashCases.cCaseNotification then
-      begin
-        if TDpccCrashCases.ParseCase(AParams, mCase) then
-        begin
-          mManager.QueueCrashCase(ASession, mCase);
-        end;
-      end
-      else if AMethod = TDpccIdeMembers.cWantedMethod then
-      begin
-        mManager.QueueIdeMembers(ASession, TDpccIdeMembers.WantedUnits(AParams));
-      end
-      else if (AMethod = TDpccCrashCases.cSkipNotification) and TDpccCrashCases.ParseSkip(AParams, mSkip) then
-      begin
-        mManager.QueueCrashSkip(ASession, mSkip);
-      end;
-    end;
-end;
-
-procedure TDpccCodeInsightCrashes.QueueCrashCase(ASession: TLspSession; const ACase: TDpccCrashCase);
-var
-  mManager: TDpccCodeInsightCrashes;
   mCase: TDpccCrashCase;
-begin
-  mManager := Self;
-  mCase := ACase;
-  TDpccMainThread.Queue(TDpccFeature.Server,
-    procedure
-    begin
-      if ManagerLive(mManager) and (mManager.FSession = ASession) then
-      begin
-        mManager.CrashCaseSaved(mCase);
-      end;
-    end);
-end;
-
-procedure TDpccCodeInsightCrashes.QueueCrashSkip(ASession: TLspSession; const ASkip: TDpccCrashSkip);
-var
-  mManager: TDpccCodeInsightCrashes;
   mSkip: TDpccCrashSkip;
 begin
-  mManager := Self;
-  mSkip := ASkip;
-  TDpccMainThread.Queue(TDpccFeature.Server,
-    procedure
+  // Hauptthread, schon der Sitzung zugeordnet (SessionOf); AParams gehört dem Aufrufer.
+  if AMethod = TDpccCrashCases.cCaseNotification then
+  begin
+    if TDpccCrashCases.ParseCase(AParams, mCase) then
     begin
-      if ManagerLive(mManager) and (mManager.FSession = ASession) then
-      begin
-        mManager.CrashSkipChanged(mSkip);
-      end;
-    end);
+      CrashCaseSaved(mCase);
+    end;
+  end
+  else if AMethod = TDpccCrashCases.cSkipNotification then
+  begin
+    if TDpccCrashCases.ParseSkip(AParams, mSkip) then
+    begin
+      CrashSkipChanged(mSkip);
+    end;
+  end
+  else
+  begin
+    // dpcc/ideMembersWanted und weitere.
+    inherited DpccNotified(AMethod, AParams);
+  end;
 end;
 
 procedure TDpccCodeInsightCrashes.CrashCaseSaved(const ACase: TDpccCrashCase);

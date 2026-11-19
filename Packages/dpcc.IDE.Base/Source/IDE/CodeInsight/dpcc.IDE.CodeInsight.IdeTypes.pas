@@ -8,6 +8,12 @@
 // zählen seit L2 mit, aber nur ihre Units ohne Quelltext (DUnitX, FireDAC, IoT …): Units, deren .pas unter
 // $(BDS)\source oder $(BDS)\OCX liegt, stehen im Index; Quelltext gewinnt. Die Liste dieser .pas entsteht einmal je
 // Sitzung der IDE.
+// Hänger beim Öffnen eines Formulars (Start der Sitzung): Die Liste der .pas entsteht im Hintergrund-Thread des
+// Serverstarts (PrepareSourceUnits, threadsicher). Die RTTI der Packages liest nur der Hauptthread, aber in kleinen
+// Schritten (StartRun, Step mit Zeitbudget, je Takt ein paar Packages): Ein Package kann zwischen zwei Takten
+// entladen werden, deshalb hält ein Lauf nur die Handles der Module und sucht sein Package je Schritt neu. Ein Worker
+// darf die RTTI nicht lesen (entladene Packages, nicht threadsichere IDE-Packages). Das Ergebnis (nur Texte) bleibt
+// je Stand der geladenen Module gemerkt: Ein Neustart des Servers ohne neue Packages schickt es sofort.
 
 interface
 
@@ -16,6 +22,20 @@ uses
   dpcc.Core.Lsp.IdeTypes;
 
 type
+  /// <summary>Schrittweise Sammlung der IDE-Typen im Hauptthread.</summary>
+  IDpccIdeTypeRun = interface
+    ['{3F6B2C8E-9A41-4D7B-B0E5-6C2D8F1A4E93}']
+    /// <summary>Höchstens etwa ABudgetMs arbeiten (mindestens ein Schritt); True, wenn fertig.</summary>
+    function Step(ABudgetMs: Cardinal): Boolean;
+    function Types: TArray<TDpccIdeType>;
+    /// <summary>Packages, deren RTTI nicht lesbar war.</summary>
+    function Failed: Integer;
+    /// <summary>Gelesene Module (ohne die von dpcc).</summary>
+    function Modules: Integer;
+    /// <summary>Ergebnis aus dem Merker (Stand der Module unverändert).</summary>
+    function FromCache: Boolean;
+  end;
+
   TDpccIdeTypeCollector = class
   private
     /// <summary>Typen der Packages an ATypes anhängen; Ergebnis: Zahl der Packages, deren RTTI nicht lesbar war.
@@ -24,8 +44,21 @@ type
     class procedure AddPalette(const ASkipped: TArray<string>; ATypes: TList<TDpccIdeType>); static;
   private
     class var FSourceUnits: TDictionary<string, Boolean>;
+    class var FLock: TObject;
+    /// <summary>Gemerktes Ergebnis (StartRun) und der Stand der Module, zu dem es gehört.</summary>
+    class var FCacheSignature: string;
+    class var FCacheTypes: TArray<TDpccIdeType>;
+    class var FCacheFailed: Integer;
   public
+    class constructor Create;
     class destructor Destroy;
+    /// <summary>Liste der .pas (SourceUnits) anlegen, falls noch nicht da; threadsicher, für den Hintergrund-Thread
+    /// des Serverstarts.</summary>
+    class procedure PrepareSourceUnits; static;
+    /// <summary>Neuer Lauf über die geladenen Module (nur Hauptthread); Step im Hauptthread aufrufen.</summary>
+    class function StartRun: IDpccIdeTypeRun; static;
+    /// <summary>Ergebnis eines fertigen Laufs merken (nur Hauptthread).</summary>
+    class procedure Remember(const ASignature: string; const ATypes: TArray<TDpccIdeType>; AFailed: Integer); static;
     /// <summary>Ordner, deren Packages nicht zählen: dpcc (L2: die Installation zählt mit, siehe SourceUnits).
     /// </summary>
     class function SkippedFolders: TArray<string>; static;
@@ -46,11 +79,58 @@ uses
   System.Classes,
   System.IOUtils,
   System.Rtti,
+  System.Diagnostics,
   ToolsAPI;
+
+type
+  /// <summary>Lauf von StartRun: Palette, dann je Schritt Module bis zum Zeitbudget.</summary>
+  TIdeTypeRun = class(TInterfacedObject, IDpccIdeTypeRun)
+  private
+    FModules: TArray<HINST>;
+    FIndex: Integer;
+    FPaletteDone: Boolean;
+    FDone: Boolean;
+    FFromCache: Boolean;
+    FSkipped: TArray<string>;
+    FSignature: string;
+    FTypes: TList<TDpccIdeType>;
+    FResult: TArray<TDpccIdeType>;
+    FFailed: Integer;
+    procedure StepModule(const APackages: TArray<TRttiPackage>; AModule: HINST);
+    procedure Finish;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    function Step(ABudgetMs: Cardinal): Boolean;
+    function Types: TArray<TDpccIdeType>;
+    function Failed: Integer;
+    function Modules: Integer;
+    function FromCache: Boolean;
+  end;
+
+class constructor TDpccIdeTypeCollector.Create;
+begin
+  FLock := TObject.Create;
+end;
 
 class destructor TDpccIdeTypeCollector.Destroy;
 begin
   FreeAndNil(FSourceUnits);
+  FCacheTypes := nil;
+  FreeAndNil(FLock);
+end;
+
+class procedure TDpccIdeTypeCollector.Remember(const ASignature: string; const ATypes: TArray<TDpccIdeType>;
+  AFailed: Integer);
+begin
+  FCacheSignature := ASignature;
+  FCacheTypes := ATypes;
+  FCacheFailed := AFailed;
+end;
+
+class function TDpccIdeTypeCollector.StartRun: IDpccIdeTypeRun;
+begin
+  Result := TIdeTypeRun.Create;
 end;
 
 class function TDpccIdeTypeCollector.InstallationFolder: string;
@@ -64,13 +144,22 @@ begin
   Result := TArray<string>.Create(ExcludeTrailingPathDelimiter(ExtractFilePath(GetModuleName(HInstance))));
 end;
 
-class function TDpccIdeTypeCollector.SourceUnits: TDictionary<string, Boolean>;
+class procedure TDpccIdeTypeCollector.PrepareSourceUnits;
 var
   mFiles: TArray<string>;
   mFolder: string;
 begin
-  if FSourceUnits = nil then
+  if (FSourceUnits <> nil) or (FLock = nil) then
   begin
+    Exit;
+  end;
+  // Der Hintergrund-Thread des Serverstarts legt die Liste an; der Hauptthread liest sie erst danach.
+  System.TMonitor.Enter(FLock);
+  try
+    if FSourceUnits <> nil then
+    begin
+      Exit;
+    end;
     mFiles := nil;
     for mFolder in TArray<string>.Create('source', 'OCX') do
     begin
@@ -86,7 +175,18 @@ begin
           ;
       end;
     end;
+    // Erst die fertige Liste veröffentlichen: Wer FSourceUnits ohne Sperre liest, sieht nil oder alles.
     FSourceUnits := TDpccIdeTypes.UnitNames(mFiles);
+  finally
+    System.TMonitor.Exit(FLock);
+  end;
+end;
+
+class function TDpccIdeTypeCollector.SourceUnits: TDictionary<string, Boolean>;
+begin
+  if FSourceUnits = nil then
+  begin
+    PrepareSourceUnits;
   end;
   Result := FSourceUnits;
 end;
@@ -217,6 +317,170 @@ begin
   finally
     mTypes.Free;
   end;
+end;
+
+/// <summary>Ist AModule noch geladen (LibModuleList)?</summary>
+function ModuleLoaded(AModule: HINST): Boolean;
+var
+  mModule: PLibModule;
+begin
+  Result := False;
+  mModule := LibModuleList;
+  while mModule <> nil do
+  begin
+    if HINST(mModule.Instance) = AModule then
+    begin
+      Exit(True);
+    end;
+    mModule := mModule.Next;
+  end;
+end;
+
+{ TIdeTypeRun }
+
+constructor TIdeTypeRun.Create;
+var
+  mModule: PLibModule;
+begin
+  inherited Create;
+  FSkipped := TDpccIdeTypeCollector.SkippedFolders;
+  FTypes := TList<TDpccIdeType>.Create;
+  FSignature := '';
+  mModule := LibModuleList;
+  while mModule <> nil do
+  begin
+    // Stand der geladenen Module: gleicher Stand, gleiche Typen.
+    FSignature := FSignature + IntToHex(Int64(NativeUInt(mModule.Instance)), 1) + ';';
+    if not TDpccIdeTypes.InFolders(GetModuleName(mModule.Instance), FSkipped) then
+    begin
+      FModules := FModules + [HINST(mModule.Instance)];
+    end;
+    mModule := mModule.Next;
+  end;
+  if (FSignature <> '') and (FSignature = TDpccIdeTypeCollector.FCacheSignature) then
+  begin
+    FResult := TDpccIdeTypeCollector.FCacheTypes;
+    FFailed := TDpccIdeTypeCollector.FCacheFailed;
+    FFromCache := True;
+    FDone := True;
+  end;
+end;
+
+destructor TIdeTypeRun.Destroy;
+begin
+  FTypes.Free;
+  inherited;
+end;
+
+procedure TIdeTypeRun.StepModule(const APackages: TArray<TRttiPackage>; AModule: HINST);
+var
+  mPackage: TRttiPackage;
+  mSources: TDictionary<string, Boolean>;
+begin
+  // Zwischen zwei Takten entladen: übergehen.
+  if not ModuleLoaded(AModule) then
+  begin
+    Exit;
+  end;
+  for mPackage in APackages do
+  begin
+    if mPackage.Handle <> AModule then
+    begin
+      Continue;
+    end;
+    // L2: Packages der Installation nur mit ihren Units ohne Quelltext.
+    mSources := nil;
+    if TDpccIdeTypes.InFolders(mPackage.Name, [TDpccIdeTypeCollector.InstallationFolder]) then
+    begin
+      mSources := TDpccIdeTypeCollector.SourceUnits;
+    end;
+    // Ein Package mit beschädigter RTTI darf die übrigen nicht verhindern.
+    try
+      AddPackageTypes(mPackage, FTypes, mSources);
+    except
+      on Exception do
+      begin
+        Inc(FFailed);
+      end;
+    end;
+    Break;
+  end;
+end;
+
+procedure TIdeTypeRun.Finish;
+begin
+  FResult := FTypes.ToArray;
+  FDone := True;
+  TDpccIdeTypeCollector.Remember(FSignature, FResult, FFailed);
+end;
+
+function TIdeTypeRun.Step(ABudgetMs: Cardinal): Boolean;
+var
+  mWatch: TStopwatch;
+  mContext: TRttiContext;
+  mPackages: TArray<TRttiPackage>;
+begin
+  if FDone then
+  begin
+    Exit(True);
+  end;
+  mWatch := TStopwatch.StartNew;
+  // Ein Kontext je Takt, nie über Takte hinweg: Dazwischen kann die IDE Packages entladen.
+  mContext := TRttiContext.Create;
+  try
+    mPackages := nil;
+    repeat
+      if not FPaletteDone then
+      begin
+        FPaletteDone := True;
+        try
+          TDpccIdeTypeCollector.AddPalette(FSkipped, FTypes);
+        except
+          on Exception do
+          begin
+            Inc(FFailed);
+          end;
+        end;
+      end
+      else if FIndex < Length(FModules) then
+      begin
+        if mPackages = nil then
+        begin
+          mPackages := mContext.GetPackages;
+        end;
+        StepModule(mPackages, FModules[FIndex]);
+        Inc(FIndex);
+      end;
+      if FPaletteDone and (FIndex >= Length(FModules)) then
+      begin
+        Finish;
+      end;
+    until FDone or (mWatch.ElapsedMilliseconds >= ABudgetMs);
+  finally
+    mPackages := nil;
+    mContext.Free;
+  end;
+  Result := FDone;
+end;
+
+function TIdeTypeRun.Types: TArray<TDpccIdeType>;
+begin
+  Result := FResult;
+end;
+
+function TIdeTypeRun.Failed: Integer;
+begin
+  Result := FFailed;
+end;
+
+function TIdeTypeRun.Modules: Integer;
+begin
+  Result := Length(FModules);
+end;
+
+function TIdeTypeRun.FromCache: Boolean;
+begin
+  Result := FFromCache;
 end;
 
 end.

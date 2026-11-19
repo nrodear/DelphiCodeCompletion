@@ -1,9 +1,11 @@
 ﻿unit dpcc.IDE.CodeInsight.Manager.Commands;
 
 // Befehle des Code Insight-Managers an den Server, dritte Stufe der Klassenkette: QueryStatusAsync fragt
-// dpcc.server.status im Hintergrund (#591); StopSession wartet auf eine laufende Abfrage, bevor es die Sitzung
-// freigibt. RunCommandAsync (#66) schickt einen Befehl mit Argumenten im Hintergrund, etwa die Metriken des
-// Projekts nach einem Build; RunCommandsAsync (#68) mehrere nacheinander in einem Hintergrundlauf. Bedienbefehle
+// dpcc.server.status im Hintergrund (#591); der Stopp im Hintergrund (StopDetachedAsync) wartet auf eine laufende
+// Abfrage, bevor er die Sitzung freigibt. Ob Abfrage, Befehl oder Bedienbefehle laufen, steht in den
+// referenzgezählten Leerlauf-Signalen (FSignals): Die Threads fassen danach den Manager nicht mehr an.
+// RunCommandAsync (#66) schickt einen Befehl mit Argumenten im Hintergrund, etwa die Metriken des Projekts nach einem
+// Build; RunCommandsAsync (#68) mehrere nacheinander in einem Hintergrundlauf. Bedienbefehle
 // (#874) laufen im Hintergrund und antworten im Hauptthread.
 
 interface
@@ -18,11 +20,6 @@ type
   /// <summary>Befehle und Benachrichtigungen an den Server, im Hintergrund oder sofort.</summary>
   TDpccCodeInsightCommands = class(TDpccCodeInsightSession)
   protected
-    FQueryRunning: Boolean;
-    /// <summary>Befehl im Hintergrund (RunCommandAsync, #66).</summary>
-    FCommandRunning: Boolean;
-    /// <summary>Anzahl laufender Bedienbefehle im Hintergrund (RunInBackground, #874).</summary>
-    FServerCommands: Integer;
     /// <summary>Führt AWork mit ASession in einem eigenen Thread aus und ruft ADone im Hauptthread (#874).
     /// ASession nil: ADone(nil) sofort.</summary>
     procedure RunInBackground(ASession: TLspSession; const AWork: TFunc<TLspSession, TJSONValue>;
@@ -68,6 +65,7 @@ implementation
 
 uses
   System.SyncObjs,
+  dpcc.Core.Lsp.SessionStart,
   dpcc.Core.Status.Lines,
   dpcc.Core.Diagnostics.Guard,
   dpcc.Core.Diagnostics.MainThread,
@@ -179,19 +177,17 @@ end;
 function TDpccCodeInsightCommands.QueryStatusAsync(const ADone: TProc<string>): Boolean;
 var
   mSession: TLspSession;
-  mIdle: TEvent;
+  mSignals: IDpccIdleSignals;
 begin
   Result := False;
   // Server ohne dpcc.server.status (schlanker Server): wie ohne Server keine Abfrage.
-  if FQueryRunning or (ReadySession = nil) or
-    not FSession.Offers(cExecuteCommandMethod, TDpccStatusLines.cStatusCommand) then
+  if FSignals.QueryRunning or (ReadySession = nil) or
+    not FSession.Offers(cExecuteCommandMethod, TDpccStatusLines.cStatusCommand) or not FSignals.TryBeginQuery then
   begin
     Exit;
   end;
-  FQueryRunning := True;
-  FQueryIdle.ResetEvent;
   mSession := FSession;
-  mIdle := FQueryIdle;
+  mSignals := FSignals;
   FThreads.Start(
     procedure
     var
@@ -211,9 +207,8 @@ begin
           end;
         end;
       finally
-        // Danach nichts mehr am Manager: StopSession wartet genau auf dieses Signal.
-        FQueryRunning := False;
-        mIdle.SetEvent;
+        // Nie am Manager: Der Stopp im Hintergrund wartet genau auf dieses Signal.
+        mSignals.EndQuery;
       end;
     end);
   Result := True;
@@ -239,21 +234,19 @@ function TDpccCodeInsightCommands.RunCommandsAsync(const ACommands, AArgumentsJs
   ATimeoutMs: Cardinal; const ADone: TProc<TArray<string>>): Boolean;
 var
   mSession: TLspSession;
-  mIdle: TEvent;
+  mSignals: IDpccIdleSignals;
   mCommands, mArguments: TArray<string>;
   mTimeout: Cardinal;
   mDone: TProc<TArray<string>>;
 begin
   Result := False;
-  if (Length(ACommands) = 0) or (Length(ACommands) <> Length(AArgumentsJson)) or FCommandRunning or
-    (ReadySession = nil) then
+  if (Length(ACommands) = 0) or (Length(ACommands) <> Length(AArgumentsJson)) or FSignals.CommandRunning or
+    (ReadySession = nil) or not FSignals.TryBeginCommand then
   begin
     Exit;
   end;
-  FCommandRunning := True;
-  FCommandIdle.ResetEvent;
   mSession := FSession;
-  mIdle := FCommandIdle;
+  mSignals := FSignals;
   mCommands := Copy(ACommands);
   mArguments := Copy(AArgumentsJson);
   mTimeout := ATimeoutMs;
@@ -277,9 +270,8 @@ begin
           end;
         end;
       finally
-        // Danach nichts mehr am Manager: StopSession wartet genau auf dieses Signal.
-        FCommandRunning := False;
-        mIdle.SetEvent;
+        // Nie am Manager: Der Stopp im Hintergrund wartet genau auf dieses Signal.
+        mSignals.EndCommand;
       end;
     end);
   Result := True;
@@ -323,7 +315,7 @@ procedure TDpccCodeInsightCommands.RunInBackground(ASession: TLspSession;
   const AWork: TFunc<TLspSession, TJSONValue>; const ADone: TProc<TJSONValue>);
 var
   mSession: TLspSession;
-  mIdle: TEvent;
+  mSignals: IDpccIdleSignals;
   mWork: TFunc<TLspSession, TJSONValue>;
   mDone: TProc<TJSONValue>;
 begin
@@ -338,22 +330,16 @@ begin
     Exit;
   end;
   mWork := AWork;
-  if AtomicIncrement(FServerCommands) = 1 then
-  begin
-    FServerCommandsIdle.ResetEvent;
-  end;
-  mIdle := FServerCommandsIdle;
+  FSignals.BeginServerCommand;
+  mSignals := FSignals;
   FThreads.Start(
     procedure
     begin
       try
         DeliverJson(WorkJson(mSession, mWork), mDone);
       finally
-        // Danach nichts mehr am Manager: StopSession wartet genau auf dieses Signal.
-        if AtomicDecrement(FServerCommands) = 0 then
-        begin
-          mIdle.SetEvent;
-        end;
+        // Nie am Manager: Der Stopp im Hintergrund wartet genau auf dieses Signal.
+        mSignals.EndServerCommand;
       end;
     end);
 end;

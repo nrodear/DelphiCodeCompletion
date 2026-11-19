@@ -166,6 +166,10 @@ reads and writes them there, version-neutrally via the base key of the running I
   window “… takes effect after restarting Delphi”. Until then, the IDE calls the previous provider.
 - Because the IDE writes its editor options back from memory on OK, dpcc writes only after the dialog, checks again
   afterwards and writes the intended state once more when Delphi exits.
+- The same applies when you select dpcc or another provider in the IDE's Code Insight dialog and confirm with OK: the
+  IDE then writes its editor options back from memory and may overwrite values set by dpcc. So dpcc checks once more
+  after the options dialog has closed (as soon as no modal window is open any more, for at most 10 minutes) and writes
+  overwritten values again, as after OK on the dpcc page. The repair when Delphi exits remains.
 - If the switch to dpcc still does not stick (the IDE wrote its choice back), dpcc is off at the next start and the
   Messages window says so. Then set the master switch again or select dpcc in the IDE options.
 - Each decision is one line in the log, for example “IDE-Kontext (Start): Borland.CodeInsight.LSP.Pascal → dpcc aus;
@@ -179,7 +183,8 @@ The same for Delphi 12 and 13. Location unless stated otherwise: `HKCU\<base>\Co
 | IDE option | Registry value | Expected | When | Reason |
 |---|---|---|---|---|
 | Code Insight provider for Delphi | `Insight Manager` (under `Editor\Source Options\Borland.EditOptions.Pascal`) | `dpcc.CodeInsight` | always | dpcc serves Delphi files itself. |
-| Code completion: Auto invoke | `Auto Code Completions` | `True` | always | Off: no list opens after “.”. |
+| Code completion | `Auto Code Completions` | `True` | always | Off: no list opens after “.”. |
+| Auto invoke | `Auto Invoke` | `True` | always | Off: the IDE does not invoke code completion after “.” by itself. |
 | Code completion: Delay while typing | `Auto Invoke Delay` | `-1` | always | From 0 on, the IDE additionally opens its own list while typing. |
 | Code parameters: Auto invoke | `Auto Code Parameters` | `True` | always | Off: the parameter hint does not open on “(” and “,” by itself. |
 | Tooltip help insight | `Help Insight` | `False` | “Own tooltip …” on | Otherwise the IDE shows Help Insight next to the dpcc tooltip. |
@@ -197,7 +202,8 @@ the page.
 
 | IDE option | Registry value | Expected | Reason |
 |---|---|---|---|
-| Code completion: Auto invoke | `Auto Code Completions` | `True` | Off: no list opens after “.” (see [Troubleshooting](troubleshooting.md#no-list-opens-after-the-dot)). |
+| Code completion | `Auto Code Completions` | `True` | Off: no list opens after “.” (see [Troubleshooting](troubleshooting.md#no-list-opens-after-the-dot)). |
+| Auto invoke | `Auto Invoke` | `True` | Off: the IDE does not invoke code completion after “.” by itself (see [Troubleshooting](troubleshooting.md#no-list-opens-after-the-dot)). |
 | Code parameters: Auto invoke | `Auto Code Parameters` | `True` | Off: no parameter hint by itself. |
 | Error Insight | `Error Insight` | `True` (missing = on) | Off: the DelphiLSP error marks are missing in the editor. |
 

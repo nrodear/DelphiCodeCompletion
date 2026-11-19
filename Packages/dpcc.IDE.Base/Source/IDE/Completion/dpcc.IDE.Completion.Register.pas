@@ -28,7 +28,9 @@
 // Server nach zwei gleichen Abstürzen angehalten ist, meldet eine Zeile im Meldungsfenster und eine Rückfrage
 // „Server neu starten?“.
 // Abbau (#886): jeder Schritt für sich; eine Ausnahme lässt die folgenden nicht aus. Unregister läuft beim
-// Zerstören des Hauptfensters (ExitWatch) oder in der Finalisierung, je nachdem, was zuerst kommt.
+// Zerstören des Hauptfensters (ExitWatch) oder in der Finalisierung, je nachdem, was zuerst kommt. Server-Start und
+// -Stopp laufen im Hintergrund; der Schritt „Manager“ (Shutdown → ShutdownSession) wartet nach dem Abbruchsignal
+// höchstens 5 s auf diese Threads, bevor Code der BPL entladen wird.
 
 interface
 
@@ -730,6 +732,8 @@ begin
     TDpccGuard.RotatingLog.OnError := nil;
     TDpccIdeSettings.OnChanged := nil;
     mTeardown.Step('IdeContext', IdeContextAtExit);
+    // Wartende Gegenprüfung nach der Wahl im Code-Insight-Dialog samt Timer.
+    mTeardown.Step('InsightSwitch', TDpccIdeInsightSwitch.Release);
     mTeardown.Step('Options', TDpccOptionsRegistration.Unregister);
     mTeardown.Step('SaveNotifier', StopSaveNotifier);
     mTeardown.Step('Forms', StopForms);

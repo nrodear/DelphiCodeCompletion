@@ -2,7 +2,7 @@
 
 // Anbindungen des Code Insight-Managers an den Editor: Vervollständigung im eigenen Popup (#410), Parameter-Hint
 // (#436) und eigener Hover-Tooltip (#442). Sie fragen die Sitzung über die Haken des Managers; abgebaut wird in der
-// Reihenfolge, die StopSession und Shutdown brauchen. Probleme, Inlay-Hints und Code Lens gibt es seit Rückbau R6
+// Reihenfolge, die DetachSession und Shutdown brauchen. Probleme, Inlay-Hints und Code Lens gibt es seit Rückbau R6
 // nicht mehr.
 // Tippen (L5, completion.autoMinChars): Die Vervollständigung entsteht sonst erst beim ersten Strg+Leertaste. Damit
 // das Öffnen beim Tippen von Anfang an wirkt, beobachtet ein kleiner Editor-Beobachter die Änderungen, bis sie
@@ -23,10 +23,10 @@ uses
 type
   /// <summary>Was die Anbindungen vom Manager brauchen.</summary>
   TDpccCodeInsightEditorHooks = record
-    /// <summary>Laufende Sitzung oder Start im Hauptthread; außerhalb des Hauptthreads nur, was schon läuft.
-    /// </summary>
+    /// <summary>Laufende Sitzung; sonst stößt der Hauptthread den Start im Hintergrund an und bekommt False (wartet
+    /// nie). Außerhalb des Hauptthreads nur, was schon läuft.</summary>
     EnsureSession: TFunc<Boolean>;
-    /// <summary>Laufende Sitzung oder nil, nie während StopSession; startet keinen Server.</summary>
+    /// <summary>Laufende Sitzung oder nil, nie während DetachSession; startet keinen Server.</summary>
     RunningSession: TFunc<TLspSession>;
     /// <summary>Server läuft und Sitzung initialisiert; startet keinen Server.</summary>
     ReadySession: TFunc<TLspSession>;

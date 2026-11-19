@@ -104,6 +104,8 @@
         <DCCReference Include="Source\Lsp\dpcc.Core.Lsp.Uris.pas"/>
         <DCCReference Include="Source\Lsp\dpcc.Core.Lsp.WorkspaceEdits.pas"/>
         <DCCReference Include="Source\Lsp\dpcc.Core.Lsp.Adapters.InProcess.pas"/>
+        <DCCReference Include="Source\Lsp\dpcc.Core.Lsp.SessionLifecycle.pas"/>
+        <DCCReference Include="Source\Lsp\dpcc.Core.Lsp.SessionStart.pas"/>
         <DCCReference Include="Source\Completion\dpcc.Core.Completion.Contract.pas"/>
         <DCCReference Include="Source\Completion\Internals\dpcc.Core.Completion.Internals.Async.pas"/>
         <DCCReference Include="Source\Completion\dpcc.Core.Completion.Composite.pas"/>

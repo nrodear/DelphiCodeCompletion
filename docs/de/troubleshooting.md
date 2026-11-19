@@ -52,13 +52,14 @@ dpcc gibt die Taste an die IDE weiter, wenn es die Datei nicht bedient:
 
 ## Nach dem Punkt öffnet keine Liste
 
-Meist steht in den Code-Insight-Optionen der IDE „Code-Vervollständigung: Automatisch aufrufen“ aus (Registry-Wert
-`Auto Code Completions` = `False`). Dann öffnet nach „.“ weder die Liste der IDE noch die von dpcc.
+Meist steht in den Code-Insight-Optionen der IDE „Programmierhilfe“ aus (Registry-Wert `Auto Code Completions` =
+`False`). Dann öffnet nach „.“ weder die Liste der IDE noch die von dpcc. Zweiter möglicher Grund: „Automatisch
+aufrufen“ steht aus (`Auto Invoke` = `False`); dann ruft die IDE die Vervollständigung nach „.“ nicht von selbst auf.
 
-- Betriebsart dpcc: dpcc stellt den Wert beim Start von Delphi selbst auf `True`; wirkt nach dem nächsten Start.
+- Betriebsart dpcc: dpcc stellt beide Werte beim Start von Delphi selbst auf `True`; wirkt nach dem nächsten Start.
 - Betriebsart IDE (DelphiLSP gewählt): dpcc meldet die Abweichung nur, im Protokoll („IDE-Einstellungen: 1 Abweichung:
   Auto Code Completions“) und auf der Seite dpcc im Abschnitt **IDE**. In den Code-Insight-Optionen der IDE
-  „Automatisch aufrufen“ einschalten.
+  „Programmierhilfe“ und „Automatisch aufrufen“ einschalten.
 
 Orte und Soll-Werte für Delphi 12 und 13: [Einstellungen](settings.md#was-dpcc-an-der-ide-umstellt).
 

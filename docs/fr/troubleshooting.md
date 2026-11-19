@@ -57,14 +57,16 @@ dpcc transmet la touche à l'IDE lorsqu'il ne traite pas le fichier :
 
 ## Aucune liste ne s'ouvre après le point
 
-Le plus souvent, « Code completion: Auto invoke » (complétion de code : appel automatique) est désactivé dans les
-options Code Insight de l'IDE (valeur de registre `Auto Code Completions` = `False`). Alors ni la liste de l'IDE ni
-celle de dpcc ne s'ouvre après « . ».
+Le plus souvent, « Code completion » (complétion de code) est désactivé dans les options Code Insight de l'IDE (valeur
+de registre `Auto Code Completions` = `False`). Alors ni la liste de l'IDE ni celle de dpcc ne s'ouvre après « . ».
+Deuxième cause possible : « Auto invoke » (appel automatique) est désactivé (`Auto Invoke` = `False`) ; l'IDE
+n'appelle alors pas d'elle-même la complétion après « . ».
 
-- Mode dpcc : dpcc règle lui-même la valeur sur `True` au démarrage de Delphi ; prend effet au prochain démarrage.
+- Mode dpcc : dpcc règle lui-même les deux valeurs sur `True` au démarrage de Delphi ; prend effet au prochain
+  démarrage.
 - Mode IDE (DelphiLSP choisi) : dpcc ne fait que signaler l'écart, dans le journal (« IDE-Einstellungen: 1 Abweichung:
-  Auto Code Completions ») et sur la page dpcc dans la section **IDE**. Activer « Auto invoke » dans les options Code
-  Insight de l'IDE.
+  Auto Code Completions ») et sur la page dpcc dans la section **IDE**. Activer « Code completion » et « Auto invoke »
+  dans les options Code Insight de l'IDE.
 
 Emplacements et valeurs attendues pour Delphi 12 et 13 : [Réglages](settings.md#ce-que-dpcc-modifie-dans-lide).
 

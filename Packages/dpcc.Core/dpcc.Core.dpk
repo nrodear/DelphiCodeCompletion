@@ -59,6 +59,8 @@ contains
   dpcc.Core.Lsp.Uris in 'Source\Lsp\dpcc.Core.Lsp.Uris.pas',
   dpcc.Core.Lsp.WorkspaceEdits in 'Source\Lsp\dpcc.Core.Lsp.WorkspaceEdits.pas',
   dpcc.Core.Lsp.Adapters.InProcess in 'Source\Lsp\dpcc.Core.Lsp.Adapters.InProcess.pas',
+  dpcc.Core.Lsp.SessionLifecycle in 'Source\Lsp\dpcc.Core.Lsp.SessionLifecycle.pas',
+  dpcc.Core.Lsp.SessionStart in 'Source\Lsp\dpcc.Core.Lsp.SessionStart.pas',
   dpcc.Core.Completion.Contract in 'Source\Completion\dpcc.Core.Completion.Contract.pas',
   dpcc.Core.Completion.Internals.Async in 'Source\Completion\Internals\dpcc.Core.Completion.Internals.Async.pas',
   dpcc.Core.Completion.Composite in 'Source\Completion\dpcc.Core.Completion.Composite.pas',

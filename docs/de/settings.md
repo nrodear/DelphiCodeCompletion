@@ -168,6 +168,11 @@ gelesen. dpcc liest und schreibt sie dort, versionsneutral über den Basisschlü
   „… wirkt nach dem Neustart von Delphi“. Bis dahin ruft die IDE den bisherigen Anbieter.
 - Weil die IDE mit OK ihre Editoroptionen aus dem Speicher zurückschreibt, schreibt dpcc erst nach dem Dialog, prüft
   danach gegen und schreibt beim Beenden von Delphi den gewollten Stand noch einmal.
+- Dasselbe gilt, wenn man im Code-Insight-Dialog der IDE dpcc oder einen anderen Anbieter wählt und mit OK bestätigt:
+  Die IDE schreibt danach ihre Editoroptionen aus dem Speicher zurück und kann Werte von dpcc überschreiben. dpcc prüft
+  deshalb nach dem Schließen des Optionsdialogs noch einmal nach (sobald kein modales Fenster mehr offen ist,
+  höchstens 10 Minuten lang) und schreibt überschriebene Werte erneut, wie nach OK auf der Seite dpcc. Die Reparatur
+  beim Beenden von Delphi bleibt.
 - Kommt der Wechsel auf dpcc trotzdem nicht an (die IDE hat ihre Wahl zurückgeschrieben), ist dpcc beim nächsten
   Start aus, und das Meldungsfenster sagt es. Dann den Hauptschalter erneut setzen oder dpcc in den Optionen der IDE
   wählen.
@@ -183,7 +188,8 @@ Gleich für Delphi 12 und 13. Ort, wenn nicht anders genannt: `HKCU\<Basis>\Code
 | Option der IDE | Registry-Wert | Soll | Wann | Grund |
 |---|---|---|---|---|
 | Code-Insight-Anbieter für Delphi | `Insight Manager` (unter `Editor\Source Options\Borland.EditOptions.Pascal`) | `dpcc.CodeInsight` | immer | dpcc bedient Delphi-Dateien selbst. |
-| Code-Vervollständigung: Automatisch aufrufen | `Auto Code Completions` | `True` | immer | Aus: Nach „.“ öffnet keine Liste. |
+| Programmierhilfe | `Auto Code Completions` | `True` | immer | Aus: Nach „.“ öffnet keine Liste. |
+| Automatisch aufrufen | `Auto Invoke` | `True` | immer | Aus: Die IDE ruft die Vervollständigung nach „.“ nicht von selbst auf. |
 | Code-Vervollständigung: Verzögerung beim Tippen | `Auto Invoke Delay` | `-1` | immer | Ab 0 öffnet die IDE beim Tippen zusätzlich ihre eigene Liste. |
 | Code-Parameter: Automatisch aufrufen | `Auto Code Parameters` | `True` | immer | Aus: Der Parameter-Hint öffnet bei „(“ und „,“ nicht von selbst. |
 | Kurzhinweis Hilfe-Insight | `Help Insight` | `False` | „Eigener Tooltip …“ an | Sonst zeigt die IDE Help Insight neben dem dpcc-Tooltip. |
@@ -201,7 +207,8 @@ Mit DelphiLSP prüft dpcc beim Start, ändert aber nichts. Das Ergebnis steht im
 
 | Option der IDE | Registry-Wert | Soll | Grund |
 |---|---|---|---|
-| Code-Vervollständigung: Automatisch aufrufen | `Auto Code Completions` | `True` | Aus: Nach „.“ öffnet keine Liste (siehe [Fehlersuche](troubleshooting.md#nach-dem-punkt-öffnet-keine-liste)). |
+| Programmierhilfe | `Auto Code Completions` | `True` | Aus: Nach „.“ öffnet keine Liste (siehe [Fehlersuche](troubleshooting.md#nach-dem-punkt-öffnet-keine-liste)). |
+| Automatisch aufrufen | `Auto Invoke` | `True` | Aus: Die IDE ruft die Vervollständigung nach „.“ nicht von selbst auf (siehe [Fehlersuche](troubleshooting.md#nach-dem-punkt-öffnet-keine-liste)). |
 | Code-Parameter: Automatisch aufrufen | `Auto Code Parameters` | `True` | Aus: kein Parameter-Hint von selbst. |
 | Error Insight | `Error Insight` | `True` (fehlt = an) | Aus: Die Fehlermarkierungen von DelphiLSP fehlen im Editor. |
 

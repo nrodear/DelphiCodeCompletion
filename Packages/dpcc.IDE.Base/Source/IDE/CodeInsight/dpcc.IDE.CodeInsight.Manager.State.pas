@@ -52,10 +52,8 @@ type
     FLastError: string;
     FDiagnose: Boolean;
     FPhase: TDpccServerPhaseState;
-    /// <summary>StopSession läuft: Ein Ende des Prozesses jetzt ist kein Absturz.</summary>
+    /// <summary>DetachSession schließt gerade die Verbindung: Ein Ende des Servers jetzt ist kein Absturz.</summary>
     FStopping: Boolean;
-    /// <summary>EnsureSession startet gerade (gegen Wiedereintritt über CheckSynchronize).</summary>
-    FStarting: Boolean;
     /// <summary>Shutdown ist gelaufen: Sitzung, Threads und Editor-Anbindungen sind weg (#886).</summary>
     FShutDown: Boolean;
     FOnServerChanged: TProc;
@@ -84,7 +82,7 @@ type
     function LogActions: TArray<TDpccNotificationAction>;
     procedure ReportError(const AMessage: string);
     procedure Diagnose(const AMessage: string);
-    /// <summary>Server läuft und die Sitzung ist initialisiert, auch während StopSession.</summary>
+    /// <summary>Server läuft und die Sitzung ist initialisiert, auch während DetachSession.</summary>
     function ReadySession: TLspSession;
   public
     constructor Create(const AAdapters: TDpccCodeInsightAdapters);
@@ -121,6 +119,9 @@ type
 function ManagerLive(AManager: TObject): Boolean;
 /// <summary>AManager ist abgebaut (Shutdown): ab jetzt nicht mehr lebend.</summary>
 procedure RetireManager(AManager: TObject);
+/// <summary>Der lebende Manager oder nil; nur im Hauptthread benutzen (dort wird er auch abgebaut). Rückmeldungen
+/// der Hintergrund-Threads suchen ihn erst hier, statt ihn selbst zu halten.</summary>
+function LiveManagerObject: TObject;
 
 implementation
 
@@ -147,6 +148,11 @@ begin
   begin
     LiveManager := nil;
   end;
+end;
+
+function LiveManagerObject: TObject;
+begin
+  Result := LiveManager;
 end;
 
 { TDpccCodeInsightState }
@@ -267,7 +273,8 @@ end;
 function TDpccCodeInsightState.RunningSession: TLspSession;
 begin
   Result := nil;
-  // Während StopSession nie: Die Sitzung wird gleich freigegeben. Aus jedem Thread aufrufbar.
+  // Während DetachSession nie: Die Sitzung wird gleich gelöst und im Hintergrund freigegeben. Aus jedem Thread
+  // aufrufbar.
   if not FStopping then
   begin
     Result := ReadySession;
