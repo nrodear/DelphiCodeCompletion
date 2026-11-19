@@ -19,6 +19,12 @@
         <CfgParent>Base</CfgParent>
         <Base>true</Base>
     </PropertyGroup>
+    <PropertyGroup Condition="'$(Config)'=='D12' or '$(Cfg_3)'!=''">
+        <Cfg_3>true</Cfg_3>
+        <CfgParent>Cfg_1</CfgParent>
+        <Cfg_1>true</Cfg_1>
+        <Base>true</Base>
+    </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Debug' or '$(Cfg_1)'!=''">
         <Cfg_1>true</Cfg_1>
         <CfgParent>Base</CfgParent>
@@ -43,15 +49,6 @@
         <DCC_DcuOutput>..\..\Output\$(Platform)\$(Config)\Dcu\dpcc.Common</DCC_DcuOutput>
         <DCC_DcpOutput>..\..\Output\$(Platform)\$(Config)\Dcp</DCC_DcpOutput>
         <DCC_BplOutput>..\..\Output\$(Platform)\$(Config)\Bpl</DCC_BplOutput>
-    </PropertyGroup>
-    <!-- Delphi 12 (BDS 23.0, Package-Version 290): eigene Ausgabe unter Output\290, damit DCU/DCP/BPL
-         nicht mit denen von Delphi 13 (Output\$(Platform)\$(Config)) kollidieren. Delphi 13 hat kein
-         rtl290.bpl in $(BDS)\bin, dort bleibt diese Gruppe ohne Wirkung. -->
-    <PropertyGroup Condition="'$(Base)'!='' and Exists('$(BDS)\bin\rtl290.bpl')">
-        <DCC_UnitSearchPath>..\..\Output\290\$(Platform)\$(Config)\Dcp;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
-        <DCC_DcuOutput>..\..\Output\290\$(Platform)\$(Config)\Dcu\dpcc.Common</DCC_DcuOutput>
-        <DCC_DcpOutput>..\..\Output\290\$(Platform)\$(Config)\Dcp</DCC_DcpOutput>
-        <DCC_BplOutput>..\..\Output\290\$(Platform)\$(Config)\Bpl</DCC_BplOutput>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_Win64x)'!=''">
         <DCC_Namespace>Winapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;$(DCC_Namespace)</DCC_Namespace>
@@ -317,6 +314,10 @@
         <BuildConfiguration Include="Release">
             <Key>Cfg_2</Key>
             <CfgParent>Base</CfgParent>
+        </BuildConfiguration>
+        <BuildConfiguration Include="D12">
+            <Key>Cfg_3</Key>
+            <CfgParent>Cfg_1</CfgParent>
         </BuildConfiguration>
     </ItemGroup>
     <ProjectExtensions>

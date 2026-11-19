@@ -40,8 +40,8 @@
 // Betrieb, einen eigenen Server-Prozess gibt es nicht mehr) mit den Packages
 // des Servers: dpcc.Text und dpcc.WinBase (früher hier als Quelltext mitübersetzt; eine Unit darf nur in
 // einem geladenen Package stehen), dpcc.Common, dpcc.Windows und dpcc.Server. Die IDE lädt deren BPLs
-// mit; sie müssen über PATH auffindbar sein (Delphi 13: Output\$(Platform)\$(Config)\Bpl, Delphi 12:
-// Output\290\$(Platform)\$(Config)\Bpl; siehe Konzept, Schritt 2b).
+// mit; sie müssen über PATH auffindbar sein (Delphi 13: Konfiguration Debug, Output\Win32\Debug\Bpl;
+// Delphi 12: Konfiguration D12, Output\Win32\D12\Bpl; siehe Konzept, Schritt 2b).
 // Seit S7b nur noch die Anbindung an die IDE (ToolsAPI, Registrierung): Die Logik liegt in dpcc.Core, die
 // VCL-Oberfläche in dpcc.UI (beide Laufzeit-Packages, ebenfalls über PATH).
 

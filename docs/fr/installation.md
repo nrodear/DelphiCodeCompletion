@@ -35,26 +35,29 @@ Pour Delphi 12 (RAD Studio 23.0), il existe le groupe `dpcc_d12.groupproj` avec 
 programme de test : les tests ne s'exécutent que sous Delphi 13.
 
 1. Ouvrir `dpcc_d12.groupproj` dans l'IDE de Delphi 12.
-2. Plateforme Win32, configuration Debug.
+2. Plateforme Win32, configuration **D12** pour les huit projets (**Project › Configuration Manager**).
 3. Compiler tous les projets du groupe.
 
-Les paquets reconnaissent eux-mêmes Delphi 12 (à `rtl290.bpl` dans `$(BDS)\bin`) et compilent dans un dossier à
-part. Ainsi, les fichiers des deux versions ne s'écrasent pas.
+La configuration D12 hérite de tous les réglages de Debug et compile dans un dossier à part (`Output\Win32\D12`).
+Ainsi, les fichiers des deux versions ne s'écrasent pas. Ne jamais compiler Delphi 12 avec la configuration
+Debug : il écrirait sinon dans les dossiers de Delphi 13 (recompiler alors `dpcc_d13.groupproj` sous
+Delphi 13). Pour en savoir plus, voir [Développement](development.md).
 
 | | Delphi 13 | Delphi 12 |
 |---|---|---|
 | Groupe | `dpcc_d13.groupproj` | `dpcc_d12.groupproj` |
-| Sortie | `Output\Win32\Debug` | `Output\290\Win32\Debug` |
+| Configuration | Debug | D12 |
+| Sortie | `Output\Win32\Debug` | `Output\Win32\D12` |
 | Plugin | `dpcc.IDE.Base370.bpl` | `dpcc.IDE.Base290.bpl` |
 | Autres BPL | `dpcc.Text370.bpl` … `dpcc.UI370.bpl` | `dpcc.Text290.bpl` … `dpcc.UI290.bpl` |
-| PATH de l'IDE | `…\Output\Win32\Debug\Bpl` | `…\Output\290\Win32\Debug\Bpl` |
+| PATH de l'IDE | `…\Output\Win32\Debug\Bpl` | `…\Output\Win32\D12\Bpl` |
 | Registre de l'IDE | `HKCU\Software\Embarcadero\BDS\37.0` | `HKCU\Software\Embarcadero\BDS\23.0` |
 | `Tools\IdePath.ps1` | sans `-BdsVersion` | `-BdsVersion 23.0` |
 | Tests | oui | non |
 
 Installer et définir le PATH comme ci-dessous, seulement avec les noms et dossiers de la colonne Delphi 12 : dans
-l'IDE de Delphi 12, ajouter `Output\290\Win32\Debug\Bpl\dpcc.IDE.Base290.bpl` (l'IDE l'inscrit sous
-`HKCU\Software\Embarcadero\BDS\23.0\Known Packages`) et placer `…\Output\290\Win32\Debug\Bpl` dans le PATH de
+l'IDE de Delphi 12, ajouter `Output\Win32\D12\Bpl\dpcc.IDE.Base290.bpl` (l'IDE l'inscrit sous
+`HKCU\Software\Embarcadero\BDS\23.0\Known Packages`) et placer `…\Output\Win32\D12\Bpl` dans le PATH de
 l'IDE de Delphi 12.
 
 ## Installer
@@ -120,7 +123,7 @@ powershell -NoProfile -File Tools\IdePath.ps1 -Action Remove  # retirer l'entré
 |---|---|---|
 | `-Action` | `Status` | `Status`, `Check`, `Add` ou `Remove` |
 | `-BdsVersion` | `37.0` | version de l'IDE dans le registre ; `23.0` pour Delphi 12 |
-| `-BplDir` | `Output\Win32\Debug\Bpl` dans le dépôt, avec `-BdsVersion 23.0` `Output\290\Win32\Debug\Bpl` | autre dossier des BPL |
+| `-BplDir` | `Output\Win32\Debug\Bpl` dans le dépôt, avec `-BdsVersion 23.0` `Output\Win32\D12\Bpl` | autre dossier des BPL |
 
 Code de sortie de `Status` et `Check` :
 

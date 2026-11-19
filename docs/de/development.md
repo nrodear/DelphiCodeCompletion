@@ -40,17 +40,30 @@ Alle acht Packages tragen die Package-Version als Endung (`{$LIBSUFFIX AUTO}`, i
 und die `.dcp` bleiben ohne Endung.
 
 **Delphi 12:** `dpcc_d12.groupproj` enthält die Projekte 1 bis 8 mit denselben Abhängigkeiten, ohne das
-Testprogramm. Jede `.dproj` der Packages hat hinter der Basis-Gruppe eine Gruppe mit der Bedingung
-`'$(Base)'!='' and Exists('$(BDS)\bin\rtl290.bpl')`. Sie lenkt DCUs, DCPs, BPLs und den Suchpfad der DCPs nach
-`Output\290\…` um. Unter Delphi 13 liegt kein `rtl290.bpl` in `$(BDS)\bin`, dort bleibt die Gruppe ohne Wirkung.
+Testprogramm. Jede `.dproj` der Packages hat neben Debug (`Cfg_1`) und Release (`Cfg_2`) die Build-Konfiguration
+`D12` (`Cfg_3`). Sie erbt alle Einstellungen von Debug und setzt selbst keine Werte. Weil alle Ausgabe- und
+Suchpfade `$(Platform)\$(Config)` enthalten, baut sie ohne eigene Pfade nach `Output\Win32\D12\…`. Delphi 12 baut
+mit der Konfiguration D12, Delphi 13 mit Debug.
+
+Eine eigene Konfiguration ist nötig, weil die IDE die Kommandozeile des Compilers aus ihrem eigenen Optionsmodell
+bildet. Sie kennt nur die Gruppen der Build-Konfigurationen (`Base`, `Cfg_n` und Plattform-Varianten wie
+`Base_Win32`); eine zusätzliche Gruppe mit eigener Bedingung (etwa `Exists(…)`) übergeht sie.
 
 | Ausgabe unter Delphi 12 | Ordner |
 |---|---|
-| BPLs | `Output\290\Win32\Debug\Bpl` |
-| DCPs | `Output\290\Win32\Debug\Dcp` |
-| DCUs | `Output\290\Win32\Debug\Dcu\<Projekt>` |
+| BPLs | `Output\Win32\D12\Bpl` |
+| DCPs | `Output\Win32\D12\Dcp` |
+| DCUs | `Output\Win32\D12\Dcu\<Projekt>` |
 
-In der IDE von Delphi 12 gehört `…\Output\290\Win32\Debug\Bpl` in den PATH (`Tools\IdePath.ps1 -BdsVersion 23.0`),
+**Delphi 12 nie mit der Konfiguration Debug bauen.** Es schreibt sonst BPLs, DCPs und DCUs in die Ordner von
+Delphi 13 (`Output\Win32\Debug\…`); dann die Gruppe `dpcc_d13.groupproj` unter Delphi 13 neu bauen. In der IDE von
+Delphi 12 die Konfiguration D12 für alle acht Projekte aktivieren (**Projekt › Konfigurationsverwaltung** oder im
+Projektmanager unter **Build-Konfigurationen** je Projekt). Werkzeuge, die die IDE fernsteuern, übergeben die
+Konfiguration beim Bauen (etwa `-Config D12 -Platform Win32`). Die IDE speichert die aktive Konfiguration in der
+`.dproj` (`<Config Condition="'$(Config)'==''">`). Vor dem Speichern wieder Debug aktivieren, sonst baut auch
+Delphi 13 die Konfiguration D12.
+
+In der IDE von Delphi 12 gehört `…\Output\Win32\D12\Bpl` in den PATH (`Tools\IdePath.ps1 -BdsVersion 23.0`),
 installiert wird `dpcc.IDE.Base290.bpl`; siehe [Installation](installation.md#bauen-für-delphi-12).
 
 **Kommandozeile:** Der Kommandozeilen-Compiler (`dcc32`, MSBuild) ist in den Editionen Community und Starter von

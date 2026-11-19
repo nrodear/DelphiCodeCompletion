@@ -9,7 +9,8 @@
   ueber PATH. Dieses Skript traegt den BPL-Ausgabeordner in die PATH-Ueberschreibung der IDE ein
   (HKCU\Software\Embarcadero\BDS\<Version>\Environment Variables, Wert PATH) und zeigt den Zustand an.
   <Suffix> ist die Package-Version (LIBSUFFIX AUTO): 370 fuer Delphi 13 (BDS 37.0), 290 fuer Delphi 12 (BDS 23.0).
-  BPL-Ordner ohne -BplDir: Output\Win32\Debug\Bpl fuer Delphi 13, Output\290\Win32\Debug\Bpl fuer Delphi 12.
+  BPL-Ordner ohne -BplDir: Output\Win32\Debug\Bpl fuer Delphi 13 (Konfiguration Debug), Output\Win32\D12\Bpl
+  fuer Delphi 12 (Konfiguration D12).
 
   Aktionen:
     Status  (Vorgabe) Zustand anzeigen, nichts aendern. Exit-Code 0 = alles in Ordnung, 1 = Eintrag fehlt,
@@ -42,11 +43,12 @@ if (-not [int]::TryParse(($BdsVersion -split '\.')[0], [ref]$Major) -or $Major -
 # Package-Version (LIBSUFFIX AUTO): bis BDS 23.0 (Delphi 12) BDS + 6 (23.0 -> 290), ab BDS 37.0 (Delphi 13) gleich
 # (37.0 -> 370).
 if ($Major -le 23) { $Suffix = '{0}0' -f ($Major + 6) } else { $Suffix = '{0}0' -f $Major }
-# Delphi 13 baut nach Output\Win32\Debug, Delphi 12 nach Output\290\Win32\Debug (dpcc_d12.groupproj).
-if ($Major -ge 37) { $OutputPart = 'Output'; $Group = 'dpcc_d13' } else { $OutputPart = "Output\$Suffix"; $Group = 'dpcc_d12' }
+# Delphi 13 baut mit der Konfiguration Debug nach Output\Win32\Debug, Delphi 12 mit der Konfiguration D12 nach
+# Output\Win32\D12 (dpcc_d12.groupproj). Delphi 12 darf nie mit Debug bauen (schreibt sonst in die Ordner von 13).
+if ($Major -ge 37) { $ConfigName = 'Debug'; $Group = 'dpcc_d13' } else { $ConfigName = 'D12'; $Group = 'dpcc_d12' }
 
 if ($BplDir -eq '') {
-  $BplDir = Join-Path (Split-Path -Parent $PSScriptRoot) "$OutputPart\Win32\Debug\Bpl"
+  $BplDir = Join-Path (Split-Path -Parent $PSScriptRoot) "Output\Win32\$ConfigName\Bpl"
 }
 $BplDir = [IO.Path]::GetFullPath($BplDir).TrimEnd('\')
 

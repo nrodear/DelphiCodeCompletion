@@ -37,7 +37,7 @@ L'interrupteur principal change de fournisseur ; cela prend effet après le red
 
 Ouvrir le groupe de projets `dpcc_d13.groupproj` dans l'IDE et compiler tous les projets (Win32, Debug). La sortie
 se trouve sous `Output\Win32\Debug` (les BPL dans `Bpl`, le programme de test dans `Bin`). Pour Delphi 12, c'est
-`dpcc_d12.groupproj`, avec la sortie sous `Output\290\Win32\Debug`. Pour en savoir plus :
+`dpcc_d12.groupproj`, avec la configuration D12 (jamais Debug) et la sortie sous `Output\Win32\D12`. Pour en savoir plus :
 [Développement](docs/fr/development.md).
 
 ## Installation
@@ -48,7 +48,7 @@ se trouve sous `Output\Win32\Debug` (les BPL dans `Bpl`, le programme de test da
    `dpcc.Common370`, `dpcc.Windows370`, `dpcc.Server370`, `dpcc.Core370` et `dpcc.UI370`. Windows les recherche
    via le PATH. Le dossier `Output\Win32\Debug\Bpl` doit donc figurer dans le PATH de l'IDE.
 3. Sous Delphi 12, les fichiers s'appellent `…290.bpl` (plugin `dpcc.IDE.Base290.bpl`), le dossier est
-   `Output\290\Win32\Debug\Bpl`.
+   `Output\Win32\D12\Bpl`.
 
 ### Définir le PATH de l'IDE
 

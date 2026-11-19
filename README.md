@@ -38,7 +38,7 @@ stellt den Anbieter um; das wirkt nach dem Neustart von Delphi. Details:
 
 Die Projektgruppe `dpcc_d13.groupproj` in der IDE öffnen und alle Projekte bauen (Win32, Debug). Die Ausgabe landet
 unter `Output\Win32\Debug` (BPLs in `Bpl`, das Testprogramm in `Bin`). Für Delphi 12 ist es
-`dpcc_d12.groupproj` mit der Ausgabe unter `Output\290\Win32\Debug`. Mehr dazu:
+`dpcc_d12.groupproj` mit der Konfiguration D12 (nie Debug) und der Ausgabe unter `Output\Win32\D12`. Mehr dazu:
 [Entwicklung](docs/de/development.md).
 
 ## Installieren
@@ -49,7 +49,7 @@ unter `Output\Win32\Debug` (BPLs in `Bpl`, das Testprogramm in `Bin`). Für Delp
    `dpcc.Common370`, `dpcc.Windows370`, `dpcc.Server370`, `dpcc.Core370` und `dpcc.UI370`. Windows sucht sie
    über den PATH. Der Ordner `Output\Win32\Debug\Bpl` muss deshalb im PATH der IDE stehen.
 3. Unter Delphi 12 heißen die Dateien `…290.bpl` (Plugin `dpcc.IDE.Base290.bpl`), der Ordner ist
-   `Output\290\Win32\Debug\Bpl`.
+   `Output\Win32\D12\Bpl`.
 
 ### PATH der IDE setzen
 

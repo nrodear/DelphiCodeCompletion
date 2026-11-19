@@ -36,7 +36,7 @@ takes effect after restarting Delphi. Details: [Usage](docs/en/usage.md#interact
 
 Open the project group `dpcc_d13.groupproj` in the IDE and build all projects (Win32, Debug). The output goes to
 `Output\Win32\Debug` (BPLs in `Bpl`, the test program in `Bin`). For Delphi 12 it is `dpcc_d12.groupproj` with
-the output in `Output\290\Win32\Debug`. More on this: [Development](docs/en/development.md).
+the configuration D12 (never Debug) and the output in `Output\Win32\D12`. More on this: [Development](docs/en/development.md).
 
 ## Installing
 
@@ -46,7 +46,7 @@ the output in `Output\290\Win32\Debug`. More on this: [Development](docs/en/deve
    `dpcc.Common370`, `dpcc.Windows370`, `dpcc.Server370`, `dpcc.Core370` and `dpcc.UI370`. Windows looks for
    them via the PATH. The folder `Output\Win32\Debug\Bpl` must therefore be in the IDE's PATH.
 3. Under Delphi 12 the files are named `…290.bpl` (plugin `dpcc.IDE.Base290.bpl`), the folder is
-   `Output\290\Win32\Debug\Bpl`.
+   `Output\Win32\D12\Bpl`.
 
 ### Setting the IDE PATH
 
