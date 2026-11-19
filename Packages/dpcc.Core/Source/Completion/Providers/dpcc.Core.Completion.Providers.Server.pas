@@ -14,6 +14,10 @@
 //
 // Lebensdauer: Die Sitzung gehört dem Aufrufer. Bevor er sie freigibt (Neustart
 // des Servers, Entladen), muss er Shutdown aufrufen; das wartet auf laufende Anfragen.
+//
+// Befehl eines Eintrags (#473, perf1): RunCommand (IDpccCompletionCommandRunner) schickt
+// workspace/executeCommand im Hintergrund (RunInBackground, Shutdown wartet darauf) und meldet
+// Antwort bzw. Fehler im Hauptthread. Vorher wartete der Hauptthread beim Übernehmen bis zu 3 s.
 
 interface
 
@@ -30,7 +34,22 @@ type
   /// <summary>Zeile fürs Diagnoselog des Plugins; ohne Namen aus dem Quelltext. Auch aus Hintergrund-Threads.</summary>
   TDpccProviderLog = reference to procedure(const AMessage: string);
 
-  TDpccServerCompletionProvider = class(TDpccAsyncCompletionProvider, IDpccCompletionResolver)
+  /// <summary>Ende eines Befehls im Hauptthread: Antwort als JSON ('' ohne Antwort) und Fehler (Klasse, '' ohne).
+  /// </summary>
+  TDpccCommandDone = reference to procedure(const AAnswerJson, AError: string);
+
+  /// <summary>Befehl eines Eintrags (#473) im Hintergrund an den Server (perf1).</summary>
+  IDpccCompletionCommandRunner = interface
+    ['{5C1F7E2A-9B3D-4A61-8E0C-2D7B4F6A1C93}']
+    /// <summary>workspace/executeCommand mit AArgumentsJson (JSON-Array; sonst leer) im Hintergrund; ADone im
+    /// Hauptthread, solange die Quelle lebt. Nur im Hauptthread aufrufen. False ohne laufende Sitzung (ADone kommt
+    /// dann nicht).</summary>
+    function RunCommand(const ACommand, AArgumentsJson: string; ATimeoutMs: Cardinal;
+      const ADone: TDpccCommandDone): Boolean;
+  end;
+
+  TDpccServerCompletionProvider = class(TDpccAsyncCompletionProvider, IDpccCompletionResolver,
+    IDpccCompletionCommandRunner)
   public const
     cDefaultTimeoutMs = 2000;
   public
@@ -67,6 +86,9 @@ type
     class function DetailsFromLsp(AResponse: TJSONValue): TDpccItemDetails; static;
     { IDpccCompletionResolver }
     function Resolve(const AItem: TDpccCompletionItem; const ACallback: TDpccDetailsCallback): Boolean;
+    { IDpccCompletionCommandRunner }
+    function RunCommand(const ACommand, AArgumentsJson: string; ATimeoutMs: Cardinal;
+      const ADone: TDpccCommandDone): Boolean;
     /// <summary>Warum die Liste leer bleibt (kein Server, keine Antwort) und wie lange der Server brauchte.</summary>
     property OnLog: TDpccProviderLog read FOnLog write FOnLog;
   end;
@@ -826,6 +848,78 @@ begin
             (TInterlocked.CompareExchange(mProvider.FResolveGeneration, 0, 0) = mGeneration) then
           begin
             mCallback(Details);
+          end;
+        end);
+    end);
+  Result := True;
+end;
+
+function TDpccServerCompletionProvider.RunCommand(const ACommand, AArgumentsJson: string; ATimeoutMs: Cardinal;
+  const ADone: TDpccCommandDone): Boolean;
+var
+  mSession: TLspSession;
+  mCommand, mArgumentsJson: string;
+  mTimeoutMs: Cardinal;
+  mAliveToken: TDpccAliveToken;
+  mAliveRef: IInterface;
+  mDone: TDpccCommandDone;
+begin
+  Result := False;
+  mSession := nil;
+  if Assigned(FSession) then
+  begin
+    mSession := FSession();
+  end;
+  if (mSession = nil) or not mSession.Initialized then
+  begin
+    Exit;
+  end;
+  mCommand := ACommand;
+  mArgumentsJson := AArgumentsJson;
+  mTimeoutMs := ATimeoutMs;
+  mAliveToken := Token;
+  mAliveRef := TokenRef;
+  mDone := ADone;
+  // Im Hintergrund: Shutdown wartet auf diesen Thread, bevor der Aufrufer die Sitzung freigibt.
+  RunInBackground(
+    procedure
+    var
+      mArguments: TJSONValue;
+      mAnswer: TJSONValue;
+      mAnswerJson, mError: string;
+    begin
+      mAnswerJson := '';
+      mError := '';
+      try
+        mArguments := TJSONObject.ParseJSONValue(mArgumentsJson);
+        if not (mArguments is TJSONArray) then
+        begin
+          mArguments.Free;
+          mArguments := TJSONArray.Create;
+        end;
+        // ExecuteCommand übernimmt die Argumente.
+        mAnswer := mSession.ExecuteCommand(mCommand, TJSONArray(mArguments), mTimeoutMs);
+        try
+          if mAnswer <> nil then
+          begin
+            mAnswerJson := mAnswer.ToJSON;
+          end;
+        finally
+          mAnswer.Free;
+        end;
+      except
+        // Nur die Klasse: Die Meldung könnte Quelltext oder Pfade enthalten.
+        on E: Exception do
+        begin
+          mError := E.ClassName;
+        end;
+      end;
+      TDpccMainThread.Queue(TDpccFeature.Completion,
+        procedure
+        begin
+          if mAliveToken.Alive and (mAliveRef <> nil) and Assigned(mDone) then
+          begin
+            mDone(mAnswerJson, mError);
           end;
         end);
     end);

@@ -247,7 +247,10 @@ If the origin of a cache is on a drive that is currently missing (USB, network),
 **Tools › Options › Third Party › dpcc › Rebuild index**:
 
 1. dpcc asks: “Delete all index caches and rebuild the index? The first build can take a few minutes.”
-2. It stops a running session, deletes all index caches that are not locked, and restarts the session.
+2. It stops a running session, deletes all index caches that are not locked, and restarts the session. This runs
+   in the background; the IDE stays responsive. While it runs, the button is grayed out and shows “Rebuilding index:
+   stopping the session, deleting caches …” next to it. You may close the options meanwhile; when you open them
+   again, the page shows the current state.
 3. The page reports the result:
    - “n index caches deleted; the index is being rebuilt.” – the session was running and has been restarted;
    - “n index caches deleted; the index is rebuilt the next time code completion starts.” – no session was running;

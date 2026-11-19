@@ -7,7 +7,11 @@
 // Arbeiter läuft dann zu Ende und kehrt erst danach in den Vorrat zurück;
 // für den nächsten Aufruf startet bei Bedarf ein weiterer. Exceptions im
 // Aufruf kommen als Failed mit Klasse und Meldung zurück, nie in die IDE.
-// Die Arbeiter warten über TDpccShutdown und enden beim Entladen (StopAll).
+// Die Arbeiter warten über TDpccShutdown und enden beim Entladen (StopAll);
+// auch Run wartet über TDpccShutdown und kehrt beim Abbruchsignal sofort zurück.
+// Post (perf1): AProc auf einem Arbeiter starten, ohne zu warten. Die
+// Vervollständigung (Composite) ruft Run darin auf; so wartet der Hauptthread
+// beim Öffnen der Liste gar nicht mehr, das Zeitlimit überwacht der Arbeiter.
 
 interface
 
@@ -70,6 +74,10 @@ type
       overload; static;
     /// <summary>Wie oben mit ALimitMs = -1 (LimitMs).</summary>
     class function Run(const AProc: TProc; out AError: string): TDpccTimedOutcome; overload; static;
+    /// <summary>AProc auf einem Arbeiter starten, ohne zu warten (perf1); der Arbeiter kehrt danach selbst in den
+    /// Vorrat zurück. AProc fängt seine Fehler selbst (sie gehen sonst verloren). False, wenn dpcc beendet wird
+    /// (nichts gestartet).</summary>
+    class function Post(const AProc: TProc): Boolean; static;
     /// <summary>Alle Arbeiter beenden (nach TDpccShutdown.Signal); True, wenn alle innerhalb von AMs enden.</summary>
     class function StopAll(AMs: Cardinal): Boolean; overload; static;
     /// <summary>Wie oben mit AMs = 1000.</summary>
@@ -303,7 +311,8 @@ begin
   mWorker := Take;
   mWorker.FProc := AProc;
   mWorker.FStart.SetEvent;
-  mWorker.FDone.WaitFor(mLimit);
+  // Abbrechbar: Beim Abbruchsignal (Entladen) nicht bis zum Ende des Limits warten; gilt dann als TimedOut.
+  TDpccShutdown.WaitFor(mWorker.FDone, mLimit);
   FLock.Enter;
   try
     mFinished := mWorker.FFinished;
@@ -331,6 +340,27 @@ begin
   begin
     Result := TDpccTimedOutcome.Done;
   end;
+end;
+
+class function TDpccTimeLimit.Post(const AProc: TProc): Boolean;
+var
+  mWorker: TWorker;
+begin
+  if TDpccShutdown.Signalled or (FLock = nil) then
+  begin
+    Exit(False);
+  end;
+  mWorker := Take;
+  FLock.Enter;
+  try
+    mWorker.FProc := AProc;
+    // Niemand wartet: Wie ein aufgegebener Aufruf gibt sich der Arbeiter nach dem Ende selbst frei (Finish).
+    mWorker.FAbandoned := True;
+  finally
+    FLock.Leave;
+  end;
+  mWorker.FStart.SetEvent;
+  Result := True;
 end;
 
 class function TDpccTimeLimit.BusyCount: Integer;

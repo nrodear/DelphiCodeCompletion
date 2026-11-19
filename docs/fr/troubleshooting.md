@@ -184,6 +184,28 @@ Pour un dépannage précis, dpcc journalise les appels de l'IDE à son gestionna
 
 Les chemins et le nom d'utilisateur y sont remplacés. Pour désactiver, supprimer la valeur ou la mettre à 0.
 
+### Blocages et actions lentes
+
+Un surveillant vérifie toutes les 50 ms si le thread principal de l'IDE répond. Avec les durées des actions de dpcc,
+il écrit ces lignes dans `dpcc.log` (le journal lui-même est en allemand) :
+
+| Ligne | Signification |
+|---|---|
+| `Hauptthread hängt seit 260 ms in Vervollständigung öffnen` | L'IDE ne répond plus depuis 250 ms ou plus pendant que dpcc exécute cette action. Écrite aussitôt, même si l'IDE ne répond plus jamais. |
+| `Hauptthread hing 1300 ms in Vervollständigung öffnen` | L'IDE répond de nouveau ; durée totale du blocage. |
+| `Hauptthread: Symbolhinweis: 87 ms` | Une action de dpcc a retenu l'IDE 50 ms ou plus, sans blocage. |
+| `Hauptthread wartete 340 ms auf Server textDocument/completion: Zeitlimit` | L'IDE a attendu le serveur 100 ms ou plus ; issue : `Antwort` (réponse), `Zeitlimit` (délai dépassé), `abgebrochen` (annulée) ou `Fehler` (erreur). |
+| `Hänger mit dpcc-Aktivität in dieser Sitzung: 3, längster 1300 ms, …` | Résumé au déchargement s'il y a eu des blocages. |
+
+Les lignes sont limitées : au plus une ligne par action et par minute (`dazu n weitere …` compte celles omises), au
+plus 5 blocages par minute un par un (`… nicht einzeln protokolliert, zusammen n ms`). Si l'IDE bloque sans action de
+dpcc (par exemple pendant la compilation), dpcc n'écrit rien. Les dialogues modaux ne comptent pas comme blocages, pas
+plus que le temps où l'IDE était arrêtée dans un débogueur.
+
+Avec `Diagnose` = 1 (voir ci-dessus), les blocages sans action de dpcc figurent aussi dans le journal de diagnostic
+sous `… ohne dpcc-Aktivität`, et au déchargement il liste les 10 appels, requêtes au serveur et requêtes de complétion
+les plus lents.
+
 ### Journal de diagnostic du serveur
 
 Le serveur écrit un journal anonyme de ses requêtes et de ses constructions d'index dans

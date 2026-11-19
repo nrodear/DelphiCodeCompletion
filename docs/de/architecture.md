@@ -140,20 +140,27 @@ in n ms …“ im Protokoll.
 2. `TDpccCodeInsightManager.OpenCompletion` startet bei Bedarf Sitzung und Server.
 3. `TDpccEditorCompletion` nimmt das Wort vor dem Cursor als Anfang und das Caret-Rechteck als Anker.
 4. Die Sitzung schickt den aktuellen Editortext (beim ersten Mal `didOpen`, danach `didChange` mit dem geänderten
-   Bereich) und dann `textDocument/completion`.
+   Bereich) und dann `textDocument/completion`. Das geschieht für alle Quellen (Server, XMLDoc) gleichzeitig auf
+   Arbeiter-Threads; der Hauptthread wartet beim Öffnen nicht darauf.
 5. Der Server bestimmt den Kontext, prüft die Fälle der Vervollständigung in fester Reihenfolge und liefert Einträge,
    bei großen Listen in Teilen.
 6. `TDpccCompletionController` filtert und sortiert lokal; das Popup aus `dpcc.UI` zeichnet nur die sichtbaren Zeilen.
 7. Weitertippen filtert lokal. Gekürzte Listen fragt dpcc im Hintergrund neu an.
-8. Übernehmen schreibt Name, `uses`-Eintrag und weitere Änderungen in einem Undo-Schritt.
+8. Übernehmen schreibt Name, `uses`-Eintrag und weitere Änderungen in einem Undo-Schritt. Hat der Eintrag einen
+   Befehl, geht er im Hintergrund an den Server.
 
 Hover und Parameterhilfe laufen genauso über die Sitzung (`textDocument/hover`, `textDocument/signatureHelp`). Den
 Tooltip löst nicht die IDE aus, sondern die Mausbewegung über die Code-Editor-API.
 
 Strg+Klick und „Deklaration suchen“ erreichen dpcc nur, wenn es der gewählte Code-Insight-Anbieter ist: Die IDE ruft
-`GotoDefinition` des Managers, der über `TLspSession.GotoTarget` `textDocument/declaration` fragt (auf der
-Deklaration selbst danach `textDocument/definition`) und höchstens 1 Sekunde wartet. Ohne Ziel antwortet er True mit
-leerem Dateinamen, die IDE bricht dann still ab. Die Regeln dazu stehen in `dpcc.Core.Editor.Navigation`.
+`GotoDefinition` des Managers. Er gleicht den Puffer ab und fragt in einem Hintergrund-Thread über
+`TLspSession.GotoTargetAt` `textDocument/declaration` (auf der Deklaration selbst danach `textDocument/definition`).
+Der Hauptthread wartet höchstens 250 ms. Ohne Ziel antwortet er True mit leerem Dateinamen, die IDE bricht dann still
+ab. Kommt die Antwort später, antwortet er genauso still; dpcc springt dann selbst, sofern dieselbe Datei aktiv ist,
+der Cursor noch an der Ausgangsstelle steht, kein neuerer Sprungwunsch kam und höchstens 3 Sekunden vergangen sind.
+Der Symbolhinweis der IDE (`GetHintText`, nur ohne eigenen dpcc-Tooltip) wartet ebenso höchstens 250 ms; eine spätere
+Antwort merkt sich dpcc einige Sekunden, damit der nächste Hinweis auf dasselbe Wort sofort erscheint. Die Regeln dazu
+stehen in `dpcc.Core.Editor.Navigation` und `dpcc.Core.Lsp.LateAnswers`.
 
 ## Robustheit
 
@@ -164,7 +171,9 @@ leerem Dateinamen, die IDE bricht dann still ab. Die Regeln dazu stehen in `dpcc
   Besitzer; beim Entladen werden wartende Einträge verworfen, damit nichts in entladenem Code läuft.
 - **Server-Abstürze** (`dpcc.IDE.CodeInsight.Manager.Crashes`): Neustart; nach zwei gleichen Abstürzen in zehn
   Minuten kein automatischer Neustart mehr.
-- **Protokoll**: rotierend, anonymisiert, mit Sperre über mehrere IDE-Instanzen.
+- **Protokoll**: rotierend, anonymisiert, mit Sperre über mehrere IDE-Instanzen. Die Zeilen schreibt ein eigener
+  Thread (`dpcc.Core.Diagnostics.LogWriter`); wer protokolliert, wartet nie auf die Datei. Beim Entladen schreibt er
+  Ausstehendes noch weg (höchstens 1 s), zuletzt die Zeile „dpcc entladen“.
 
 ## Texte und Sprache
 

@@ -3,6 +3,8 @@
 // Wurzel von dpcc.IDE.Base seit Rückbau R5 (docs\Review\Rueckbau-Liste.md): dpcc ist nur noch Code Completion.
 // Register meldet an, was dafür nötig ist, Unregister baut es in der Finalisierung rückwärts ab:
 //   - Sicherung und Protokoll (TDpccGuard, Zeitlimit der Quellen, Sprache der Oberfläche), Hauptthread-Queue;
+//     der Schreib-Thread der Protokolle (TDpccLogWriter, perf1) startet zuerst und endet nach der Zeile
+//     „dpcc entladen“;
 //   - Eintrag im Startbildschirm und im Info-Dialog (nur Text, ohne Bild);
 //   - den Code Insight-Manager (IOTACodeInsightManager: Strg+Leertaste, Strg+Umschalt+Leertaste, Hover) mit
 //     Server im IDE-Prozess (dpcc.IDE.Completion.Adapters);
@@ -24,9 +26,12 @@
 //     gewählte Manager, landete die durchgereichte Taste wieder bei dpcc (InvokeCodeCompletion): Dann bleibt sie bei
 //     dpcc; ist die Liste der IDE schon offen, gehört die Taste ihr (L4, TDpccIdeList).
 // Kein Hauptmenü, keine Kontextmenüs, keine Palette, keine weiteren Tasten, kein Statusfeld, keine Andockfenster,
-// keine Hinweisfenster, kein Wächter und kein Vectored Exception Handler mehr. Fehler stehen im Protokoll; dass der
+// keine Hinweisfenster und kein Vectored Exception Handler mehr. Fehler stehen im Protokoll; dass der
 // Server nach zwei gleichen Abstürzen angehalten ist, meldet eine Zeile im Meldungsfenster und eine Rückfrage
 // „Server neu starten?“.
+// Wächter des Hauptthreads (TDpccWatchdog, abgespeckt: nur Messung und Zeilen im dpcc.log, ohne Stapelabzug): nach
+// der Grundausstattung angemeldet, beim Abbau direkt nach dem Abbruchsignal beendet, solange Protokoll und Fenster
+// noch da sind.
 // Abbau (#886): jeder Schritt für sich; eine Ausnahme lässt die folgenden nicht aus. Unregister läuft beim
 // Zerstören des Hauptfensters (ExitWatch) oder in der Finalisierung, je nachdem, was zuerst kommt. Server-Start und
 // -Stopp laufen im Hintergrund; der Schritt „Manager“ (Shutdown → ShutdownSession) wartet nach dem Abbruchsignal
@@ -59,6 +64,7 @@ uses
   dpcc.Core.Diagnostics.TimeLimit,
   dpcc.Core.Diagnostics.ExitWatch,
   dpcc.Core.Diagnostics.Teardown,
+  dpcc.Core.Diagnostics.LogWriter,
   dpcc.Core.Notifications.Contract,
   dpcc.Core.Notifications.Center,
   dpcc.Core.Notifications.Sources,
@@ -74,7 +80,8 @@ uses
   dpcc.IDE.Completion.SaveNotifier,
   dpcc.IDE.Completion.Leftovers,
   dpcc.IDE.Forms.Designer,
-  dpcc.IDE.CodeInsight.Manager;
+  dpcc.IDE.CodeInsight.Manager,
+  dpcc.IDE.Foundation.Watchdog;
 
 const
   cMessageGroup = 'dpcc';
@@ -628,18 +635,21 @@ var
 begin
   mHooks := Default(TDpccOptionsHooks);
   mHooks.ResetHistory := TDpccIdeHistory.Reset;
-  // „Index neu aufbauen“ der Einstellungsseite (S4): nur eine laufende Sitzung wird angehalten und neu gestartet.
+  // „Index neu aufbauen“ der Einstellungsseite (S4): nur eine laufende Sitzung wird angehalten und neu gestartet;
+  // kehrt sofort zurück, AClear läuft im Hintergrund (TDpccCodeInsightSession.RebuildIndex).
   mHooks.RestartIndex :=
-    function(const AClear: TProc): Boolean
+    function(const AClear: TProc; const ADone: TProc<Boolean>): Boolean
     begin
       if ManagerInstance <> nil then
       begin
-        Result := ManagerInstance.RebuildIndex(AClear);
+        Result := ManagerInstance.RebuildIndex(AClear, ADone);
       end
       else
       begin
+        // Ohne Manager (selten): wie früher hier löschen, ohne Server.
         AClear();
-        Result := False;
+        ADone(False);
+        Result := True;
       end;
     end;
   TDpccOptionsRegistration.Register(mHooks);
@@ -662,6 +672,9 @@ end;
 
 procedure InstallFoundation;
 begin
+  // Protokolle schreibt ein eigener Thread (perf1); wer protokolliert, reiht nur ein. Gestoppt als Letztes in Unregister.
+  TDpccLogWriter.Shared.Start;
+  TDpccGuard.RotatingLog.Writer := TDpccLogWriter.Shared;
   // Zeitlimit der Datenquellen seit S3 fest (Seite „Robustheit“ weg).
   TDpccTimeLimit.LimitMs := TDpccTimeLimit.cDefaultMs;
   TDpccGuard.SetLogNames(TDpccIdeSettings.Current.LogNames);
@@ -691,6 +704,8 @@ begin
   // Einreihen in den Hauptthread wieder annehmen (nach einem früheren Unregister).
   TDpccMainThread.Start;
   InstallFoundation;
+  // Wächter des Hauptthreads: misst Hänger, Dauer von Aktivitäten und Warten auf den Server (dpcc.log).
+  Start('Watchdog', TDpccWatchdog.Start);
   Start('IdeContext', ApplyIdeContext);
   Start('Notices', StartNotices);
   Start('Manager', StartManager);
@@ -723,6 +738,8 @@ begin
   try
     // Zuerst das gemeinsame Abbruchsignal: Jeder Hintergrund-Thread hört auf zu warten (#493).
     TDpccShutdown.Signal;
+    // Wächter zuerst beenden (begrenzt): Er schreibt ins Protokoll und antwortet über ein eigenes Fenster.
+    mTeardown.Step('Watchdog', TDpccWatchdog.Stop);
     // Was jetzt noch wartet oder während des Abbaus eingereiht wird, liefe nach dem Entladen in nicht mehr
     // geladenem Code. Queue im Hauptthread läuft weiter sofort.
     mTeardown.Step('MainThread', TDpccMainThread.Stop);
@@ -753,6 +770,12 @@ begin
   finally
     TDpccGuard.Log(Format('dpcc entladen in %d ms; Hintergrund-Threads beendet: %s; Fehler beim Abbau: %s',
       [TThread.GetTickCount64 - mStartedAt, BoolToStr(mStopped, True), mTeardown.Summary]));
+    // Ausstehende Protokollzeilen samt dieser begrenzt wegschreiben (perf1), bevor Packages entladen werden; danach
+    // schreibt jeder Aufrufer wieder selbst.
+    if TDpccLogWriter.Shared <> nil then
+    begin
+      TDpccLogWriter.Shared.Stop(TDpccShutdown.cStopMs);
+    end;
   end;
 end;
 

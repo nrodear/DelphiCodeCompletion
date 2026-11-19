@@ -39,7 +39,9 @@
 //   ohne Speicher), RunIde einen Eintrag „IDE“. CurrentFeatureName liest ihn
 //   aus dem Wächter-Thread; vorher nannte ein Hänger nur Aktionen mit
 //   TDpccActivity.Scope, und die meisten Einstiegspunkte (Zeichnen, Timer,
-//   Notifier) liefen als „ohne dpcc“.
+//   Notifier) liefen als „ohne dpcc“. Seit dem neuen Wächter meldet Run das
+//   Feature zusätzlich als TDpccActivity.Feature (Dauer ab 50 ms ins
+//   dpcc.log), RunIde als TDpccActivity.IdeWork (zählt nicht als dpcc).
 // - Disable schaltet ein Feature wie die Sicherung ab, auf Wunsch aus dem
 //   Diagnose-Fenster; wieder an wie nach der Sicherung (Menü dpcc).
 // - TDpccRotatingLog: Protokoll unter %LOCALAPPDATA%\dpcc\Logs, höchstens
@@ -57,6 +59,14 @@
 //   Scheitert das Anhängen, zählt Add die verlorenen Zeilen, meldet den
 //   ersten Fehler (und jeden neuen Grund) über OnError und schreibt beim
 //   nächsten Gelingen eine Zeile über die Lücke.
+// - Schreib-Thread (perf1): Ist Writer gesetzt und läuft (im Plugin
+//   TDpccLogWriter.Shared, gestartet von dpcc.IDE.Completion.Register), reiht
+//   Add die Zeile mit dem Zeitstempel des Aufrufs nur ein; Mutex, Rotation,
+//   Anonymisieren und Anhängen laufen im Schreib-Thread, gesammelte Zeilen in
+//   einem Schreibvorgang. Ohne laufenden Writer (Testprogramm, nach dem Stopp)
+//   schreibt Add wie bisher selbst. Flush wartet, bis alles geschrieben ist.
+//   Format und Ort der Dateien bleiben gleich; OnError kommt dann aus dem
+//   Schreib-Thread.
 // - Anonym (#1478): Jede Zeile läuft vor dem Schreiben durch
 //   TDpccLogRedactor (dpcc.Core.Diagnostics.LogRedaction). Namen, Pfade und
 //   fremder Text sind an der Stelle gekennzeichnet, an der die Zeile entsteht
@@ -70,7 +80,8 @@ uses
   System.SysUtils,
   System.SyncObjs,
   System.Generics.Collections,
-  dpcc.Core.Diagnostics.LogRedaction;
+  dpcc.Core.Diagnostics.LogRedaction,
+  dpcc.Core.Diagnostics.LogWriter;
 
 type
 {$SCOPEDENUMS ON}
@@ -97,6 +108,14 @@ type
     FRotateError: string;
     FOnError: TDpccLogError;
     FRedactor: TDpccLogRedactor;
+    /// <summary>Schreib-Thread (perf1, nicht übernommen); nil = Add schreibt selbst.</summary>
+    FWriter: TDpccLogWriter;
+    /// <summary>Ziel dieses Protokolls im Schreib-Thread; FTargetObject zum Lösen beim Freigeben.</summary>
+    FTarget: IDpccLogTarget;
+    FTargetObject: TObject;
+    /// <summary>ALines formatieren (Zeitstempel des Aufrufs), anonymisieren und an einem Stück anhängen; zählt
+    /// Fehler und meldet sie über OnError. Im Schreib-Thread oder (ohne ihn) im Aufrufer.</summary>
+    procedure WriteLines(const ALines: TArray<TDpccLogLine>);
     procedure Rotate;
     /// <summary>Rotiert eine volle Datei; Zeile über ein gescheitertes Rotieren oder ''.</summary>
     function RotateIfFull(const AStamp: string): string;
@@ -115,8 +134,11 @@ type
     constructor Create(const AFolder: string); overload;
     destructor Destroy; override;
     /// <summary>Zeile mit Zeitstempel anhängen. Wirft nie; ein Schreibfehler zählt die Zeile als verloren und meldet
-    /// sich über OnError.</summary>
+    /// sich über OnError. Mit laufendem Writer nur eingereiht (wartet nie auf die Datei).</summary>
     procedure Add(const AText: string);
+    /// <summary>Bis AMs warten, bis alle eingereihten Zeilen geschrieben sind; True, wenn ja (ohne Writer sofort).
+    /// </summary>
+    function Flush(AMs: Cardinal): Boolean;
     /// <summary>Name des benannten Mutex für AFolder (Groß-/Kleinschreibung und Schlussstrich egal).</summary>
     class function MutexName(const AFolder: string): string; static;
     /// <summary>Aktuelle Datei (dpcc.log); ältere heißen dpcc.1.log … dpcc.4.log.</summary>
@@ -135,6 +157,9 @@ type
     class function DefaultFolder: string; static;
     /// <summary>Anonymisiert jede Zeile vor dem Schreiben (#1478); gehört dem Protokoll.</summary>
     property Redactor: TDpccLogRedactor read FRedactor;
+    /// <summary>Schreib-Thread für Add (perf1); gehört dem Setzenden und muss das Protokoll überleben oder vorher
+    /// zurückgesetzt werden. nil (Vorgabe) bzw. gestoppt: Add schreibt selbst.</summary>
+    property Writer: TDpccLogWriter read FWriter write FWriter;
   end;
 
   TDpccFuse = class
@@ -296,7 +321,8 @@ uses
   System.DateUtils,
   dpcc.Text.LogMarks,
   dpcc.Core.Product.Version,
-  dpcc.Core.Localization.Language;
+  dpcc.Core.Localization.Language,
+  dpcc.Core.Diagnostics.Hangs;
 
 {$SCOPEDENUMS ON}
 
@@ -316,6 +342,57 @@ const
 function UiText(AId: TGuardText): string;
 begin
   Result := cTexts[TDpccTextLanguage.Current, AId];
+end;
+
+type
+  /// <summary>Ziel eines TDpccRotatingLog im Schreib-Thread (perf1). Detach löst es vom Protokoll, bevor dieses
+  /// freigegeben wird; danach verwirft es Zeilen, die noch in der Warteschlange standen.</summary>
+  TRotatingLogTarget = class(TInterfacedObject, IDpccLogTarget)
+  private
+    FLock: TCriticalSection;
+    FLog: TDpccRotatingLog;
+  public
+    constructor Create(ALog: TDpccRotatingLog);
+    destructor Destroy; override;
+    procedure Detach;
+    procedure WriteLines(const ALines: TArray<TDpccLogLine>);
+  end;
+
+constructor TRotatingLogTarget.Create(ALog: TDpccRotatingLog);
+begin
+  inherited Create;
+  FLock := TCriticalSection.Create;
+  FLog := ALog;
+end;
+
+destructor TRotatingLogTarget.Destroy;
+begin
+  FLock.Free;
+  inherited;
+end;
+
+procedure TRotatingLogTarget.Detach;
+begin
+  // Wartet auf ein laufendes WriteLines; danach fasst niemand das Protokoll mehr an.
+  FLock.Enter;
+  try
+    FLog := nil;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure TRotatingLogTarget.WriteLines(const ALines: TArray<TDpccLogLine>);
+begin
+  FLock.Enter;
+  try
+    if FLog <> nil then
+    begin
+      FLog.WriteLines(ALines);
+    end;
+  finally
+    FLock.Leave;
+  end;
 end;
 
 { TDpccRotatingLog }
@@ -338,13 +415,27 @@ begin
   FMaxFiles := AMaxFiles;
   FLock := TCriticalSection.Create;
   FRedactor := TDpccLogRedactor.Create(TDpccLogRedactor.EnvironmentIdentity);
+  FTargetObject := TRotatingLogTarget.Create(Self);
+  FTarget := TRotatingLogTarget(FTargetObject);
 end;
 
 destructor TDpccRotatingLog.Destroy;
 begin
+  // Eingereihte Zeilen begrenzt wegschreiben, dann das Ziel lösen: Was danach noch wartet, verfällt.
+  Flush(1000);
+  TRotatingLogTarget(FTargetObject).Detach;
+  FTarget := nil;
   FRedactor.Free;
   FLock.Free;
   inherited;
+end;
+
+function TDpccRotatingLog.Flush(AMs: Cardinal): Boolean;
+var
+  mWriter: TDpccLogWriter;
+begin
+  mWriter := FWriter;
+  Result := (mWriter = nil) or mWriter.Flush(AMs);
 end;
 
 class function TDpccRotatingLog.MutexName(const AFolder: string): string;
@@ -484,13 +575,47 @@ end;
 
 procedure TDpccRotatingLog.Add(const AText: string);
 var
-  mFailure, mError: string;
-  mNotify: Boolean;
+  mLine: TDpccLogLine;
+  mWriter: TDpccLogWriter;
 begin
+  // Zeitstempel jetzt, nicht erst beim Schreiben.
+  mLine := TDpccLogLine.Create(AText);
+  mWriter := FWriter;
+  if (mWriter <> nil) and mWriter.Enqueue(FTarget, mLine) then
+  begin
+    Exit;
+  end;
+  // Kein Schreib-Thread (Tests, vor dem Start, nach dem Stopp): wie bisher selbst schreiben.
+  WriteLines(TArray<TDpccLogLine>.Create(mLine));
+end;
+
+procedure TDpccRotatingLog.WriteLines(const ALines: TArray<TDpccLogLine>);
+var
+  mFailure, mError, mText: string;
+  mNotify: Boolean;
+  mBuilder: TStringBuilder;
+  mLine: TDpccLogLine;
+  mOnError: TDpccLogError;
+begin
+  if Length(ALines) = 0 then
+  begin
+    Exit;
+  end;
   FLock.Enter;
   try
-    mFailure := AppendLine(FormatDateTime('yyyy-mm-dd hh":"nn":"ss.zzz', Now) + ' ' + FRedactor.Redact(AText) +
-      sLineBreak);
+    mBuilder := TStringBuilder.Create;
+    try
+      for mLine in ALines do
+      begin
+        mBuilder.Append(FormatDateTime('yyyy-mm-dd hh":"nn":"ss.zzz', mLine.Stamp)).Append(' ')
+          .Append(FRedactor.Redact(mLine.Text)).Append(sLineBreak);
+      end;
+      mText := mBuilder.ToString;
+    finally
+      mBuilder.Free;
+    end;
+    // Alle Zeilen unter einer Sperre und in einem Anhängen.
+    mFailure := AppendLine(mText);
     if mFailure = '' then
     begin
       mNotify := FFailed > 0;
@@ -499,8 +624,8 @@ begin
     end
     else
     begin
-      Inc(FFailed);
-      Inc(FLost);
+      Inc(FFailed, Length(ALines));
+      Inc(FLost, Length(ALines));
       mNotify := mFailure <> FLastError;
       FLastError := mFailure;
     end;
@@ -509,9 +634,10 @@ begin
     FLock.Leave;
   end;
   // Außerhalb der Sperren: Der Empfänger darf selbst protokollieren.
-  if mNotify and Assigned(FOnError) then
+  mOnError := FOnError;
+  if mNotify and Assigned(mOnError) then
   begin
-    FOnError(mError);
+    mOnError(mError);
   end;
 end;
 
@@ -1143,11 +1269,14 @@ class function TDpccGuard.Run(AFeature: TDpccFeature; const AProc: TProc): Boole
 var
   mTiming: TDpccGuardTiming;
   mToken, mDepth: Integer;
+  mActivity: IInterface;
 begin
   if Disabled(AFeature) then
   begin
     Exit(False);
   end;
+  // Name und Dauer im Hauptthread für den Einfrier-Wächter und dpcc.log (TDpccActivity); sonst nil.
+  mActivity := TDpccActivity.Feature(FeatureName(AFeature));
   mDepth := TRunningStack.Enter(Ord(AFeature));
   try
     // Einmal lesen: Schaltet der Diagnosemodus mitten im Aufruf um, endet der Aufruf beim selben Rekorder.
@@ -1171,7 +1300,10 @@ class procedure TDpccGuard.RunIde(const AProc: TProc);
 var
   mTiming: TDpccGuardTiming;
   mDepth: Integer;
+  mActivity: IInterface;
 begin
+  // Arbeit der IDE: keine dpcc-Aktivität, ihre Zeit zählt nicht zur Dauer der umgebenden (TDpccActivity).
+  mActivity := TDpccActivity.IdeWork;
   mDepth := TRunningStack.Enter(TRunningStack.cIde);
   try
     mTiming := FTiming;

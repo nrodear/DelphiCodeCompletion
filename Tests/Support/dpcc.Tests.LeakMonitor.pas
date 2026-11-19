@@ -433,10 +433,18 @@ begin
       Stable := 0;
       Last := AAllocated;
     end;
-    // Ruhig und keine zusätzlichen Threads mehr: weiteres Warten bringt nichts.
+    // Ruhig und keine zusätzlichen Threads mehr: weiteres Warten bringt nichts. Nach der Zählung noch einmal messen:
+    // Ein Thread, der zwischen Messung und Zählung seine letzten Freigaben machte und endete, wäre sonst mit dem
+    // alten Stand gemeldet (ExitClosesClient: Transport des Lese-Threads, rund 67 KB).
     if (Stable >= StableSamples) and (ProcessThreadCount <= FThreadsAtStart) then
     begin
-      Break;
+      AAllocated := AllocatedBytes - ABefore;
+      if AAllocated = Last then
+      begin
+        Break;
+      end;
+      Stable := 0;
+      Last := AAllocated;
     end;
   end;
   Inc(FWaitedMs, TThread.GetTickCount64 - Started);

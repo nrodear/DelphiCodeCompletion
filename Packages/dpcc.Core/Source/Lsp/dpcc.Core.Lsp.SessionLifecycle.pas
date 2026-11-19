@@ -12,6 +12,9 @@
 // Cancel während Starting erhöht die Generation: Ein später fertiger Start bekommt Discard und wird gestoppt.
 // Close (Entladen) nimmt keine Starts mehr an. Alles außer StopBegun/StopEnded/Stops nur aus einem Thread
 // (Hauptthread der IDE).
+//   - Rebuilding („Index neu aufbauen“): TryBeginRebuild sperrt jeden Start (TryBeginStart False), bis EndRebuild
+//     ihn freigibt; der Aufrufer stoppt die Sitzung selbst (Cancel). Ein zweiter TryBeginRebuild währenddessen
+//     scheitert. EndRebuild sagt, ob danach neu gestartet werden darf (nicht nach Close).
 
 interface
 
@@ -35,9 +38,11 @@ type
     FStops: Integer;
     FClosed: Boolean;
     FLastError: string;
+    FRebuilding: Boolean;
   public
     /// <summary>Darf jetzt (ANow in ms) ein Start beginnen? Dann Starting und AGeneration = neue Generation.
-    /// False, wenn schon einer läuft, eine Sitzung bereit ist, die Sperrzeit läuft oder Close aufgerufen wurde.
+    /// False, wenn schon einer läuft, eine Sitzung bereit ist, die Sperrzeit läuft, ein Neuaufbau des Index läuft
+    /// oder Close aufgerufen wurde.
     /// </summary>
     function TryBeginStart(ANow: UInt64; out AGeneration: Cardinal): Boolean;
     /// <summary>Läuft die Sperrzeit nach einem Fehlschlag noch?</summary>
@@ -66,7 +71,15 @@ type
     /// <summary>Laufende Stopps im Hintergrund; aus jedem Thread.</summary>
     function Stops: Integer;
     function Stopping: Boolean;
+    /// <summary>„Index neu aufbauen“ beginnen: sperrt jeden Start bis EndRebuild. False, wenn schon einer läuft
+    /// oder Close aufgerufen wurde (dann nichts tun).</summary>
+    function TryBeginRebuild: Boolean;
+    /// <summary>Neuaufbau fertig (Caches gelöscht): Starts wieder frei. True, wenn einer lief und danach gestartet
+    /// werden darf (nicht nach Close).</summary>
+    function EndRebuild: Boolean;
     property Phase: TDpccSessionPhase read FPhase;
+    /// <summary>Läuft „Index neu aufbauen“ (Start gesperrt)?</summary>
+    property Rebuilding: Boolean read FRebuilding;
     property Generation: Cardinal read FGeneration;
     property Closed: Boolean read FClosed;
     /// <summary>Fehler des letzten fehlgeschlagenen Starts; '' nach einem erfolgreichen.</summary>
@@ -94,7 +107,7 @@ end;
 function TDpccSessionLifecycle.TryBeginStart(ANow: UInt64; out AGeneration: Cardinal): Boolean;
 begin
   AGeneration := FGeneration;
-  Result := not FClosed and (FPhase = TDpccSessionPhase.Idle) and not Blocked(ANow);
+  Result := not FClosed and not FRebuilding and (FPhase = TDpccSessionPhase.Idle) and not Blocked(ANow);
   if not Result then
   begin
     Exit;
@@ -180,6 +193,21 @@ end;
 function TDpccSessionLifecycle.Stopping: Boolean;
 begin
   Result := Stops > 0;
+end;
+
+function TDpccSessionLifecycle.TryBeginRebuild: Boolean;
+begin
+  Result := not FClosed and not FRebuilding;
+  if Result then
+  begin
+    FRebuilding := True;
+  end;
+end;
+
+function TDpccSessionLifecycle.EndRebuild: Boolean;
+begin
+  Result := FRebuilding and not FClosed;
+  FRebuilding := False;
 end;
 
 end.

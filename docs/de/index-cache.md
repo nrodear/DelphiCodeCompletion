@@ -250,6 +250,9 @@ Liegt die Herkunft eines Caches auf einem Laufwerk, das gerade fehlt (USB, Netz)
 1. dpcc fragt nach: „Alle Index-Caches löschen und den Index neu aufbauen? Der erste Aufbau kann einige Minuten
    dauern.“
 2. Eine laufende Sitzung hält es an, löscht alle Index-Caches, die nicht gesperrt sind, und startet die Sitzung neu.
+   Das läuft im Hintergrund; die IDE bleibt bedienbar. Solange es läuft, ist der Knopf grau und daneben steht
+   „Index wird neu aufgebaut: Sitzung wird angehalten, Caches werden gelöscht …“. Die Optionen dürfen
+   währenddessen geschlossen werden; beim nächsten Öffnen zeigt die Seite den aktuellen Stand.
 3. Die Seite meldet das Ergebnis:
    - „n Index-Caches gelöscht; der Index wird neu aufgebaut.“ – die Sitzung lief und ist neu gestartet;
    - „n Index-Caches gelöscht; der Index wird beim nächsten Start der Code Completion neu aufgebaut.“ – es lief

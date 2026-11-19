@@ -2,9 +2,11 @@
 
 // Fragen des Code Insight-Managers an den Editor: Welche Code Insight löst eine Taste aus (Vervollständigung nach
 // ".", Parameterhilfe nach "(", XMLDoc-Tags nach "<" in ///-Zeilen #435, Mengen nach "[" #448, try…finally nach ";"
-// #489, Mitglieder nach "{" in Wertdarstellungen #854, Feldnamen nach ' in FieldByName #461)? Dazu Symbolhinweis
-// (GetHintText, mit Wert im angehaltenen Debugger #891) und das Sprungziel für Strg+Klick und „Deklaration suchen“
-// (Auftrag NAV) an der Klickstelle bzw. am Cursor.
+// #489, Mitglieder nach "{" in Wertdarstellungen #854, Feldnamen nach ' in FieldByName #461)? Dazu die Stelle eines
+// Symbolhinweises (GetHintText, mit Wert im angehaltenen Debugger #891) und eines Sprungwunschs für Strg+Klick und
+// „Deklaration suchen“ (Auftrag NAV) an der Klickstelle bzw. am Cursor. Gefragt wird der Server im Hintergrund
+// (dpcc.IDE.CodeInsight.Manager, dpcc.Core.Lsp.LateAnswers); hier steht nur, was der Hauptthread dafür vom Editor
+// liest. Zeilen kommen aus der Zeilentabelle (TLineTable), ohne den Text in Strings je Zeile zu zerlegen.
 
 interface
 
@@ -12,9 +14,39 @@ uses
   System.SysUtils,
   ToolsAPI,
   dpcc.Core.Lsp.Session,
+  dpcc.Core.Lsp.LateAnswers,
   dpcc.Core.Editor.Navigation;
 
 type
+  /// <summary>Stelle eines Symbolhinweises der IDE (GetHintText) samt Puffertext für den Abgleich.</summary>
+  TDpccHintPlace = record
+    FileName: string;
+    /// <summary>Ganzer Puffertext (Sync im Hauptthread).</summary>
+    Text: string;
+    LineText: string;
+    /// <summary>Zeile und Zeichen, 0-basiert.</summary>
+    Line: Integer;
+    Character: Integer;
+    /// <summary>Zeile und Spalte der IDE, 1-basiert.</summary>
+    HintLine: Integer;
+    HintCol: Integer;
+    /// <summary>Schlüssel für den Zwischenspeicher (Datei, Wort, Textstand).</summary>
+    Key: TDpccHintKey;
+  end;
+
+  /// <summary>Stelle eines Sprungwunschs (Strg+Klick, „Deklaration suchen“) samt Puffertext für den Abgleich.
+  /// </summary>
+  TDpccGotoPlace = record
+    /// <summary>Datei, Cursor und Stelle der Anfrage; Generation setzt der Manager.</summary>
+    Origin: TDpccGotoOrigin;
+    /// <summary>Ganzer Puffertext (Sync im Hauptthread).</summary>
+    Text: string;
+    /// <summary>Zeile der Anfrage (Origin.AtLine).</summary>
+    LineText: string;
+    /// <summary>Stelle unter der Maus (Strg+Klick) statt des Cursors.</summary>
+    Mouse: Boolean;
+  end;
+
   /// <summary>Editorposition, Auslöser und Antworten des Servers für die Einstiegspunkte der IDE.</summary>
   TDpccCodeInsightQueries = record
   public
@@ -31,20 +63,26 @@ type
     /// „Mit try…finally absichern“ (#489).</summary>
     class function InsightType(AChar: Char; AElement: Integer; const AGuardPending: TFunc<Boolean>;
       out AInvoke: TOTAInvokeType): TOTACodeInsightType; static;
-    /// <summary>Hover-Text an Zeile AHintLine, Spalte AHintCol (1-basiert) von AView; '' außerhalb des Puffers.
+    /// <summary>Stelle des Symbolhinweises an Zeile AHintLine, Spalte AHintCol (1-basiert) von AView; False
+    /// außerhalb des Puffers.</summary>
+    class function HintPlace(const AView: IOTAEditView; AHintLine, AHintCol: Integer;
+      out APlace: TDpccHintPlace): Boolean; static;
+    /// <summary>AHover mit dem Wert im angehaltenen Debugger davor (#891); nur sofort verfügbare Werte. Die Dauer
+    /// der Auswertung steht als eigene Aktion im Einfrier-Wächter.</summary>
+    class function HintWithDebugValue(const AHover: string; const APlace: TDpccHintPlace): string; static;
+    /// <summary>Stelle des Sprungwunschs: an der Klickstelle (Strg gedrückt, Maus über einem Bezeichner im Editor
+    /// von AView), sonst am Cursor. False (mit Zeile im Diagnoseprotokoll), wenn sie außerhalb des Puffers liegt.
     /// </summary>
-    class function HintAt(ASession: TLspSession; const AView: IOTAEditView; AHintLine, AHintCol: Integer;
-      const ADiagnose: TProc<string>): string; static;
-    /// <summary>Ziel für Strg+Klick und „Deklaration suchen“ (NAV) an ALine, ACharacter (0-basiert) in AView
-    /// (TLspSession.GotoTarget, Zeitlimit für den Hauptthread); False ohne Ziel oder mit einer Ersatz-Unit des
-    /// Servers (dpcc-ide:…), die es nicht als Datei gibt.</summary>
-    class function DefinitionOf(ASession: TLspSession; const AView: IOTAEditView; ALine, ACharacter: Integer;
-      out ALocation: TLspLocation): Boolean; static;
-    /// <summary>Sprungziel an der Klickstelle (Strg gedrückt, Maus über einem Bezeichner im Editor von AView),
-    /// sonst am Cursor: Found mit AFileName und ALine (0-basiert), sonst NotFound bzw. NoView. Fehler und
-    /// Zeitlimit kommen als Exception.</summary>
-    class function DefinitionAt(ASession: TLspSession; const AView: IOTAEditView; AIndex: Integer;
-      const ADiagnose: TProc<string>; out AFileName: string; out ALine: Integer): TDpccGotoOutcome; static;
+    class function GotoPlace(const AView: IOTAEditView; const ADiagnose: TProc<string>;
+      out APlace: TDpccGotoPlace): Boolean; static;
+    /// <summary>Zustand für ein nachgereichtes Sprungziel: aktive Editoransicht (Datei, Cursor) mit AGeneration.
+    /// </summary>
+    class function GotoNow(AGeneration: Cardinal): TDpccGotoNow; static;
+    /// <summary>Ist AAnswer ein Sprungziel? Nicht bei Fehler, ohne Datei und bei einer Ersatz-Unit des Servers
+    /// (dpcc-ide:…), die es nicht als Datei gibt.</summary>
+    class function TargetOf(const AAnswer: TDpccAnswer): Boolean; static;
+    /// <summary>Zeile fürs Diagnoseprotokoll zu einem Sprungwunsch mit Ergebnis AResult.</summary>
+    class function GotoNote(AIndex: Integer; const APlace: TDpccGotoPlace; const AResult: string): string; static;
   end;
 
 implementation
@@ -52,10 +90,13 @@ implementation
 uses
   Winapi.Windows,
   System.Types,
+  System.Classes,
   System.StrUtils,
   Vcl.Controls,
   ToolsAPI.Editor,
+  dpcc.Text.Lines,
   dpcc.Text.DebugDisplay,
+  dpcc.Core.Diagnostics.Hangs,
   dpcc.Core.Hover.DebugValue,
   dpcc.Core.Completion.Word,
   dpcc.Core.Lsp.IdeMembers,
@@ -211,14 +252,18 @@ end;
 function WithDebugValue(const AHover, ALine, AFileName: string; ACharacter, AHintLine: Integer): string;
 var
   mDebugText: string;
+  mActivity: IInterface;
 begin
   Result := AHover;
   if not TDpccIdeSettings.Current.DebugHoverValues or not TDpccIdeDebugValues.Stopped then
   begin
     Exit;
   end;
+  // Eigene Aktion: Wie lange die Auswertung im Debugger den Hauptthread hält, sieht der Einfrier-Wächter getrennt.
+  mActivity := TDpccActivity.Scope('Symbolhinweis: Wert im Debugger');
   mDebugText := TDpccIdeDebugValues.EvaluateNow(TDpccDebugExpression.AtCharacter(ALine, ACharacter), AFileName,
     AHintLine).PlainText;
+  mActivity := nil;
   if (mDebugText <> '') and (Result <> '') then
   begin
     Result := mDebugText + #13#10#13#10 + Result;
@@ -229,40 +274,54 @@ begin
   end;
 end;
 
-class function TDpccCodeInsightQueries.HintAt(ASession: TLspSession; const AView: IOTAEditView; AHintLine,
-  AHintCol: Integer; const ADiagnose: TProc<string>): string;
-var
-  mText: string;
-  mLines: TArray<string>;
-  mCharacter: Integer;
+/// <summary>Zeile ALine (0-basiert) von AText ohne Umbruch, über die Zeilentabelle ATable; '' außerhalb.</summary>
+function LineOf(const AText: string; const ATable: TLineTable; ALine: Integer): string;
 begin
   Result := '';
-  mText := TDpccEditorBuffer.Text(AView.Buffer);
-  mLines := mText.Split([#13#10, #10]);
-  if (AHintLine < 1) or (AHintLine > Length(mLines)) then
+  if (ALine >= 0) and (ALine < ATable.LineCount) then
+  begin
+    Result := Copy(AText, ATable.LineStart(ALine) + 1, ATable.LineContentEnd(ALine) - ATable.LineStart(ALine));
+  end;
+end;
+
+class function TDpccCodeInsightQueries.HintPlace(const AView: IOTAEditView; AHintLine, AHintCol: Integer;
+  out APlace: TDpccHintPlace): Boolean;
+var
+  mTable: TLineTable;
+begin
+  APlace := Default(TDpccHintPlace);
+  APlace.Text := TDpccEditorBuffer.Text(AView.Buffer);
+  mTable := TLineTable.Build(APlace.Text);
+  Result := (AHintLine >= 1) and (AHintLine <= mTable.LineCount);
+  if not Result then
   begin
     Exit;
   end;
-  mCharacter := TLspSession.ColumnToIndex(mLines[AHintLine - 1], AHintCol, TDpccEditorBuffer.TabWidth(AView.Buffer));
-  // Die IDE wartet im Hauptthread auf den Hinweis: kurzes Zeitlimit.
-  Result := ASession.Hover(AView.Buffer.FileName, mText, AHintLine - 1, mCharacter, TLspSession.cMainThreadTimeoutMs);
-  Result := WithDebugValue(Result, mLines[AHintLine - 1], AView.Buffer.FileName, mCharacter, AHintLine);
-  ADiagnose(Format('Hover (%s), Zeile %d, Spalte %d (Cursor %d/%d): %d Zeichen',
-    [ExtractFileExt(AView.Buffer.FileName), AHintLine, AHintCol, AView.CursorPos.Line, AView.CursorPos.Col,
-    Length(Result)]));
+  APlace.FileName := AView.Buffer.FileName;
+  APlace.HintLine := AHintLine;
+  APlace.HintCol := AHintCol;
+  APlace.Line := AHintLine - 1;
+  APlace.LineText := LineOf(APlace.Text, mTable, APlace.Line);
+  APlace.Character := TLspSession.ColumnToIndex(APlace.LineText, AHintCol, TDpccEditorBuffer.TabWidth(AView.Buffer));
+  APlace.Key := TDpccHintKey.Make(APlace.FileName, APlace.LineText, APlace.Line, APlace.Character,
+    TDpccHintKey.HashOf(APlace.Text));
 end;
 
-class function TDpccCodeInsightQueries.DefinitionOf(ASession: TLspSession; const AView: IOTAEditView; ALine,
-  ACharacter: Integer; out ALocation: TLspLocation): Boolean;
+class function TDpccCodeInsightQueries.HintWithDebugValue(const AHover: string; const APlace: TDpccHintPlace): string;
+begin
+  Result := WithDebugValue(AHover, APlace.LineText, APlace.FileName, APlace.Character, APlace.HintLine);
+end;
+
+class function TDpccCodeInsightQueries.TargetOf(const AAnswer: TDpccAnswer): Boolean;
 begin
   // Ersatz-Units des Servers (dpcc-ide:…) gibt es nicht als Datei: kein Sprungziel für Strg+Klick.
-  Result := ASession.GotoTarget(AView.Buffer.FileName, TDpccEditorBuffer.Text(AView.Buffer), ALine, ACharacter,
-    TLspSession.cMainThreadTimeoutMs, ALocation) and not TDpccIdeMembers.IsIdePath(ALocation.FileName);
+  Result := (AAnswer.Error = TDpccAnswerError.None) and AAnswer.Found and (AAnswer.FileName <> '') and
+    not TDpccIdeMembers.IsIdePath(AAnswer.FileName);
 end;
 
 /// <summary>Stelle unter der Maus im Editor von AView: Zeile (1-basiert) und Zeichen (0-basiert) über einem
-/// Bezeichner; False außerhalb des Editors oder neben einem Bezeichner.</summary>
-function MousePosition(const AView: IOTAEditView; const ALines: TArray<string>; ATabWidth: Integer;
+/// Bezeichner; False außerhalb des Editors oder neben einem Bezeichner. Zeilen aus AText über ATable.</summary>
+function MousePosition(const AView: IOTAEditView; const AText: string; const ATable: TLineTable; ATabWidth: Integer;
   out ALine, ACharacter: Integer): Boolean;
 var
   mServices: INTACodeEditorServices;
@@ -270,6 +329,7 @@ var
   mState: INTACodeEditorState;
   mPoint: TPoint;
   mColumn, mVisibleLine: Integer;
+  mLineText: string;
 begin
   Result := False;
   ALine := 0;
@@ -294,60 +354,85 @@ begin
     Exit;
   end;
   ALine := mState.LineState[mVisibleLine].LogicalLineNum;
-  if (ALine < 1) or (ALine > Length(ALines)) then
+  if (ALine < 1) or (ALine > ATable.LineCount) then
   begin
     Exit;
   end;
-  ACharacter := TLspSession.ColumnToIndex(ALines[ALine - 1], mColumn, ATabWidth);
-  Result := (ACharacter < Length(ALines[ALine - 1])) and
-    TDpccWord.IsIdentifierChar(ALines[ALine - 1][ACharacter + 1]);
+  mLineText := LineOf(AText, ATable, ALine - 1);
+  ACharacter := TLspSession.ColumnToIndex(mLineText, mColumn, ATabWidth);
+  Result := (ACharacter < Length(mLineText)) and TDpccWord.IsIdentifierChar(mLineText[ACharacter + 1]);
 end;
 
-class function TDpccCodeInsightQueries.DefinitionAt(ASession: TLspSession; const AView: IOTAEditView;
-  AIndex: Integer; const ADiagnose: TProc<string>; out AFileName: string; out ALine: Integer): TDpccGotoOutcome;
+class function TDpccCodeInsightQueries.GotoPlace(const AView: IOTAEditView; const ADiagnose: TProc<string>;
+  out APlace: TDpccGotoPlace): Boolean;
 var
-  mText: string;
-  mLines: TArray<string>;
+  mTable: TLineTable;
   mCursor: TOTAEditPos;
   mTabWidth, mMouseLine, mMouseCharacter: Integer;
   mMouseValid, mCtrlDown: Boolean;
   mCaret, mAt: TPoint;
-  mLocation: TLspLocation;
 begin
-  AFileName := '';
-  ALine := 0;
-  mText := TDpccEditorBuffer.Text(AView.Buffer);
-  mLines := mText.Split([#13#10, #10]);
+  APlace := Default(TDpccGotoPlace);
+  APlace.Text := TDpccEditorBuffer.Text(AView.Buffer);
+  mTable := TLineTable.Build(APlace.Text);
   mTabWidth := TDpccEditorBuffer.TabWidth(AView.Buffer);
   // Die synchrone Schnittstelle übergibt keine Klickstelle. Bei Strg+Klick gilt die Stelle unter der Maus (ob die
   // IDE den Cursor vorher dorthin setzt, ist nicht geprüft), sonst der Cursor („Deklaration suchen“, Alt+↑).
   mCursor := AView.CursorPos;
   mCaret := TPoint.Create(-1, mCursor.Line);
-  if (mCursor.Line >= 1) and (mCursor.Line <= Length(mLines)) then
+  if (mCursor.Line >= 1) and (mCursor.Line <= mTable.LineCount) then
   begin
-    mCaret.X := TLspSession.ColumnToIndex(mLines[mCursor.Line - 1], mCursor.Col, mTabWidth);
+    mCaret.X := TLspSession.ColumnToIndex(LineOf(APlace.Text, mTable, mCursor.Line - 1), mCursor.Col, mTabWidth);
   end;
   mMouseLine := 0;
   mMouseCharacter := 0;
   mCtrlDown := GetKeyState(VK_CONTROL) < 0;
-  mMouseValid := mCtrlDown and MousePosition(AView, mLines, mTabWidth, mMouseLine, mMouseCharacter);
+  mMouseValid := mCtrlDown and MousePosition(AView, APlace.Text, mTable, mTabWidth, mMouseLine, mMouseCharacter);
   mAt := TDpccGotoDefinition.ChoosePosition(mCtrlDown, mMouseValid, TPoint.Create(mMouseCharacter, mMouseLine),
     mCaret);
-  if (mAt.X < 0) or (mAt.Y < 1) or (mAt.Y > Length(mLines)) then
+  Result := (mAt.X >= 0) and (mAt.Y >= 1) and (mAt.Y <= mTable.LineCount);
+  if not Result then
   begin
-    ADiagnose(Format('Gehe zu Definition: Zeile %d außerhalb des Puffers (%d Zeilen)', [mAt.Y, Length(mLines)]));
-    Exit(TDpccGotoOutcome.NoView);
+    ADiagnose(Format('Gehe zu Definition: Zeile %d außerhalb des Puffers (%d Zeilen)', [mAt.Y, mTable.LineCount]));
+    Exit;
   end;
-  Result := TDpccGotoOutcome.NotFound;
-  if DefinitionOf(ASession, AView, mAt.Y - 1, mAt.X, mLocation) then
+  APlace.Origin.FileName := AView.Buffer.FileName;
+  APlace.Origin.CaretLine := mCaret.Y;
+  APlace.Origin.CaretCharacter := mCaret.X;
+  APlace.Origin.AtLine := mAt.Y;
+  APlace.Origin.AtCharacter := mAt.X;
+  APlace.Origin.StartedMs := TThread.GetTickCount64;
+  APlace.LineText := LineOf(APlace.Text, mTable, mAt.Y - 1);
+  APlace.Mouse := mMouseValid;
+end;
+
+class function TDpccCodeInsightQueries.GotoNow(AGeneration: Cardinal): TDpccGotoNow;
+var
+  mView: IOTAEditView;
+  mCursor: TOTAEditPos;
+begin
+  Result := Default(TDpccGotoNow);
+  Result.Generation := AGeneration;
+  Result.NowMs := TThread.GetTickCount64;
+  // Nicht CurrentEditView: Außerhalb eines Aufrufs der IDE gilt die aktive Ansicht.
+  mView := TDpccEditorBuffer.ActiveView;
+  if (mView = nil) or (mView.Buffer = nil) then
   begin
-    AFileName := mLocation.FileName;
-    ALine := mLocation.Line;
-    Result := TDpccGotoOutcome.Found;
+    Exit;
   end;
-  ADiagnose(Format('Gehe zu Definition (Index %d) (%s), Zeile %d, Zeichen %d (%s): %s',
-    [AIndex, ExtractFileExt(AView.Buffer.FileName), mAt.Y, mAt.X, IfThen(mMouseValid, 'Maus', 'Cursor'),
-    IfThen(AFileName <> '', Format('%s, Zeile %d', [ExtractFileExt(AFileName), ALine + 1]), 'kein Ziel')]));
+  mCursor := mView.CursorPos;
+  Result.FileName := mView.Buffer.FileName;
+  Result.CaretLine := mCursor.Line;
+  Result.CaretCharacter := TLspSession.ColumnToIndex(TDpccEditorBuffer.LineText(mView, mCursor.Line), mCursor.Col,
+    TDpccEditorBuffer.TabWidth(mView.Buffer));
+end;
+
+class function TDpccCodeInsightQueries.GotoNote(AIndex: Integer; const APlace: TDpccGotoPlace;
+  const AResult: string): string;
+begin
+  Result := Format('Gehe zu Definition (Index %d) (%s), Zeile %d, Zeichen %d (%s): %s',
+    [AIndex, ExtractFileExt(APlace.Origin.FileName), APlace.Origin.AtLine, APlace.Origin.AtCharacter,
+    IfThen(APlace.Mouse, 'Maus', 'Cursor'), AResult]);
 end;
 
 end.

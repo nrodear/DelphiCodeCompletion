@@ -23,6 +23,10 @@
 // OpenModule; beim Entladen jedes Packages verwirft ModuleUnloaded (über
 // AddModuleUnloadProc) als Sicherheitsnetz, was noch wartet. Nicht erfasst:
 // Einträge, deren Code in Base liegt, die aber Objekte eines Moduls einfangen.
+// Name für den Einfrier-Wächter: Jeder Eintrag läuft als dpcc-Aktivität
+// (TDpccActivity.Scope) mit dem Namen aus der Überladung mit AName, sonst
+// „Hauptthread-Eintrag <Feature>“. So nennt ein Hänger oder eine langsame
+// Zeile im dpcc.log auch eingereihte Arbeit.
 
 interface
 
@@ -61,8 +65,12 @@ type
     FNextId: UInt64;
     /// <summary>Abgemeldete Module: Einträge mit Code darin werden nicht mehr angenommen.</summary>
     FClosed: TList<NativeUInt>;
-    class function Guarded(AFeature: TDpccFeature; const AProc: TThreadProcedure): TThreadProcedure; static;
-    class procedure Post(AFeature: TDpccFeature; const AProc: TThreadProcedure; AForce: Boolean); static;
+    /// <summary>AProc unter der Sicherung von AFeature und als Aktivität AName ('' = „Hauptthread-Eintrag
+    /// Feature“).</summary>
+    class function Guarded(AFeature: TDpccFeature; const AName: string;
+      const AProc: TThreadProcedure): TThreadProcedure; static;
+    class procedure Post(AFeature: TDpccFeature; const AName: string; const AProc: TThreadProcedure;
+      AForce: Boolean); static;
     /// <summary>Unter FLock: AProc als wartenden Eintrag führen; Ergebnis die Prozedur, die ihn ausführt.</summary>
     class function AddPending(AModule: NativeUInt; const AProc: TThreadProcedure): TThreadProcedure; static;
     /// <summary>Eintrag AId aus der Liste nehmen und ausführen, falls er nicht verworfen ist.</summary>
@@ -75,10 +83,16 @@ type
     class constructor Create;
     class destructor Destroy;
     /// <summary>Im Hauptthread sofort, aus anderen Threads eingereiht. Ausnahmen zählen für AFeature.</summary>
-    class procedure Queue(AFeature: TDpccFeature; const AProc: TThreadProcedure); static;
+    class procedure Queue(AFeature: TDpccFeature; const AProc: TThreadProcedure); overload; static;
+    /// <summary>Wie oben; AName nennt die Arbeit als dpcc-Aktivität (Wächter, dpcc.log).</summary>
+    class procedure Queue(AFeature: TDpccFeature; const AName: string; const AProc: TThreadProcedure); overload;
+      static;
     /// <summary>Immer eingereiht, auch aus dem Hauptthread (läuft nach dem laufenden Ereignis).
     /// Nach Stop verworfen.</summary>
-    class procedure ForceQueue(AFeature: TDpccFeature; const AProc: TThreadProcedure); static;
+    class procedure ForceQueue(AFeature: TDpccFeature; const AProc: TThreadProcedure); overload; static;
+    /// <summary>Wie oben; AName nennt die Arbeit als dpcc-Aktivität (Wächter, dpcc.log).</summary>
+    class procedure ForceQueue(AFeature: TDpccFeature; const AName: string; const AProc: TThreadProcedure);
+      overload; static;
     /// <summary>Nach dem Laden (Register): Einträge wieder annehmen.</summary>
     class procedure Start; static;
     /// <summary>Beim Entladen, nur im Hauptthread: wartende Einträge verwerfen, keine neuen annehmen.</summary>
@@ -102,7 +116,8 @@ type
 implementation
 
 uses
-  dpcc.Core.Diagnostics.Shutdown;
+  dpcc.Core.Diagnostics.Shutdown,
+  dpcc.Core.Diagnostics.Hangs;
 
 const
   /// <summary>Platz der Methode Invoke in der Schnittstellentabelle einer anonymen Methode (nach QueryInterface,
@@ -200,17 +215,31 @@ begin
   Result := TThread.CurrentThread.ThreadID = MainThreadID;
 end;
 
-class function TDpccMainThread.Guarded(AFeature: TDpccFeature; const AProc: TThreadProcedure): TThreadProcedure;
+class function TDpccMainThread.Guarded(AFeature: TDpccFeature; const AName: string;
+  const AProc: TThreadProcedure): TThreadProcedure;
 var
   mFeature: TDpccFeature;
+  mName: string;
   mProc: TThreadProcedure;
 begin
   mFeature := AFeature;
+  mName := AName;
   mProc := AProc;
   Result :=
     procedure
+    var
+      mActivity: IInterface;
     begin
       try
+        // Name erst bei der Ausführung (Sprache der Oberfläche); außerhalb des Hauptthreads nil.
+        if mName <> '' then
+        begin
+          mActivity := TDpccActivity.Scope(mName);
+        end
+        else
+        begin
+          mActivity := TDpccActivity.Scope('Hauptthread-Eintrag ' + TDpccGuard.FeatureName(mFeature));
+        end;
         mProc();
       except
         on EAbort do
@@ -363,7 +392,8 @@ begin
   end;
 end;
 
-class procedure TDpccMainThread.Post(AFeature: TDpccFeature; const AProc: TThreadProcedure; AForce: Boolean);
+class procedure TDpccMainThread.Post(AFeature: TDpccFeature; const AName: string; const AProc: TThreadProcedure;
+  AForce: Boolean);
 var
   mProc: TThreadProcedure;
   mModule: NativeUInt;
@@ -382,7 +412,7 @@ begin
     begin
       Exit;
     end;
-    mProc := Guarded(AFeature, AddPending(mModule, AProc));
+    mProc := Guarded(AFeature, AName, AddPending(mModule, AProc));
     if AForce then
     begin
       TThread.ForceQueue(FOwner, mProc);
@@ -397,24 +427,35 @@ begin
 end;
 
 class procedure TDpccMainThread.Queue(AFeature: TDpccFeature; const AProc: TThreadProcedure);
+begin
+  Queue(AFeature, '', AProc);
+end;
+
+class procedure TDpccMainThread.Queue(AFeature: TDpccFeature; const AName: string; const AProc: TThreadProcedure);
 var
   mProc: TThreadProcedure;
 begin
   // Wie TThread.Queue: im Hauptthread sofort, auch nach Stop (das Entladen ruft noch Code im Hauptthread).
   if IsMain then
   begin
-    mProc := Guarded(AFeature, AProc);
+    mProc := Guarded(AFeature, AName, AProc);
     mProc();
   end
   else
   begin
-    Post(AFeature, AProc, False);
+    Post(AFeature, AName, AProc, False);
   end;
 end;
 
 class procedure TDpccMainThread.ForceQueue(AFeature: TDpccFeature; const AProc: TThreadProcedure);
 begin
-  Post(AFeature, AProc, True);
+  Post(AFeature, '', AProc, True);
+end;
+
+class procedure TDpccMainThread.ForceQueue(AFeature: TDpccFeature; const AName: string;
+  const AProc: TThreadProcedure);
+begin
+  Post(AFeature, AName, AProc, True);
 end;
 
 class procedure TDpccMainThread.Start;

@@ -7,6 +7,7 @@
 //     Ziel mit Datei und Zeile. In jedem anderen Fall (nichts gefunden, Ersatz-Unit ohne Quelltext, Zeitlimit,
 //     Sicherung, kein Server) bricht es still ab: True mit leerem Dateinamen. False hieße für die IDE „Fehlschlag
 //     melden“; sie zeigte dann „Datei "" nicht gefunden“. An einen anderen Anbieter reicht die IDE nicht weiter.
+//     Kommt die Antwort nicht innerhalb der Wartezeit (Deferred), ebenso still; dpcc springt dann selbst nach.
 //   - Ziel wie „Deklaration suchen“ der IDE: Von einer Verwendung zur Deklaration; steht die Stelle schon auf
 //     der Deklaration selbst (OnTarget), zur Implementierung (textDocument/definition), von dort wieder zurück.
 //   - Stelle (ChoosePosition): Bei Strg+Klick die Stelle unter der Maus, sonst der Caret. Ob die IDE den Caret vor
@@ -46,7 +47,10 @@ type
     /// <summary>Zeitlimit oder beendeter Server (ELspClientError): erwartbar, keine Meldung.</summary>
     TimedOut,
     /// <summary>Unerwarteter Fehler: Meldung und Sicherung.</summary>
-    Failed);
+    Failed,
+    /// <summary>Antwort nicht innerhalb der Wartezeit des Hauptthreads: still abbrechen, dpcc springt selbst, sobald
+    /// sie kommt und noch passt (dpcc.Core.Lsp.LateAnswers).</summary>
+    Deferred);
 
   /// <summary>Antwort an die IDE: Ergebnis von GotoDefinition, Datei und Zeile (1-basiert); Report = Fehler melden.
   /// </summary>

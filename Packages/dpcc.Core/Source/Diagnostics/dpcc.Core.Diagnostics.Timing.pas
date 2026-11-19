@@ -16,7 +16,10 @@
 //   Pfade in den Einstellungen wie der Fehlerbericht (#108).
 // - TDpccTimingRows bereitet die Zeilen des Diagnosefensters auf (letzte
 //   Abfrage, Mittelwert und Maximum, Überschreitung je Wert), TDpccTimingReport
-//   den Text für „Bericht kopieren“ und für die letzten Diagnosedaten (#766).
+//   den Text für „Bericht kopieren“ und für die letzten Diagnosedaten (#766),
+//   SlowestLines die langsamsten Abfragen fürs Diagnoselog beim Entladen.
+// - Diagnose = 1 (Registry, dpcc.IDE.CodeInsight.Manager.Paths) schaltet die
+//   Messung beim Anmelden ein (dpcc.IDE.Foundation.Watchdog).
 // Threads: Quellen melden sich aus Hintergrund-Threads; alle Methoden des
 // Rekorders sind threadsicher.
 
@@ -201,6 +204,9 @@ type
     /// AInput.FileNames.</summary>
     class function Build(const AQueries: TArray<TDpccQueryTiming>; const AInput: TDpccTimingReportInput): string;
       static;
+    /// <summary>Die ACount langsamsten Abfragen (längster Schritt, sonst bis zur Liste) als Zeilen fürs Diagnoselog
+    /// beim Entladen, ohne Dateinamen; leer ohne Abfragen.</summary>
+    class function SlowestLines(const AQueries: TArray<TDpccQueryTiming>; ACount: Integer): TArray<string>; static;
   end;
 
 implementation
@@ -896,6 +902,64 @@ begin
     Result := mLines.Text;
   finally
     mLines.Free;
+  end;
+end;
+
+/// <summary>Maß einer Abfrage für SlowestLines: bis zur Liste, sonst der längste Schritt; -1 ohne Messung.</summary>
+function QueryWeight(const AQuery: TDpccQueryTiming): Double;
+var
+  mStep: TDpccTimingStep;
+begin
+  Result := AQuery.FirstVisibleMs;
+  if Result >= 0 then
+  begin
+    Exit;
+  end;
+  for mStep := Low(TDpccTimingStep) to High(TDpccTimingStep) do
+  begin
+    Result := Max(Result, AQuery.Value(mStep));
+  end;
+end;
+
+class function TDpccTimingReport.SlowestLines(const AQueries: TArray<TDpccQueryTiming>;
+  ACount: Integer): TArray<string>;
+var
+  mQueries: TArray<TDpccQueryTiming>;
+  mIndex, mOther, mBest: Integer;
+  mSwap: TDpccQueryTiming;
+begin
+  Result := nil;
+  mQueries := Copy(AQueries);
+  // Wenige Abfragen (höchstens cCapacity): Auswahl genügt.
+  for mIndex := 0 to High(mQueries) - 1 do
+  begin
+    mBest := mIndex;
+    for mOther := mIndex + 1 to High(mQueries) do
+    begin
+      if QueryWeight(mQueries[mOther]) > QueryWeight(mQueries[mBest]) then
+      begin
+        mBest := mOther;
+      end;
+    end;
+    if mBest <> mIndex then
+    begin
+      mSwap := mQueries[mIndex];
+      mQueries[mIndex] := mQueries[mBest];
+      mQueries[mBest] := mSwap;
+    end;
+  end;
+  if Length(mQueries) > ACount then
+  begin
+    SetLength(mQueries, ACount);
+  end;
+  if Length(mQueries) = 0 then
+  begin
+    Exit;
+  end;
+  Result := Result + ['Langsamste Abfragen der Vervollständigung (Zeiten in ms):'];
+  for mIndex := 0 to High(mQueries) do
+  begin
+    Result := Result + ['  ' + QueryLine(mQueries[mIndex], False)];
   end;
 end;
 

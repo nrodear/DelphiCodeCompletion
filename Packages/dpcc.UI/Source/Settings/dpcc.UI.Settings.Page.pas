@@ -13,6 +13,9 @@
 // (OnResetHistory), die Statuszeilen des Abschnitts IDE ebenso (OnIdeStatus, nur gelesen).
 // Sperren: Hauptschalter aus → alle Optionen und „Verlauf zurücksetzen“ grau; „Werte beim Debuggen“ zusätzlich grau,
 // wenn „Eigener Tooltip“ aus ist. „Index neu aufbauen“ und „Jetzt prüfen“ hängen nicht am Hauptschalter.
+// „Index neu aufbauen“ läuft im Hintergrund: OnRebuildIndex kehrt sofort zurück. Den Zustand (läuft → Knopf grau,
+// Meldung daneben) fragt die Seite über OnRebuildStatus ab, beim Setzen und per Timer der Seite, solange er läuft.
+// Die IDE-Schicht hält keinen Verweis auf die Seite; sie kann jederzeit geschlossen und zerstört werden.
 // Layout: Beschriftungen links, Felder in einer gemeinsamen Spalte rechts davon. Die Spalte richtet sich nach der
 // längsten Beschriftung in der aktuellen Schrift (Deutsch oder Englisch, nach Skalierung und Schriftwechsel neu),
 // damit keine Beschriftung in ein Feld ragt. Höhen und Abstände über ScaleValue; die IDE skaliert die Seite mit dem
@@ -27,6 +30,7 @@ uses
   Vcl.Controls,
   Vcl.Graphics,
   Vcl.StdCtrls,
+  Vcl.ExtCtrls,
   Vcl.Forms,
   dpcc.Core.Settings.Plugin,
   dpcc.Core.Settings.CompletionView,
@@ -65,6 +69,14 @@ type
     Row: TWinControl;
   end;
 
+  /// <summary>Zustand von „Index neu aufbauen“ für die Seite (OnRebuildStatus).</summary>
+  TDpccRebuildStatus = record
+    /// <summary>Läuft der Neuaufbau noch? Dann ist der Knopf grau.</summary>
+    Running: Boolean;
+    /// <summary>Meldung neben dem Knopf; '' = bisherige Meldung lassen.</summary>
+    Text: string;
+  end;
+
   TDpccSettingsPage = class(TFrame)
   private
     FEntries: TArray<TDpccSettingsPageEntry>;
@@ -101,6 +113,12 @@ type
     FOnResetHistory: TProc;
     FOnRebuildIndex: TFunc<string>;
     FConfirmRebuild: TFunc<Boolean>;
+    /// <summary>Zustand von „Index neu aufbauen“ (läuft im Hintergrund); nil = nie „läuft“.</summary>
+    FOnRebuildStatus: TFunc<TDpccRebuildStatus>;
+    /// <summary>Zuletzt abgefragt: Neuaufbau läuft (Knopf grau).</summary>
+    FRebuildRunning: Boolean;
+    /// <summary>Fragt den Zustand ab, solange der Neuaufbau läuft; gehört der Seite (mit ihr freigegeben).</summary>
+    FRebuildTimer: TTimer;
     procedure Build;
     procedure AddTitle(ASection: TDpccPageSection);
     function AddRow(AHeight: Integer): TWinControl;
@@ -120,6 +138,8 @@ type
     procedure RebuildClick(Sender: TObject);
     procedure CheckIdeClick(Sender: TObject);
     procedure SetOnRebuildIndex(const AValue: TFunc<string>);
+    procedure SetOnRebuildStatus(const AValue: TFunc<TDpccRebuildStatus>);
+    procedure RebuildTimerTick(Sender: TObject);
     procedure SetOnIdeStatus(const AValue: TFunc<string>);
     procedure CMFontChanged(var AMessage: TMessage); message CM_FONTCHANGED;
   protected
@@ -134,6 +154,9 @@ type
     procedure SaveTo(var ASettings: TDpccPluginSettings);
     /// <summary>Sperren neu setzen: Hauptschalter, Tooltip → Werte beim Debuggen, Knöpfe.</summary>
     procedure UpdateLocks;
+    /// <summary>Zustand von „Index neu aufbauen“ über OnRebuildStatus abfragen: Knopf, Meldung und Timer (läuft nur,
+    /// solange der Neuaufbau läuft).</summary>
+    procedure RefreshRebuild;
     /// <summary>Element zum Namen aus cPageItems (Einstellung oder Knopf); nil, wenn die Seite ihn nicht kennt.
     /// </summary>
     function ControlOf(const AName: string): TControl;
@@ -159,9 +182,12 @@ type
     property IdeStatus: TLabel read FIdeStatus;
     /// <summary>„Verlauf zurücksetzen“ der lernenden Gewichtung (#418).</summary>
     property OnResetHistory: TProc read FOnResetHistory write FOnResetHistory;
-    /// <summary>„Index neu aufbauen“ (S4): leert die Index-Caches, baut den Index neu auf und liefert die Meldung
-    /// für die Seite; nil = Knopf gesperrt.</summary>
+    /// <summary>„Index neu aufbauen“ (S4): stößt das Leeren der Index-Caches und den Neuaufbau an (kehrt sofort
+    /// zurück) und liefert die Meldung für die Seite; nil = Knopf gesperrt.</summary>
     property OnRebuildIndex: TFunc<string> read FOnRebuildIndex write SetOnRebuildIndex;
+    /// <summary>Zustand von „Index neu aufbauen“ (läuft, Meldung); beim Setzen, nach dem Klick und per Timer
+    /// abgefragt. nil = der Knopf ist nie „läuft“.</summary>
+    property OnRebuildStatus: TFunc<TDpccRebuildStatus> read FOnRebuildStatus write SetOnRebuildStatus;
     /// <summary>Rückfrage vor dem Neuaufbau; Standard: Dialog mit Ja/Nein.</summary>
     property ConfirmRebuild: TFunc<Boolean> read FConfirmRebuild write FConfirmRebuild;
     /// <summary>Statuszeilen des Abschnitts IDE (Betriebsart, Anbieter, was dpcc gesetzt hat, Abweichungen); beim
@@ -697,8 +723,9 @@ begin
   // Werte beim Debuggen zeigt nur der eigene Tooltip.
   FDebugHoverValues.Enabled := mOn and FHoverTooltip.Checked;
   FResetHistory.Enabled := mOn and not FHistoryReset;
-  // „Index neu aufbauen“ hängt wie bisher nicht am Hauptschalter, nur daran, ob die IDE-Schicht ihn ausführt.
-  FRebuild.Enabled := Assigned(FOnRebuildIndex);
+  // „Index neu aufbauen“ hängt wie bisher nicht am Hauptschalter, nur daran, ob die IDE-Schicht ihn ausführt und ob
+  // er gerade im Hintergrund läuft.
+  FRebuild.Enabled := Assigned(FOnRebuildIndex) and not FRebuildRunning;
   // „Jetzt prüfen“ liest nur; ohne IDE-Schicht (Tests ohne Haken) gesperrt.
   FCheckIde.Enabled := Assigned(FOnIdeStatus);
 end;
@@ -779,12 +806,52 @@ begin
   UpdateLocks;
 end;
 
+procedure TDpccSettingsPage.SetOnRebuildStatus(const AValue: TFunc<TDpccRebuildStatus>);
+begin
+  FOnRebuildStatus := AValue;
+  // Seite neu geöffnet, während ein Neuaufbau noch läuft: gleich grau und mit Meldung.
+  RefreshRebuild;
+end;
+
+procedure TDpccSettingsPage.RefreshRebuild;
+var
+  mStatus: TDpccRebuildStatus;
+begin
+  mStatus := Default(TDpccRebuildStatus);
+  if Assigned(FOnRebuildStatus) then
+  begin
+    mStatus := FOnRebuildStatus();
+  end;
+  FRebuildRunning := mStatus.Running;
+  if (mStatus.Text <> '') and (FRebuildInfo <> nil) then
+  begin
+    FRebuildInfo.Caption := mStatus.Text;
+  end;
+  if FRebuildRunning and (FRebuildTimer = nil) then
+  begin
+    // Gehört der Seite: wird mit ihr freigegeben, kein Verweis von außen.
+    FRebuildTimer := TTimer.Create(Self);
+    FRebuildTimer.Enabled := False;
+    FRebuildTimer.Interval := 250;
+    FRebuildTimer.OnTimer := RebuildTimerTick;
+  end;
+  if FRebuildTimer <> nil then
+  begin
+    FRebuildTimer.Enabled := FRebuildRunning;
+  end;
+  UpdateLocks;
+end;
+
+procedure TDpccSettingsPage.RebuildTimerTick(Sender: TObject);
+begin
+  RefreshRebuild;
+end;
+
 procedure TDpccSettingsPage.RebuildClick(Sender: TObject);
 var
   mConfirmed: Boolean;
-  mCursor: TCursor;
 begin
-  if not Assigned(FOnRebuildIndex) then
+  if not Assigned(FOnRebuildIndex) or FRebuildRunning then
   begin
     Exit;
   end;
@@ -801,13 +868,11 @@ begin
   begin
     Exit;
   end;
-  // Laufende Sitzung anhalten, Caches löschen und neu starten dauert ein paar Sekunden.
-  mCursor := Screen.Cursor;
-  Screen.Cursor := crHourGlass;
-  try
-    FRebuildInfo.Caption := FOnRebuildIndex();
-  finally
-    Screen.Cursor := mCursor;
+  // Kehrt sofort zurück: Anhalten, Löschen und Neustart laufen im Hintergrund; den Fortschritt zeigt RefreshRebuild.
+  FRebuildInfo.Caption := FOnRebuildIndex();
+  if Assigned(FOnRebuildStatus) then
+  begin
+    RefreshRebuild;
   end;
 end;
 

@@ -262,7 +262,8 @@ gleichnamigen Typen ohne Typparameter, sonst danach. Siehe [Index und Cache](ind
 ### FieldByName und Formulare
 
 dpcc liest dafür die Formulardatei (DFM) der Unit. Bei offenen Formularen nimmt es den aktuellen Stand aus dem
-Designer, auch ungespeichert; Änderungen im Designer gehen nach 500 ms an den Server.
+Designer, auch ungespeichert; Änderungen im Designer gehen nach 500 ms an den Server. Die Umwandlung in Text und das
+Senden laufen im Hintergrund; ein unverändertes Formular wird gar nicht erst umgewandelt.
 
 Quellen für Feldnamen, in dieser Reihenfolge:
 

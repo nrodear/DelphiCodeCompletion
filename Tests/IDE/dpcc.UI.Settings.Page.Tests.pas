@@ -42,6 +42,10 @@ type
     /// <summary>„Index neu aufbauen“: ohne Haken grau, mit Rückfrage Nein nichts, mit Ja die Meldung.</summary>
     [Test]
     procedure RebuildIndexButton;
+    /// <summary>„Index neu aufbauen“ im Hintergrund (OnRebuildStatus): läuft → Knopf grau mit Meldung, zweiter Klick
+    /// tut nichts, danach wieder frei; eine neu geöffnete Seite zeigt einen laufenden Neuaufbau sofort.</summary>
+    [Test]
+    procedure RebuildIndexRunningState;
     /// <summary>Abschnitt IDE: „Jetzt prüfen“ ohne Haken grau; mit Haken zeigt die Seite die Statuszeilen sofort und
     /// nach jedem Klick neu; hängt nicht am Hauptschalter.</summary>
     [Test]
@@ -419,6 +423,74 @@ begin
     // Hängt nicht am Hauptschalter (wie bisher).
     mPage.MasterSwitch.Checked := False;
     Assert.IsTrue(mPage.Rebuild.Enabled, 'Hauptschalter aus');
+  finally
+    mPage.Free;
+  end;
+end;
+
+procedure TDpccSettingsPageTests.RebuildIndexRunningState;
+var
+  mPage: TDpccSettingsPage;
+  mCalls: Integer;
+  mStatus: TDpccRebuildStatus;
+begin
+  mCalls := 0;
+  mStatus := Default(TDpccRebuildStatus);
+  mPage := TDpccSettingsPage.Create(nil);
+  try
+    mPage.LoadFrom(TDpccPluginSettings.Defaults);
+    mPage.ConfirmRebuild :=
+      function: Boolean
+      begin
+        Result := True;
+      end;
+    mPage.OnRebuildIndex :=
+      function: string
+      begin
+        Inc(mCalls);
+        mStatus.Running := True;
+        mStatus.Text := 'running';
+        Result := 'started';
+      end;
+    mPage.OnRebuildStatus :=
+      function: TDpccRebuildStatus
+      begin
+        Result := mStatus;
+      end;
+    Assert.IsTrue(mPage.Rebuild.Enabled, 'bereit');
+    mPage.Rebuild.Click;
+    Assert.AreEqual(1, mCalls, 'angestoßen');
+    Assert.IsFalse(mPage.Rebuild.Enabled, 'läuft: grau');
+    Assert.AreEqual('running', mPage.RebuildInfo.Caption, 'Meldung während des Laufs');
+    mPage.Rebuild.Click;
+    Assert.AreEqual(1, mCalls, 'zweiter Klick tut nichts');
+    // Abschluss im Hintergrund; die Seite sieht ihn bei der nächsten Abfrage (Timer).
+    mStatus.Running := False;
+    mStatus.Text := 'done';
+    mPage.RefreshRebuild;
+    Assert.IsTrue(mPage.Rebuild.Enabled, 'wieder frei');
+    Assert.AreEqual('done', mPage.RebuildInfo.Caption, 'Meldung nach dem Abschluss');
+  finally
+    mPage.Free;
+  end;
+  // Seite neu geöffnet, während ein Neuaufbau läuft: sofort grau.
+  mStatus.Running := True;
+  mStatus.Text := 'running';
+  mPage := TDpccSettingsPage.Create(nil);
+  try
+    mPage.LoadFrom(TDpccPluginSettings.Defaults);
+    mPage.OnRebuildIndex :=
+      function: string
+      begin
+        Result := '';
+      end;
+    mPage.OnRebuildStatus :=
+      function: TDpccRebuildStatus
+      begin
+        Result := mStatus;
+      end;
+    Assert.IsFalse(mPage.Rebuild.Enabled, 'neu geöffnet: grau');
+    Assert.AreEqual('running', mPage.RebuildInfo.Caption, 'neu geöffnet: Meldung');
   finally
     mPage.Free;
   end;

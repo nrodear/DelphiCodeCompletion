@@ -142,22 +142,29 @@ fenêtre principale de l'IDE ou lors de la finalisation, selon ce qui arrive en 
 2. `TDpccCodeInsightManager.OpenCompletion` démarre si nécessaire la session et le serveur.
 3. `TDpccEditorCompletion` prend le mot avant le curseur comme début et le rectangle du caret comme ancre.
 4. La session envoie le texte courant de l'éditeur (la première fois `didOpen`, ensuite `didChange` avec la zone
-   modifiée), puis `textDocument/completion`.
+   modifiée), puis `textDocument/completion`. Cela se fait pour toutes les sources (serveur, XMLDoc) en même temps
+   sur des threads de travail ; le thread principal ne l'attend pas à l'ouverture de la liste.
 5. Le serveur détermine le contexte, examine les cas de complétion dans un ordre fixe et livre des entrées, en
    plusieurs parties pour les grandes listes.
 6. `TDpccCompletionController` filtre et trie localement ; le popup de `dpcc.UI` ne dessine que les lignes visibles.
 7. La poursuite de la saisie filtre localement. Pour les listes tronquées, dpcc renvoie une requête en arrière-plan.
-8. L'acceptation écrit le nom, l'entrée `uses` et les autres modifications en une seule étape d'annulation.
+8. L'acceptation écrit le nom, l'entrée `uses` et les autres modifications en une seule étape d'annulation. Si
+   l'entrée porte une commande, elle part vers le serveur en arrière-plan.
 
 Le survol et l'aide aux paramètres passent de la même façon par la session (`textDocument/hover`,
 `textDocument/signatureHelp`). L'infobulle n'est pas déclenchée par l'IDE, mais par le mouvement de la souris, via
 l'API de l'éditeur de code.
 
 Ctrl+clic et « Find Declaration » n'atteignent dpcc que s'il est le fournisseur Code Insight choisi : l'IDE appelle
-`GotoDefinition` du gestionnaire, qui interroge `textDocument/declaration` via `TLspSession.GotoTarget` (sur la
-déclaration elle-même ensuite `textDocument/definition`) et attend au plus 1 seconde. Sans cible, il répond True avec
-un nom de fichier vide, et l'IDE abandonne alors sans message. Les règles se trouvent dans
-`dpcc.Core.Editor.Navigation`.
+`GotoDefinition` du gestionnaire. Celui-ci synchronise le tampon et interroge `textDocument/declaration` via
+`TLspSession.GotoTargetAt` dans un thread d'arrière-plan (sur la déclaration elle-même ensuite
+`textDocument/definition`). Le thread principal attend au plus 250 ms. Sans cible, il répond True avec un nom de
+fichier vide, et l'IDE abandonne alors sans message. Si la réponse arrive plus tard, il répond de la même façon ; dpcc
+saute alors lui-même, à condition que le même fichier soit actif, que le curseur soit toujours au point de départ,
+qu'aucune demande de saut plus récente ne soit arrivée et que 3 secondes au plus se soient écoulées. L'indication de
+symbole de l'IDE (`GetHintText`, seulement sans l'infobulle propre de dpcc) attend elle aussi au plus 250 ms ; une
+réponse plus tardive est conservée quelques secondes pour que l'indication suivante sur le même mot s'affiche tout de
+suite. Les règles se trouvent dans `dpcc.Core.Editor.Navigation` et `dpcc.Core.Lsp.LateAnswers`.
 
 ## Robustesse
 
@@ -169,7 +176,9 @@ un nom de fichier vide, et l'IDE abandonne alors sans message. Les règles se tr
   code déchargé.
 - **Plantages du serveur** (`dpcc.IDE.CodeInsight.Manager.Crashes`) : redémarrage ; après deux plantages identiques
   en dix minutes, plus de redémarrage automatique.
-- **Journal** : rotatif, anonymisé, avec verrou entre plusieurs instances de l'IDE.
+- **Journal** : rotatif, anonymisé, avec verrou entre plusieurs instances de l'IDE. Un thread dédié écrit les lignes
+  (`dpcc.Core.Diagnostics.LogWriter`) ; qui journalise n'attend jamais le fichier. Au déchargement, il écrit encore ce
+  qui est en attente (1 s au plus), en dernier la ligne « dpcc entladen ».
 
 ## Textes et langue
 

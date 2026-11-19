@@ -3,6 +3,7 @@
 // Tests für den Zustand von Start und Stopp der Sitzung (dpcc.Core.Lsp.SessionLifecycle), ohne IDE und ohne
 // Threads: Idle → Starting → Ready, verworfene und fehlgeschlagene Starts, Sperrzeit nach einem Fehlschlag, Abbruch
 // eines laufenden Starts (Generation), Verlust der Sitzung, Entladen und die Zähler der Stopps im Hintergrund.
+// „Index neu aufbauen“: Start gesperrt bis zum Abschluss, zweiter Klick abgelehnt, Entladen währenddessen.
 
 interface
 
@@ -40,6 +41,20 @@ type
     /// <summary>Zähler der Stopps im Hintergrund.</summary>
     [Test]
     procedure StopCounters;
+    /// <summary>„Index neu aufbauen“: Stopp der bereiten Sitzung, kein Start (Tippen, Hauptschalter, Neustart)
+    /// bis zum Abschluss; danach wieder startbar.</summary>
+    [Test]
+    procedure RebuildBlocksStartUntilDone;
+    /// <summary>Zweiter Klick während des Neuaufbaus wird abgelehnt; nach dem Abschluss geht es wieder.</summary>
+    [Test]
+    procedure SecondRebuildIsIgnored;
+    /// <summary>Neuaufbau während eines Starts: der Start wird verworfen, auch wenn er später erfolgreich meldet.
+    /// </summary>
+    [Test]
+    procedure RebuildDiscardsRunningStart;
+    /// <summary>Entladen während des Neuaufbaus: kein Start mehr, EndRebuild erlaubt keinen Neustart.</summary>
+    [Test]
+    procedure CloseDuringRebuild;
   end;
 
 implementation
@@ -228,6 +243,99 @@ begin
     // Ein überzähliges Ende (etwa nach dem Entladen) zählt nicht unter 0.
     mLife.StopEnded;
     Assert.AreEqual(0, mLife.Stops, 'nicht negativ');
+  finally
+    mLife.Free;
+  end;
+end;
+
+procedure TDpccSessionLifecycleTests.RebuildBlocksStartUntilDone;
+var
+  mLife: TDpccSessionLifecycle;
+  mGeneration: Cardinal;
+begin
+  mLife := TDpccSessionLifecycle.Create;
+  try
+    Assert.IsTrue(mLife.TryBeginStart(cT0, mGeneration));
+    mLife.FinishStart(mGeneration, True, True, cT0);
+    // Klick: Neuaufbau beginnt, die bereite Sitzung wird gestoppt (wie StopSessionAsync).
+    Assert.IsTrue(mLife.TryBeginRebuild, 'Neuaufbau beginnt');
+    Assert.IsTrue(mLife.Rebuilding, 'läuft');
+    mLife.Cancel;
+    mLife.StopBegun;
+    Assert.AreEqual(Ord(TDpccSessionPhase.Idle), Ord(mLife.Phase), 'gestoppt');
+    // Tippen, Hauptschalter, „Server neu starten“ (nach ClearBlock): kein Start, solange die Caches nicht gelöscht
+    // sind, auch nicht nach dem Ende des Stopps.
+    Assert.IsFalse(mLife.TryBeginStart(cT0 + 1, mGeneration), 'kein Start während des Neuaufbaus');
+    mLife.ClearBlock;
+    Assert.IsFalse(mLife.TryBeginStart(cT0 + 2, mGeneration), 'auch nicht von Hand');
+    mLife.StopEnded;
+    Assert.IsFalse(mLife.TryBeginStart(cT0 + 3, mGeneration), 'Stopp fertig, Caches noch nicht gelöscht');
+    // Caches gelöscht: Abschluss gibt den Start frei.
+    Assert.IsTrue(mLife.EndRebuild, 'Neustart erlaubt');
+    Assert.IsFalse(mLife.Rebuilding, 'fertig');
+    Assert.IsTrue(mLife.TryBeginStart(cT0 + 4, mGeneration), 'danach wieder startbar');
+    Assert.AreEqual(Ord(TDpccStartOutcome.Adopt), Ord(mLife.FinishStart(mGeneration, True, True, cT0 + 5)),
+      'neue Sitzung');
+  finally
+    mLife.Free;
+  end;
+end;
+
+procedure TDpccSessionLifecycleTests.SecondRebuildIsIgnored;
+var
+  mLife: TDpccSessionLifecycle;
+begin
+  mLife := TDpccSessionLifecycle.Create;
+  try
+    Assert.IsTrue(mLife.TryBeginRebuild, 'erster Klick');
+    Assert.IsFalse(mLife.TryBeginRebuild, 'zweiter Klick tut nichts');
+    Assert.IsTrue(mLife.Rebuilding, 'erster läuft weiter');
+    Assert.IsTrue(mLife.EndRebuild, 'Abschluss des ersten');
+    // Ein überzähliger Abschluss erlaubt keinen weiteren Neustart.
+    Assert.IsFalse(mLife.EndRebuild, 'kein zweiter Abschluss');
+    Assert.IsTrue(mLife.TryBeginRebuild, 'danach wieder möglich');
+  finally
+    mLife.Free;
+  end;
+end;
+
+procedure TDpccSessionLifecycleTests.RebuildDiscardsRunningStart;
+var
+  mLife: TDpccSessionLifecycle;
+  mOld, mNew: Cardinal;
+begin
+  mLife := TDpccSessionLifecycle.Create;
+  try
+    Assert.IsTrue(mLife.TryBeginStart(cT0, mOld));
+    Assert.IsTrue(mLife.TryBeginRebuild, 'Neuaufbau während Starting');
+    Assert.AreEqual(Ord(TDpccSessionPhase.Starting), Ord(mLife.Cancel), 'Start abgebrochen');
+    Assert.AreEqual(Ord(TDpccStartOutcome.Discard), Ord(mLife.FinishStart(mOld, True, True, cT0 + 1)),
+      'später fertiger Start verworfen');
+    Assert.IsFalse(mLife.TryBeginStart(cT0 + 2, mNew), 'kein Start vor dem Abschluss');
+    Assert.IsTrue(mLife.EndRebuild);
+    Assert.IsTrue(mLife.TryBeginStart(cT0 + 3, mNew), 'danach');
+    Assert.IsTrue(mOld <> mNew, 'neue Generation');
+  finally
+    mLife.Free;
+  end;
+end;
+
+procedure TDpccSessionLifecycleTests.CloseDuringRebuild;
+var
+  mLife: TDpccSessionLifecycle;
+  mGeneration: Cardinal;
+begin
+  mLife := TDpccSessionLifecycle.Create;
+  try
+    Assert.IsTrue(mLife.TryBeginStart(cT0, mGeneration));
+    mLife.FinishStart(mGeneration, True, True, cT0);
+    Assert.IsTrue(mLife.TryBeginRebuild);
+    mLife.Cancel;
+    // Entladen, während der Thread des Neuaufbaus noch wartet.
+    mLife.Close;
+    Assert.IsFalse(mLife.TryBeginRebuild, 'nach Close kein Neuaufbau');
+    Assert.IsFalse(mLife.EndRebuild, 'kein Neustart nach Close');
+    Assert.IsFalse(mLife.TryBeginStart(cT0 + 1, mGeneration), 'kein Start');
   finally
     mLife.Free;
   end;

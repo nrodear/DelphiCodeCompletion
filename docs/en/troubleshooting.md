@@ -177,6 +177,27 @@ For detailed troubleshooting, dpcc logs the IDE's calls to its Code Insight mana
 
 Paths and the user name are replaced in it. To switch it off, delete the value or set it to 0.
 
+### Hangs and slow actions
+
+A watchdog checks every 50 ms whether the IDE's main thread responds. Together with the times of dpcc actions it
+writes these lines to `dpcc.log` (the log itself is in German):
+
+| Line | Meaning |
+|---|---|
+| `Hauptthread hängt seit 260 ms in Vervollständigung öffnen` | The IDE has not responded for 250 ms or more while dpcc runs this action. Written immediately, even if the IDE never recovers. |
+| `Hauptthread hing 1300 ms in Vervollständigung öffnen` | The IDE responds again; total duration of the hang. |
+| `Hauptthread: Symbolhinweis: 87 ms` | A dpcc action held up the IDE for 50 ms or more without a hang. |
+| `Hauptthread wartete 340 ms auf Server textDocument/completion: Zeitlimit` | The IDE waited 100 ms or more for the server; outcome: `Antwort` (answer), `Zeitlimit` (timeout), `abgebrochen` (cancelled) or `Fehler` (error). |
+| `Hänger mit dpcc-Aktivität in dieser Sitzung: 3, längster 1300 ms, …` | Summary on unload if there were hangs. |
+
+The lines are throttled: at most one line per action and minute (`dazu n weitere …` counts the skipped ones), at most
+5 hangs per minute individually (`… nicht einzeln protokolliert, zusammen n ms`). If the IDE hangs without a dpcc
+action (for example while compiling), dpcc writes nothing. Modal dialogs do not count as hangs, nor does time in which
+the IDE was stopped in a debugger.
+
+With `Diagnose` = 1 (see above), hangs without a dpcc action also appear in the diagnostic log as
+`… ohne dpcc-Aktivität`, and on unload it lists the 10 slowest calls, server requests and completion queries.
+
 ### Server diagnostic log
 
 The server writes an anonymous log of its requests and index builds to

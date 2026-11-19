@@ -271,7 +271,8 @@ avant les types du même nom sans paramètres de type, sinon après. Voir
 ### FieldByName et fiches
 
 Pour cela, dpcc lit le fichier de fiche (DFM) de l'unité. Pour les fiches ouvertes, il prend l'état courant dans le
-concepteur, même non enregistré ; les modifications dans le concepteur partent vers le serveur après 500 ms.
+concepteur, même non enregistré ; les modifications dans le concepteur partent vers le serveur après 500 ms. La
+conversion en texte et l'envoi se font en arrière-plan ; une fiche inchangée n'est pas convertie du tout.
 
 Sources des noms de champs, dans cet ordre :
 

@@ -7,6 +7,11 @@
 // wenn der Query noch aktuell ist. Mehrere Threads dürfen gleichzeitig laufen,
 // damit ein neuer Query nie auf einen langsamen alten warten muss. Beim
 // Freigeben wartet die Quelle auf alle Threads (Entladen des Packages, #493).
+// Stopp der Sitzung ohne Warten im Hauptthread: Shutdown bricht nur ab (kein
+// Arbeiter liefert mehr, kein neuer startet) und gibt beendete frei. Die Arbeiter
+// halten die Sitzung als rohen Zeiger; deshalb zählt gRunningWorkers alle
+// laufenden Arbeiter aller Quellen, und der Stopp-Thread der Sitzung wartet mit
+// WaitWorkersIdle darauf, bevor er die Sitzung freigibt.
 // Fehler in Fetch und in RunInBackground zählt die Sicherung je Quelle
 // (ProviderName, #493); IsFailure nimmt erwartbare Fälle aus (Server weg).
 
@@ -42,6 +47,8 @@ type
     FGeneration: Integer;
     FWorkers: TList<TThread>;
     procedure ReapWorkers;
+    /// <summary>Auf alle Arbeiter warten und sie freigeben (Destroy).</summary>
+    procedure WaitAllWorkers;
     function IsCurrent(AGeneration: Integer): Boolean;
     procedure Failed(AE: Exception);
     /// <summary>Arbeit eines Hintergrund-Threads von Query: Fetch mit Teilergebnissen, dann das Ergebnis an
@@ -69,8 +76,16 @@ type
   public
     constructor Create;
     destructor Destroy; override;
-    /// <summary>Bricht ab und wartet auf alle laufenden Threads.</summary>
+    /// <summary>Bricht ab, ohne zu warten (Stopp der Sitzung im Hauptthread): Kein laufender Arbeiter liefert mehr,
+    /// kein neuer startet; beendete werden freigegeben, laufende erst später (spätestens Destroy). Vor dem Freigeben
+    /// der Sitzung WaitWorkersIdle abwarten.</summary>
     procedure Shutdown;
+    /// <summary>Laufende Arbeiter aller Quellen (Query und RunInBackground).</summary>
+    class function RunningWorkers: Integer; static;
+    /// <summary>Bis zu AMs warten, bis kein Arbeiter einer Quelle mehr läuft; vorzeitig beim Abbruchsignal
+    /// (TDpccShutdown). Nur im Hintergrund (Stopp-Thread der Sitzung), nie im Hauptthread. True, wenn keiner läuft.
+    /// </summary>
+    class function WaitWorkersIdle(AMs: Cardinal): Boolean; static;
     { IDpccCompletionProvider }
     procedure Query(const AContext: TDpccContext; const ASink: IDpccCompletionSink);
     procedure Cancel;
@@ -81,6 +96,19 @@ type
   end;
 
 implementation
+
+uses
+  System.Diagnostics,
+  dpcc.Core.Diagnostics.Shutdown;
+
+const
+  /// <summary>Takt von WaitWorkersIdle (nur im Hintergrund).</summary>
+  cWorkerPollMs = 10;
+
+var
+  /// <summary>Laufende Arbeiter aller Quellen; gezählt vor dem Start (unter FLock), vermindert am Ende des Threads.
+  /// </summary>
+  gRunningWorkers: Integer;
 
 { TDpccAsyncCompletionProvider }
 
@@ -96,7 +124,9 @@ end;
 
 destructor TDpccAsyncCompletionProvider.Destroy;
 begin
-  Shutdown;
+  // Die Arbeiter nutzen diese Quelle selbst: hier ohne Grenze warten (Entladen, Abbau der Editor-Anbindung).
+  Cancel;
+  WaitAllWorkers;
   FToken.Alive := False;
   FTokenRef := nil;
   FWorkers.Free;
@@ -150,21 +180,32 @@ begin
     procedure
     begin
       try
-        AWork();
-      except
-        // Hintergrundarbeit darf die IDE nie stören (#493); gezählt je Quelle.
-        on E: Exception do
-          Failed(E);
+        try
+          AWork();
+        except
+          // Hintergrundarbeit darf die IDE nie stören (#493); gezählt je Quelle.
+          on E: Exception do
+            Failed(E);
+        end;
+      finally
+        AtomicDecrement(gRunningWorkers);
       end;
     end);
   mWorker.FreeOnTerminate := False;
   FLock.Enter;
   try
     FWorkers.Add(mWorker);
+    // Vor dem Start gezählt: Der Stopp der Sitzung sieht den Arbeiter, bevor er die Sitzung anfasst.
+    AtomicIncrement(gRunningWorkers);
   finally
     FLock.Leave;
   end;
-  mWorker.Start;
+  try
+    mWorker.Start;
+  except
+    AtomicDecrement(gRunningWorkers);
+    raise;
+  end;
 end;
 
 procedure TDpccAsyncCompletionProvider.ReapWorkers;
@@ -187,11 +228,19 @@ begin
 end;
 
 procedure TDpccAsyncCompletionProvider.Shutdown;
+begin
+  // Ab hier liefert kein Arbeiter mehr an seine Senke, und Query startet keinen neuen (IsCurrent unter FLock).
+  Cancel;
+  // FLock in ReapWorkers ist zugleich die Schranke: Ein Query, der gerade unter FLock einen Arbeiter startet, hat
+  // ihn danach gezählt. Laufende Arbeiter bleiben in der Liste; der Stopp-Thread wartet auf sie (WaitWorkersIdle).
+  ReapWorkers;
+end;
+
+procedure TDpccAsyncCompletionProvider.WaitAllWorkers;
 var
   mWorkers: TArray<TThread>;
   mWorker: TThread;
 begin
-  Cancel;
   FLock.Enter;
   try
     mWorkers := FWorkers.ToArray;
@@ -203,6 +252,24 @@ begin
   begin
     mWorker.WaitFor;
     mWorker.Free;
+  end;
+end;
+
+class function TDpccAsyncCompletionProvider.RunningWorkers: Integer;
+begin
+  Result := AtomicCmpExchange(gRunningWorkers, 0, 0);
+end;
+
+class function TDpccAsyncCompletionProvider.WaitWorkersIdle(AMs: Cardinal): Boolean;
+var
+  mWatch: TStopwatch;
+begin
+  mWatch := TStopwatch.StartNew;
+  Result := RunningWorkers <= 0;
+  while not Result and (mWatch.ElapsedMilliseconds < AMs) and not TDpccShutdown.Signalled do
+  begin
+    TThread.Sleep(cWorkerPollMs);
+    Result := RunningWorkers <= 0;
   end;
 end;
 
@@ -295,11 +362,22 @@ begin
       mWorker := TThread.CreateAnonymousThread(
         procedure
         begin
-          RunFetch(mContext, mData, mSink, mGeneration);
+          try
+            RunFetch(mContext, mData, mSink, mGeneration);
+          finally
+            AtomicDecrement(gRunningWorkers);
+          end;
         end);
       mWorker.FreeOnTerminate := False;
       FWorkers.Add(mWorker);
-      mWorker.Start;
+      // Vor dem Start gezählt (siehe RunInBackground).
+      AtomicIncrement(gRunningWorkers);
+      try
+        mWorker.Start;
+      except
+        AtomicDecrement(gRunningWorkers);
+        raise;
+      end;
     end;
   finally
     FLock.Leave;

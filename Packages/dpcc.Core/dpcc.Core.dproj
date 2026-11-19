@@ -106,6 +106,7 @@
         <DCCReference Include="Source\Lsp\dpcc.Core.Lsp.Adapters.InProcess.pas"/>
         <DCCReference Include="Source\Lsp\dpcc.Core.Lsp.SessionLifecycle.pas"/>
         <DCCReference Include="Source\Lsp\dpcc.Core.Lsp.SessionStart.pas"/>
+        <DCCReference Include="Source\Lsp\dpcc.Core.Lsp.LateAnswers.pas"/>
         <DCCReference Include="Source\Completion\dpcc.Core.Completion.Contract.pas"/>
         <DCCReference Include="Source\Completion\Internals\dpcc.Core.Completion.Internals.Async.pas"/>
         <DCCReference Include="Source\Completion\dpcc.Core.Completion.Composite.pas"/>
@@ -152,6 +153,7 @@
         <DCCReference Include="Source\Completion\dpcc.Core.Completion.Parentheses.pas"/>
         <DCCReference Include="Source\Build\dpcc.Core.Build.Events.pas"/>
         <DCCReference Include="Source\Diagnostics\dpcc.Core.Diagnostics.LogRedaction.pas"/>
+        <DCCReference Include="Source\Diagnostics\dpcc.Core.Diagnostics.LogWriter.pas"/>
         <DCCReference Include="Source\Diagnostics\dpcc.Core.Diagnostics.Guard.pas"/>
         <DCCReference Include="Source\Diagnostics\dpcc.Core.Diagnostics.MainThread.pas"/>
         <DCCReference Include="Source\Diagnostics\dpcc.Core.Diagnostics.Shutdown.pas"/>
@@ -189,6 +191,7 @@
         <DCCReference Include="Source\Projects\dpcc.Core.Projects.Contract.pas"/>
         <DCCReference Include="Source\Forms\dpcc.Core.Forms.Text.pas"/>
         <DCCReference Include="Source\Forms\dpcc.Core.Forms.Changes.pas"/>
+        <DCCReference Include="Source\Forms\dpcc.Core.Forms.Sync.pas"/>
         <DCCReference Include="Source\Files\dpcc.Core.Files.Adapters.FolderWatcher.pas"/>
         <DCCReference Include="Source\Versions\dpcc.Core.Versions.Project.pas"/>
         <DCCReference Include="Source\Editor\dpcc.Core.Editor.LineTracking.pas"/>

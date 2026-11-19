@@ -34,6 +34,10 @@
 // - Hintergrund: Dauer je Quelle (Vervollständigung u. a.) und wie oft sie zu
 //   langsam war (TDpccGuard.ReportProviderSlow).
 // - Hänger: die Meldungen des Einfrier-Wächters (#501) dieser Sitzung.
+// - Die langsamsten Aufrufe der Sitzung (nicht nur der Ring der letzten 200)
+//   und die langsamsten Server-Anfragen als Zeilen (SlowestLines); der
+//   Wächter schreibt sie im Diagnosemodus (Diagnose = 1) beim Entladen ins
+//   Diagnoselog. Diagnose = 1 schaltet die Messung beim Anmelden ein.
 // Aus (Vorgabe) ist TDpccGuard.Timing nil, und die übrigen Messpunkte prüfen
 // nur Enabled: kein Zeitstempel, keine Sperre. Anonym: gespeichert werden nur
 // Namen von Funktionen, Aktionen, Anfragen und Quellen, Zeiten und Anzahlen.
@@ -211,6 +215,8 @@ type
   public const
     cSlowCapacity = 200;
     cHangCapacity = 50;
+    /// <summary>So viele langsamste Aufrufe der Sitzung bleiben (Slowest).</summary>
+    cTopCapacity = 10;
     cDefaultThresholdMs = 16;
     cMinThresholdMs = 1;
     cMaxThresholdMs = 1000;
@@ -225,6 +231,8 @@ type
     FRequests: TDictionary<string, TDpccRequestTiming>;
     FSources: TDictionary<string, TDpccSourceTiming>;
     FHangs: TList<TDpccHangEntry>;
+    /// <summary>Langsamste Aufrufe der Sitzung, absteigend, höchstens cTopCapacity.</summary>
+    FTop: TList<TDpccSlowCall>;
     FBusy: TDpccBusyMeter;
     FSince: TDateTime;
     FThresholdMs: Integer;
@@ -268,6 +276,11 @@ type
     /// <summary>Alle Werte verwerfen; „Messung seit“ beginnt neu.</summary>
     procedure Reset;
     function Snapshot: TDpccPluginSnapshot;
+    /// <summary>Langsamste Aufrufe der Sitzung (eigene Zeit), absteigend, höchstens cTopCapacity.</summary>
+    function Slowest: TArray<TDpccSlowCall>;
+    /// <summary>Zeilen fürs Diagnoselog: die langsamsten Aufrufe im Hauptthread und die ACount Anfragen mit der
+    /// längsten Dauer; leer, wenn nichts gemessen ist.</summary>
+    function SlowestLines(ACount: Integer): TArray<string>;
     /// <summary>Zählt jede Änderung; das Fenster zeichnet nur bei neuem Stand neu.</summary>
     function Version: Integer;
     /// <summary>Langsam ab so viel eigener Zeit (cMinThresholdMs bis cMaxThresholdMs).</summary>
@@ -582,6 +595,7 @@ begin
   FRequests := TDictionary<string, TDpccRequestTiming>.Create;
   FSources := TDictionary<string, TDpccSourceTiming>.Create;
   FHangs := TList<TDpccHangEntry>.Create;
+  FTop := TList<TDpccSlowCall>.Create;
   FThresholdMs := cDefaultThresholdMs;
   Reset;
 end;
@@ -597,6 +611,7 @@ begin
   begin
     TDpccGuard.Timing := nil;
   end;
+  FTop.Free;
   FHangs.Free;
   FSources.Free;
   FRequests.Free;
@@ -669,6 +684,7 @@ end;
 procedure TDpccPluginRecorder.AddSlow(AFeature: TDpccFeature; const AActivity: string; AMs: Double);
 var
   mCall: TDpccSlowCall;
+  mIndex: Integer;
 begin
   mCall := Default(TDpccSlowCall);
   mCall.At := FNow();
@@ -680,6 +696,91 @@ begin
     FSlow.Delete(0);
   end;
   FSlow.Add(mCall);
+  // Langsamste der Sitzung, absteigend: einsortieren, den kürzesten über cTopCapacity verwerfen.
+  mIndex := 0;
+  while (mIndex < FTop.Count) and (FTop[mIndex].Ms >= AMs) do
+  begin
+    Inc(mIndex);
+  end;
+  if mIndex < cTopCapacity then
+  begin
+    FTop.Insert(mIndex, mCall);
+    while FTop.Count > cTopCapacity do
+    begin
+      FTop.Delete(FTop.Count - 1);
+    end;
+  end;
+end;
+
+function TDpccPluginRecorder.Slowest: TArray<TDpccSlowCall>;
+begin
+  FLock.Enter;
+  try
+    Result := FTop.ToArray;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function TDpccPluginRecorder.SlowestLines(ACount: Integer): TArray<string>;
+var
+  mCalls: TArray<TDpccSlowCall>;
+  mRequests: TArray<TDpccRequestTiming>;
+  mCall: TDpccSlowCall;
+  mLine: string;
+  mIndex, mBest, mOther: Integer;
+  mSwap: TDpccRequestTiming;
+begin
+  Result := nil;
+  mCalls := Slowest;
+  if Length(mCalls) > 0 then
+  begin
+    Result := Result + ['Langsamste Aufrufe im Hauptthread (eigene Zeit):'];
+    for mCall in mCalls do
+    begin
+      mLine := Format('  %s %s: %d ms', [FormatDateTime('hh":"nn":"ss', mCall.At),
+        TDpccGuard.FeatureName(mCall.Feature), Round(mCall.Ms)]);
+      if mCall.Activity <> '' then
+      begin
+        mLine := mLine + ' (längste Aktion: ' + mCall.Activity + ')';
+      end;
+      Result := Result + [mLine];
+    end;
+  end;
+  mRequests := Snapshot.Requests;
+  // Nach der längsten Dauer absteigend; wenige Einträge, Auswahl genügt.
+  for mIndex := 0 to High(mRequests) - 1 do
+  begin
+    mBest := mIndex;
+    for mOther := mIndex + 1 to High(mRequests) do
+    begin
+      if mRequests[mOther].Stat.MaxMs > mRequests[mBest].Stat.MaxMs then
+      begin
+        mBest := mOther;
+      end;
+    end;
+    if mBest <> mIndex then
+    begin
+      mSwap := mRequests[mIndex];
+      mRequests[mIndex] := mRequests[mBest];
+      mRequests[mBest] := mSwap;
+    end;
+  end;
+  if Length(mRequests) > ACount then
+  begin
+    SetLength(mRequests, ACount);
+  end;
+  if Length(mRequests) > 0 then
+  begin
+    Result := Result + ['Langsamste Server-Anfragen:'];
+    for mIndex := 0 to High(mRequests) do
+    begin
+      Result := Result + [Format('  %s: längste %d ms, %d-mal, Hauptthread wartete %d-mal (Mittel %d ms), ' +
+        'Zeitlimit %d, abgebrochen %d, Fehler %d', [mRequests[mIndex].Method, Round(mRequests[mIndex].Stat.MaxMs),
+        mRequests[mIndex].Stat.Calls, mRequests[mIndex].WaitedCalls, Round(mRequests[mIndex].WaitedMeanMs),
+        mRequests[mIndex].TimedOut, mRequests[mIndex].Cancelled, mRequests[mIndex].Failed])];
+    end;
+  end;
 end;
 
 procedure TDpccPluginRecorder.ModalBegin;
@@ -826,6 +927,7 @@ begin
     FRequests.Clear;
     FSources.Clear;
     FHangs.Clear;
+    FTop.Clear;
     FBusy.Reset(FClock());
     FModal.Reset;
     FSince := FNow();

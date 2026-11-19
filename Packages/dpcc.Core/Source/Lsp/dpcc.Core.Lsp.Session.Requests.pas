@@ -3,6 +3,8 @@
 // Anfragen der LSP-Sitzung (aus dpcc.Core.Lsp.Session ausgelagert): Hover, Referenzen, Definitionen,
 // Implementierungen, Symbole, Code-Aktionen und Befehle, Formatieren, Auswahlbereiche, Vervollständigung,
 // Parameterhilfe und Umbenennen. Der Aufrufer gleicht die Puffer vorher ab (Sync).
+// Strg+Klick und der Symbolhinweis der IDE fragen im Hintergrund (GotoTargetAt, HoverAt: ohne Abgleich, aus jedem
+// Thread); der Hauptthread gleicht vorher ab und wartet höchstens cMainThreadTimeoutMs (dpcc.Core.Lsp.LateAnswers).
 
 interface
 
@@ -17,6 +19,7 @@ uses
   dpcc.Core.Files.WatchedChanges,
   dpcc.Core.Lsp.TextChanges,
   dpcc.Core.Lsp.WorkspaceEdits,
+  dpcc.Core.Lsp.LateAnswers,
   dpcc.Core.Lsp.Session.Json,
   dpcc.Core.Lsp.Session.Base;
 
@@ -25,9 +28,10 @@ type
   /// und Umbenennen; der Aufrufer gleicht die Puffer vorher ab (Sync). Vorfahr von TLspSession.</summary>
   TLspSessionRequests = class(TLspSessionBase)
   public const
-    /// <summary>Zeitlimit für Anfragen, auf die der Hauptthread wartet (Hover der IDE, Sprung im Tooltip): Ein
-    /// beschäftigter Server soll die IDE nicht sekundenlang anhalten.</summary>
-    cMainThreadTimeoutMs = 1000;
+    /// <summary>Höchstens so lange wartet der Hauptthread auf eine Antwort (Strg+Klick, Symbolhinweis der IDE): Ein
+    /// beschäftigter Server soll die IDE nicht anhalten. Die Anfrage selbst läuft im Hintergrund weiter, ihr
+    /// Ergebnis wird nachgereicht (TDpccLateAnswers).</summary>
+    cMainThreadTimeoutMs = TDpccLateAnswers.cWaitMs;
   public
     /// <summary>Benachrichtigung ohne Antwort, z. B. dpcc/compileStarted (#527); übernimmt AParams.</summary>
     procedure Notify(const AMethod: string; AParams: TJSONObject);
@@ -39,6 +43,9 @@ type
     /// <summary>ATimeoutMs 0 = Zeitlimit der Sitzung. Aufrufe im Hauptthread geben ein kurzes Zeitlimit mit: Die IDE
     /// steht, bis die Antwort kommt.</summary>
     function Hover(const AFileName, AText: string; ALine, ACharacter: Integer; ATimeoutMs: Cardinal): string;
+    /// <summary>Hover-Text wie Hover, aber ohne Abgleich (Sync vorher im Hauptthread); aus jedem Thread, solange die
+    /// Sitzung lebt. ATimeoutMs 0 = Zeitlimit der Sitzung.</summary>
+    function HoverAt(const AFileName: string; ALine, ACharacter: Integer; ATimeoutMs: Cardinal): string;
     /// <summary>Hover an einem Fundort ohne Abgleich: Der Server liest nicht geöffnete Dateien selbst (#588).</summary>
     function HoverDataAt(const AFileName: string; ALine, ACharacter: Integer;
       ATimeoutMs: Cardinal): TDpccHoverData;
@@ -93,9 +100,13 @@ type
     /// <summary>Ziel für Strg+Klick und „Deklaration suchen“ der IDE (Auftrag NAV), mit Abgleich: wie die IDE von
     /// einer Verwendung zur Deklaration (textDocument/declaration); steht die Stelle schon auf der Deklaration selbst,
     /// zur Implementierung (textDocument/definition), von dort zurück. Ohne declarationProvider nur definition.
-    /// ATimeoutMs gilt für beide Anfragen zusammen (der Hauptthread wartet). False ohne Ziel; ELspClientError bei
-    /// Zeitlimit oder beendetem Server, ELspMethodNotFound ohne Sprungziele.</summary>
+    /// ATimeoutMs gilt für beide Anfragen zusammen. False ohne Ziel; ELspClientError bei Zeitlimit oder beendetem
+    /// Server, ELspMethodNotFound ohne Sprungziele.</summary>
     function GotoTarget(const AFileName, AText: string; ALine, ACharacter: Integer; ATimeoutMs: Cardinal;
+      out ALocation: TLspLocation): Boolean;
+    /// <summary>Wie GotoTarget ohne Abgleich (Sync vorher im Hauptthread): ALineText ist die Zeile ALine des
+    /// abgeglichenen Texts. Aus jedem Thread, solange die Sitzung lebt (Strg+Klick im Hintergrund).</summary>
+    function GotoTargetAt(const AFileName, ALineText: string; ALine, ACharacter: Integer; ATimeoutMs: Cardinal;
       out ALocation: TLspLocation): Boolean;
     /// <summary>textDocument/definition ohne Abgleich (#505): alle Ziele; Sync vorher.</summary>
     function Definitions(const AFileName: string; ALine, ACharacter: Integer): TArray<TLspLocation>;
@@ -130,6 +141,7 @@ implementation
 
 uses
   System.Classes,
+  dpcc.Text.Lines,
   dpcc.Core.Editor.Navigation;
 
 function RangeToJson(const ARange: TLspRange): TJSONObject;
@@ -277,10 +289,16 @@ end;
 
 function TLspSessionRequests.Hover(const AFileName, AText: string; ALine, ACharacter: Integer;
   ATimeoutMs: Cardinal): string;
+begin
+  Sync(AFileName, AText);
+  Result := HoverAt(AFileName, ALine, ACharacter, ATimeoutMs);
+end;
+
+function TLspSessionRequests.HoverAt(const AFileName: string; ALine, ACharacter: Integer;
+  ATimeoutMs: Cardinal): string;
 var
   mResponse: TJSONValue;
 begin
-  Sync(AFileName, AText);
   mResponse := FClient.Request('textDocument/hover', PositionParams(AFileName, ALine, ACharacter),
     TimeoutOr(ATimeoutMs));
   try
@@ -592,18 +610,32 @@ end;
 function TLspSessionRequests.GotoTarget(const AFileName, AText: string; ALine, ACharacter: Integer;
   ATimeoutMs: Cardinal; out ALocation: TLspLocation): Boolean;
 var
+  mTable: TLineTable;
+  mLineText: string;
+begin
+  Sync(AFileName, AText);
+  // Nur die eine Zeile: Die Zeilentabelle zerlegt den Text nicht in Strings.
+  mLineText := '';
+  mTable := TLineTable.Build(AText);
+  if (ALine >= 0) and (ALine < mTable.LineCount) then
+  begin
+    mLineText := Copy(AText, mTable.LineStart(ALine) + 1, mTable.LineContentEnd(ALine) - mTable.LineStart(ALine));
+  end;
+  Result := GotoTargetAt(AFileName, mLineText, ALine, ACharacter, ATimeoutMs, ALocation);
+end;
+
+function TLspSessionRequests.GotoTargetAt(const AFileName, ALineText: string; ALine, ACharacter: Integer;
+  ATimeoutMs: Cardinal; out ALocation: TLspLocation): Boolean;
+var
   mStarted: UInt64;
   mTimeout: Cardinal;
   mDeclared: Boolean;
-  mLines: TArray<string>;
-  mLineText: string;
   mImplementation: TLspLocation;
 begin
   Result := False;
   ALocation := Default(TLspLocation);
   mTimeout := TimeoutOr(ATimeoutMs);
   mStarted := TThread.GetTickCount64;
-  Sync(AFileName, AText);
   mDeclared := Offers('textDocument/declaration');
   if mDeclared then
   try
@@ -623,13 +655,7 @@ begin
   begin
     Exit;
   end;
-  mLines := AText.Split([#13#10, #10]);
-  mLineText := '';
-  if (ALine >= 0) and (ALine < Length(mLines)) then
-  begin
-    mLineText := mLines[ALine];
-  end;
-  if not TDpccGotoDefinition.OnTarget(AFileName, ALine, ACharacter, mLineText, ALocation.FileName, ALocation.Line,
+  if not TDpccGotoDefinition.OnTarget(AFileName, ALine, ACharacter, ALineText, ALocation.FileName, ALocation.Line,
     ALocation.Character) then
   begin
     Exit;

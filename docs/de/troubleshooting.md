@@ -175,6 +175,28 @@ Für genaue Fehlersuche protokolliert dpcc die Aufrufe der IDE an seinen Code-In
 
 Pfade und der Benutzername sind darin ersetzt. Zum Abschalten den Wert löschen oder auf 0 setzen.
 
+### Hänger und langsame Aktionen
+
+Ein Wächter prüft alle 50 ms, ob der Hauptthread der IDE antwortet. Zusammen mit den Zeiten der dpcc-Aktionen
+schreibt er diese Zeilen ins `dpcc.log`:
+
+| Zeile | Bedeutung |
+|---|---|
+| `Hauptthread hängt seit 260 ms in Vervollständigung öffnen` | Die IDE reagiert seit 250 ms oder länger nicht, während dpcc diese Aktion ausführt. Steht sofort im Protokoll, auch wenn die IDE danach nicht mehr reagiert. |
+| `Hauptthread hing 1300 ms in Vervollständigung öffnen` | Die IDE reagiert wieder; Gesamtdauer des Hängers. |
+| `Hauptthread: Symbolhinweis: 87 ms` | Eine dpcc-Aktion hielt die IDE 50 ms oder länger auf, ohne dass sie hing. |
+| `Hauptthread wartete 340 ms auf Server textDocument/completion: Zeitlimit` | Die IDE wartete 100 ms oder länger auf eine Antwort des Servers; Ausgang: `Antwort`, `Zeitlimit`, `abgebrochen` oder `Fehler`. |
+| `Hänger mit dpcc-Aktivität in dieser Sitzung: 3, längster 1300 ms, …` | Zusammenfassung beim Entladen, wenn es Hänger gab. |
+
+Die Zeilen sind gedrosselt: je Aktion höchstens eine Zeile pro Minute (`dazu n weitere …` nennt die übergangenen),
+höchstens 5 Hänger pro Minute einzeln (`… nicht einzeln protokolliert, zusammen n ms`). Hängt die IDE ohne
+dpcc-Aktion (etwa beim Compilieren), schreibt dpcc nichts. Modale Dialoge zählen nicht als Hänger, ebenso Zeit, in der
+die IDE im Debugger angehalten war.
+
+Mit `Diagnose` = 1 (siehe oben) stehen zusätzlich Hänger ohne dpcc-Aktion als `… ohne dpcc-Aktivität` im
+Diagnoseprotokoll, und beim Entladen folgen dort die 10 langsamsten Aufrufe, Server-Anfragen und Abfragen der
+Vervollständigung.
+
 ### Diagnoselog des Servers
 
 Der Server schreibt ein anonymes Protokoll seiner Anfragen und Indexaufbauten nach

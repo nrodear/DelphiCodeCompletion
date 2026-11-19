@@ -16,10 +16,18 @@
 //     oder verwirft sie, wenn inzwischen Hauptschalter aus, Manager abgeschaltet oder abgebaut. Ein Fehlschlag sperrt
 //     neue Versuche für 30 s (TDpccSessionLifecycle). Die RTTI der Packages liest der Hauptthread danach in kleinen
 //     Schritten (TDpccIdeTypeCollector.StartRun).
-//   - Stopp (SetEnabled(False), Neustart, Abbruch eines Starts): Der Hauptthread schließt die Verbindung und löst
-//     Sitzung und Server aus den Feldern; Warten auf laufende Abfragen und das Beenden des Servers (bis 20 s)
-//     erledigt ein Hintergrund-Thread. Ein neuer Start wartet im Hintergrund, bis frühere Stopps fertig sind (Sperren
-//     der Index-Caches).
+//   - Stopp (SetEnabled(False), Neustart, Abbruch eines Starts): Der Hauptthread bricht die Anfragen von
+//     Vervollständigung und Parameter-Hint nur ab (BeginStop wartet nicht), schließt die Verbindung (offene Anfragen
+//     kehren sofort zurück) und löst Sitzung und Server aus den Feldern; Warten auf laufende Abfragen, auf die
+//     Arbeiter der Quellen (WaitWorkersIdle, sie halten die Sitzung als rohen Zeiger) und das Beenden des Servers
+//     (bis 20 s) erledigt ein Hintergrund-Thread. Ein neuer Start wartet im Hintergrund, bis frühere Stopps fertig
+//     sind (Sperren der Index-Caches).
+//   - „Index neu aufbauen“ (RebuildIndex) kehrt sofort zurück: TDpccSessionLifecycle.TryBeginRebuild sperrt jeden
+//     Start (Tippen, Hauptschalter, „Server neu starten“, zweiter Klick tut nichts), der Stopp läuft wie oben. Ein
+//     Hintergrund-Thread wartet abbrechbar (höchstens cRebuildWaitMs) auf alle Stopps und abgebrochenen Starts
+//     (FStopGate, FStartGate), löscht dann die Caches (AClear) und meldet sich über TDpccMainThread.Queue:
+//     RebuildFinished gibt den Start frei und startet eine vorher laufende Sitzung neu, danach ADone für die
+//     Optionsseite. Entladen bricht den Thread ab (IDpccRebuildRun.Cancel): weder Löschen noch Start.
 //   - Kein Start-, Stopp- oder Lese-Thread hält den Manager: Sie arbeiten nur mit referenzgezählten Objekten
 //     (dpcc.Core.Lsp.SessionStart: Ticket, Stopp-Zähler, Leerlauf-Signale) und dem Abbruchsignal. Jede Rückmeldung an
 //     den Manager geht über TDpccMainThread.Queue (beim Entladen verworfen); erst im Hauptthread sucht SessionOf den
@@ -46,6 +54,14 @@ uses
   dpcc.IDE.CodeInsight.Manager.State;
 
 type
+  /// <summary>Laufender „Index neu aufbauen“: Kennung für die Rückmeldung im Hauptthread und Abbruch beim Entladen.
+  /// Threadsicher, referenzgezählt; der Thread hält es selbst, nie den Manager.</summary>
+  IDpccRebuildRun = interface
+    ['{34BF16B5-0B8C-43E5-8B8E-084002593D59}']
+    procedure Cancel;
+    function Cancelled: Boolean;
+  end;
+
   /// <summary>Start, Stopp und Abgleich der Sitzung mit Projektgruppe, Projektkontext und Dateien.</summary>
   TDpccCodeInsightSession = class(TDpccCodeInsightState)
   public const
@@ -53,9 +69,12 @@ type
     cUnloadWaitMs = 5000;
     /// <summary>Ein Start wartet im Hintergrund höchstens so lange auf frühere Stopps.</summary>
     cStartWaitStopsMs = 30000;
-    /// <summary>„Index neu aufbauen“ wartet höchstens so lange auf den Stopp (Hauptthread, ausdrücklich gewollt).
-    /// </summary>
+    /// <summary>„Index neu aufbauen“: Der Thread wartet höchstens so lange (im Hintergrund, abbrechbar) auf Stopps
+    /// und abgebrochene Starts, dann löscht er die Caches trotzdem (gesperrte bleiben stehen).</summary>
     cRebuildWaitMs = 40000;
+    /// <summary>Der Stopp-Thread wartet höchstens so lange auf die Arbeiter von Vervollständigung und
+    /// Parameter-Hint, bevor er die Sitzung freigibt.</summary>
+    cWorkersWaitMs = 5000;
     /// <summary>Zeitbudget je Takt für die RTTI der Packages (Hauptthread).</summary>
     cIdeTypesSliceMs = 15;
   protected
@@ -76,7 +95,12 @@ type
     /// <summary>Ticket der übernommenen Sitzung (Kennung für Meldungen des Servers); nil ohne Sitzung.</summary>
     FSessionTicket: IDpccStartTicket;
     FStopGate: IDpccStopGate;
-    /// <summary>Start- und Stopp-Threads; ShutdownSession wartet auf sie.</summary>
+    /// <summary>Laufende Start-Threads (auch abgebrochene, die ihr Ergebnis selbst stoppen); „Index neu aufbauen“
+    /// wartet auch auf sie.</summary>
+    FStartGate: IDpccStopGate;
+    /// <summary>Laufender „Index neu aufbauen“; nil ohne.</summary>
+    FRebuildRun: IDpccRebuildRun;
+    /// <summary>Start-, Stopp- und Neuaufbau-Threads; ShutdownSession wartet auf sie.</summary>
     FLifeThreads: TDpccThreadList;
     /// <summary>Laufende Sitzung oder Start anstoßen (nur im Hauptthread); False, solange keine Sitzung läuft.
     /// Außerhalb des Hauptthreads nur, was schon läuft.</summary>
@@ -97,8 +121,10 @@ type
     procedure StopDetachedAsync(const AServer: IDpccLspServer; ASession: TLspSession; const AReason: string);
     /// <summary>Start abbrechen und Sitzung im Hintergrund stoppen; kehrt sofort zurück (Hauptthread).</summary>
     procedure StopSessionAsync(const AReason: string);
-    /// <summary>Wie StopSessionAsync, wartet aber bis AMs auf das Ende der Stopps („Index neu aufbauen“).</summary>
-    procedure StopSessionAndWait(const AReason: string; AMs: Cardinal);
+    /// <summary>Hauptthread: Der Thread von „Index neu aufbauen“ hat die Caches gelöscht. Gibt den Start frei und
+    /// startet eine vorher laufende Sitzung (ARestart) neu, sofern nicht entladen und der Hauptschalter an ist. True =
+    /// Neustart angestoßen bzw. Sitzung läuft.</summary>
+    function RebuildFinished(ARestart: Boolean): Boolean;
     /// <summary>Beim Entladen: Start abbrechen, Sitzung stoppen, begrenzt auf alle Start- und Stopp-Threads warten.
     /// Nur im Hauptthread, mehrfach aufrufbar.</summary>
     procedure ShutdownSession;
@@ -145,11 +171,13 @@ type
     /// <summary>„Server neu starten“ (#591, #393): Sitzung im Hintergrund beenden und neu starten; hebt das Anhalten
     /// nach Abstürzen und die Sperre nach einem Fehlschlag auf (AllowStart). True = Start angestoßen.</summary>
     function RestartServer: Boolean;
-    /// <summary>„Index neu aufbauen“ (S4, Optionsseite): eine laufende Sitzung beenden (gibt die Sperren der
-    /// Index-Caches frei; wartet dafür begrenzt), AClear ausführen (Caches löschen) und den Neustart anstoßen; der
-    /// neue Server baut den Index ohne Cache auf. Läuft keine Sitzung, nur AClear, ohne Server zu starten. True =
-    /// Neustart angestoßen. Hauptthread.</summary>
-    function RebuildIndex(const AClear: TProc): Boolean;
+    /// <summary>„Index neu aufbauen“ (S4, Optionsseite), kehrt sofort zurück (Hauptthread): Sitzung im Hintergrund
+    /// stoppen (gibt die Sperren der Index-Caches frei), bis zum Abschluss jeden Start sperren; ein Hintergrund-Thread
+    /// wartet auf die Stopps, führt AClear aus (Caches löschen; im Hintergrund, ohne VCL und Open Tools API), danach
+    /// im Hauptthread Neustart einer vorher laufenden oder startenden Sitzung und ADone(True = neu gestartet). Lief
+    /// keine Sitzung, nur AClear, ohne Server zu starten. Beim Entladen entfallen AClear, Start und ADone. True =
+    /// angestoßen; False = abgelehnt (läuft schon, entladen), dann weder AClear noch ADone.</summary>
+    function RebuildIndex(const AClear: TProc; const ADone: TProc<Boolean>): Boolean;
     /// <summary>Start von Hand („Server starten“): Nach zwei gleichen Abstürzen startet dpcc den Server wieder
     ///; ebenso vor Ablauf der Sperre nach einem Fehlschlag.</summary>
     procedure AllowStart;
@@ -180,12 +208,40 @@ uses
   dpcc.Core.Lsp.IdeTypes,
   dpcc.Core.Lsp.IdeMembers,
   dpcc.Core.Localization.Language,
-  dpcc.Core.Diagnostics.Deadline;
+  dpcc.Core.Diagnostics.Deadline,
+  dpcc.Core.Diagnostics.Hangs,
+  dpcc.Core.Completion.Internals.Async,
+  dpcc.Core.Signature.Providers.Server;
 
 const
   /// <summary>Höchstens so oft die Projektgruppe bzw. die Projektkontexte neu lesen.</summary>
   cProjectsCheckMs = 2000;
   cContextsCheckMs = 1000;
+  /// <summary>Takt, in dem der Thread von „Index neu aufbauen“ auf Stopps und Starts schaut (im Hintergrund).
+  /// </summary>
+  cRebuildPollMs = 50;
+
+type
+  /// <summary>Kennung und Abbruch eines laufenden „Index neu aufbauen“.</summary>
+  TDpccRebuildRun = class(TInterfacedObject, IDpccRebuildRun)
+  private
+    FCancelled: Integer;
+  public
+    procedure Cancel;
+    function Cancelled: Boolean;
+  end;
+
+{ TDpccRebuildRun }
+
+procedure TDpccRebuildRun.Cancel;
+begin
+  AtomicExchange(FCancelled, 1);
+end;
+
+function TDpccRebuildRun.Cancelled: Boolean;
+begin
+  Result := AtomicCmpExchange(FCancelled, 0, 0) <> 0;
+end;
 
 { Zuordnung im Hauptthread }
 
@@ -227,6 +283,20 @@ begin
   mLive := LiveManagerObject;
   if (AGate <> nil) and (mLive is TDpccCodeInsightSession) and
     (TDpccCodeInsightSession(mLive).FStopGate = AGate) then
+  begin
+    Result := TDpccCodeInsightSession(mLive);
+  end;
+end;
+
+/// <summary>Nur Hauptthread: lebender Manager, dessen laufender „Index neu aufbauen“ ARun ist; sonst nil.</summary>
+function RebuilderOf(const ARun: IDpccRebuildRun): TDpccCodeInsightSession;
+var
+  mLive: TObject;
+begin
+  Result := nil;
+  mLive := LiveManagerObject;
+  if (ARun <> nil) and (mLive is TDpccCodeInsightSession) and
+    (TDpccCodeInsightSession(mLive).FRebuildRun = ARun) then
   begin
     Result := TDpccCodeInsightSession(mLive);
   end;
@@ -380,120 +450,142 @@ begin
     end);
 end;
 
-/// <summary>Start im Hintergrund. Die anonyme Methode fängt nur Ticket, Fabrik des Servers und Stopp-Zähler ein;
-/// die Rückmeldung geht über TDpccMainThread.Queue an den Manager, den erst der Hauptthread sucht (StarterOf).
-/// </summary>
-function StartWork(const ATicket: IDpccStartTicket; const ANewServer: TFunc<IDpccLspServer>;
-  const AGate: IDpccStopGate): TProc;
+/// <summary>Arbeit des Start-Threads (StartWork): Server und Sitzung anlegen, initialize, Ergebnis an das Ticket.
+/// Hält nur Ticket, Fabrik des Servers und Stopp-Zähler, nie den Manager.</summary>
+procedure StartWorkRun(const ATicket: IDpccStartTicket; const ANewServer: TFunc<IDpccLspServer>;
+  const AGate: IDpccStopGate);
 var
   mTicket: IDpccStartTicket;
   mNewServer: TFunc<IDpccLspServer>;
   mGate: IDpccStopGate;
+  mWatch: TStopwatch;
+  mJob: TDpccStartJob;
+  mServer: IDpccLspServer;
+  mSession: TLspSession;
+  mError: string;
 begin
   mTicket := ATicket;
   mNewServer := ANewServer;
   mGate := AGate;
-  Result :=
+  TThread.NameThreadForDebugging('dpcc.SessionStart');
+  mWatch := TStopwatch.StartNew;
+  mJob := mTicket.Job;
+  mServer := nil;
+  mSession := nil;
+  mError := '';
+  try
+    // Erst wenn frühere Sitzungen gestoppt sind (Sperren der Index-Caches), wie früher der Stopp vor dem Start.
+    if not mGate.WaitIdle(TDpccCodeInsightSession.cStartWaitStopsMs) and not TDpccShutdown.Signalled then
+    begin
+      DiagnoseFrom(mJob.Diagnose, 'Serverstart: früherer Stopp läuft noch, Start trotzdem');
+    end;
+    if TDpccShutdown.Signalled or mTicket.Cancelled then
+    begin
+      raise EAbort.Create('abgebrochen');
+    end;
+    mServer := mNewServer();
+    mSession := TLspSession.Create(mServer.Client);
+    // Sprache der Oberfläche (#1458); ohne "language" in settings.json entscheidet allein diese Angabe.
+    mSession.InitializeOptions := TLspInitializeOptions.ForLocale(mJob.Locale);
+    // Vor initialize nur gemerkt; gehen mit initialize an den Server (#396, #648).
+    mSession.SetProjectContexts(mJob.Contexts);
+    mSession.SetProjects(mJob.Projects);
+    // Empfänger vor initialize (der Server darf gleich danach Nachrichten schicken).
+    HookSession(mServer.Client, mSession, mTicket);
+    DiagnoseFrom(mJob.Diagnose, 'initialize mit locale ' + mJob.Locale);
+    mSession.Initialize;
+    if Length(mJob.Documents) > 0 then
+    begin
+      mSession.Reopen(mJob.Documents);
+    end;
+    // Liste der .pas unter $(BDS)\source und OCX (rekursiv) hier statt im Hauptthread.
+    TDpccIdeTypeCollector.PrepareSourceUnits;
+  except
+    on E: Exception do
+    begin
+      mError := E.Message;
+      if mError = '' then
+      begin
+        mError := E.ClassName;
+      end;
+    end;
+  end;
+  if mError <> '' then
+  begin
+    // Fehlschlag: Halbfertiges gleich hier abbauen, der Hauptthread bekommt nur den Grund.
+    try
+      if mServer <> nil then
+      begin
+        mServer.Client.Close;
+      end;
+      FreeAndNil(mSession);
+      mServer := nil;
+    except
+      on E: Exception do
+        TDpccGuard.Log('Server: Abbau nach fehlgeschlagenem Start: ' + TDpccGuard.ErrorText(E));
+    end;
+  end;
+  if not mTicket.Deliver(mServer, mSession, mError, mWatch.ElapsedMilliseconds) then
+  begin
+    // Abgebrochen (Hauptschalter aus, Stopp, Entladen, Index neu aufbauen): Dieser Thread ist Besitzer und stoppt
+    // selbst.
+    try
+      if mServer <> nil then
+      begin
+        mServer.Client.Close;
+      end;
+      FreeAndNil(mSession);
+      mServer := nil;
+    except
+      on E: Exception do
+        TDpccGuard.Log('Server: Abbau eines verworfenen Starts: ' + TDpccGuard.ErrorText(E));
+    end;
+    DiagnoseFrom(mJob.Diagnose, Format(
+      'Serverstart verworfen und im Hintergrund gestoppt nach %d ms (Generation %d)',
+      [mWatch.ElapsedMilliseconds, mJob.Generation]));
+    Exit;
+  end;
+  // Ab hier gehören Server und Sitzung dem Ticket.
+  mServer := nil;
+  mSession := nil;
+  // Verwirft TDpccMainThread den Eintrag (Entladen), holt ShutdownSession das Ergebnis über CancelStart.
+  TDpccMainThread.Queue(TDpccFeature.Server,
     procedure
     var
-      mWatch: TStopwatch;
-      mJob: TDpccStartJob;
-      mServer: IDpccLspServer;
-      mSession: TLspSession;
-      mError: string;
+      mOwner: TDpccCodeInsightSession;
     begin
-      TThread.NameThreadForDebugging('dpcc.SessionStart');
-      mWatch := TStopwatch.StartNew;
-      mJob := mTicket.Job;
-      mServer := nil;
-      mSession := nil;
-      mError := '';
+      mOwner := StarterOf(mTicket);
+      if mOwner <> nil then
+      begin
+        mOwner.StartFinished(mTicket);
+      end;
+    end);
+end;
+
+/// <summary>Start im Hintergrund (StartWorkRun). Die anonyme Methode fängt nur Ticket, Fabrik des Servers und die
+/// Zähler der Stopps bzw. Starts ein; die Rückmeldung geht über TDpccMainThread.Queue an den Manager, den erst der
+/// Hauptthread sucht (StarterOf). AStarts hat der Hauptthread vor dem Start betreten; der Thread verlässt ihn ganz am
+/// Ende, auch nach dem Stopp eines verworfenen Ergebnisses („Index neu aufbauen“ wartet darauf).</summary>
+function StartWork(const ATicket: IDpccStartTicket; const ANewServer: TFunc<IDpccLspServer>;
+  const AGate, AStarts: IDpccStopGate): TProc;
+var
+  mTicket: IDpccStartTicket;
+  mNewServer: TFunc<IDpccLspServer>;
+  mGate: IDpccStopGate;
+  mStarts: IDpccStopGate;
+begin
+  mTicket := ATicket;
+  mNewServer := ANewServer;
+  mGate := AGate;
+  mStarts := AStarts;
+  Result :=
+    procedure
+    begin
       try
-        // Erst wenn frühere Sitzungen gestoppt sind (Sperren der Index-Caches), wie früher der Stopp vor dem Start.
-        if not mGate.WaitIdle(TDpccCodeInsightSession.cStartWaitStopsMs) and not TDpccShutdown.Signalled then
-        begin
-          DiagnoseFrom(mJob.Diagnose, 'Serverstart: früherer Stopp läuft noch, Start trotzdem');
-        end;
-        if TDpccShutdown.Signalled or mTicket.Cancelled then
-        begin
-          raise EAbort.Create('abgebrochen');
-        end;
-        mServer := mNewServer();
-        mSession := TLspSession.Create(mServer.Client);
-        // Sprache der Oberfläche (#1458); ohne "language" in settings.json entscheidet allein diese Angabe.
-        mSession.InitializeOptions := TLspInitializeOptions.ForLocale(mJob.Locale);
-        // Vor initialize nur gemerkt; gehen mit initialize an den Server (#396, #648).
-        mSession.SetProjectContexts(mJob.Contexts);
-        mSession.SetProjects(mJob.Projects);
-        // Empfänger vor initialize (der Server darf gleich danach Nachrichten schicken).
-        HookSession(mServer.Client, mSession, mTicket);
-        DiagnoseFrom(mJob.Diagnose, 'initialize mit locale ' + mJob.Locale);
-        mSession.Initialize;
-        if Length(mJob.Documents) > 0 then
-        begin
-          mSession.Reopen(mJob.Documents);
-        end;
-        // Liste der .pas unter $(BDS)\source und OCX (rekursiv) hier statt im Hauptthread.
-        TDpccIdeTypeCollector.PrepareSourceUnits;
-      except
-        on E: Exception do
-        begin
-          mError := E.Message;
-          if mError = '' then
-          begin
-            mError := E.ClassName;
-          end;
-        end;
+        StartWorkRun(mTicket, mNewServer, mGate);
+      finally
+        mStarts.Leave;
       end;
-      if mError <> '' then
-      begin
-        // Fehlschlag: Halbfertiges gleich hier abbauen, der Hauptthread bekommt nur den Grund.
-        try
-          if mServer <> nil then
-          begin
-            mServer.Client.Close;
-          end;
-          FreeAndNil(mSession);
-          mServer := nil;
-        except
-          on E: Exception do
-            TDpccGuard.Log('Server: Abbau nach fehlgeschlagenem Start: ' + TDpccGuard.ErrorText(E));
-        end;
-      end;
-      if not mTicket.Deliver(mServer, mSession, mError, mWatch.ElapsedMilliseconds) then
-      begin
-        // Abgebrochen (Hauptschalter aus, Stopp, Entladen): Dieser Thread ist Besitzer und stoppt selbst.
-        try
-          if mServer <> nil then
-          begin
-            mServer.Client.Close;
-          end;
-          FreeAndNil(mSession);
-          mServer := nil;
-        except
-          on E: Exception do
-            TDpccGuard.Log('Server: Abbau eines verworfenen Starts: ' + TDpccGuard.ErrorText(E));
-        end;
-        DiagnoseFrom(mJob.Diagnose, Format(
-          'Serverstart verworfen und im Hintergrund gestoppt nach %d ms (Generation %d)',
-          [mWatch.ElapsedMilliseconds, mJob.Generation]));
-        Exit;
-      end;
-      // Ab hier gehören Server und Sitzung dem Ticket.
-      mServer := nil;
-      mSession := nil;
-      // Verwirft TDpccMainThread den Eintrag (Entladen), holt ShutdownSession das Ergebnis über CancelStart.
-      TDpccMainThread.Queue(TDpccFeature.Server,
-        procedure
-        var
-          mOwner: TDpccCodeInsightSession;
-        begin
-          mOwner := StarterOf(mTicket);
-          if mOwner <> nil then
-          begin
-            mOwner.StartFinished(mTicket);
-          end;
-        end);
     end;
 end;
 
@@ -538,6 +630,18 @@ begin
             begin
               DiagnoseFrom(mDiagnose, 'Sitzung beendet, während ein Zeitlimit-Arbeiter noch lief');
             end;
+            // Arbeiter von Vervollständigung und Parameter-Hint halten die Sitzung als rohen Zeiger. BeginStop hat
+            // sie nur abgebrochen; nach dem Schließen kehren ihre Anfragen sofort zurück. Hier statt im Hauptthread.
+            if not TDpccAsyncCompletionProvider.WaitWorkersIdle(TDpccCodeInsightSession.cWorkersWaitMs) then
+            begin
+              DiagnoseFrom(mDiagnose, Format('Sitzung beendet, während %d Arbeiter der Vervollständigung liefen',
+                [TDpccAsyncCompletionProvider.RunningWorkers]));
+            end;
+            if not TDpccServerSignatureProvider.WaitWorkersIdle(TDpccCodeInsightSession.cWorkersWaitMs) then
+            begin
+              DiagnoseFrom(mDiagnose, Format('Sitzung beendet, während %d Arbeiter des Parameter-Hints liefen',
+                [TDpccServerSignatureProvider.RunningWorkers]));
+            end;
             mSignals.WaitCommand(5000);
             mSignals.WaitServerCommands(5000);
           end;
@@ -570,6 +674,98 @@ begin
     end;
 end;
 
+/// <summary>„Index neu aufbauen“ im Hintergrund: abbrechbar auf Stopps (AStops) und laufende Starts (AStarts) warten,
+/// höchstens cRebuildWaitMs, dann AClear (Caches löschen) und Abschluss im Hauptthread (RebuilderOf, RebuildFinished,
+/// ADone). Die anonyme Methode fängt nur Kennung, Zähler und die Prozeduren ein, nie den Manager. Abgebrochen
+/// (Entladen): weder AClear noch Abschluss.</summary>
+function RebuildWork(const ARun: IDpccRebuildRun; const AStops, AStarts: IDpccStopGate; const AClear: TProc;
+  const ADone: TProc<Boolean>; ARestart, ADiagnose: Boolean): TProc;
+var
+  mRun: IDpccRebuildRun;
+  mStops: IDpccStopGate;
+  mStarts: IDpccStopGate;
+  mClear: TProc;
+  mDone: TProc<Boolean>;
+  mRestart: Boolean;
+  mDiagnose: Boolean;
+begin
+  mRun := ARun;
+  mStops := AStops;
+  mStarts := AStarts;
+  mClear := AClear;
+  mDone := ADone;
+  mRestart := ARestart;
+  mDiagnose := ADiagnose;
+  Result :=
+    procedure
+    var
+      mWatch: TStopwatch;
+      mIdle: Boolean;
+    begin
+      TThread.NameThreadForDebugging('dpcc.RebuildIndex');
+      mWatch := TStopwatch.StartNew;
+      // Erst wenn der alte Server beendet ist (Sperren der Index-Caches): Stopps und abgebrochene Starts, die ihr
+      // Ergebnis selbst stoppen. Im Takt nachsehen, damit Entladen den Thread sofort beendet.
+      repeat
+        mIdle := (mStops.Count = 0) and (mStarts.Count = 0);
+        if mIdle or mRun.Cancelled or TDpccShutdown.Signalled or
+          (mWatch.ElapsedMilliseconds >= TDpccCodeInsightSession.cRebuildWaitMs) then
+        begin
+          Break;
+        end;
+        TThread.Sleep(cRebuildPollMs);
+      until False;
+      if mRun.Cancelled or TDpccShutdown.Signalled then
+      begin
+        DiagnoseFrom(mDiagnose, 'Index neu aufbauen abgebrochen (Entladen)');
+        Exit;
+      end;
+      if not mIdle then
+      begin
+        DiagnoseFrom(mDiagnose, Format('Index neu aufbauen: Stopp nach %d ms nicht fertig, Caches trotzdem löschen',
+          [mWatch.ElapsedMilliseconds]));
+      end;
+      try
+        mClear();
+      except
+        on E: Exception do
+        begin
+          TDpccGuard.Log('Index neu aufbauen: Caches löschen: ' + TDpccGuard.ErrorText(E));
+        end;
+      end;
+      DiagnoseFrom(mDiagnose, Format('Index neu aufbauen: Caches gelöscht nach %d ms', [mWatch.ElapsedMilliseconds]));
+      if mRun.Cancelled then
+      begin
+        Exit;
+      end;
+      // Beim Entladen verworfen: dann weder Start noch Meldung an die Optionsseite.
+      TDpccMainThread.Queue(TDpccFeature.Server,
+        procedure
+        var
+          mActivity: IInterface;
+          mOwner: TDpccCodeInsightSession;
+          mStarted: Boolean;
+        begin
+          mActivity := TDpccActivity.Scope('Index neu aufbauen: Neustart');
+          mStarted := False;
+          mOwner := RebuilderOf(mRun);
+          if mOwner = nil then
+          begin
+            Exit;
+          end;
+          try
+            mStarted := mOwner.RebuildFinished(mRestart);
+          finally
+            // Die Optionsseite erfährt das Ende auch nach einem Fehler beim Neustart.
+            if Assigned(mDone) then
+            begin
+              mDone(mStarted);
+            end;
+          end;
+        end);
+    end;
+end;
+
 { TDpccCodeInsightSession }
 
 constructor TDpccCodeInsightSession.Create(const AAdapters: TDpccCodeInsightAdapters);
@@ -578,6 +774,7 @@ begin
   FSignals := TDpccIdleSignals.Create;
   FLifecycle := TDpccSessionLifecycle.Create;
   FStopGate := TDpccStopGate.Create;
+  FStartGate := TDpccStopGate.Create;
   FLifeThreads := TDpccThreadList.Create;
   Diagnose('Plugin geladen: ' + GetModuleName(HInstance));
   FFileChanges := TDpccWatchedChanges.Create;
@@ -601,7 +798,9 @@ begin
   FSignals := nil;
   FStartTicket := nil;
   FSessionTicket := nil;
+  FRebuildRun := nil;
   FStopGate := nil;
+  FStartGate := nil;
   FreeAndNil(FLifecycle);
   inherited;
 end;
@@ -613,6 +812,7 @@ end;
 
 procedure TDpccCodeInsightSession.DetachSession(const AReason: string);
 var
+  mActivity: IInterface;
   mServer: IDpccLspServer;
   mSession: TLspSession;
 begin
@@ -622,7 +822,12 @@ begin
     FSessionTicket := nil;
     Exit;
   end;
+  mActivity := TDpccActivity.Scope('Sitzung stoppen');
   // Während des Schließens ist ein Ende des Servers kein Absturz (OnClosed läuft in Close, im Hauptthread sofort).
+  // Nichts davon wartet: BeginStop bricht die Anfragen von Vervollständigung und Parameter-Hint nur ab (vor dem
+  // Schließen, damit kein geweckter Arbeiter noch liefert); Close weckt alle offenen Anfragen sofort (Done). Auf die
+  // Arbeiter wartet StopWork im Hintergrund, bevor es die Sitzung freigibt. Nur die Hover-Arbeiter wartet EndStop
+  // noch ab; sie kehren nach Close sofort zurück.
   FStopping := True;
   try
     if FEditors <> nil then
@@ -719,19 +924,6 @@ begin
   DetachSession(AReason);
 end;
 
-procedure TDpccCodeInsightSession.StopSessionAndWait(const AReason: string; AMs: Cardinal);
-var
-  mWatch: TStopwatch;
-begin
-  StopSessionAsync(AReason);
-  mWatch := TStopwatch.StartNew;
-  if not FStopGate.WaitIdle(AMs) then
-  begin
-    TDpccGuard.Log(Format('Server: Stopp nach %d ms noch nicht fertig (%s)', [AMs, AReason]));
-  end;
-  Diagnose(Format('Auf Stopp gewartet: %d ms (%s)', [mWatch.ElapsedMilliseconds, AReason]));
-end;
-
 procedure TDpccCodeInsightSession.ShutdownSession;
 var
   mWatch: TStopwatch;
@@ -740,6 +932,12 @@ begin
   if (FLifecycle = nil) or FLifecycle.Closed then
   begin
     Exit;
+  end;
+  // Laufender „Index neu aufbauen“: Sein Thread hört auf zu warten und löscht nichts mehr; kein Start danach.
+  if FRebuildRun <> nil then
+  begin
+    FRebuildRun.Cancel;
+    FRebuildRun := nil;
   end;
   CancelStart('Entladen');
   DetachSession('Entladen');
@@ -767,37 +965,87 @@ begin
 end;
 
 function TDpccCodeInsightSession.RestartServer: Boolean;
+var
+  mActivity: IInterface;
 begin
+  mActivity := TDpccActivity.Scope('Server neu starten');
   Report('Server wird neu gestartet');
   AllowStart;
   StopSessionAsync('Neustart von Hand');
   SetPhase(TDpccServerPhase.Stopped, '', True);
+  // Während „Index neu aufbauen“ startet erst dessen Abschluss den Server (RequestStart tut dann nichts).
   RequestStart;
   Result := StartPending;
 end;
 
-function TDpccCodeInsightSession.RebuildIndex(const AClear: TProc): Boolean;
+function TDpccCodeInsightSession.RebuildIndex(const AClear: TProc; const ADone: TProc<Boolean>): Boolean;
 var
-  mRunning: Boolean;
+  mActivity: IInterface;
+  mRestart: Boolean;
+  mRun: IDpccRebuildRun;
 begin
-  mRunning := RunningSession <> nil;
-  if mRunning then
+  mActivity := TDpccActivity.Scope('Index neu aufbauen');
+  Result := False;
+  if not TDpccMainThread.IsMain or FShutDown or (FLifecycle = nil) or not Assigned(AClear) then
   begin
-    Report('Index wird neu aufgebaut: Sitzung wird neu gestartet');
-    // Ausdrücklich gewollt (Knopf der Optionsseite): Die Caches lassen sich erst löschen, wenn der alte Server
-    // seine Sperren freigegeben hat; deshalb hier begrenzt warten.
-    StopSessionAndWait('Index neu aufbauen', cRebuildWaitMs);
+    Exit;
+  end;
+  // Laufende oder startende Sitzung: nach dem Löschen neu starten. Sonst nur löschen, ohne Server zu starten.
+  mRestart := (RunningSession <> nil) or StartPending;
+  // Zweiter Klick, während der erste noch läuft (oder nach dem Entladen): nichts tun.
+  if not FLifecycle.TryBeginRebuild then
+  begin
+    Diagnose('Index neu aufbauen läuft schon; Aufruf ignoriert');
+    Exit;
+  end;
+  mRun := TDpccRebuildRun.Create;
+  FRebuildRun := mRun;
+  if mRestart then
+  begin
+    Report('Index wird neu aufgebaut: Sitzung wird angehalten und danach neu gestartet');
+  end
+  else
+  begin
+    Report('Index wird neu aufgebaut: Caches werden gelöscht, der Server startet bei der nächsten Anfrage');
+  end;
+  // Kehrt sofort zurück; der Stopp läuft im Hintergrund (FStopGate). Ab hier startet nichts, bis RebuildFinished.
+  StopSessionAsync('Index neu aufbauen');
+  if mRestart then
+  begin
     SetPhase(TDpccServerPhase.Stopped, '', True);
   end;
   try
-    AClear();
-  finally
-    Result := False;
-    if mRunning then
+    FLifeThreads.Start(RebuildWork(mRun, FStopGate, FStartGate, AClear, ADone, mRestart, FDiagnose));
+    Result := True;
+  except
+    on E: Exception do
     begin
-      RequestStart;
-      Result := StartPending or (RunningSession <> nil);
+      // Kein Thread: Neuaufbau zurücknehmen; die Caches bleiben, die Sitzung startet wieder.
+      TDpccGuard.Log('Index neu aufbauen: Thread nicht gestartet: ' + TDpccGuard.ErrorText(E));
+      FRebuildRun := nil;
+      if FLifecycle.EndRebuild and mRestart then
+      begin
+        RequestStart;
+      end;
     end;
+  end;
+end;
+
+function TDpccCodeInsightSession.RebuildFinished(ARestart: Boolean): Boolean;
+begin
+  Result := False;
+  FRebuildRun := nil;
+  // Entladen oder abgebaut: kein Start mehr.
+  if not FLifecycle.EndRebuild or FShutDown then
+  begin
+    Exit;
+  end;
+  Diagnose('Index neu aufbauen: Caches gelöscht, Start wieder frei');
+  // Wie früher nur eine vorher laufende Sitzung neu starten; nicht bei inzwischen ausgeschaltetem Hauptschalter.
+  if ARestart and TDpccIdeSettings.Current.Enabled then
+  begin
+    RequestStart;
+    Result := StartPending or (RunningSession <> nil);
   end;
 end;
 
@@ -882,8 +1130,9 @@ begin
       end;
   end;
   // Zweimal gleich abgestürzt: kein stiller Neustart; „Server neu starten“ hebt das auf. Nach einem Fehlschlag
-  // gilt die Sperrzeit.
-  if FCrashes.Held or FLifecycle.Blocked(TDpccTicks.Now) or FLifecycle.Closed then
+  // gilt die Sperrzeit. Während „Index neu aufbauen“ startet erst dessen Abschluss (RebuildFinished), nachdem die
+  // Caches gelöscht sind.
+  if FCrashes.Held or FLifecycle.Blocked(TDpccTicks.Now) or FLifecycle.Closed or FLifecycle.Rebuilding then
   begin
     Exit;
   end;
@@ -935,12 +1184,15 @@ begin
   SetPhase(TDpccServerPhase.Starting, '');
   Diagnose(Format('Serverstart angestoßen (Generation %d, %d Projekte, %d Dateien zum erneuten Öffnen)',
     [mGeneration, Length(mJob.Projects), Length(mJob.Documents)]));
+  // Verlassen am Ende des Start-Threads (StartWork); „Index neu aufbauen“ wartet darauf.
+  FStartGate.Enter;
   try
-    FLifeThreads.Start(StartWork(mTicket, FAdapters.NewServer, FStopGate));
+    FLifeThreads.Start(StartWork(mTicket, FAdapters.NewServer, FStopGate, FStartGate));
   except
     on E: Exception do
     begin
       // Kein Thread: Start gilt als abgebrochen, der nächste Aufruf versucht es wieder.
+      FStartGate.Leave;
       TDpccGuard.Log('Server: Start-Thread nicht gestartet: ' + TDpccGuard.ErrorText(E));
       CancelStart('kein Start-Thread');
     end;

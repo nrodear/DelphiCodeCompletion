@@ -4,6 +4,9 @@
 // der IDE in dpcc.IDE.Expert<Version>.log neben dem Plugin (Name der BPL bis 1.x).
 // Pfad, Argumente und Betriebsart eines eigenen Server-Prozesses liest dpcc seit S1 nicht mehr: Der Server läuft nur
 // noch im IDE-Prozess. Vorhandene Registry-Werte dazu bleiben unangetastet und werden ignoriert.
+// Schreiben (perf1): Append reiht die Zeile mit der Uhrzeit des Aufrufs beim Schreib-Thread ein
+// (TDpccLogWriter.Shared); Pfade entfernen und Anhängen laufen dort, mehrere Zeilen gesammelt. Läuft er nicht, schreibt
+// Append wie bisher selbst. Format und Datei bleiben gleich.
 
 interface
 
@@ -29,10 +32,51 @@ uses
   System.SysUtils,
   System.IOUtils,
   System.RegularExpressions,
-  System.Win.Registry;
+  System.Win.Registry,
+  dpcc.Core.Diagnostics.LogWriter;
 
 const
   cRegistryKey = 'Software\dpcc\IdePlugin';
+
+type
+  /// <summary>Diagnoselog als Ziel des Schreib-Threads (perf1).</summary>
+  TDiagnoseTarget = class(TInterfacedObject, IDpccLogTarget)
+  public
+    procedure WriteLines(const ALines: TArray<TDpccLogLine>);
+  end;
+
+var
+  // Ziel für Append; lebt bis zur Finalisierung (eingereihte Zeilen halten es selbst).
+  DiagnoseTarget: IDpccLogTarget;
+
+/// <summary>ALines mit Uhrzeit des Aufrufs und ohne Pfade an einem Stück anhängen; ein gesperrtes Protokoll stört
+/// nie.</summary>
+procedure WriteDiagnose(const ALines: TArray<TDpccLogLine>);
+var
+  mBuilder: TStringBuilder;
+  mLine: TDpccLogLine;
+begin
+  try
+    mBuilder := TStringBuilder.Create;
+    try
+      for mLine in ALines do
+      begin
+        mBuilder.Append(FormatDateTime('hh":"nn":"ss.zzz', mLine.Stamp)).Append(' ')
+          .Append(TDpccCodeInsightPaths.WithoutPaths(mLine.Text)).Append(sLineBreak);
+      end;
+      TFile.AppendAllText(TDpccCodeInsightPaths.DiagnoseLog, mBuilder.ToString, TEncoding.UTF8);
+    finally
+      mBuilder.Free;
+    end;
+  except
+    // Protokoll ist Beiwerk; ein gesperrtes Log darf die IDE nicht stören.
+  end;
+end;
+
+procedure TDiagnoseTarget.WriteLines(const ALines: TArray<TDpccLogLine>);
+begin
+  WriteDiagnose(ALines);
+end;
 
 /// <summary>Öffnet den Schlüssel der Einstellungen; liefert den geöffneten Schlüssel oder ''.</summary>
 function OpenSettingsKey(ARegistry: TRegistry): string;
@@ -96,13 +140,26 @@ begin
 end;
 
 class procedure TDpccCodeInsightPaths.Append(const AMessage: string);
+var
+  mLine: TDpccLogLine;
+  mWriter: TDpccLogWriter;
+  mTarget: IDpccLogTarget;
 begin
-  try
-    TFile.AppendAllText(DiagnoseLog, FormatDateTime('hh":"nn":"ss.zzz', Now) + ' ' + WithoutPaths(AMessage) +
-      sLineBreak, TEncoding.UTF8);
-  except
-    // Protokoll ist Beiwerk; ein gesperrtes Log darf die IDE nicht stören.
+  // Uhrzeit jetzt; Pfade entfernen und Schreiben im Schreib-Thread.
+  mLine := TDpccLogLine.Create(AMessage);
+  mWriter := TDpccLogWriter.Shared;
+  mTarget := DiagnoseTarget;
+  if (mWriter <> nil) and (mTarget <> nil) and mWriter.Enqueue(mTarget, mLine) then
+  begin
+    Exit;
   end;
+  WriteDiagnose(TArray<TDpccLogLine>.Create(mLine));
 end;
+
+initialization
+  DiagnoseTarget := TDiagnoseTarget.Create;
+
+finalization
+  DiagnoseTarget := nil;
 
 end.

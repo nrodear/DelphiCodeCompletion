@@ -41,6 +41,26 @@ type
     procedure WithoutSessionCompletesEmpty;
   end;
 
+  /// <summary>Zusammenführen ohne Warten (perf1): Query kehrt sofort zurück, Quellen laufen auf Arbeitern.</summary>
+  [TestFixture]
+  TDpccCompositeNoWaitTests = class
+  public
+    /// <summary>Sicherung und Arbeiter vor der Leckmessung (die Sicherung merkt sich langsame Quellen).</summary>
+    [SetupFixture]
+    procedure WarmUp;
+    /// <summary>Eine Quelle, die 400 ms blockiert, hält Query nicht auf; ihre Einträge kommen danach.</summary>
+    [Test]
+    procedure QueryReturnsBeforeSlowSource;
+    /// <summary>Läuft der vorige Aufruf noch (im Zeitlimit), startet die neueste Abfrage gleich danach; nie zwei
+    /// Aufrufe einer Quelle zugleich.</summary>
+    [Test]
+    procedure LatestQueryRunsAfterRunningCall;
+    /// <summary>Hängt eine Quelle über das Zeitlimit, ist ihr Teil fertig; die nächste Abfrage überspringt sie.
+    /// </summary>
+    [Test]
+    procedure HangingSourceIsAbandonedAndSkipped;
+  end;
+
   [TestFixture]
   TDpccServerCompletionTests = class
   public
@@ -140,6 +160,7 @@ uses
   dpcc.Core.Completion.Ranking,
   dpcc.Core.Completion.Providers.XmlDoc,
   System.Diagnostics,
+  dpcc.Core.Diagnostics.Guard,
   dpcc.Core.Lsp.Client,
   dpcc.Core.Lsp.Session,
   dpcc.Core.Lsp.Adapters.InProcess;
@@ -1046,8 +1067,206 @@ begin
   Assert.AreEqual('TStringList', TDpccCompletionMatcher.CommitText('tsl', 'TStringList', False));
 end;
 
+{ TDpccCompositeNoWaitTests }
+
+type
+  /// <summary>Quelle, die in Query (wie ein langsames Prepare) ADelayMs blockiert und dann liefert; zählt Aufrufe
+  /// und wie viele gleichzeitig liefen.</summary>
+  TBlockingProvider = class(TInterfacedObject, IDpccCompletionProvider, IDpccNamedProvider)
+  private
+    FItems: TDpccCompletionItems;
+    FDelayMs: Cardinal;
+    FRunning: Integer;
+    FOverlapped: Integer;
+    FCalls: Integer;
+  public
+    constructor Create(const AItems: TDpccCompletionItems; ADelayMs: Cardinal);
+    procedure Query(const AContext: TDpccContext; const ASink: IDpccCompletionSink);
+    procedure Cancel;
+    function ProviderName: string;
+    function Running: Integer;
+    function Calls: Integer;
+    function Overlapped: Integer;
+  end;
+
+const
+  cBlockingName = 'Blockierend';
+
+constructor TBlockingProvider.Create(const AItems: TDpccCompletionItems; ADelayMs: Cardinal);
+begin
+  inherited Create;
+  FItems := AItems;
+  FDelayMs := ADelayMs;
+end;
+
+procedure TBlockingProvider.Query(const AContext: TDpccContext; const ASink: IDpccCompletionSink);
+begin
+  TInterlocked.Increment(FCalls);
+  if TInterlocked.Increment(FRunning) > 1 then
+  begin
+    TInterlocked.Increment(FOverlapped);
+  end;
+  try
+    TThread.Sleep(FDelayMs);
+  finally
+    TInterlocked.Decrement(FRunning);
+  end;
+  ASink.AddItems(FItems);
+  ASink.Complete;
+end;
+
+procedure TBlockingProvider.Cancel;
+begin
+end;
+
+function TBlockingProvider.ProviderName: string;
+begin
+  Result := cBlockingName;
+end;
+
+function TBlockingProvider.Running: Integer;
+begin
+  Result := TInterlocked.CompareExchange(FRunning, 0, 0);
+end;
+
+function TBlockingProvider.Calls: Integer;
+begin
+  Result := TInterlocked.CompareExchange(FCalls, 0, 0);
+end;
+
+function TBlockingProvider.Overlapped: Integer;
+begin
+  Result := TInterlocked.CompareExchange(FOverlapped, 0, 0);
+end;
+
+/// <summary>Bis AMs warten, bis AProvider keinen Aufruf mehr ausführt (Arbeiter des Tests enden im Test).</summary>
+function WaitIdle(AProvider: TBlockingProvider; AMs: Cardinal): Boolean;
+var
+  mWatch: TStopwatch;
+begin
+  mWatch := TStopwatch.StartNew;
+  while (AProvider.Running > 0) and (mWatch.ElapsedMilliseconds < AMs) do
+  begin
+    TThread.Sleep(5);
+  end;
+  // Der Arbeiter gibt seine Spur kurz nach dem Ende von Query frei.
+  TThread.Sleep(20);
+  Result := AProvider.Running = 0;
+end;
+
+procedure TDpccCompositeNoWaitTests.WarmUp;
+var
+  mProviders: TDpccCompletionProviders;
+  mProvider: IDpccCompletionProvider;
+  mBlocking: TBlockingProvider;
+  mSink: TCollectingSink;
+  mSinkRef: IDpccCompletionSink;
+begin
+  // Die Sicherung legt je Quelle Einträge für „langsam“ an und behält sie bis Programmende.
+  TDpccGuard.ReportProviderSlow(cBlockingName, 'Vorwärmen');
+  mProviders := TDpccCompletionProviders.Create;
+  mProvider := mProviders;
+  mBlocking := TBlockingProvider.Create([Item('A')], 0);
+  mProviders.Add(mBlocking);
+  mSink := TCollectingSink.Create;
+  mSinkRef := mSink;
+  mProvider.Query(Context, mSinkRef);
+  mSink.WaitDone(3000);
+  WaitIdle(mBlocking, 3000);
+end;
+
+procedure TDpccCompositeNoWaitTests.QueryReturnsBeforeSlowSource;
+var
+  mProviders: TDpccCompletionProviders;
+  mProvider: IDpccCompletionProvider;
+  mBlocking: TBlockingProvider;
+  mBlockingRef: IDpccCompletionProvider;
+  mSink: TCollectingSink;
+  mSinkRef: IDpccCompletionSink;
+  mWatch: TStopwatch;
+begin
+  mProviders := TDpccCompletionProviders.Create;
+  mProvider := mProviders;
+  mProviders.TimeLimitMs := 2000;
+  mBlocking := TBlockingProvider.Create([Item('B')], 400);
+  mBlockingRef := mBlocking;
+  mProviders.Add(mBlockingRef);
+  mProviders.Add(TDpccFixedCompletionProvider.Create([Item('A')]));
+  mSink := TCollectingSink.Create;
+  mSinkRef := mSink;
+  mWatch := TStopwatch.StartNew;
+  mProvider.Query(Context, mSinkRef);
+  // Vorher wartete Query bis zu 2000 ms (hier 400 ms) auf die blockierende Quelle.
+  Assert.IsTrue(mWatch.ElapsedMilliseconds < 150, Format('Query wartete %d ms', [mWatch.ElapsedMilliseconds]));
+  Assert.IsTrue(mSink.WaitDone(3000), 'Complete kam nicht');
+  Assert.AreEqual('A,B', mSink.Names);
+  Assert.AreEqual(1, mSink.Completed);
+  Assert.IsTrue(WaitIdle(mBlocking, 3000));
+end;
+
+procedure TDpccCompositeNoWaitTests.LatestQueryRunsAfterRunningCall;
+var
+  mProviders: TDpccCompletionProviders;
+  mProvider: IDpccCompletionProvider;
+  mBlocking: TBlockingProvider;
+  mBlockingRef: IDpccCompletionProvider;
+  mFirst, mSecond: TCollectingSink;
+  mFirstRef, mSecondRef: IDpccCompletionSink;
+begin
+  mProviders := TDpccCompletionProviders.Create;
+  mProvider := mProviders;
+  mProviders.TimeLimitMs := 2000;
+  mBlocking := TBlockingProvider.Create([Item('B')], 150);
+  mBlockingRef := mBlocking;
+  mProviders.Add(mBlockingRef);
+  mFirst := TCollectingSink.Create;
+  mFirstRef := mFirst;
+  mSecond := TCollectingSink.Create;
+  mSecondRef := mSecond;
+  mProvider.Query(Context, mFirstRef);
+  mProvider.Query(Context, mSecondRef);
+  Assert.IsTrue(mSecond.WaitDone(3000), 'Complete der neuesten Abfrage kam nicht');
+  Assert.AreEqual('B', mSecond.Names);
+  Assert.AreEqual(0, mFirst.Completed, 'Die ersetzte Abfrage wurde noch beendet');
+  Assert.IsTrue(WaitIdle(mBlocking, 3000));
+  Assert.AreEqual(2, mBlocking.Calls, 'die laufende und die neueste');
+  Assert.AreEqual(0, mBlocking.Overlapped, 'nie zwei Aufrufe zugleich');
+end;
+
+procedure TDpccCompositeNoWaitTests.HangingSourceIsAbandonedAndSkipped;
+var
+  mProviders: TDpccCompletionProviders;
+  mProvider: IDpccCompletionProvider;
+  mBlocking: TBlockingProvider;
+  mBlockingRef: IDpccCompletionProvider;
+  mFirst, mSecond: TCollectingSink;
+  mFirstRef, mSecondRef: IDpccCompletionSink;
+begin
+  mProviders := TDpccCompletionProviders.Create;
+  mProvider := mProviders;
+  mProviders.TimeLimitMs := 100;
+  mBlocking := TBlockingProvider.Create([Item('B')], 600);
+  mBlockingRef := mBlocking;
+  mProviders.Add(mBlockingRef);
+  mFirst := TCollectingSink.Create;
+  mFirstRef := mFirst;
+  mProvider.Query(Context, mFirstRef);
+  // Nach dem Zeitlimit gilt der Teil als fertig, obwohl die Quelle noch blockiert.
+  Assert.IsTrue(mFirst.WaitDone(450), 'Complete nach dem Zeitlimit kam nicht');
+  Assert.AreEqual('', mFirst.Names);
+  Assert.AreEqual(1, mBlocking.Running, 'Die Quelle hängt noch');
+  mSecond := TCollectingSink.Create;
+  mSecondRef := mSecond;
+  mProvider.Query(Context, mSecondRef);
+  Assert.IsTrue(mSecond.WaitDone(200), 'Die hängende Quelle wurde nicht übersprungen');
+  Assert.AreEqual('', mSecond.Names);
+  Assert.IsTrue(WaitIdle(mBlocking, 3000));
+  Assert.AreEqual(1, mBlocking.Calls, 'kein zweiter Arbeiter für die hängende Quelle');
+end;
+
 initialization
   TDUnitX.RegisterTestFixture(TDpccCompletionProviderTests);
+  TDUnitX.RegisterTestFixture(TDpccCompositeNoWaitTests);
   TDUnitX.RegisterTestFixture(TDpccServerCompletionTests);
   TDUnitX.RegisterTestFixture(TDpccItemDetailsTests);
   TDUnitX.RegisterTestFixture(TDpccXmlDocTests);

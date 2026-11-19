@@ -4,6 +4,9 @@
 // uses-Ergänzung und weitere Änderungen des Eintrags, Klammern (#430), Befehl des Eintrags (#473); Einträge mit
 // Platzhaltern (#51) mit Einrückung der Zeile und Platzhalter-Modus (dpcc.IDE.Completion.Placeholders). Kette:
 // dpcc.IDE.Completion.EditorState.
+// Befehl des Eintrags (perf1): läuft im Hintergrund über die Serverquelle (IDpccCompletionCommandRunner, Shutdown der
+// Quellen wartet darauf); Antwort und Fehler kommen im Hauptthread nur ins Diagnoselog. Vorher wartete das
+// Übernehmen bis zu 3 s im Hauptthread auf die Antwort.
 
 interface
 
@@ -43,23 +46,25 @@ implementation
 uses
   System.SysUtils,
   System.Math,
-  System.JSON,
   System.Generics.Collections,
   System.Generics.Defaults,
   dpcc.Core.Diagnostics.MainThread,
   dpcc.Core.Diagnostics.Guard,
+  dpcc.Core.Diagnostics.Hangs,
   dpcc.Core.Completion.Word,
   dpcc.Core.Completion.Matching,
   dpcc.Core.Completion.Parentheses,
+  dpcc.Core.Completion.Providers.Server,
   dpcc.Core.Lsp.Session,
   dpcc.Core.Settings.CompletionView,
   dpcc.IDE.Foundation.Settings,
   dpcc.IDE.Foundation.EditorBuffer,
+  dpcc.IDE.Completion.EditorState,
   dpcc.Text.Lines;
 
 const
-  /// <summary>Wartezeit auf den Befehl eines Eintrags (#473); der Server antwortet, bevor er applyEdit schickt.
-  /// </summary>
+  /// <summary>Wartezeit des Hintergrund-Threads auf den Befehl eines Eintrags (#473); der Server antwortet, bevor er
+  /// applyEdit schickt.</summary>
   cCommandTimeoutMs = 3000;
   /// <summary>Stelle des Cursors im Einfügetext.</summary>
   cCaretMarker = '$0';
@@ -431,7 +436,9 @@ end;
 procedure TDpccEditorCompletionCommit.Commit(const AItem: TDpccCompletionItem);
 var
   mRun: TCommitRun;
+  mActivity: IInterface;
 begin
+  mActivity := TDpccActivity.Scope('Eintrag übernehmen');
   if (FOpen.View = nil) or (FOpen.View.Buffer = nil) then
   begin
     Exit;
@@ -512,34 +519,35 @@ end;
 
 procedure TDpccEditorCompletionCommit.RunCommand(const AItem: TDpccCompletionItem);
 var
-  mSession: TLspSession;
-  mArguments: TJSONValue;
-  mAnswer: TJSONValue;
+  mRunner: IDpccCompletionCommandRunner;
+  mLog: TDpccLogProc;
 begin
   if (AItem.Command = '') or not Assigned(FSession) then
   begin
     Exit;
   end;
-  mSession := FSession();
-  if (mSession = nil) or not mSession.Initialized then
+  // Im Hintergrund über die Serverquelle: Ihr Shutdown wartet auf den Befehl, bevor die Sitzung freigegeben wird.
+  // Die Antwort wird nur protokolliert; die Änderungen des Servers kommen über workspace/applyEdit.
+  mLog := FLog;
+  if not Supports(FSources.Server, IDpccCompletionCommandRunner, mRunner) or
+    not mRunner.RunCommand(AItem.Command, AItem.CommandArguments, cCommandTimeoutMs,
+    procedure(const AAnswerJson, AError: string)
+    begin
+      if not Assigned(mLog) then
+      begin
+        Exit;
+      end;
+      if AError <> '' then
+      begin
+        mLog('Befehl des Eintrags fehlgeschlagen: ' + AError);
+      end
+      else if AAnswerJson = '' then
+      begin
+        mLog('Befehl des Eintrags ohne Antwort');
+      end;
+    end) then
   begin
     Log('Befehl des Eintrags nicht ausgeführt: keine Sitzung');
-    Exit;
-  end;
-  mArguments := TJSONObject.ParseJSONValue(AItem.CommandArguments);
-  if not (mArguments is TJSONArray) then
-  begin
-    mArguments.Free;
-    mArguments := TJSONArray.Create;
-  end;
-  mAnswer := mSession.ExecuteCommand(AItem.Command, TJSONArray(mArguments), cCommandTimeoutMs);
-  try
-    if mAnswer = nil then
-    begin
-      Log('Befehl des Eintrags ohne Antwort');
-    end;
-  finally
-    mAnswer.Free;
   end;
 end;
 

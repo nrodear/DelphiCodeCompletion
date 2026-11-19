@@ -271,7 +271,10 @@ Si l'origine d'un cache se trouve sur un lecteur actuellement absent (USB, rése
    minutes. » (supprimer tous les caches d'index et reconstruire l'index ? La première construction peut prendre
    quelques minutes.)
 2. Il arrête une session en cours, supprime tous les caches d'index qui ne sont pas verrouillés et redémarre la
-   session.
+   session. Cela se fait en arrière-plan ; l'IDE reste utilisable. Pendant ce temps, le bouton est grisé et affiche à
+   côté « Rebuilding index: stopping the session, deleting caches … » (reconstruction de l'index : arrêt de la
+   session, suppression des caches …). On peut fermer les options entre-temps ; à la prochaine ouverture, la page
+   affiche l'état actuel.
 3. La page signale le résultat :
    - « n index caches deleted; the index is being rebuilt. » (n caches d'index supprimés ; l'index est en cours de
      reconstruction) – la session tournait et a redémarré ;

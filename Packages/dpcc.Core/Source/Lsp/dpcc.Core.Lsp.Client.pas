@@ -31,6 +31,11 @@
 // nennen. OnMethodNotFound meldet jede fehlende Methode einmal. Der Stand gilt
 // je Server-Sitzung: Jeder Serverstart hat einen eigenen Client, und
 // SetCapabilities (neues initialize) setzt ihn zurück.
+// Wartezeit des Hauptthreads: Ruft der Hauptthread RequestCancellable (bzw.
+// Request), misst der Client immer, nennt die Anfrage für den Einfrier-Wächter
+// als Aktivität „Warten auf Server <Methode>“ und meldet ab 100 ms eine
+// gedrosselte Zeile „Hauptthread wartete n ms auf Server <Methode>: <Ausgang>“
+// (Antwort, Zeitlimit, abgebrochen, Fehler) an TDpccSlowLog.
 
 interface
 
@@ -265,6 +270,7 @@ implementation
 uses
   dpcc.Core.Diagnostics.Shutdown,
   dpcc.Core.Diagnostics.PluginTimings,
+  dpcc.Core.Diagnostics.Hangs,
   dpcc.Core.Localization.Language;
 
 {$SCOPEDENUMS ON}
@@ -789,22 +795,46 @@ begin
   raise ELspMethodNotFound.CreateFor(mKey, Format(UiText(TClientText.MethodNotSupported), [mKey]));
 end;
 
+/// <summary>Ausgang einer Anfrage für die Zeile „Hauptthread wartete …“ im dpcc.log.</summary>
+function OutcomeText(AOutcome: TDpccRequestOutcome): string;
+begin
+  case AOutcome of
+    TDpccRequestOutcome.Done:
+      Result := 'Antwort';
+    TDpccRequestOutcome.TimedOut:
+      Result := 'Zeitlimit';
+    TDpccRequestOutcome.Cancelled:
+      Result := 'abgebrochen';
+  else
+    Result := 'Fehler';
+  end;
+end;
+
 function TLspClient.RequestCancellable(const AMethod: string; AParams: TJSONValue; ATimeoutMs: Cardinal;
   const ACancelled: TFunc<Boolean>): TJSONValue;
 var
   mWatch: TStopwatch;
   mOutcome: TDpccRequestOutcome;
   mLabel: string;
+  mMain: Boolean;
+  mActivity: IInterface;
 begin
   // Fehlende Methode: gar nicht erst senden, auch nicht im Diagnose-Fenster zählen.
   RefuseMissing(AMethod, AParams);
-  if not TDpccPluginTimings.Enabled then
+  // Wartet der Hauptthread, wird immer gemessen (dpcc.log ab TDpccSlowLog.cWaitMs); sonst nur im Diagnosemodus.
+  mMain := TDpccActivity.IsMainThread;
+  if not mMain and not TDpccPluginTimings.Enabled then
   begin
     Exit(DoRequest(AMethod, AParams, ATimeoutMs, ACancelled));
   end;
   // Diagnose-Fenster, Reiter „Server“: Dauer und Ausgang jeder Anfrage. Der Name vorher: DoRequest übernimmt
   // AParams.
   mLabel := MethodKey(AMethod, AParams);
+  if mMain then
+  begin
+    // Name für den Einfrier-Wächter, solange der Hauptthread auf die Antwort wartet; die Dauer meldet NoteWait.
+    mActivity := TDpccActivity.Waiting('Warten auf Server ' + mLabel);
+  end;
   mWatch := TStopwatch.StartNew;
   mOutcome := TDpccRequestOutcome.Failed;
   try
@@ -824,7 +854,14 @@ begin
       end;
     end;
   finally
-    TDpccPluginTimings.NoteRequest(mLabel, mWatch.Elapsed.TotalMilliseconds, mOutcome);
+    if TDpccPluginTimings.Enabled then
+    begin
+      TDpccPluginTimings.NoteRequest(mLabel, mWatch.Elapsed.TotalMilliseconds, mOutcome);
+    end;
+    if mMain then
+    begin
+      TDpccSlowLog.NoteWait(mLabel, mWatch.ElapsedMilliseconds, OutcomeText(mOutcome));
+    end;
   end;
 end;
 

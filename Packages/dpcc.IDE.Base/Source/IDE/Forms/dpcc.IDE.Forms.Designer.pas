@@ -29,7 +29,23 @@
 //   heißen mehrere Formulare "Form1", und der Text von Formular A ging als .dfm von B an den Server. Ohne bekannte
 //   Datei sendet dpcc das Formular nicht und schreibt eine Zeile ins Diagnoselog; meldet ein neuer Designer eine
 //   Datei, die noch ein alter hält, gilt der neue.
-// Nur im Hauptthread.
+// - Ohne spürbare Arbeit im Hauptthread (IDE hängt nicht beim Laden von Formularen): Der Hauptthread schreibt nur die
+//   Komponenten binär in einen Speicherstrom (TDpccFormText.WriteBinary; Komponenten und GetMethodName nur dort).
+//   Gleicher Fingerabdruck (Größe, Hash) wie beim letzten Mal: fertig. Sonst wandelt ein Thread aus FThreads den
+//   kopierten Strom in Text (ObjectBinaryToText, der teure Teil bei Bildlisten und Picture.Data); das Ergebnis kommt
+//   über TDpccMainThread.Queue zurück. Ist die Sitzung dann noch dieselbe, sendet ein Arbeiter aus TDpccTimeLimit
+//   (Post, ohne Warten) den Text (Session.Sync: Diff bzw. didOpen). Sync ist threadsicher (FDocLock der Sitzung, wie
+//   bei der Vervollständigung); der Stopp einer Sitzung wartet auf diese Arbeiter (TDpccTimeLimit.WaitIdle), bevor er
+//   sie freigibt. Darum sendet nicht schon der Umwandlungs-Thread: Der kann länger laufen, als der Stopp wartet.
+//   Die Threads halten nur Kopien (Strom, Dateiname, Auftrag) und beim Senden die Sitzung, nie dieses Objekt, den
+//   Designer oder Komponenten. Beim Entladen wartet Destroy begrenzt auf FThreads (TDpccThreadList).
+// - Reihenfolge je Formular (TDpccFormSyncPlan): höchstens ein Auftrag je Datei, insgesamt höchstens zwei; eine
+//   Änderung währenddessen läuft danach genau einmal (nur der neueste Stand). Neue Sitzung: Epoche wechselt, laufende
+//   Ergebnisse werden verworfen. Schließt ein Formular während seines Auftrags, geht didClose erst nach dessen Senden.
+// - Abgleich aller (Start, neue Sitzung): höchstens cFormsPerTick je Takt, ein großes Formular (letzter Strom ab
+//   cLargeFormBytes oder noch nie gemessen) allein. Der 500-ms-Takt läuft weiter dauernd: Er bemerkt eine neue
+//   Sitzung (es gibt keine Meldung dafür); ohne Arbeit kostet er nur den Vergleich der Sitzung.
+// Hauptthread; Umwandeln und Senden im Hintergrund wie oben.
 
 interface
 
@@ -42,7 +58,9 @@ uses
   DesignIntf,
   dpcc.Core.Lsp.Session,
   dpcc.Core.Lsp.WorkspaceEdits,
-  dpcc.Core.Forms.Changes;
+  dpcc.Core.Forms.Changes,
+  dpcc.Core.Forms.Sync,
+  dpcc.Core.Diagnostics.ThreadList;
 
 type
   TDpccIdeForms = class
@@ -90,7 +108,24 @@ type
     FDesigners: TDictionary<TComponent, TOpenForm>;
     /// <summary>Wurzeln, die der laufende Abgleich aller Formulare noch senden muss.</summary>
     FPendingAll: TList<TComponent>;
+    /// <summary>Reihenfolge der Aufträge je Formulardatei.</summary>
+    FPlan: TDpccFormSyncPlan;
+    /// <summary>Umwandlungs-Threads (Binärstrom → Text); Destroy wartet begrenzt auf sie.</summary>
+    FThreads: TDpccThreadList;
     procedure Tick(Sender: TObject);
+    /// <summary>Laufende Sitzung oder nil.</summary>
+    function CurrentSession: TLspSession;
+    /// <summary>Auftrag beginnen: Umwandeln in Text im Hintergrund.</summary>
+    procedure StartJob(const AJob: TDpccFormSyncJob);
+    /// <summary>Text fertig (Hauptthread): Senden im Hintergrund anstoßen oder den Auftrag abschließen.</summary>
+    procedure SendConverted(const AJob: TDpccFormSyncJob; const AText, AError: string);
+    /// <summary>Auftrag abschließen: gesendeten Text merken, geschlossenes Formular abmelden, nächsten starten.
+    /// </summary>
+    procedure Settle(const AJob: TDpccFormSyncJob; ASucceeded: Boolean; const AText: string);
+    /// <summary>Rückmeldungen der Threads (über TDpccMainThread.Queue); ohne lebendes Objekt verworfen.</summary>
+    class procedure Converted(const AJob: TDpccFormSyncJob; const AText, AError: string); static;
+    class procedure Sent(const AJob: TDpccFormSyncJob; const AText: string; ASucceeded: Boolean;
+      const AError: string); static;
     /// <summary>Formular von ADesigner geändert; nil: welches, ist unbekannt (alle senden).</summary>
     procedure Changed(const ADesigner: IDesigner);
     /// <summary>ADesigner ist offen: merken, die Formulardatei beim ersten Mal (bzw. solange unbekannt) ermitteln.
@@ -103,11 +138,12 @@ type
     procedure ScanOpenDesigners;
     /// <summary>Abgleich aller offenen Formulare beginnen; gesendet wird in SyncPending.</summary>
     procedure StartAll;
-    /// <summary>Höchstens AMax Formulare des Abgleichs aller senden.</summary>
-    procedure SyncPending(ASession: TLspSession; AMax: Integer);
-    /// <summary>Nur die geänderten Formulare (FDirtyRoots) senden.</summary>
-    procedure SyncDirty(ASession: TLspSession);
-    procedure SyncForm(ASession: TLspSession; ARoot: TComponent; const ADesigner: IDesigner);
+    /// <summary>Höchstens AMax Formulare des Abgleichs aller anstoßen, ein großes allein.</summary>
+    procedure SyncPending(AMax: Integer);
+    /// <summary>Nur die geänderten Formulare (FDirtyRoots) anstoßen.</summary>
+    procedure SyncDirty;
+    /// <summary>Binärstrom von ARoot (Hauptthread); bei neuem Stand Auftrag anstoßen.</summary>
+    procedure SyncForm(ARoot: TComponent; const ADesigner: IDesigner);
     /// <summary>Formulardatei des offenen Designers zu ARoot (gemerkt in FDesigners); '' wenn unbekannt.</summary>
     function FileNameOf(ARoot: TComponent): string;
     /// <summary>Offenes Formular zu AFileName.</summary>
@@ -117,13 +153,9 @@ type
     /// <summary>ASessionOf: laufende Sitzung, ohne den Server zu starten; ALog: Diagnoseprotokoll.</summary>
     constructor Create(const ASessionOf: TFunc<TLspSession>; const ALog: TProc<string>);
     destructor Destroy; override;
-    /// <summary>Alle offenen Formulare sofort an ASession schicken, z. B. vor dem Umbenennen.</summary>
-    class procedure SyncNow(ASession: TLspSession); static;
-    /// <summary>Zuletzt an den Server geschickter Text eines offenen Formulars.</summary>
+    /// <summary>Zuletzt an den Server geschickter Text eines offenen Formulars (Stand nach dem letzten fertigen
+    /// Auftrag).</summary>
     class function SentText(const AFileName: string; out AText: string): Boolean; static;
-    /// <summary>Aktueller Stand eines offenen Formulars im Designer als Text, wie er an den Server ginge
-    /// (#721); False, wenn es nicht offen ist.</summary>
-    class function CurrentText(const AFileName: string; out AText: string): Boolean; static;
     /// <summary>Ist AFileName (.dfm/.fmx) gerade im Designer offen?</summary>
     class function IsOpen(const AFileName: string): Boolean; static;
     /// <summary>Lassen sich AEdits im offenen Formular ausführen? '' mit AChanges und AProperties, sonst der
@@ -143,6 +175,10 @@ uses
   System.TypInfo,
   Vcl.Forms,
   dpcc.Core.Diagnostics.Guard,
+  dpcc.Core.Diagnostics.Hangs,
+  dpcc.Core.Diagnostics.MainThread,
+  dpcc.Core.Diagnostics.Shutdown,
+  dpcc.Core.Diagnostics.TimeLimit,
   dpcc.Core.Forms.Text,
   dpcc.IDE.Foundation.EditorSnapshot,
   dpcc.Core.Localization.Language;
@@ -197,6 +233,9 @@ const
   cPendingIntervalMs = 100;
   /// <summary>Höchstens so viele Formulare je Takt beim Abgleich aller.</summary>
   cFormsPerTick = 2;
+  /// <summary>Ab dieser Größe des letzten Binärstroms gilt ein Formular als groß: beim Abgleich aller allein im Takt.
+  /// </summary>
+  cLargeFormBytes = 64 * 1024;
 
 function Key(const AFileName: string): string;
 begin
@@ -226,21 +265,99 @@ begin
     end);
 end;
 
-function TextOf(ARoot: TComponent; const ADesigner: IDesigner): string;
+/// <summary>Binärstrom von ARoot mit den Handler-Namen des Designers; nur im Hauptthread. Leer ohne Wurzel.</summary>
+function BinaryOf(ARoot: TComponent; const ADesigner: IDesigner): TBytes;
 var
   mDesigner: IDesigner;
 begin
-  Result := '';
+  Result := nil;
   if (ARoot = nil) or (ADesigner = nil) then
   begin
     Exit;
   end;
   mDesigner := ADesigner;
-  Result := TDpccFormText.Write(ARoot,
+  Result := TDpccFormText.WriteBinary(ARoot,
     function(AMethod: TMethod): string
     begin
       Result := mDesigner.GetMethodName(AMethod);
     end);
+end;
+
+/// <summary>Umwandeln im Hintergrund (Thread aus FThreads). Fängt nur den Auftrag ein (Kopie), nie das
+/// Formular-Objekt; das Ergebnis geht über TDpccMainThread.Queue zurück (beim Entladen verworfen).</summary>
+function ConvertWork(const AJob: TDpccFormSyncJob): TProc;
+var
+  mJob: TDpccFormSyncJob;
+begin
+  mJob := AJob;
+  Result :=
+    procedure
+    var
+      mText, mError: string;
+    begin
+      TThread.NameThreadForDebugging('dpcc.FormText');
+      mText := '';
+      mError := '';
+      try
+        if not TDpccShutdown.Signalled then
+        begin
+          mText := TDpccFormText.BinaryToText(mJob.Binary);
+        end;
+      except
+        on E: Exception do
+        begin
+          mError := E.ClassName + ': ' + E.Message;
+        end;
+      end;
+      // Den Strom braucht niemand mehr.
+      mJob.Binary := nil;
+      TDpccMainThread.Queue(TDpccFeature.Forms,
+        procedure
+        begin
+          TDpccIdeForms.Converted(mJob, mText, mError);
+        end);
+    end;
+end;
+
+/// <summary>Senden im Hintergrund (Arbeiter aus TDpccTimeLimit). ASession lebt, bis der Stopp auf diese Arbeiter
+/// gewartet hat (TDpccTimeLimit.WaitIdle); Sync ist threadsicher (FDocLock). Das Ergebnis geht über
+/// TDpccMainThread.Queue zurück.</summary>
+function SendWork(ASession: TLspSession; const AJob: TDpccFormSyncJob; const AText: string): TProc;
+var
+  mSession: TLspSession;
+  mJob: TDpccFormSyncJob;
+  mText: string;
+begin
+  mSession := ASession;
+  mJob := AJob;
+  mJob.Binary := nil;
+  mText := AText;
+  Result :=
+    procedure
+    var
+      mOk: Boolean;
+      mError: string;
+    begin
+      mOk := False;
+      mError := '';
+      try
+        if not TDpccShutdown.Signalled then
+        begin
+          mSession.Sync(mJob.FileName, mText);
+          mOk := True;
+        end;
+      except
+        on E: Exception do
+        begin
+          mError := E.ClassName + ': ' + E.Message;
+        end;
+      end;
+      TDpccMainThread.Queue(TDpccFeature.Forms,
+        procedure
+        begin
+          TDpccIdeForms.Sent(mJob, mText, mOk, mError);
+        end);
+    end;
 end;
 
 const
@@ -569,7 +686,10 @@ begin
   mRoot := ADesigner.Root;
   TDpccGuard.Run(TDpccFeature.Forms,
     procedure
+    var
+      mActivity: IInterface;
     begin
+      mActivity := TDpccActivity.Scope('Formular geschlossen');
       mOwner.Closed(mRoot);
     end);
 end;
@@ -586,6 +706,8 @@ begin
   FDesigners := TDictionary<TComponent, TOpenForm>.Create;
   FPendingAll := TList<TComponent>.Create;
   FDirtyRoots := TList<TComponent>.Create;
+  FPlan := TDpccFormSyncPlan.Create;
+  FThreads := TDpccThreadList.Create;
   ScanOpenDesigners;
   FNotification := TNotification.Create;
   FNotification.FOwner := Self;
@@ -611,6 +733,10 @@ begin
   FNotification.FOwner := nil;
   UnregisterDesignNotification(FNotificationRef);
   FNotificationRef := nil;
+  // Begrenzt auf laufende Umwandlungen warten (TDpccShutdown.cStopMs); wer dann noch läuft, hält die dpcc-Packages
+  // geladen. Ihre Rückmeldungen finden FCurrent = nil bzw. sind beim Entladen schon verworfen.
+  FThreads.Free;
+  FPlan.Free;
   FDirtyRoots.Free;
   FPendingAll.Free;
   FDesigners.Free;
@@ -719,7 +845,9 @@ end;
 procedure TDpccIdeForms.Changed(const ADesigner: IDesigner);
 var
   mRoot: TComponent;
+  mActivity: IInterface;
 begin
+  mActivity := TDpccActivity.Scope('Designer-Meldung');
   mRoot := nil;
   if ADesigner <> nil then
   begin
@@ -743,29 +871,37 @@ begin
   FTimer.Enabled := True;
 end;
 
+function TDpccIdeForms.CurrentSession: TLspSession;
+begin
+  Result := nil;
+  if Assigned(FSessionOf) then
+  begin
+    Result := FSessionOf();
+  end;
+end;
+
 procedure TDpccIdeForms.Tick(Sender: TObject);
 var
   mSession: TLspSession;
+  mActivity: IInterface;
 begin
+  mActivity := TDpccActivity.Scope('Formular-Abgleich');
   TDpccGuard.Run(TDpccFeature.Forms,
     procedure
     begin
-      mSession := nil;
-      if Assigned(FSessionOf) then
-      begin
-        mSession := FSessionOf();
-      end;
+      mSession := CurrentSession;
       if mSession = nil then
       begin
         FLastSession := nil;
         FPendingAll.Clear;
         Exit;
       end;
-      // Neue Sitzung (Serverstart, Neustart): alles neu schicken.
+      // Neue Sitzung (Serverstart, Neustart): alles neu schicken; Ergebnisse laufender Aufträge verwerfen.
       if mSession <> FLastSession then
       begin
         FLastSession := mSession;
         FTexts.Clear;
+        FPlan.Reset;
         FDirty := True;
         FAll := True;
       end;
@@ -778,14 +914,13 @@ begin
         end
         else
         begin
-          SyncDirty(mSession);
+          SyncDirty;
         end;
       end;
-      // Der Abgleich aller verteilt sich auf die Takte: Ein Formular in Text zu wandeln kostet im Hauptthread
-      // spürbar Zeit.
+      // Der Abgleich aller verteilt sich auf die Takte: Auch der Binärstrom kostet im Hauptthread etwas.
       if FPendingAll.Count > 0 then
       begin
-        SyncPending(mSession, cFormsPerTick);
+        SyncPending(cFormsPerTick);
       end;
     end);
   // Solange der Abgleich aller läuft, öfter; sonst im gewohnten Takt.
@@ -815,27 +950,50 @@ begin
   end;
 end;
 
-procedure TDpccIdeForms.SyncPending(ASession: TLspSession; AMax: Integer);
+procedure TDpccIdeForms.SyncPending(AMax: Integer);
 var
-  mRoot: TComponent;
+  mRoots: TArray<TComponent>;
+  mSizes: TArray<Int64>;
   mForm: TOpenForm;
-  mDone: Integer;
+  mSize: Int64;
+  mIndex, mCount: Integer;
 begin
-  mDone := 0;
-  while (FPendingAll.Count > 0) and (mDone < AMax) do
+  mRoots := nil;
+  mSizes := nil;
+  // Die nächsten offenen Formulare (inzwischen geschlossene fallen weg) mit der Größe ihres letzten Stroms; die Datei
+  // nur aus FDesigners (FileNameOf könnte über ReleaseOthers FPendingAll ändern).
+  mIndex := 0;
+  while (mIndex < FPendingAll.Count) and (Length(mRoots) < AMax) do
   begin
-    mRoot := FPendingAll[0];
-    FPendingAll.Delete(0);
-    // Inzwischen geschlossen: übergehen.
-    if FDesigners.TryGetValue(mRoot, mForm) then
+    if FDesigners.TryGetValue(FPendingAll[mIndex], mForm) then
     begin
-      SyncForm(ASession, mRoot, mForm.Designer);
-      Inc(mDone);
+      mSize := 0;
+      if mForm.FileName <> '' then
+      begin
+        mSize := FPlan.LastSize(mForm.FileName);
+      end;
+      mRoots := mRoots + [FPendingAll[mIndex]];
+      mSizes := mSizes + [mSize];
+      Inc(mIndex);
+    end
+    else
+    begin
+      FPendingAll.Delete(mIndex);
+    end;
+  end;
+  mCount := TDpccFormSyncPlan.TickCount(mSizes, AMax, cLargeFormBytes);
+  for mIndex := 0 to mCount - 1 do
+  begin
+    FPendingAll.Remove(mRoots[mIndex]);
+    // SyncForm des vorigen kann über ReleaseOthers einen Designer vergessen haben.
+    if FDesigners.TryGetValue(mRoots[mIndex], mForm) then
+    begin
+      SyncForm(mRoots[mIndex], mForm.Designer);
     end;
   end;
 end;
 
-procedure TDpccIdeForms.SyncDirty(ASession: TLspSession);
+procedure TDpccIdeForms.SyncDirty;
 var
   mRoots: TArray<TComponent>;
   mRoot: TComponent;
@@ -852,7 +1010,7 @@ begin
   begin
     if FDesigners.TryGetValue(mRoot, mForm) then
     begin
-      SyncForm(ASession, mRoot, mForm.Designer);
+      SyncForm(mRoot, mForm.Designer);
     end;
   end;
 end;
@@ -897,10 +1055,12 @@ begin
   Result := False;
 end;
 
-procedure TDpccIdeForms.SyncForm(ASession: TLspSession; ARoot: TComponent; const ADesigner: IDesigner);
+procedure TDpccIdeForms.SyncForm(ARoot: TComponent; const ADesigner: IDesigner);
 var
-  mText, mPrevious, mFileName: string;
+  mFileName: string;
   mForm: TOpenForm;
+  mBinary: TBytes;
+  mJob: TDpccFormSyncJob;
 begin
   mFileName := '';
   try
@@ -917,17 +1077,132 @@ begin
       Exit;
     end;
     FRoots.AddOrSetValue(ARoot, mFileName);
-    mText := TextOf(ARoot, ADesigner);
-    if (mText = '') or (FTexts.TryGetValue(Key(mFileName), mPrevious) and (mPrevious = mText)) then
+    // Im Hauptthread nur der Binärstrom (Komponenten darf nur er anfassen); unverändert: nichts weiter.
+    mBinary := BinaryOf(ARoot, ADesigner);
+    if Length(mBinary) = 0 then
     begin
       Exit;
     end;
-    ASession.Sync(mFileName, mText);
-    FTexts.AddOrSetValue(Key(mFileName), mText);
+    if FPlan.Offer(mFileName, mBinary, mJob) = TDpccFormOffer.Start then
+    begin
+      StartJob(mJob);
+    end;
   except
     on E: Exception do
       Log(Format('Formular %s nicht gesendet: %s', [ExtractFileName(mFileName), E.Message]));
   end;
+end;
+
+procedure TDpccIdeForms.StartJob(const AJob: TDpccFormSyncJob);
+begin
+  try
+    FThreads.Start(ConvertWork(AJob));
+  except
+    on E: Exception do
+    begin
+      // Kein Thread (selten): Auftrag als nicht gesendet abschließen; der nächste Stand geht neu los.
+      Log(Format('Formular %s nicht gesendet: kein Thread (%s)', [ExtractFileName(AJob.FileName), E.Message]));
+      Settle(AJob, False, '');
+    end;
+  end;
+end;
+
+procedure TDpccIdeForms.SendConverted(const AJob: TDpccFormSyncJob; const AText, AError: string);
+var
+  mSession: TLspSession;
+  mPosted: Boolean;
+begin
+  // Formular geschlossen oder neue Sitzung: nicht senden (Settle meldet ein geschlossenes ab).
+  if not FPlan.IsCurrent(AJob) then
+  begin
+    Settle(AJob, False, '');
+    Exit;
+  end;
+  if AError <> '' then
+  begin
+    Log(Format('Formular %s nicht in Text gewandelt: %s', [ExtractFileName(AJob.FileName), AError]));
+  end;
+  mSession := CurrentSession;
+  // Nur an die Sitzung, die der Takt kennt: Eine neue setzt der nächste Takt auf (Reset, alles neu).
+  if (AText = '') or (mSession = nil) or (mSession <> FLastSession) then
+  begin
+    Settle(AJob, False, '');
+    Exit;
+  end;
+  mPosted := False;
+  try
+    mPosted := TDpccTimeLimit.Post(SendWork(mSession, AJob, AText));
+  except
+    on E: Exception do
+    begin
+      Log(Format('Formular %s nicht gesendet: kein Arbeiter (%s)', [ExtractFileName(AJob.FileName), E.Message]));
+    end;
+  end;
+  // Nicht gestartet (dpcc wird beendet): Der Auftrag ist hier zu Ende.
+  if not mPosted then
+  begin
+    Settle(AJob, False, '');
+  end;
+end;
+
+procedure TDpccIdeForms.Settle(const AJob: TDpccFormSyncJob; ASucceeded: Boolean; const AText: string);
+var
+  mDone: TDpccFormSyncDone;
+  mSession: TLspSession;
+begin
+  mDone := FPlan.Finished(AJob, ASucceeded);
+  if mDone.Accepted and (AText <> '') then
+  begin
+    // Stand des Servers: Grundlage für Check (Positionen des Servers beziehen sich auf diesen Text).
+    FTexts.AddOrSetValue(Key(AJob.FileName), AText);
+  end;
+  if mDone.CloseFile <> '' then
+  begin
+    // Während des Auftrags geschlossen: erst jetzt abmelden, nach dessen Senden.
+    FTexts.Remove(Key(mDone.CloseFile));
+    mSession := CurrentSession;
+    if mSession <> nil then
+    begin
+      try
+        mSession.Close(mDone.CloseFile);
+      except
+        on E: Exception do
+          Log(Format('Formular %s nicht abgemeldet: %s', [ExtractFileName(mDone.CloseFile), E.Message]));
+      end;
+    end;
+  end;
+  if mDone.HasNext then
+  begin
+    StartJob(mDone.Next);
+  end;
+end;
+
+class procedure TDpccIdeForms.Converted(const AJob: TDpccFormSyncJob; const AText, AError: string);
+var
+  mActivity: IInterface;
+begin
+  mActivity := TDpccActivity.Scope('Formular-Abgleich: Text fertig');
+  if FCurrent <> nil then
+  begin
+    FCurrent.SendConverted(AJob, AText, AError);
+  end;
+end;
+
+class procedure TDpccIdeForms.Sent(const AJob: TDpccFormSyncJob; const AText: string; ASucceeded: Boolean;
+  const AError: string);
+var
+  mActivity: IInterface;
+begin
+  mActivity := TDpccActivity.Scope('Formular-Abgleich: gesendet');
+  if FCurrent = nil then
+  begin
+    Exit;
+  end;
+  if AError <> '' then
+  begin
+    FCurrent.Log(Format('Formular %s nicht gesendet: %s', [ExtractFileName(AJob.FileName), AError]));
+  end;
+  FCurrent.Settle(AJob, ASucceeded, AText);
 end;
 
 procedure TDpccIdeForms.Closed(ARoot: TComponent);
@@ -944,11 +1219,12 @@ begin
   end;
   FRoots.Remove(ARoot);
   FTexts.Remove(Key(mFileName));
-  mSession := nil;
-  if Assigned(FSessionOf) then
+  // Läuft noch ein Auftrag, meldet Settle die Datei nach dessen Senden ab (sonst öffnete er sie beim Server wieder).
+  if not FPlan.Close(mFileName) then
   begin
-    mSession := FSessionOf();
+    Exit;
   end;
+  mSession := CurrentSession;
   if mSession <> nil then
     try
       mSession.Close(mFileName);
@@ -958,40 +1234,10 @@ begin
     end;
 end;
 
-class procedure TDpccIdeForms.SyncNow(ASession: TLspSession);
-begin
-  if (FCurrent = nil) or (ASession = nil) then
-  begin
-    Exit;
-  end;
-  if ASession <> FCurrent.FLastSession then
-  begin
-    FCurrent.FLastSession := ASession;
-    FCurrent.FTexts.Clear;
-  end;
-  FCurrent.FDirty := False;
-  // Ausdrücklich verlangt (etwa vor dem Umbenennen): alle offenen Formulare sofort, aber nur mit offenem Designer.
-  FCurrent.StartAll;
-  FCurrent.SyncPending(ASession, MaxInt);
-end;
-
 class function TDpccIdeForms.SentText(const AFileName: string; out AText: string): Boolean;
 begin
   AText := '';
   Result := (FCurrent <> nil) and FCurrent.FTexts.TryGetValue(Key(AFileName), AText);
-end;
-
-class function TDpccIdeForms.CurrentText(const AFileName: string; out AText: string): Boolean;
-var
-  mRoot: TComponent;
-  mDesigner: IDesigner;
-begin
-  AText := '';
-  if (FCurrent <> nil) and FCurrent.FindOpen(AFileName, mRoot, mDesigner) then
-  begin
-    AText := TextOf(mRoot, mDesigner);
-  end;
-  Result := AText <> '';
 end;
 
 class function TDpccIdeForms.IsOpen(const AFileName: string): Boolean;

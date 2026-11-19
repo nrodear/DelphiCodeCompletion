@@ -3,7 +3,8 @@
 // Anbindungen des Code Insight-Managers an den Editor: Vervollständigung im eigenen Popup (#410), Parameter-Hint
 // (#436) und eigener Hover-Tooltip (#442). Sie fragen die Sitzung über die Haken des Managers; abgebaut wird in der
 // Reihenfolge, die DetachSession und Shutdown brauchen. Probleme, Inlay-Hints und Code Lens gibt es seit Rückbau R6
-// nicht mehr.
+// nicht mehr. Stopp der Sitzung: BeginStop bricht nur ab und wartet nicht im Hauptthread; auf die Arbeiter wartet
+// der Stopp-Thread der Sitzung (dpcc.IDE.CodeInsight.Manager.Session, StopWork).
 // Tippen (L5, completion.autoMinChars): Die Vervollständigung entsteht sonst erst beim ersten Strg+Leertaste. Damit
 // das Öffnen beim Tippen von Anfang an wirkt, beobachtet ein kleiner Editor-Beobachter die Änderungen, bis sie
 // existiert: Beim ersten Tippen in einer Datei, die dpcc bedient, legt er sie gleich nach der Benachrichtigung an und
@@ -73,7 +74,9 @@ type
     /// <summary>Läuft der Platzhalter-Modus einer Vorlage (#589)?</summary>
     function PlaceholdersActive: Boolean;
     /// <summary>Vor dem Schließen der Verbindung: laufende Anfragen von Vervollständigung und Parameter-Hint
-    /// beenden.</summary>
+    /// abbrechen, ohne zu warten (kein Ergebnis kommt mehr an). Ihre Arbeiter kehren nach dem Schließen sofort
+    /// zurück; der Stopp-Thread der Sitzung wartet auf sie (WaitWorkersIdle der Quellen), bevor er die Sitzung
+    /// freigibt.</summary>
     procedure BeginStop;
     /// <summary>Nach dem Schließen der Verbindung: Hover-Anfragen kehren sofort zurück.</summary>
     procedure EndStop;
@@ -352,7 +355,8 @@ end;
 
 procedure TDpccCodeInsightEditors.BeginStop;
 begin
-  // Laufende Anfragen der Vervollständigung nutzen die Sitzung noch.
+  // Laufende Anfragen der Vervollständigung nutzen die Sitzung noch: abbrechen (Generation), nicht warten. Vor dem
+  // Schließen, damit kein Arbeiter, den das Schließen weckt, noch ein (leeres) Ergebnis liefert.
   if FCompletion <> nil then
   begin
     FCompletion.Shutdown;

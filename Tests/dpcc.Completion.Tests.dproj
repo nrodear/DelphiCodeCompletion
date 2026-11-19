@@ -162,9 +162,12 @@
         <DCCReference Include="IDE\dpcc.Core.Lsp.SessionLifecycle.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Lsp\dpcc.Core.Lsp.SessionStart.pas"/>
         <DCCReference Include="IDE\dpcc.Core.Lsp.SessionStart.Tests.pas"/>
+        <DCCReference Include="..\Packages\dpcc.Core\Source\Lsp\dpcc.Core.Lsp.LateAnswers.pas"/>
+        <DCCReference Include="IDE\dpcc.Core.Lsp.LateAnswers.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Settings\dpcc.Core.Settings.MasterSwitch.pas"/>
         <DCCReference Include="IDE\dpcc.Core.Settings.MasterSwitch.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Diagnostics\dpcc.Core.Diagnostics.LogRedaction.pas"/>
+        <DCCReference Include="..\Packages\dpcc.Core\Source\Diagnostics\dpcc.Core.Diagnostics.LogWriter.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Diagnostics\dpcc.Core.Diagnostics.Guard.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Diagnostics\dpcc.Core.Diagnostics.MainThread.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Diagnostics\dpcc.Core.Diagnostics.Shutdown.pas"/>
@@ -204,6 +207,7 @@
         <DCCReference Include="..\Packages\dpcc.Core\Source\Completion\dpcc.Core.Completion.Parentheses.pas"/>
         <DCCReference Include="IDE\dpcc.Core.Completion.Parentheses.Tests.pas"/>
         <DCCReference Include="IDE\dpcc.Core.Diagnostics.PluginModules.Tests.pas"/>
+        <DCCReference Include="IDE\dpcc.Core.Diagnostics.LogWriter.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Build\dpcc.Core.Build.Events.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Files\dpcc.Core.Files.WatchedChanges.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Files\dpcc.Core.Files.Contract.pas"/>
@@ -215,6 +219,9 @@
         <DCCReference Include="..\Packages\dpcc.Core\Source\Notifications\dpcc.Core.Notifications.Sources.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Diagnostics\dpcc.Core.Diagnostics.Timing.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Diagnostics\dpcc.Core.Diagnostics.PluginTimings.pas"/>
+        <DCCReference Include="..\Packages\dpcc.Core\Source\Diagnostics\dpcc.Core.Diagnostics.StartTimes.pas"/>
+        <DCCReference Include="..\Packages\dpcc.Core\Source\Diagnostics\dpcc.Core.Diagnostics.Hangs.pas"/>
+        <DCCReference Include="IDE\dpcc.Core.Diagnostics.Hangs.Tests.pas"/>
         <DCCReference Include="Application\Shell\Shell.Composition.Completion.Tests.pas"/>
         <DCCReference Include="Application\Shell\Shell.Composition.InProcess.Tests.pas"/>
         <DCCReference Include="Application\Shell\Shell.Composition.CompletionCapabilities.Tests.pas"/>
@@ -236,6 +243,8 @@
         <DCCReference Include="Common\dpcc.Common.Sources.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Forms\dpcc.Core.Forms.Text.pas"/>
         <DCCReference Include="IDE\dpcc.Core.Forms.Text.Tests.pas"/>
+        <DCCReference Include="..\Packages\dpcc.Core\Source\Forms\dpcc.Core.Forms.Sync.pas"/>
+        <DCCReference Include="IDE\dpcc.Core.Forms.Sync.Tests.pas"/>
         <DCCReference Include="Memory\dpcc.Memory.Bench.Tests.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>

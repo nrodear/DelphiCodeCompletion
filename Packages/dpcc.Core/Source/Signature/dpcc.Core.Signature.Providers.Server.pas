@@ -4,9 +4,11 @@
 // (textDocument/signatureHelp, #32). Query holt die Sitzung und gleicht den
 // Editortext im aufrufenden Thread ab und fragt im Hintergrund; das Ergebnis
 // kommt per TDpccMainThread.Queue im Hauptthread an, aber nur für die jüngste
-// Anfrage. Vor dem Freigeben der Sitzung Shutdown aufrufen (wartet auf
-// laufende Anfragen). Die Sitzungsfunktion darf keinen Server starten
-//.
+// Anfrage. Vor dem Freigeben der Sitzung Shutdown aufrufen: Es bricht ab, ohne
+// zu warten (Stopp im Hauptthread); laufende Arbeiter zählt gRunningWorkers, und
+// der Stopp-Thread der Sitzung wartet mit WaitWorkersIdle auf sie, bevor er die
+// Sitzung freigibt. Destroy wartet auf alle Arbeiter (sie nutzen die Quelle).
+// Die Sitzungsfunktion darf keinen Server starten.
 // Abgleich ohne Zeitlimit-Arbeiter: Sync legt die Nachricht nur in die
 // Eingabe-Pipe des Servers (TLspInProcessServer puffert im Speicher)
 // und wartet nie auf den Server. Früher lief Sync mit 200 ms Zeitlimit, und
@@ -55,6 +57,8 @@ type
     FFlag: TAliveFlag;
     FFlagRef: IInterface;
     procedure ReapWorkers;
+    /// <summary>Auf alle Arbeiter warten und sie freigeben (Destroy).</summary>
+    procedure WaitAllWorkers;
     /// <summary>Sitzung holen und den Text abgleichen; False ohne Server.</summary>
     function SyncedSession(const AFileName, AText: string; out ASession: TLspSession): Boolean;
     /// <summary>Fragt im eigenen Thread an; APosition: X Zeichen, Y Zeile (0-basiert).</summary>
@@ -70,7 +74,14 @@ type
     function Query(const AFileName, AText: string; ALine, ACharacter: Integer;
       const ACallback: TDpccSignatureCallback): Boolean;
     procedure Cancel;
+    /// <summary>Bricht ab, ohne zu warten: Kein Rückruf mehr, beendete Arbeiter werden freigegeben, laufende erst
+    /// später (spätestens Destroy). Vor dem Freigeben der Sitzung WaitWorkersIdle abwarten.</summary>
     procedure Shutdown;
+    /// <summary>Laufende Arbeiter aller Signatur-Quellen.</summary>
+    class function RunningWorkers: Integer; static;
+    /// <summary>Bis zu AMs warten, bis kein Arbeiter mehr läuft; vorzeitig beim Abbruchsignal (TDpccShutdown). Nur
+    /// im Hintergrund (Stopp-Thread der Sitzung). True, wenn keiner läuft.</summary>
+    class function WaitWorkersIdle(AMs: Cardinal): Boolean; static;
     /// <summary>Antwort auf textDocument/signatureHelp.</summary>
     class function HelpFromLsp(AResponse: TJSONValue): TDpccSignatureHelp; static;
   end;
@@ -83,7 +94,17 @@ uses
   dpcc.Core.Diagnostics.TimeLimit,
   dpcc.Core.Diagnostics.MainThread,
   dpcc.Core.Lsp.Client,
-  dpcc.Core.Localization.Language;
+  dpcc.Core.Localization.Language,
+  dpcc.Core.Diagnostics.Shutdown;
+
+const
+  /// <summary>Takt von WaitWorkersIdle (nur im Hintergrund).</summary>
+  cWorkerPollMs = 10;
+
+var
+  /// <summary>Laufende Arbeiter aller Signatur-Quellen; gezählt vor dem Start, vermindert am Ende des Threads.
+  /// </summary>
+  gRunningWorkers: Integer;
 
 {$SCOPEDENUMS ON}
 
@@ -129,7 +150,9 @@ end;
 
 destructor TDpccServerSignatureProvider.Destroy;
 begin
-  Shutdown;
+  // Die Arbeiter lesen FGeneration und FTimeoutMs dieser Quelle: hier ohne Grenze warten.
+  Cancel;
+  WaitAllWorkers;
   // Eingereihte Aufrufe halten den Merker selbst und sehen dann Alive = False.
   FFlag.Alive := False;
   FFlagRef := nil;
@@ -386,11 +409,18 @@ begin
 end;
 
 procedure TDpccServerSignatureProvider.Shutdown;
+begin
+  // Ab hier ruft kein Arbeiter mehr zurück (Generation). Laufende bleiben in der Liste; der Stopp-Thread der Sitzung
+  // wartet auf sie (WaitWorkersIdle), Destroy gibt sie frei.
+  Cancel;
+  ReapWorkers;
+end;
+
+procedure TDpccServerSignatureProvider.WaitAllWorkers;
 var
   mWorkers: TArray<TThread>;
   mWorker: TThread;
 begin
-  Cancel;
   FLock.Enter;
   try
     mWorkers := FWorkers.ToArray;
@@ -402,6 +432,24 @@ begin
   begin
     mWorker.WaitFor;
     mWorker.Free;
+  end;
+end;
+
+class function TDpccServerSignatureProvider.RunningWorkers: Integer;
+begin
+  Result := AtomicCmpExchange(gRunningWorkers, 0, 0);
+end;
+
+class function TDpccServerSignatureProvider.WaitWorkersIdle(AMs: Cardinal): Boolean;
+var
+  mWatch: TStopwatch;
+begin
+  mWatch := TStopwatch.StartNew;
+  Result := RunningWorkers <= 0;
+  while not Result and (mWatch.ElapsedMilliseconds < AMs) and not TDpccShutdown.Signalled do
+  begin
+    TThread.Sleep(cWorkerPollMs);
+    Result := RunningWorkers <= 0;
   end;
 end;
 
@@ -487,34 +535,45 @@ begin
     var
       mHelp: TDpccSignatureHelp;
     begin
-      mHelp := FetchHelp(ASession, mFileName, mPosition, mProvider.FTimeoutMs);
-      if TInterlocked.CompareExchange(mProvider.FGeneration, 0, 0) <> AGeneration then
-      begin
-        Exit;
-      end;
-      // Im Hauptthread erst prüfen, ob die Quelle noch lebt und dies die jüngste Anfrage ist.
-      TDpccMainThread.Queue(TDpccFeature.Signature,
-        procedure
+      try
+        mHelp := FetchHelp(ASession, mFileName, mPosition, mProvider.FTimeoutMs);
+        if TInterlocked.CompareExchange(mProvider.FGeneration, 0, 0) <> AGeneration then
         begin
-          if mFlag.Alive and (mFlagRef <> nil) and
-            (TInterlocked.CompareExchange(mProvider.FGeneration, 0, 0) = AGeneration) then
+          Exit;
+        end;
+        // Im Hauptthread erst prüfen, ob die Quelle noch lebt und dies die jüngste Anfrage ist.
+        TDpccMainThread.Queue(TDpccFeature.Signature,
+          procedure
           begin
-            TDpccGuard.Run(TDpccFeature.Signature,
-              procedure
-              begin
-                ACallback(mHelp);
-              end);
-          end;
-        end);
+            if mFlag.Alive and (mFlagRef <> nil) and
+              (TInterlocked.CompareExchange(mProvider.FGeneration, 0, 0) = AGeneration) then
+            begin
+              TDpccGuard.Run(TDpccFeature.Signature,
+                procedure
+                begin
+                  ACallback(mHelp);
+                end);
+            end;
+          end);
+      finally
+        AtomicDecrement(gRunningWorkers);
+      end;
     end);
   mWorker.FreeOnTerminate := False;
   FLock.Enter;
   try
     FWorkers.Add(mWorker);
+    // Vor dem Start gezählt: Der Stopp der Sitzung sieht den Arbeiter, bevor er die Sitzung freigibt.
+    AtomicIncrement(gRunningWorkers);
   finally
     FLock.Leave;
   end;
-  mWorker.Start;
+  try
+    mWorker.Start;
+  except
+    AtomicDecrement(gRunningWorkers);
+    raise;
+  end;
 end;
 function TDpccServerSignatureProvider.Query(const AFileName, AText: string; ALine, ACharacter: Integer;
   const ACallback: TDpccSignatureCallback): Boolean;

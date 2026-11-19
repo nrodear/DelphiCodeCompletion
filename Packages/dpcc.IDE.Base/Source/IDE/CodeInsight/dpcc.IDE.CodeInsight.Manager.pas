@@ -15,21 +15,54 @@
 // bzw. einen anderen Anbieter, ruft die IDE ManagerEnabled bzw. ManagerDisabled; der Manager reicht das an
 // OnProviderChoice weiter (Betriebsart, dpcc.IDE.Foundation.InsightSwitch). Die Is…Visible-Abfragen lassen alle
 // Elemente des Dialogs sichtbar wie bisher.
+// Strg+Klick und Symbolhinweis der IDE ohne Einfrieren (dpcc.Core.Lsp.LateAnswers): Der Hauptthread gleicht den
+// Puffer ab und startet die Anfrage in einem Hintergrund-Thread (FThreads, Leerlauf-Signal für den Stopp); er wartet
+// höchstens TDpccLateAnswers.cWaitMs. Kommt das Sprungziel später, antwortet GotoDefinition still (True ohne Datei,
+// keine Meldung), und LateGoto springt selbst, wenn es noch passt (dieselbe Datei, Cursor an der Ausgangsstelle,
+// kein neuerer Sprungwunsch, höchstens cMaxAgeMs alt). Ein später Symbolhinweis kommt in FHintCache; der nächste
+// Aufruf der IDE für dasselbe Wort antwortet dann sofort. Nachgereicht wird nur über TDpccMainThread.Queue; der
+// Eintrag sucht den lebenden Manager erst im Hauptthread (LiveManagerObject). Wartezeiten über cWaitMs stehen
+// gedrosselt im Protokoll (TDpccGuard.ReportProviderSlow).
 
 interface
 
 uses
   System.SysUtils,
   ToolsAPI,
+  dpcc.Core.Lsp.LateAnswers,
   dpcc.IDE.Completion.Editor,
   dpcc.IDE.CodeInsight.Manager.State,
   dpcc.IDE.CodeInsight.Manager.Editors,
-  dpcc.IDE.CodeInsight.Manager.Crashes;
+  dpcc.IDE.CodeInsight.Manager.Crashes,
+  dpcc.IDE.CodeInsight.Manager.Queries,
+  dpcc.Core.Editor.Navigation;
 
 type
   TDpccCodeInsightManager = class(TDpccCodeInsightCrashes, IOTACodeInsightManager, IOTACodeInsightManager90,
     IOTACodeInsightSelection, IOTACodeInsightManagerEnvOptions)
   private
+    /// <summary>Laufende Nummer der Sprungwünsche: Ein nachgereichtes Ziel gilt nur für den neuesten. Nur
+    /// Hauptthread.</summary>
+    FGotoGeneration: Cardinal;
+    /// <summary>Gemerkte Symbolhinweise (nur Hauptthread). Referenzgezählt: Nachgereichte Antworten erreichen ihn über
+    /// TDpccMainThread.Queue, ohne den Manager zu halten.</summary>
+    FHintCache: IDpccHintCache;
+    /// <summary>Laufende bzw. letzte Anfrage des Symbolhinweises und ihr Schlüssel.</summary>
+    FHintSlot: IDpccAnswerSlot;
+    FHintKey: TDpccHintKey;
+    /// <summary>AWork in einem Hintergrund-Thread (FThreads); der Stopp im Hintergrund wartet über das
+    /// Leerlauf-Signal (BeginServerCommand), bevor er die Sitzung freigibt. AWork beendet das Signal selbst.</summary>
+    procedure StartWork(const AWork: TProc);
+    /// <summary>Sprungwunsch an AView: abgleichen, im Hintergrund fragen, höchstens cWaitMs warten. Deferred, wenn
+    /// die Antwort später kommt (LateGoto). Unerwartete Fehler kommen als Exception.</summary>
+    function AskDefinition(const AView: IOTAEditView; AIndex: Integer; out AFileName: string;
+      out ALine: Integer): TDpccGotoOutcome;
+    /// <summary>Nachgereichtes Sprungziel (Hauptthread): springen, wenn es noch passt, sonst still verwerfen.
+    /// </summary>
+    procedure LateGoto(const AOrigin: TDpccGotoOrigin; const AAnswer: TDpccAnswer);
+    /// <summary>Hover-Text des Servers für APlace: gemerkt, sonst im Hintergrund gefragt und höchstens cWaitMs
+    /// gewartet ('' und gemerkt, wenn er später kommt). ASource fürs Diagnoseprotokoll.</summary>
+    function ServerHint(const APlace: TDpccHintPlace; out ASource: string): string;
     /// <summary>Haken der Editor-Anbindungen an diesen Manager.</summary>
     function EditorHooks: TDpccCodeInsightEditorHooks;
     /// <summary>Zeigt dpcc den Tooltip selbst (Hauptschalter und Tooltip an)?</summary>
@@ -122,9 +155,11 @@ implementation
 
 uses
   Winapi.Windows,
+  System.Classes,
   dpcc.Core.Completion.Fallback,
   dpcc.Core.Lsp.Client,
   dpcc.Core.Lsp.Session,
+  dpcc.Core.Lsp.SessionStart,
   dpcc.Core.Diagnostics.Guard,
   dpcc.Core.Diagnostics.Hangs,
   dpcc.Core.Diagnostics.Shutdown,
@@ -132,8 +167,7 @@ uses
   dpcc.IDE.Foundation.Settings,
   dpcc.IDE.Foundation.EditorSnapshot,
   dpcc.IDE.Foundation.LineTracker,
-  dpcc.IDE.CodeInsight.Manager.Queries,
-  dpcc.Core.Editor.Navigation,
+  dpcc.IDE.Foundation.Navigation,
   dpcc.Core.Localization.Language;
 
 {$SCOPEDENUMS ON}
@@ -233,6 +267,199 @@ begin
   end;
 end;
 
+const
+  /// <summary>Namen für die gedrosselten Zeilen im Protokoll (TDpccGuard.ReportProviderSlow: je Name höchstens eine
+  /// Zeile je Minute).</summary>
+  cGotoSlowName = 'Gehe zu Definition';
+  cGotoLateName = 'Gehe zu Definition (nachgereicht)';
+  cHintSlowName = 'Symbolhinweis';
+  cHintLateName = 'Symbolhinweis (nachgereicht)';
+
+/// <summary>Fehler einer Anfrage im Hintergrund als Teil der Antwort: Der Thread lässt keine Exception hinaus.
+/// </summary>
+procedure FailAnswer(AE: Exception; var AAnswer: TDpccAnswer);
+begin
+  AAnswer.Found := False;
+  AAnswer.ErrorText := AE.ClassName + ': ' + AE.Message;
+  if AE is ELspMethodNotFound then
+  begin
+    AAnswer.Error := TDpccAnswerError.MethodNotFound;
+  end
+  else if AE is ELspClientError then
+  begin
+    AAnswer.Error := TDpccAnswerError.ClientError;
+  end
+  else
+  begin
+    AAnswer.Error := TDpccAnswerError.Other;
+  end;
+end;
+
+/// <summary>Nachgereichtes Sprungziel im Hauptthread: an den lebenden Manager, sonst verworfen.</summary>
+procedure DeliverLateGoto(const AOrigin: TDpccGotoOrigin; const AAnswer: TDpccAnswer);
+var
+  mManager: TObject;
+begin
+  mManager := LiveManagerObject;
+  if mManager is TDpccCodeInsightManager then
+  begin
+    TDpccCodeInsightManager(mManager).LateGoto(AOrigin, AAnswer);
+  end;
+end;
+
+/// <summary>Aus dem Hintergrund-Thread: AAnswer über TDpccMainThread.Queue nachreichen (beim Entladen verworfen).
+/// </summary>
+procedure QueueLateGoto(const AOrigin: TDpccGotoOrigin; const AAnswer: TDpccAnswer);
+var
+  mOrigin: TDpccGotoOrigin;
+  mAnswer: TDpccAnswer;
+begin
+  mOrigin := AOrigin;
+  mAnswer := AAnswer;
+  TDpccMainThread.Queue(TDpccFeature.GoToDefinition,
+    procedure
+    begin
+      DeliverLateGoto(mOrigin, mAnswer);
+    end);
+end;
+
+/// <summary>Arbeit des Hintergrund-Threads für einen Sprungwunsch: GotoTargetAt ohne Abgleich (Sync vorher im
+/// Hauptthread), Antwort in ASlot; kam sie für den Hauptthread zu spät, reicht der Thread sie nach. Hält nur die
+/// Sitzung (der Stopp wartet über ASignals), den Slot und Kopien, nie den Manager.</summary>
+function GotoWork(ASession: TLspSession; const ASignals: IDpccIdleSignals; const ASlot: IDpccAnswerSlot;
+  const APlace: TDpccGotoPlace): TProc;
+var
+  mSession: TLspSession;
+  mSignals: IDpccIdleSignals;
+  mSlot: IDpccAnswerSlot;
+  mOrigin: TDpccGotoOrigin;
+  mLineText: string;
+begin
+  mSession := ASession;
+  mSignals := ASignals;
+  mSlot := ASlot;
+  mOrigin := APlace.Origin;
+  mLineText := APlace.LineText;
+  Result :=
+    procedure
+    var
+      mAnswer: TDpccAnswer;
+      mLocation: TLspLocation;
+    begin
+      try
+        try
+          TThread.NameThreadForDebugging('dpcc.GotoDefinition');
+          mAnswer := Default(TDpccAnswer);
+          try
+            mAnswer.Found := mSession.GotoTargetAt(mOrigin.FileName, mLineText, mOrigin.AtLine - 1,
+              mOrigin.AtCharacter, TDpccLateAnswers.cMaxAgeMs, mLocation);
+            mAnswer.FileName := mLocation.FileName;
+            mAnswer.Line := mLocation.Line;
+            mAnswer.Character := mLocation.Character;
+          except
+            on E: Exception do
+            begin
+              FailAnswer(E, mAnswer);
+            end;
+          end;
+          if not mSlot.Complete(mAnswer) then
+          begin
+            QueueLateGoto(mOrigin, mAnswer);
+          end;
+        except
+          // Hintergrund-Thread: nie eine Ausnahme nach außen.
+          on Exception do
+          begin
+          end;
+        end;
+      finally
+        // Nie am Manager: Der Stopp im Hintergrund wartet auf dieses Signal, bevor er die Sitzung freigibt.
+        mSignals.EndServerCommand;
+      end;
+    end;
+end;
+
+/// <summary>Aus dem Hintergrund-Thread: späten Symbolhinweis über TDpccMainThread.Queue in ACache merken; ein Fehler
+/// kommt nur als gedrosselte Zeile ins Protokoll.</summary>
+procedure QueueLateHint(const ACache: IDpccHintCache; const AKey: TDpccHintKey; const AAnswer: TDpccAnswer);
+var
+  mCache: IDpccHintCache;
+  mKey: TDpccHintKey;
+  mAnswer: TDpccAnswer;
+begin
+  mCache := ACache;
+  mKey := AKey;
+  mAnswer := AAnswer;
+  TDpccMainThread.Queue(TDpccFeature.Hover,
+    procedure
+    begin
+      if mAnswer.Error = TDpccAnswerError.None then
+      begin
+        mCache.Store(mKey, mAnswer.Text, TThread.GetTickCount64);
+      end
+      else
+      begin
+        TDpccGuard.ReportProviderSlow(cHintLateName, mAnswer.ErrorText);
+      end;
+    end);
+end;
+
+/// <summary>Arbeit des Hintergrund-Threads für den Symbolhinweis der IDE: HoverAt ohne Abgleich (Sync vorher im
+/// Hauptthread), Antwort in ASlot; kam sie zu spät, kommt sie in ACache. Hält nie den Manager.</summary>
+function HintWork(ASession: TLspSession; const ASignals: IDpccIdleSignals; const ASlot: IDpccAnswerSlot;
+  const ACache: IDpccHintCache; const APlace: TDpccHintPlace): TProc;
+var
+  mSession: TLspSession;
+  mSignals: IDpccIdleSignals;
+  mSlot: IDpccAnswerSlot;
+  mCache: IDpccHintCache;
+  mKey: TDpccHintKey;
+  mFileName: string;
+  mLine, mCharacter: Integer;
+begin
+  mSession := ASession;
+  mSignals := ASignals;
+  mSlot := ASlot;
+  mCache := ACache;
+  mKey := APlace.Key;
+  mFileName := APlace.FileName;
+  mLine := APlace.Line;
+  mCharacter := APlace.Character;
+  Result :=
+    procedure
+    var
+      mAnswer: TDpccAnswer;
+    begin
+      try
+        try
+          TThread.NameThreadForDebugging('dpcc.HintText');
+          mAnswer := Default(TDpccAnswer);
+          try
+            mAnswer.Text := mSession.HoverAt(mFileName, mLine, mCharacter, TDpccLateAnswers.cMaxAgeMs);
+            mAnswer.Found := True;
+          except
+            on E: Exception do
+            begin
+              FailAnswer(E, mAnswer);
+            end;
+          end;
+          if not mSlot.Complete(mAnswer) then
+          begin
+            QueueLateHint(mCache, mKey, mAnswer);
+          end;
+        except
+          // Hintergrund-Thread: nie eine Ausnahme nach außen.
+          on Exception do
+          begin
+          end;
+        end;
+      finally
+        // Nie am Manager: Der Stopp im Hintergrund wartet auf dieses Signal, bevor er die Sitzung freigibt.
+        mSignals.EndServerCommand;
+      end;
+    end;
+end;
+
 { TDpccCodeInsightManager }
 
 constructor TDpccCodeInsightManager.Create(const AAdapters: TDpccCodeInsightAdapters);
@@ -241,6 +468,7 @@ begin
   // Gemeinsamer Pufferstand für Probleme und Inlay-Hints.
   TDpccEditorSnapshots.Install;
   FEditors := TDpccCodeInsightEditors.Create(EditorHooks);
+  FHintCache := TDpccHintCache.Create;
 end;
 
 destructor TDpccCodeInsightManager.Destroy;
@@ -311,6 +539,13 @@ begin
   FShutDown := True;
   FEnabled := False;
   RetireManager(Self);
+  // Noch ausstehende Sprünge und Hinweise gelten nicht mehr; ihre Threads wartet FThreads.StopAll ab.
+  Inc(FGotoGeneration);
+  FHintSlot := nil;
+  if FHintCache <> nil then
+  begin
+    FHintCache.Clear;
+  end;
   // Hält die Beobachter-Threads an; erst danach darf der Sammler weg.
   FFolderWatcher := nil;
   FreeAndNil(FFileChanges);
@@ -348,10 +583,73 @@ begin
   Result := FEditors.PlaceholdersActive;
 end;
 
+procedure TDpccCodeInsightManager.StartWork(const AWork: TProc);
+begin
+  // Vor dem Start: Der Thread beendet das Signal, auch wenn er sofort fertig ist.
+  FSignals.BeginServerCommand;
+  try
+    FThreads.Start(AWork);
+  except
+    FSignals.EndServerCommand;
+    raise;
+  end;
+end;
+
+function TDpccCodeInsightManager.ServerHint(const APlace: TDpccHintPlace; out ASource: string): string;
+var
+  mAnswer: TDpccAnswer;
+begin
+  Result := '';
+  // Kurz zuvor beantwortet oder nachgereicht: sofort, ohne Server.
+  if FHintCache.Lookup(APlace.Key, TThread.GetTickCount64, Result) then
+  begin
+    ASource := 'gemerkt';
+    Exit;
+  end;
+  // Läuft die Anfrage für dasselbe Wort noch, auf sie warten statt eine zweite zu stellen.
+  if (FHintSlot = nil) or FHintSlot.Done or not FHintKey.SameAs(APlace.Key) then
+  begin
+    // Abgleich im Hauptthread: braucht den Puffertext, wartet nicht auf den Server.
+    FSession.Sync(APlace.FileName, APlace.Text);
+    FHintSlot := TDpccAnswerSlot.Create(TThread.GetTickCount64);
+    FHintKey := APlace.Key;
+    StartWork(HintWork(FSession, FSignals, FHintSlot, FHintCache, APlace));
+  end;
+  if not FHintSlot.Await(TDpccLateAnswers.cWaitMs) then
+  begin
+    // Die IDE bekommt '' (kein Hinweis); die Antwort kommt in FHintCache für den nächsten Aufruf.
+    TDpccGuard.ReportProviderSlow(cHintSlowName, Format('keine Antwort innerhalb von %d ms, Hinweis wird gemerkt',
+      [TDpccLateAnswers.cWaitMs]));
+    ASource := 'kommt später';
+    Exit;
+  end;
+  mAnswer := FHintSlot.Answer;
+  case mAnswer.Error of
+    TDpccAnswerError.None:
+      begin
+        Result := mAnswer.Text;
+        FHintCache.Store(APlace.Key, Result, TThread.GetTickCount64);
+        ASource := 'Server';
+      end;
+    TDpccAnswerError.Other:
+      begin
+        // Wie ein Fehler im Hauptthread: Meldung und Sicherung (GetHintText).
+        raise Exception.Create(mAnswer.ErrorText);
+      end;
+  else
+    begin
+      // Beendeter Server oder fehlende Methode: erwartbar, zählt nicht für die Sicherung.
+      raise ELspClientError.Create(mAnswer.ErrorText);
+    end;
+  end;
+end;
+
 function TDpccCodeInsightManager.GetHintText(HintLine, HintCol: Integer): string;
 var
   mView: IOTAEditView;
   mActivity: IInterface;
+  mPlace: TDpccHintPlace;
+  mSource: string;
 begin
   mActivity := TDpccActivity.Scope('Symbolhinweis');
   Result := '';
@@ -370,13 +668,13 @@ begin
     mView := TDpccCodeInsightQueries.CurrentEditView;
     // Hauptschalter und Datei vor dem Start prüfen; EnsureSession wartet nie (ohne Sitzung kein Hinweis).
     if (mView <> nil) and (mView.Buffer <> nil) and FEnabled and Handles(mView.Buffer.FileName) and EnsureSession
-      then
+      and TDpccCodeInsightQueries.HintPlace(mView, HintLine, HintCol, mPlace) then
     begin
-      Result := TDpccCodeInsightQueries.HintAt(FSession, mView, HintLine, HintCol,
-        procedure(AMessage: string)
-        begin
-          Diagnose(AMessage);
-        end);
+      // Der Server im Hintergrund, höchstens cWaitMs; der Wert im Debugger wie bisher sofort.
+      Result := TDpccCodeInsightQueries.HintWithDebugValue(ServerHint(mPlace, mSource), mPlace);
+      Diagnose(Format('Hover (%s), Zeile %d, Spalte %d (Cursor %d/%d): %d Zeichen (%s)',
+        [ExtractFileExt(mPlace.FileName), HintLine, HintCol, mView.CursorPos.Line, mView.CursorPos.Col,
+        Length(Result), mSource]));
     end;
   except
     on E: Exception do
@@ -448,11 +746,8 @@ begin
       end
       else
       begin
-        mOutcome := TDpccCodeInsightQueries.DefinitionAt(FSession, mView, Index,
-          procedure(AMessage: string)
-          begin
-            Diagnose(AMessage);
-          end, mFileName, mLine);
+        // Im Hintergrund gefragt, höchstens cWaitMs gewartet; später kommt der Sprung über LateGoto.
+        mOutcome := AskDefinition(mView, Index, mFileName, mLine);
       end;
     except
       on E: ELspMethodNotFound do
@@ -463,7 +758,8 @@ begin
       end;
       on E: ELspClientError do
       begin
-        // Zeitlimit (cMainThreadTimeoutMs) oder beendeter Server: erwartbar, keine Meldung.
+        // Beendeter Server beim Abgleich: erwartbar, keine Meldung. (Eine langsame Antwort ist kein Fehler mehr: Sie
+        // wird nachgereicht, AskDefinition.)
         Diagnose('Gehe zu Definition: ' + E.Message);
         mOutcome := TDpccGotoOutcome.TimedOut;
       end;
@@ -479,6 +775,107 @@ begin
   AFileName := mAnswer.FileName;
   ALineNum := mAnswer.Line;
   Result := mAnswer.Result;
+end;
+
+function TDpccCodeInsightManager.AskDefinition(const AView: IOTAEditView; AIndex: Integer; out AFileName: string;
+  out ALine: Integer): TDpccGotoOutcome;
+var
+  mPlace: TDpccGotoPlace;
+  mSlot: IDpccAnswerSlot;
+  mAnswer: TDpccAnswer;
+  mTarget: string;
+begin
+  AFileName := '';
+  ALine := 0;
+  if not TDpccCodeInsightQueries.GotoPlace(AView,
+    procedure(AMessage: string)
+    begin
+      Diagnose(AMessage);
+    end, mPlace) then
+  begin
+    Exit(TDpccGotoOutcome.NoView);
+  end;
+  // Jeder Sprungwunsch macht ältere, noch ausstehende ungültig.
+  Inc(FGotoGeneration);
+  mPlace.Origin.Generation := FGotoGeneration;
+  // Abgleich im Hauptthread: braucht den Puffertext, wartet nicht auf den Server.
+  FSession.Sync(mPlace.Origin.FileName, mPlace.Text);
+  mSlot := TDpccAnswerSlot.Create(mPlace.Origin.StartedMs);
+  StartWork(GotoWork(FSession, FSignals, mSlot, mPlace));
+  if not mSlot.Await(TDpccLateAnswers.cWaitMs) then
+  begin
+    // Die Anfrage läuft weiter (nicht abgebrochen); die IDE bricht still ab, ohne Hinweis im Meldungsfenster.
+    TDpccGuard.ReportProviderSlow(cGotoSlowName, Format('keine Antwort innerhalb von %d ms, Sprung wird nachgereicht',
+      [TDpccLateAnswers.cWaitMs]));
+    Diagnose(TDpccCodeInsightQueries.GotoNote(AIndex, mPlace, 'kommt später'));
+    Exit(TDpccGotoOutcome.Deferred);
+  end;
+  mAnswer := mSlot.Answer;
+  case mAnswer.Error of
+    TDpccAnswerError.MethodNotFound:
+      begin
+        // Erst jetzt als fehlend erkannt (-32601): Server ohne Sprungziele.
+        Diagnose('Gehe zu Definition: ' + mAnswer.ErrorText);
+        Exit(TDpccGotoOutcome.NotOffered);
+      end;
+    TDpccAnswerError.ClientError:
+      begin
+        // Beendeter Server: erwartbar, keine Meldung.
+        Diagnose('Gehe zu Definition: ' + mAnswer.ErrorText);
+        Exit(TDpccGotoOutcome.TimedOut);
+      end;
+    TDpccAnswerError.Other:
+      begin
+        // Wie ein Fehler im Hauptthread: Meldung und Sicherung (GotoDefinition).
+        raise Exception.Create(mAnswer.ErrorText);
+      end;
+  end;
+  Result := TDpccGotoOutcome.NotFound;
+  mTarget := 'kein Ziel';
+  if TDpccCodeInsightQueries.TargetOf(mAnswer) then
+  begin
+    AFileName := mAnswer.FileName;
+    ALine := mAnswer.Line;
+    Result := TDpccGotoOutcome.Found;
+    mTarget := Format('%s, Zeile %d', [ExtractFileExt(AFileName), ALine + 1]);
+  end;
+  Diagnose(TDpccCodeInsightQueries.GotoNote(AIndex, mPlace, mTarget));
+end;
+
+procedure TDpccCodeInsightManager.LateGoto(const AOrigin: TDpccGotoOrigin; const AAnswer: TDpccAnswer);
+var
+  mActivity: IInterface;
+  mVerdict: TDpccGotoVerdict;
+  mFileName: string;
+  mLine, mCharacter: Integer;
+begin
+  if FShutDown or not FEnabled or TDpccGuard.Disabled(TDpccFeature.GoToDefinition) then
+  begin
+    Exit;
+  end;
+  mActivity := TDpccActivity.Scope('Gehe zu Definition (nachgereicht)');
+  if AAnswer.Error <> TDpccAnswerError.None then
+  begin
+    // Auch ein spätes Zeitlimit nicht stumm: gedrosselt ins Protokoll.
+    TDpccGuard.ReportProviderSlow(cGotoLateName, AAnswer.ErrorText);
+  end;
+  mVerdict := TDpccLateGoto.Verdict(AOrigin, TDpccCodeInsightQueries.GotoNow(FGotoGeneration),
+    TDpccCodeInsightQueries.TargetOf(AAnswer), TDpccLateAnswers.cMaxAgeMs);
+  Diagnose(Format('Gehe zu Definition nachgereicht nach %d ms: %s',
+    [Int64(TThread.GetTickCount64 - AOrigin.StartedMs), TDpccLateGoto.VerdictText(mVerdict)]));
+  if mVerdict <> TDpccGotoVerdict.Jump then
+  begin
+    Exit;
+  end;
+  // Wie die IDE bei einer rechtzeitigen Antwort: Datei zeigen (nur öffnen, wenn nötig), Cursor aufs Ziel.
+  mFileName := AAnswer.FileName;
+  mLine := AAnswer.Line;
+  mCharacter := AAnswer.Character;
+  TDpccGuard.RunIde(
+    procedure
+    begin
+      TDpccIdeNavigation.GoToLocation(mFileName, mLine, mCharacter);
+    end);
 end;
 
 /// <summary>Zeile in der Meldungsansicht, Gruppe „dpcc“; nur im Hauptthread.</summary>

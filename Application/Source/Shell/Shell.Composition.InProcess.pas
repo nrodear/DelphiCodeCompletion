@@ -36,6 +36,9 @@
 //   Wurzel gibt Index und Features frei, sobald diese Anfragen enden, und ruft erst dann Release (a4,
 //   Speicher-Optimierung Phase 2); vorher blieb der ganze alte Server bis zum Ende der IDE im Speicher.
 // Im Testprogramm (statisch gelinkt) entlädt niemand Code; KeepCodeLoaded tut dort nichts.
+// exit schließt die Eingabe sofort (Lifecycle.OnExit): Sonst hinge der Lese-Thread der Verbindung im Lesen der offenen
+// Pipe, Run gäbe ihn nach 2 s auf, und er endete erst nach Stop, ohne dass jemand auf ihn wartete (hielt bis dahin
+// Transport und Pipes; Leckmeldung von rund 67 KB in ExitClosesClient).
 //
 // Puffer: Beide Pipes sind begrenzt (cPipeCapacity). Zum Server (Schreiber: Plugin, auch der Hauptthread der IDE)
 // wartet Schreiben nie: Ist der Puffer voll, liest der Server nicht mehr; die Pipe wird geschlossen (Overflowed), der
@@ -825,6 +828,8 @@ var
   mDebugSink: ILogSink;
   mRun: IShellInProcessRun;
   mHostSink: THostSink;
+  mInput: IShellMemoryPipe;
+  mOnExit: TProc;
 begin
   inherited Create;
   // Zum Server schreibt auch der Hauptthread der IDE: nie warten. Vom Server: Gegendruck bis cServerWriteWaitMs.
@@ -834,6 +839,8 @@ begin
   FClientOutput := TShellMemoryPipe.WriteStream(FToServer);
   FRun := TShellInProcessRun.Create;
   mRun := FRun;
+  // Für exit (unten): die Pipe selbst, nicht Self; der Thread kann das Objekt überleben (Abandoned).
+  mInput := FToServer;
   FHostSink := nil;
   FHostSinkRef := nil;
   if AHostSink <> nil then
@@ -876,6 +883,23 @@ begin
       procedure
       begin
         TShellInProcessServer.Release;
+      end;
+    // exit beendet die Schleife, die Eingabe bliebe aber offen: Der Lese-Thread der Verbindung hinge dann im Lesen,
+    // Run gäbe ihn erst nach TJsonRpcConnection.cDefaultReaderTimeout auf, und er endete erst nach dem Abbau (Stop),
+    // ohne dass jemand auf ihn wartet; bis dahin hielt er den Transport (64 KB Lesepuffer) und beide Pipes. Nach exit
+    // liest der Server nichts mehr: Eingabe gleich schließen, dann endet der Lese-Thread sofort und Run wartet auf ihn.
+    mOnExit := mServer.Parts.Protocol.Lifecycle.OnExit;
+    mServer.Parts.Protocol.Lifecycle.OnExit :=
+      procedure
+      begin
+        try
+          if Assigned(mOnExit) then
+          begin
+            mOnExit();
+          end;
+        finally
+          mInput.Close;
+        end;
       end;
     if Assigned(AConfigure) then
     begin

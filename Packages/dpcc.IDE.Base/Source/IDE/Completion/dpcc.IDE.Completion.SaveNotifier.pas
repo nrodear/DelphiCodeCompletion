@@ -2,12 +2,16 @@
 
 // Schlanker Speicher-Notifier (Rückbau R5, Ersatz für den Reloader): meldet jede gespeicherte Quelltextdatei an
 // OnSaved, damit der Manager textDocument/didSave schickt. Ohne Timer und ohne Neuladen: Je offenes Modul hängt ein
-// IOTAModuleNotifier, dessen AfterSave die Dateien der Quelltexteditoren des Moduls meldet (bei Projekten die
-// .dpr/.dpk). Neu geöffnete Module findet ein IOTAIDENotifier (ofnFileOpened); beim Schließen meldet sich der
+// IOTAModuleNotifier, dessen AfterSave die Quelltexte des Moduls meldet (bei Projekten die
+// .dpr/.dpk; siehe unten). Neu geöffnete Module findet ein IOTAIDENotifier (ofnFileOpened); beim Schließen meldet sich der
 // Notifier über Destroyed selbst ab. Jeder Aufruf aus der IDE läuft über TDpccGuard (#493).
 // Schließt die IDE eine Datei (ofnFileClosing), meldet der Notifier sie an OnClosed (a1, Speicher-Optimierung
 // Phase 2): Der Manager schickt textDocument/didClose, sonst behielt der Server Text und Syntaxbaum jeder je
 // abgeglichenen Datei bis zum Ende der Sitzung. Bei einem Formular (.dfm, .fmx) auch die zugehörige .pas.
+// Speichern ohne Editoren (IDE hängt nicht beim Laden von Formularen): AfterSave fasst ModuleFileEditors nicht mehr
+// an (das kann den Designer einer Formular-Unit laden). Die Quelltexte leitet TDpccModuleSources aus IOTAModule.FileName
+// ab (Unit: die .pas; Projekt: .dpr und .dpk daneben; Formulardateien nicht, wie zuvor). OnSaved schickt didSave nur
+// für abgeglichene Dateien (Session.Saved), ein Kandidat ohne Datei kostet also nichts.
 
 interface
 
@@ -64,7 +68,9 @@ type
 implementation
 
 uses
-  dpcc.Core.Diagnostics.Guard;
+  dpcc.Core.Diagnostics.Guard,
+  dpcc.Core.Diagnostics.Hangs,
+  dpcc.Core.Forms.Sync;
 
 { TDpccSaveNotifier.TModuleNotifier }
 
@@ -94,7 +100,7 @@ end;
 
 procedure TDpccSaveNotifier.TModuleNotifier.ModuleRenamed(const NewName: string);
 begin
-  // Der neue Name kommt mit dem nächsten Speichern über die Editoren des Moduls.
+  // Der neue Name kommt mit dem nächsten Speichern über den Dateinamen des Moduls.
 end;
 
 procedure TDpccSaveNotifier.TModuleNotifier.Destroyed;
@@ -274,22 +280,19 @@ end;
 
 procedure TDpccSaveNotifier.Saved(const AModule: IOTAModule);
 var
-  mIndex: Integer;
-  mEditor: IOTAEditor;
-  mSource: IOTASourceEditor;
+  mFileName: string;
+  mActivity: IInterface;
 begin
-  if not Assigned(FOnSaved) then
+  mActivity := TDpccActivity.Scope('Speichern melden');
+  if not Assigned(FOnSaved) or (AModule = nil) then
   begin
     Exit;
   end;
-  // Die Quelltexte des Moduls: Unit (.pas), bei Projekten .dpr bzw. .dpk; Formulare (.dfm) nicht.
-  for mIndex := 0 to AModule.ModuleFileCount - 1 do
+  // Die Quelltexte des Moduls (Unit .pas, bei Projekten .dpr bzw. .dpk; Formulare nicht) nur aus dem Dateinamen des
+  // Moduls, nie über ModuleFileEditors: Das kann den Designer einer Formular-Unit laden.
+  for mFileName in TDpccModuleSources.SavedSources(AModule.FileName) do
   begin
-    mEditor := AModule.ModuleFileEditors[mIndex];
-    if Supports(mEditor, IOTASourceEditor, mSource) and (mSource.FileName <> '') then
-    begin
-      FOnSaved(mSource.FileName);
-    end;
+    FOnSaved(mFileName);
   end;
 end;
 

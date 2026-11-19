@@ -258,7 +258,8 @@ same name without type parameters, otherwise after them. See [Index and cache](i
 ### FieldByName and forms
 
 For this, dpcc reads the form file (DFM) of the unit. For open forms it takes the current state from the designer,
-even unsaved; changes in the designer go to the server after 500 ms.
+even unsaved; changes in the designer go to the server after 500 ms. Converting to text and sending run in the
+background; an unchanged form is not converted at all.
 
 Sources for field names, in this order:
 
