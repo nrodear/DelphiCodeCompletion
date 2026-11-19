@@ -1,16 +1,19 @@
 ﻿unit dpcc.Core.Editor.CodeInsightKeys;
 
 // Orte der Code-Insight-Schalter der IDE in der Registry (#1246) und die
-// Version aus dem Basisschlüssel. Delphi 12 und Delphi 13 legen die
-// Einstellungen gleich ab, je Option Set des Code-Insight-Anbieters unter
-// <Basis>\Code Insight: DelphiLSP unter
-// Borland.EditOptions.Borland.CodeInsight.LSP.Pascal, der dpcc-Manager unter
-// Borland.EditOptions.Pascal (GetOptionSetName). Gelesener Stand von
+// Version aus dem Basisschlüssel. DelphiLSP liest seine Schalter unter
+// Delphi 12 und 13 unter <Basis>\Code Insight\
+// Borland.EditOptions.Borland.CodeInsight.LSP.Pascal. Gelesener Stand von
 // Delphi 12 (BDS 23.0) auf dem Prüfrechner: unter Code Insight nur
-// Borland.EditOptions.Borland.CodeInsight.LSP.Pascal, .HTML und .StyleSheet,
-// kein Borland.EditOptions.Pascal. Die frühere Annahme (bis D12-PREP), Delphi 12
-// lese die Schalter von DelphiLSP unter Borland.EditOptions.Pascal, traf
-// nicht zu; VersionKey, Targets und Marker sind deshalb entfernt.
+// Borland.EditOptions.Borland.CodeInsight.LSP.Pascal, .HTML und .StyleSheet;
+// Borland.EditOptions.Pascal (das Option Set aus GetOptionSetName des
+// dpcc-Managers) nur mit den Werten, die dpcc selbst angelegt hatte, und
+// Delphi 12 liest es nicht, auch nicht mit dpcc als Anbieter (D12KEY). Welche
+// Orte dpcc in der Betriebsart dpcc je Version setzt, bestimmt
+// TDpccIdeCheck.DpccKeys (dpcc.Core.Settings.IdeCheck). Die frühere Annahme
+// (bis D12-PREP), Delphi 12 lese die Schalter von DelphiLSP unter
+// Borland.EditOptions.Pascal, traf nicht zu; VersionKey, Targets und Marker
+// sind deshalb entfernt.
 // Die Merker (was dpcc abgeschaltet hat) gelten je Version und Ort; vorher
 // teilten sich Delphi 12 und 13 einen Merker, und die eine IDE drehte zurück,
 // was die andere abgeschaltet hatte. Nur ab Delphi 13 gibt es noch Merker ohne

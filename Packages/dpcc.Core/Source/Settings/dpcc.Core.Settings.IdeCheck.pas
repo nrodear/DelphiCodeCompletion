@@ -4,8 +4,9 @@
 // Zwei Betriebsarten, die sich ausschließen:
 //   - „IDE“: Ein anderer Code-Insight-Anbieter (Vorgabe DelphiLSP) bedient Delphi-Dateien. dpcc ist aus
 //     (Hauptschalter), und dpcc dreht zurück, was es selbst an den Schaltern der IDE geändert hatte.
-//   - „dpcc“: dpcc ist der Anbieter. Hauptschalter an; dpcc setzt die Schalter, die es braucht (Targets), im
-//     Schlüssel seines Option Sets (GetOptionSetName = Borland.EditOptions.Pascal) und in InsightGlobalOptions.
+//   - „dpcc“: dpcc ist der Anbieter. Hauptschalter an; dpcc setzt die Schalter, die es braucht (Targets), an den
+//     Orten, die die IDE dieser Version dafür liest (TDpccIdeCheck.DpccKeys, siehe unten), und in
+//     InsightGlobalOptions.
 // Wer entscheidet: beim Start von Delphi der Wert "Insight Manager" (TDpccIdeContextTrigger.Start); der Hauptschalter
 // der Optionsseite mit OK (MasterOn stellt den Anbieter auf dpcc, MasterOff zurück auf den gemerkten bzw. DelphiLSP).
 // Jede Änderung hält ein Merker fest (geschriebener Wert und Wert davor, TDpccIdeMarker unter
@@ -17,8 +18,22 @@
 //     (Borland.CodeInsight.LSP.Pascal = DelphiLSP, dpcc.CodeInsight = dpcc, die IDString des Managers);
 //   - DelphiLSP: Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal, unter 12 und 13 gleich (Delphi 12
 //     hatte auf dem Prüfrechner gar kein Borland.EditOptions.Pascal; den früheren Ersatz "Ort der Version"
-//     Borland.EditOptions.Pascal unter 23.0 gibt es seit D12-PREP nicht mehr, das ist das Option Set von dpcc);
-//   - dpcc: Code Insight\Borland.EditOptions.Pascal (Option Set des dpcc-Managers);
+//     Borland.EditOptions.Pascal unter 23.0 gibt es seit D12-PREP nicht mehr);
+//   - dpcc (DpccKeys, Auftrag D12KEY):
+//       Delphi 12 (BDS 23.0): immer Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal, auch wenn dpcc
+//       der Anbieter ist. Gemessen auf dem Prüfrechner: Delphi 12 liest Help Insight, Declaration Information und
+//       ToolTip Watches dort, unabhängig vom gewählten Manager; Borland.EditOptions.Pascal (das Option Set, das
+//       GetOptionSetName des dpcc-Managers nennt) schreibt und liest Delphi 12 nie, unter 23.0 trug der Schlüssel
+//       nur die drei Werte, die dpcc selbst dort angelegt hatte, und Help Insight blieb trotz False dort an.
+//       Delphi 13 (BDS 37.0) und unbekannte Version: Welcher Ort mit dpcc als Anbieter gilt, ist nicht belegt. Unter
+//       37.0 schreibt die IDE beide Schlüssel voll (je 42 Werte), und coreide/delphicoreide kennen beide Namen
+//       ("Borland.EditOptions." + Option Set bzw. "Code Insight\Borland.EditOptions.Pascal"). Deshalb robust: jeder
+//       vorhandene der beiden Orte (Borland.EditOptions.Pascal, dann der Ort von DelphiLSP) wird gesetzt und
+//       geprüft; ein fehlender wird nicht angelegt. Nur wenn keiner da ist, gilt der Ort von DelphiLSP (wie unter
+//       23.0), sonst bliebe die Betriebsart dpcc ohne Wirkung.
+//     Merker an einem Ort, der danach nicht mehr dazugehört (unter 23.0 die alten Merker für
+//     Borland.EditOptions.Pascal), werden beim nächsten Plan an ihrem eigenen Ort zurückgedreht (nur, was noch so
+//     steht, wie dpcc es schrieb) und entfallen; sie berühren nie den Ort von DelphiLSP (CleanedNames).
 //   - InsightGlobalOptions: AutoInvokeCompletionOnParameterInsight.
 // Ein fehlender Wert gilt mit der Vorgabe der IDE (an bzw. -1); fehlt der geprüfte Schlüssel ganz, ist das kein
 // Fehler, sondern ein Hinweis „Schlüssel fehlt (IDE-Vorgabe)“. Evaluate prüft nur und liefert Befunde (für das
@@ -133,9 +148,13 @@ type
     /// <summary>Geprüfter Ort der Code-Insight-Schalter (relativ zum Basisschlüssel).</summary>
     ActiveKey: string;
     ActiveKeyMissing: Boolean;
+    /// <summary>Alle geprüften Orte der Code-Insight-Schalter; mit Hauptschalter an DpccKeys (unter 37.0 bis zu
+    /// zwei), sonst nur ActiveKey.</summary>
+    CheckedKeys: TArray<string>;
     Findings: TArray<TDpccIdeFinding>;
     function Count(ASeverity: TDpccIdeSeverity): Integer;
-    /// <summary>Wertnamen der Abweichungen in der Reihenfolge der Befunde.</summary>
+    /// <summary>Wertnamen der Abweichungen in der Reihenfolge der Befunde, ohne Doppel (derselbe Wert an zwei Orten
+    /// zählt einmal).</summary>
     function DeviationNames: TArray<string>;
     /// <summary>Eine Zeile (aktuelle Sprache), z. B. „1 Abweichung: Auto Code Completions“.</summary>
     function Summary: string;
@@ -183,6 +202,9 @@ type
     SetNames: TArray<string>;
     RestoredNames: TArray<string>;
     KeptNames: TArray<string>;
+    /// <summary>Wertnamen, die dpcc an einem Ort zurückgedreht hat, der nicht mehr zu DpccKeys gehört (alte Merker,
+    /// unter 23.0 Borland.EditOptions.Pascal).</summary>
+    CleanedNames: TArray<string>;
     /// <summary>Der Anbieter wurde umgestellt: wirkt nach dem Neustart von Delphi.</summary>
     ProviderChanged: Boolean;
     /// <summary>Hinweis für das Meldungsfenster (aktuelle Sprache); '' ohne.</summary>
@@ -206,8 +228,12 @@ type
     cCodeInsightRoot = 'Code Insight';
     cEditOptionsPrefix = 'Borland.EditOptions.';
     cLspKey = 'Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal';
-    /// <summary>Option Set des dpcc-Managers (GetOptionSetName), unter Delphi 12 und 13 gleich.</summary>
+    /// <summary>Option Set, das GetOptionSetName des dpcc-Managers nennt. Unter Delphi 12 liest die IDE es nicht
+    /// (dort gilt cLspKey); unter Delphi 13 einer der Orte von DpccKeys.</summary>
     cPascalKey = 'Code Insight\Borland.EditOptions.Pascal';
+    /// <summary>Erste Hauptversion, für die DpccKeys alle vorhandenen Orte nimmt (Delphi 13, BDS 37.0); darunter
+    /// (Delphi 12, BDS 23.0) nur cLspKey.</summary>
+    cAllKeysVersion = 37;
     cGlobalKey = 'InsightGlobalOptions';
     cAutoCodeCompletions = 'Auto Code Completions';
     cAutoInvokeDelay = 'Auto Invoke Delay';
@@ -230,6 +256,10 @@ type
     class function CodeInsightValueNames: TArray<string>; static;
     /// <summary>Ort, den die IDE für den gewählten Anbieter liest (siehe Kopf der Unit).</summary>
     class function ActiveKey(const AInput: TDpccIdeCheckInput): string; static;
+    /// <summary>Orte der Code-Insight-Schalter in der Betriebsart dpcc (siehe Kopf der Unit): unter Delphi 12 nur
+    /// cLspKey, auch wenn er fehlt; ab Delphi 13 (und bei unbekannter Version) jeder vorhandene aus cPascalKey und
+    /// cLspKey, ohne einen davon nur cLspKey. Nie leer.</summary>
+    class function DpccKeys(const AInput: TDpccIdeCheckInput): TArray<string>; static;
     /// <summary>Prüfen ohne zu ändern: mit Hauptschalter an gegen Targets, sonst die Regeln für DelphiLSP.
     /// </summary>
     class function Evaluate(const AInput: TDpccIdeCheckInput): TDpccIdeCheckResult; static;
@@ -240,11 +270,12 @@ type
     /// <summary>Anfang der Merker-Namen: "IdeSet &lt;Version&gt; &lt;Schlüssel&gt;\&lt;Wert&gt;".</summary>
     cMarkerPrefix = 'IdeSet ';
   public
-    /// <summary>Werte, die dpcc in der Betriebsart dpcc setzt, nach den dpcc-Einstellungen: Anbieter = dpcc, Auto Code
+    /// <summary>Werte, die dpcc in der Betriebsart dpcc setzt, nach den dpcc-Einstellungen in AInput.Dpcc (der
+    /// Hauptschalter selbst zählt nicht): Anbieter = dpcc; an jedem Ort aus TDpccIdeCheck.DpccKeys(AInput) Auto Code
     /// Completions = True, Auto Invoke = True, Auto Invoke Delay = -1, Auto Code Parameters = True, bei eigenem
-    /// Tooltip Help Insight und Declaration Information = False, mit Werten beim Debuggen ToolTip Watches = False,
+    /// Tooltip Help Insight und Declaration Information = False, mit Werten beim Debuggen ToolTip Watches = False;
     /// AutoInvokeCompletionOnParameterInsight = False.</summary>
-    class function Targets(const ADpcc: TDpccIdeDpccState): TArray<TDpccIdeTarget>; static;
+    class function Targets(const AInput: TDpccIdeCheckInput): TArray<TDpccIdeTarget>; static;
     /// <summary>Passt der Wert (fehlend: Vorgabe der IDE) zu ATarget?</summary>
     class function Matches(AExists: Boolean; const AValue: TDpccIdeRegValue; const ATarget: string;
       AKind: TDpccIdeValueKind): Boolean; static;
@@ -611,7 +642,7 @@ begin
   begin
     if mFinding.Severity = TDpccIdeSeverity.Deviation then
     begin
-      Result := Result + [mFinding.ValueName];
+      AddName(Result, mFinding.ValueName);
     end;
   end;
 end;
@@ -620,7 +651,8 @@ function TDpccIdeCheckResult.Summary: string;
 var
   mDeviations, mHints: Integer;
 begin
-  mDeviations := Count(TDpccIdeSeverity.Deviation);
+  // Je Wertname gezählt: Weicht derselbe Wert an zwei Orten ab (unter 37.0), ist das eine Abweichung.
+  mDeviations := Length(DeviationNames);
   mHints := Count(TDpccIdeSeverity.Hint);
   case mDeviations of
     0:
@@ -643,8 +675,9 @@ end;
 function TDpccIdeCheckResult.LogLine: string;
 var
   mDeviations, mHints: Integer;
+  mChecked: string;
 begin
-  mDeviations := Count(TDpccIdeSeverity.Deviation);
+  mDeviations := Length(DeviationNames);
   mHints := Count(TDpccIdeSeverity.Hint);
   case mDeviations of
     0:
@@ -662,7 +695,12 @@ begin
   begin
     Result := Result + Format('; %d Hinweise', [mHints]);
   end;
-  Result := Result + Format('; Anbieter „%s“, geprüft %s', [ProviderId, ActiveKey]);
+  mChecked := ActiveKey;
+  if Length(CheckedKeys) > 0 then
+  begin
+    mChecked := string.Join(' + ', CheckedKeys);
+  end;
+  Result := Result + Format('; Anbieter „%s“, geprüft %s', [ProviderId, mChecked]);
   if ActiveKeyMissing then
   begin
     Result := Result + ' (Schlüssel fehlt, IDE-Vorgabe)';
@@ -702,11 +740,25 @@ const
 var
   mLines: TStringList;
   mFinding: TDpccIdeFinding;
+  mKey, mKeys, mAt: string;
 begin
   mLines := TStringList.Create;
   try
     mLines.Add(Format(Txt(TIdeCheckText.ReportProvider), [ProviderName(Provider, ProviderId)]));
-    mLines.Add(Format(Txt(TIdeCheckText.ReportKey), [RootedKey(BaseKey, ActiveKey)]));
+    mKeys := RootedKey(BaseKey, ActiveKey);
+    if Length(CheckedKeys) > 0 then
+    begin
+      mKeys := '';
+      for mKey in CheckedKeys do
+      begin
+        if mKeys <> '' then
+        begin
+          mKeys := mKeys + ', ';
+        end;
+        mKeys := mKeys + RootedKey(BaseKey, mKey);
+      end;
+    end;
+    mLines.Add(Format(Txt(TIdeCheckText.ReportKey), [mKeys]));
     mLines.Add(Summary);
     for mFinding in Findings do
     begin
@@ -718,8 +770,14 @@ begin
       end
       else
       begin
+        // Mehrere geprüfte Orte (unter 37.0): Ort zum Wert nennen, sonst stünde derselbe Wert zweimal da.
+        mAt := '';
+        if Length(CheckedKeys) > 1 then
+        begin
+          mAt := ', ' + mFinding.Key;
+        end;
         mLines.Add('[' + Txt(cSeverity[mFinding.Severity]) + '] ' + mFinding.Caption + ' (' + mFinding.ValueName +
-          ')');
+          mAt + ')');
       end;
       if mFinding.Expected = '' then
       begin
@@ -799,8 +857,8 @@ begin
   Result := nil;
   case TDpccIdeCheck.ProviderOf(AInput.ProviderId) of
     TDpccIdeProvider.Dpcc:
-      // Option Set des dpcc-Managers, unter Delphi 12 und 13 derselbe.
-      AddName(Result, TDpccIdeCheck.cPascalKey);
+      // Die Orte der Betriebsart dpcc (unter 23.0 der Ort von DelphiLSP, unter 37.0 der erste vorhandene).
+      Result := TDpccIdeCheck.DpccKeys(AInput);
     TDpccIdeProvider.Other:
       begin
         AddName(Result, TDpccIdeCheck.ProviderKey(AInput.ProviderId));
@@ -810,8 +868,37 @@ begin
     // DelphiLSP, und ohne ermittelten Anbieter dessen Ort (Vorgabe der IDE).
     AddName(Result, TDpccIdeCheck.cLspKey);
   end;
-  // Kein Ersatz über die Version mehr: Delphi 12 liest DelphiLSP wie Delphi 13 nur am Ort von DelphiLSP;
-  // Borland.EditOptions.Pascal ist das Option Set von dpcc (gelesener Stand von 23.0, D12-PREP).
+  // Kein Ersatz über die Version mehr: Delphi 12 liest DelphiLSP wie Delphi 13 nur am Ort von DelphiLSP
+  // (gelesener Stand von 23.0, D12-PREP).
+end;
+
+class function TDpccIdeCheck.DpccKeys(const AInput: TDpccIdeCheckInput): TArray<string>;
+var
+  mVersion: Integer;
+begin
+  Result := nil;
+  mVersion := TDpccCodeInsightKeys.MajorVersion(AInput.BaseKey);
+  if (mVersion > 0) and (mVersion < cAllKeysVersion) then
+  begin
+    // Delphi 12: immer der Ort von DelphiLSP, auch mit dpcc als Anbieter und auch wenn er fehlt (gemessen, siehe Kopf
+    // der Unit); Borland.EditOptions.Pascal liest Delphi 12 nicht.
+    AddName(Result, cLspKey);
+    Exit;
+  end;
+  // Ab Delphi 13 (und ohne bekannte Version): welcher Ort gilt, ist nicht belegt; jeder vorhandene, keinen anlegen.
+  if AInput.HasKey(cPascalKey) then
+  begin
+    AddName(Result, cPascalKey);
+  end;
+  if AInput.HasKey(cLspKey) then
+  begin
+    AddName(Result, cLspKey);
+  end;
+  if Length(Result) = 0 then
+  begin
+    // Keiner da (Optionen nie gespeichert): der Ort von DelphiLSP wie unter 23.0, sonst wirkte dpcc gar nicht.
+    AddName(Result, cLspKey);
+  end;
 end;
 
 class function TDpccIdeCheck.ActiveKey(const AInput: TDpccIdeCheckInput): string;
@@ -954,8 +1041,10 @@ begin
   end;
   if Result.Mode = TDpccIdeMode.Dpcc then
   begin
-    // Hauptschalter an: genau die Werte, die dpcc setzt (der Anbieter selbst steht oben bzw. in StatusText).
-    for mTarget in TDpccIdeContext.Targets(AInput.Dpcc) do
+    // Hauptschalter an: genau die Werte, die dpcc setzt (der Anbieter selbst steht oben bzw. in StatusText), an allen
+    // Orten der Betriebsart dpcc.
+    Result.CheckedKeys := DpccKeys(AInput);
+    for mTarget in TDpccIdeContext.Targets(AInput) do
     begin
       if not SameText(mTarget.Key, cSourceOptionsKey) then
       begin
@@ -966,6 +1055,7 @@ begin
   else
   begin
     // Betriebsart IDE: was DelphiLSP (bzw. der andere Anbieter) braucht; dpcc ändert hier nichts, nur Protokoll.
+    Result.CheckedKeys := [mKey];
     AddFinding(Result, TargetFinding(AInput, NewTarget(mKey, cAutoCodeCompletions, 'True', TDpccIdeValueKind.Flag,
       TIdeCheckText.CaptionAutoCompletions, TIdeCheckText.ReasonAutoCompletions)));
     AddFinding(Result, TargetFinding(AInput, NewTarget(mKey, cAutoInvoke, 'True', TDpccIdeValueKind.Flag,
@@ -983,31 +1073,35 @@ end;
 
 { TDpccIdeContext }
 
-class function TDpccIdeContext.Targets(const ADpcc: TDpccIdeDpccState): TArray<TDpccIdeTarget>;
-const
-  cKey = TDpccIdeCheck.cPascalKey;
+class function TDpccIdeContext.Targets(const AInput: TDpccIdeCheckInput): TArray<TDpccIdeTarget>;
+var
+  mKey: string;
 begin
   Result := nil;
   Result := Result + [NewTarget(TDpccIdeCheck.cSourceOptionsKey, TDpccIdeCheck.cProviderValue,
     TDpccIdeCheck.cDpccId, TDpccIdeValueKind.Text, TIdeCheckText.CaptionProvider, TIdeCheckText.ReasonProvider)];
-  Result := Result + [NewTarget(cKey, TDpccIdeCheck.cAutoCodeCompletions, 'True', TDpccIdeValueKind.Flag,
-    TIdeCheckText.CaptionAutoCompletions, TIdeCheckText.ReasonAutoCompletions)];
-  Result := Result + [NewTarget(cKey, TDpccIdeCheck.cAutoInvoke, 'True', TDpccIdeValueKind.Flag,
-    TIdeCheckText.CaptionAutoInvoke, TIdeCheckText.ReasonAutoInvoke)];
-  Result := Result + [NewTarget(cKey, TDpccIdeCheck.cAutoInvokeDelay, '-1', TDpccIdeValueKind.Number,
-    TIdeCheckText.CaptionAutoInvokeDelay, TIdeCheckText.ReasonAutoInvokeDelay)];
-  Result := Result + [NewTarget(cKey, TDpccIdeCheck.cAutoCodeParameters, 'True', TDpccIdeValueKind.Flag,
-    TIdeCheckText.CaptionAutoParameters, TIdeCheckText.ReasonAutoParameters)];
-  if ADpcc.HoverTooltip then
+  // Je Ort der Betriebsart dpcc dieselben Schalter (unter 23.0 nur der Ort von DelphiLSP, siehe Kopf der Unit).
+  for mKey in TDpccIdeCheck.DpccKeys(AInput) do
   begin
-    Result := Result + [NewTarget(cKey, TDpccIdeCheck.cHelpInsight, 'False', TDpccIdeValueKind.Flag,
-      TIdeCheckText.CaptionHelpInsight, TIdeCheckText.ReasonHelpInsight)];
-    Result := Result + [NewTarget(cKey, TDpccIdeCheck.cDeclarationInformation, 'False', TDpccIdeValueKind.Flag,
-      TIdeCheckText.CaptionDeclaration, TIdeCheckText.ReasonDeclaration)];
-    if ADpcc.DebugHoverValues then
+    Result := Result + [NewTarget(mKey, TDpccIdeCheck.cAutoCodeCompletions, 'True', TDpccIdeValueKind.Flag,
+      TIdeCheckText.CaptionAutoCompletions, TIdeCheckText.ReasonAutoCompletions)];
+    Result := Result + [NewTarget(mKey, TDpccIdeCheck.cAutoInvoke, 'True', TDpccIdeValueKind.Flag,
+      TIdeCheckText.CaptionAutoInvoke, TIdeCheckText.ReasonAutoInvoke)];
+    Result := Result + [NewTarget(mKey, TDpccIdeCheck.cAutoInvokeDelay, '-1', TDpccIdeValueKind.Number,
+      TIdeCheckText.CaptionAutoInvokeDelay, TIdeCheckText.ReasonAutoInvokeDelay)];
+    Result := Result + [NewTarget(mKey, TDpccIdeCheck.cAutoCodeParameters, 'True', TDpccIdeValueKind.Flag,
+      TIdeCheckText.CaptionAutoParameters, TIdeCheckText.ReasonAutoParameters)];
+    if AInput.Dpcc.HoverTooltip then
     begin
-      Result := Result + [NewTarget(cKey, TDpccIdeCheck.cToolTipWatches, 'False', TDpccIdeValueKind.Flag,
-        TIdeCheckText.CaptionTooltipWatches, TIdeCheckText.ReasonTooltipWatches)];
+      Result := Result + [NewTarget(mKey, TDpccIdeCheck.cHelpInsight, 'False', TDpccIdeValueKind.Flag,
+        TIdeCheckText.CaptionHelpInsight, TIdeCheckText.ReasonHelpInsight)];
+      Result := Result + [NewTarget(mKey, TDpccIdeCheck.cDeclarationInformation, 'False', TDpccIdeValueKind.Flag,
+        TIdeCheckText.CaptionDeclaration, TIdeCheckText.ReasonDeclaration)];
+      if AInput.Dpcc.DebugHoverValues then
+      begin
+        Result := Result + [NewTarget(mKey, TDpccIdeCheck.cToolTipWatches, 'False', TDpccIdeValueKind.Flag,
+          TIdeCheckText.CaptionTooltipWatches, TIdeCheckText.ReasonTooltipWatches)];
+      end;
     end;
   end;
   Result := Result + [NewTarget(TDpccIdeCheck.cGlobalKey, TDpccIdeCheck.cAutoInvokeOnParameterInsight, 'False',
@@ -1088,8 +1182,30 @@ begin
   Result := SameText(AKey, TDpccIdeCheck.cSourceOptionsKey) and SameText(AName, TDpccIdeCheck.cProviderValue);
 end;
 
+/// <summary>Merker an einem Ort unter Code Insight, der nicht (mehr) zu DpccKeys gehört, etwa unter 23.0 die alten
+/// Merker für Borland.EditOptions.Pascal (vor D12KEY).</summary>
+function IsOrphan(const AInput: TDpccIdeCheckInput; const AMarker: TDpccIdeMarker): Boolean;
+var
+  mKey: string;
+begin
+  Result := False;
+  if not AMarker.Key.StartsWith(TDpccIdeCheck.cCodeInsightRoot + '\', True) then
+  begin
+    Exit;
+  end;
+  for mKey in TDpccIdeCheck.DpccKeys(AInput) do
+  begin
+    if SameText(mKey, AMarker.Key) then
+    begin
+      Exit;
+    end;
+  end;
+  Result := True;
+end;
+
 /// <summary>Rückweg eines Merkers: nur wenn der Wert noch so steht, wie dpcc ihn schrieb (nur zurückdrehen, was
-/// dpcc selbst geändert hat).</summary>
+/// dpcc selbst geändert hat). Immer an seinem eigenen Ort: Ein alter Merker (IsOrphan) wirkt nie auf einen anderen
+/// Ort, er räumt nur seinen auf (CleanedNames) und entfällt.</summary>
 procedure Restore(var APlan: TDpccIdeContextPlan; const AInput: TDpccIdeCheckInput; const AMarker: TDpccIdeMarker);
 var
   mValue: TDpccIdeRegValue;
@@ -1105,7 +1221,14 @@ begin
     begin
       AddWrite(APlan, AMarker.Key, AMarker.Name, '', True);
     end;
-    AddName(APlan.RestoredNames, AMarker.Name);
+    if IsOrphan(AInput, AMarker) then
+    begin
+      AddName(APlan.CleanedNames, AMarker.Name);
+    end
+    else
+    begin
+      AddName(APlan.RestoredNames, AMarker.Name);
+    end;
     if IsProviderValue(AMarker.Key, AMarker.Name) then
     begin
       APlan.ProviderAfter := AMarker.Original;
@@ -1179,7 +1302,6 @@ var
   mTargets: TArray<TDpccIdeTarget>;
   mTarget: TDpccIdeTarget;
   mMarker, mProviderMarker: TDpccIdeMarker;
-  mState: TDpccIdeDpccState;
   mBack: string;
   mHasProviderMarker, mExplicitBack: Boolean;
 begin
@@ -1211,10 +1333,8 @@ begin
     mProviderMarker);
   if Result.Mode = TDpccIdeMode.Dpcc then
   begin
-    // Die Schalter nach den dpcc-Einstellungen mit Hauptschalter an.
-    mState := AInput.Dpcc;
-    mState.Enabled := True;
-    mTargets := Targets(mState);
+    // Die Schalter nach den dpcc-Einstellungen (Targets hängt nicht vom Hauptschalter ab), an den Orten von DpccKeys.
+    mTargets := Targets(AInput);
     for mTarget in mTargets do
     begin
       Ensure(Result, AInput, mTarget);
@@ -1486,6 +1606,10 @@ begin
   if Length(KeptNames) > 0 then
   begin
     Result := Result + '; fremd geändert, belassen: ' + string.Join(', ', KeptNames);
+  end;
+  if Length(CleanedNames) > 0 then
+  begin
+    Result := Result + '; aufgeräumt (alter Ort): ' + string.Join(', ', CleanedNames);
   end;
   if not HasChanges then
   begin

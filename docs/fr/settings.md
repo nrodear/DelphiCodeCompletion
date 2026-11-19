@@ -195,8 +195,10 @@ démarrage de l'IDE. dpcc les y lit et les y écrit, indépendamment de la versi
 
 ### Réglages dans le mode dpcc
 
-Identiques pour Delphi 12 et 13. Emplacement, sauf indication contraire :
-`HKCU\<base>\Code Insight\Borland.EditOptions.Pascal` (l'ensemble d'options du gestionnaire dpcc).
+Emplacement, sauf indication contraire : les emplacements du mode dpcc sous `HKCU\<base>\Code Insight` (voir
+[Emplacements des clés selon la version](#emplacements-des-clés-selon-la-version)). Sous Delphi 12, c'est toujours
+`Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` ; sous Delphi 13, chacun de `Borland.EditOptions.Pascal` et
+`Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` qui existe.
 
 | Option de l'IDE | Valeur de registre | Attendu | Quand | Raison |
 |---|---|---|---|---|
@@ -226,18 +228,22 @@ Avec DelphiLSP, dpcc vérifie au démarrage, mais ne modifie rien. Le résultat 
 | Code parameters: Auto invoke | `Auto Code Parameters` | `True` | Désactivé : pas d'aide aux paramètres d'elle-même. |
 | Error Insight | `Error Insight` | `True` (manquant = activé) | Désactivé : les marques d'erreur de DelphiLSP manquent dans l'éditeur. |
 
-Emplacements des clés selon la version :
+#### Emplacements des clés selon la version
 
 | | Delphi 12 (BDS 23.0) | Delphi 13 (BDS 37.0) |
 |---|---|---|
-| DelphiLSP | `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` | `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` |
-| dpcc | `Code Insight\Borland.EditOptions.Pascal` | `Code Insight\Borland.EditOptions.Pascal` |
+| Mode IDE (DelphiLSP) | `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` | `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` |
+| Mode dpcc | `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` | chacun de `Code Insight\Borland.EditOptions.Pascal` et `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` qui existe |
 
-Sous Delphi 12, la machine de test n'avait que l'emplacement de DelphiLSP (plus HTML et StyleSheet), pas de
-`Borland.EditOptions.Pascal` ; dpcc le crée au besoin dans le mode dpcc. Comme Delphi 13, Delphi 12 ne lit les
-réglages de DelphiLSP qu'à l'emplacement de DelphiLSP ; `Borland.EditOptions.Pascal` est le jeu d'options de dpcc et
-ne compte pas dans le mode IDE (auparavant, dpcc le vérifiait en remplacement sous Delphi 12). Si la clé vérifiée
-manque entièrement, le
+Delphi 12 lit toujours Help Insight, Declaration Information et ToolTip Watches à l'emplacement de DelphiLSP, même
+quand dpcc est le fournisseur ; il ne lit pas `Borland.EditOptions.Pascal` (le jeu d'options nommé par le
+gestionnaire dpcc). Des versions antérieures y écrivaient sous Delphi 12, et Help Insight restait actif. dpcc nettoie
+ces marqueurs au démarrage suivant : il n'y supprime que les valeurs qu'il a créées lui-même et qui sont inchangées
+(journal : « aufgeräumt (alter Ort) »), sans toucher à l'emplacement de DelphiLSP.
+Pour Delphi 13, on ne sait pas avec certitude quel emplacement l'IDE lit avec dpcc comme fournisseur. dpcc règle et
+vérifie donc chacun des deux emplacements qui existe et n'en crée aucun qui manque ; s'ils manquent tous les deux, il
+prend l'emplacement de DelphiLSP.
+Si la clé vérifiée manque entièrement, le
 résultat indique « key missing (IDE default) » (clé manquante, valeur par défaut de l'IDE) ; ce n'est pas une erreur.
 La ligne du journal ressemble à « IDE-Einstellungen: 1 Abweichung: Auto Code Completions; Anbieter
 „Borland.CodeInsight.LSP.Pascal“, geprüft … ».
