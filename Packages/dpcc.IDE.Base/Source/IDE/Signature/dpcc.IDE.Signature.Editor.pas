@@ -115,7 +115,8 @@ type
     function Invoke(const AView: IOTAEditView): Boolean;
     procedure Close;
     procedure EditorModified(const AView: IOTAEditView);
-    /// <summary>Bricht laufende Serveranfragen ab und wartet auf sie; vor dem Freigeben der Sitzung.</summary>
+    /// <summary>Bricht laufende Serveranfragen ab, ohne zu warten; vor dem Freigeben der Sitzung (gewartet wird im
+    /// Stopp-Thread der Sitzung).</summary>
     procedure Shutdown;
     function Active: Boolean;
   end;

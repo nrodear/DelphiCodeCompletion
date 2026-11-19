@@ -112,7 +112,7 @@ saute que s'il y est choisi (voir [Utilisation](usage.md#quand-dpcc-est-choisi-c
 |---|---|
 | La cible se trouve dans une unité sans source (connue seulement par un package). | Attendu : pas de saut, pas de message. Si la source existe, ajouter son dossier sous « Additional source folders » (dossiers source supplémentaires). |
 | dpcc ne trouve pas l'unité ou ne peut pas résoudre le nom sans ambiguïté (surcharge ambiguë, `with` avec un type inconnu). | Attendu. Vérifier les chemins de recherche ; voir [La liste est vide ou incomplète](#la-liste-est-vide-ou-incomplète). |
-| L'index est encore en construction ou la réponse a pris plus d'une seconde. | Attendre et réessayer. |
+| L'index est encore en construction ou la réponse a pris plus de 3 secondes (après 250 ms, dpcc saute lui-même, mais seulement jusque-là et tant que le curseur reste en place). | Attendre et réessayer. |
 | Une aide aux paramètres de dpcc avec plusieurs surcharges est ouverte. | Depuis cette version, Ctrl+Alt+↑/↓ y change de surcharge ; Alt+↑ va à l'IDE. |
 | L'infobulle de dpcc recouvre le mot. | Maintenir Ctrl enfoncée : la souris et le clic traversent alors l'infobulle jusqu'à l'éditeur. |
 

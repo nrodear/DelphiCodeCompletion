@@ -28,8 +28,8 @@ type
     SettingsIndexCacheFailed, SettingsIndexCacheCleared,
     // IDE: Betriebsart und Schalter der IDE (IDECHECK).
     SettingsSectionIde, SettingsCheckIde,
-    // „Index neu aufbauen“ läuft im Hintergrund (Knopf grau).
-    SettingsIndexRebuildRunning);
+    // „Index neu aufbauen“ läuft im Hintergrund (Knopf grau); von der Sitzung abgelehnt (Knopf frei).
+    SettingsIndexRebuildRunning, SettingsIndexRebuildRejected);
 
   TDpccSettingsStrings = class
   public
@@ -74,7 +74,8 @@ const
      '%d Index-Caches gelöscht; der Index wird neu aufgebaut.',
      'IDE',
      'Jetzt prüfen',
-     'Index wird neu aufgebaut: Sitzung wird angehalten, Caches werden gelöscht …'),
+     'Index wird neu aufgebaut: Sitzung wird angehalten, Caches werden gelöscht …',
+     'Index neu aufbauen ist gerade nicht möglich (läuft noch oder dpcc wird beendet).'),
     ('Code Insight by dpcc (switches the IDE''s Code Insight provider to dpcc; off = DelphiLSP)',
      'Completion',
      'When accepting',
@@ -103,7 +104,8 @@ const
      '%d index caches deleted; the index is being rebuilt.',
      'IDE',
      'Check now',
-     'Rebuilding index: stopping the session, deleting caches …'));
+     'Rebuilding index: stopping the session, deleting caches …',
+     'Cannot rebuild the index right now (still running or dpcc is shutting down).'));
 
 { TDpccSettingsStrings }
 

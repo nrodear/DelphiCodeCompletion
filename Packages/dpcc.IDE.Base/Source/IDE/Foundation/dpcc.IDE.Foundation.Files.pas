@@ -1,8 +1,10 @@
 ﻿unit dpcc.IDE.Foundation.Files;
 
-// Dateien aus Sicht der IDE (#397, #121, #721): offener Puffer, geladenes Projekt, Kodierung auf der Platte.
+// Dateien aus Sicht der IDE (#397, #121, #721): geladenes Projekt, Kodierung auf der Platte.
 // Foundation des Plugins: importiert kein dpcc.IDE-Feature, nur Open Tools API und dpcc.Core.
 // Bis S-03b Teil von TDpccIdeWorkspaceEdit. Nur im Hauptthread.
+// Ohne ProjectModified, BufferOf, SourceText und ReadLines (ohne Aufrufer): Sie liefen über ModuleFileEditors aller
+// Module, und das kann Designer laden (früher Ursache eines Hängers).
 
 interface
 
@@ -15,21 +17,11 @@ type
   public
     /// <summary>Geladenes Modul zu einer Projektdatei (.dproj, .groupproj); nil, wenn keins.</summary>
     class function ProjectModule(const AFileName: string): IOTAModule; static;
-    /// <summary>Hat das Projekt ungespeicherte Änderungen (Optionen oder Projektdateien)?</summary>
-    class function ProjectModified(const AModule: IOTAModule): Boolean; static;
     /// <summary>Kodierung der Datei auf der Platte (Text leer); UTF-8 mit BOM, wenn sie fehlt oder nicht
     /// lesbar ist (#121).</summary>
     class function DiskEncoding(const AFileName: string): TDpccTextFileContent; static;
-    /// <summary>Puffer der IDE zu einer Datei, auch wenn sie nicht vorn liegt; nil, wenn sie nicht offen ist.</summary>
-    class function BufferOf(const AFileName: string): IOTAEditBuffer; static;
     /// <summary>Datei des aktiven Projekts der IDE; '' ohne Projekt.</summary>
     class function ActiveProjectFile: string; static;
-    /// <summary>Zeilen von AFileName: aus dem Editorpuffer, wenn die Datei offen ist, sonst von der Platte;
-    /// False, wenn sie fehlt oder nicht lesbar ist.</summary>
-    class function ReadLines(const AFileName: string; out ALines: TArray<string>): Boolean; static;
-    /// <summary>Text von AFileName: offener Puffer (auch ungespeichert), sonst die Datei; False, wenn sie sich nicht
-    /// lesen lässt (ASource dann leer).</summary>
-    class function SourceText(const AFileName: string; out ASource: string): Boolean; static;
     /// <summary>Projektdatei des Projekts der Projektgruppe, das AFileName enthält; '' wenn keins.</summary>
     class function ProjectOfFile(const AFileName: string): string; static;
     /// <summary>Projekt der Projektgruppe mit der Projektdatei AProjectFile (.dproj); nil, wenn keins.</summary>
@@ -51,9 +43,7 @@ implementation
 
 uses
   System.SysUtils,
-  dpcc.Core.Files.EncodingDefault,
-  dpcc.IDE.Foundation.EditorBuffer,
-  dpcc.Text.Lines;
+  dpcc.Core.Files.EncodingDefault;
 
 class function TDpccIdeFiles.ProjectModule(const AFileName: string): IOTAModule;
 var
@@ -74,22 +64,6 @@ begin
   end;
 end;
 
-class function TDpccIdeFiles.ProjectModified(const AModule: IOTAModule): Boolean;
-var
-  mProject: IOTAProject;
-  mIndex: Integer;
-begin
-  Result := Supports(AModule, IOTAProject, mProject) and (mProject.ProjectOptions <> nil) and
-    mProject.ProjectOptions.ModifiedState;
-  for mIndex := 0 to AModule.ModuleFileCount - 1 do
-  begin
-    if AModule.ModuleFileEditors[mIndex].Modified then
-    begin
-      Result := True;
-    end;
-  end;
-end;
-
 class function TDpccIdeFiles.DiskEncoding(const AFileName: string): TDpccTextFileContent;
 begin
   Result := Default(TDpccTextFileContent);
@@ -106,34 +80,6 @@ begin
   Result.Text := '';
 end;
 
-class function TDpccIdeFiles.BufferOf(const AFileName: string): IOTAEditBuffer;
-var
-  mServices: IOTAModuleServices;
-  mIndex, mFileIndex: Integer;
-  mModule: IOTAModule;
-  mEditor: IOTAEditor;
-begin
-  Result := nil;
-  if not Supports(BorlandIDEServices, IOTAModuleServices, mServices) then
-  begin
-    Exit;
-  end;
-  // Über die Editoren jedes Moduls: Die .dpr gehört zum Projektmodul (.dproj).
-  for mIndex := 0 to mServices.ModuleCount - 1 do
-  begin
-    mModule := mServices.Modules[mIndex];
-    for mFileIndex := 0 to mModule.ModuleFileCount - 1 do
-    begin
-      mEditor := mModule.ModuleFileEditors[mFileIndex];
-      if SameText(mEditor.FileName, AFileName) and Supports(mEditor, IOTAEditBuffer, Result) then
-      begin
-        Exit;
-      end;
-    end;
-  end;
-  Result := nil;
-end;
-
 class function TDpccIdeFiles.ActiveProjectFile: string;
 var
   mServices: IOTAModuleServices;
@@ -148,41 +94,6 @@ begin
   if mProject <> nil then
   begin
     Result := mProject.FileName;
-  end;
-end;
-
-class function TDpccIdeFiles.ReadLines(const AFileName: string; out ALines: TArray<string>): Boolean;
-var
-  mText: string;
-begin
-  ALines := nil;
-  Result := SourceText(AFileName, mText);
-  if Result then
-  begin
-    ALines := TTextLines.SplitLines(mText);
-  end;
-end;
-
-class function TDpccIdeFiles.SourceText(const AFileName: string; out ASource: string): Boolean;
-var
-  mBuffer: IOTAEditBuffer;
-begin
-  Result := True;
-  mBuffer := BufferOf(AFileName);
-  if mBuffer <> nil then
-  begin
-    ASource := TDpccEditorBuffer.Text(mBuffer);
-    Exit;
-  end;
-  try
-    ASource := TDpccTextFile.LoadText(AFileName);
-  except
-    // Fehlt, gesperrt, unlesbar oder binäres Formular: kein Text.
-    on Exception do
-    begin
-      ASource := '';
-      Result := False;
-    end;
   end;
 end;
 

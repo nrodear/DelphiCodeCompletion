@@ -37,7 +37,8 @@ type
     /// <summary>Server; unterstützt auch IDpccCompletionResolver.</summary>
     Server: IDpccCompletionProvider;
     XmlDoc: IDpccCompletionProvider;
-    /// <summary>Bricht laufende Anfragen des Servers ab und wartet auf sie.</summary>
+    /// <summary>Bricht laufende Anfragen des Servers ab, ohne zu warten; auf ihre Arbeiter wartet der Stopp-Thread
+    /// der Sitzung (WaitWorkersIdle) bzw. das Freigeben der Quelle.</summary>
     Shutdown: TProc;
   end;
 
@@ -144,7 +145,8 @@ type
     procedure Close;
     /// <summary>Andere Ansicht im Editor: Popup schließen und Platzhalter-Modus beenden.</summary>
     procedure ViewChanged;
-    /// <summary>Bricht laufende Serveranfragen ab und wartet auf sie; vor dem Freigeben der Sitzung.</summary>
+    /// <summary>Bricht laufende Serveranfragen ab, ohne zu warten; vor dem Freigeben der Sitzung (gewartet wird im
+    /// Stopp-Thread der Sitzung).</summary>
     procedure Shutdown;
     function Visible: Boolean;
     /// <summary>Läuft gerade der Platzhalter-Modus eines Eintrags (#51)?</summary>

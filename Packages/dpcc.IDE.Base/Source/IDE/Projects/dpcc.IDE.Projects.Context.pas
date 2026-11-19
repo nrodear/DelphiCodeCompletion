@@ -24,6 +24,14 @@
 //
 // Präfixe (#452) und eigene Formatroutinen (#451) aus der Projektdatei .dpcc
 // gibt es seit Rückbau R6 nicht mehr (TeamFile entfällt).
+//
+// Nicht bei jeder Anfrage voll lesen (V2): Group liest voll (FileExists, Optionen mit Elternstufen, Registry je
+// Projekt; Aktivität „Projektkontext lesen“ im Einfrier-Wächter) und merkt sich die gespeicherten Projekte
+// (SavedProjects, Generation). Der Tipp-Pfad ruft GroupIfDue: Das bildet nur einen Fingerabdruck der Gruppe aus der
+// Open Tools API im Speicher (Projekte, aktives Projekt, Konfiguration und Plattform je Projekt) und liest voll nur,
+// wenn TDpccProjectContextGate (dpcc.Core.Projects.ContextGate) es verlangt: Fingerabdruck geändert, Ereignis oder
+// Sicherheitstakt (15 s). Ereignis ist das Schließen jedes modalen Dialogs der IDE (Projektoptionen, Tools ›
+// Optionen; TApplicationEvents.OnModalEnd, beim Entladen in finalization freigegeben) und Invalidate.
 
 interface
 
@@ -37,8 +45,20 @@ type
   public
     /// <summary>Kontext eines Projekts; Project = '' für Projekte, die keine gespeicherte .dproj sind.</summary>
     class function Read(const AProject: IOTAProject): TDpccProjectContext; static;
-    /// <summary>Kontexte aller Projekte der geöffneten Gruppe, die eine gespeicherte .dproj haben.</summary>
+    /// <summary>Kontexte aller Projekte der geöffneten Gruppe, die eine gespeicherte .dproj haben (volles Lesen; merkt
+    /// sich Projekte und Fingerabdruck, siehe Kopf). Nur im Hauptthread.</summary>
     class function Group: TArray<TDpccProjectContext>; static;
+    /// <summary>Für den Tipp-Pfad (Hauptthread): Nur wenn voll gelesen werden muss (Fingerabdruck geändert, Ereignis,
+    /// Sicherheitstakt, erstes Mal), True mit AContexts wie Group und dem Anlass AReason (fürs Protokoll); sonst False
+    /// ohne Datei- und Registry-Zugriff.</summary>
+    class function GroupIfDue(out AContexts: TArray<TDpccProjectContext>; out AReason: string): Boolean; static;
+    /// <summary>Gespeicherte Projekte (.dproj) der Gruppe aus dem letzten vollen Lesen, das aktive zuerst; ohne
+    /// Datei-Zugriff.</summary>
+    class function SavedProjects: TArray<string>; static;
+    /// <summary>Zählt jedes volle Lesen; ein neuer Wert heißt, SavedProjects ist neu ermittelt.</summary>
+    class function Generation: Cardinal; static;
+    /// <summary>Ereignis: Die nächste Prüfung (GroupIfDue) liest voll. Threadsicher.</summary>
+    class procedure Invalidate; static;
     /// <summary>Werte für $(…) in den Pfaden von AContext (siehe Kopf); nur im Hauptthread aufrufen, das Ergebnis
     /// darf in einen Hintergrundthread.</summary>
     class function Macros(const AContext: TDpccProjectContext): TDpccPathMacros; static;
@@ -71,7 +91,119 @@ uses
   System.Variants,
   System.Win.Registry,
   Winapi.Windows,
-  dpcc.Core.Versions.Project;
+  Vcl.Forms,
+  Vcl.AppEvnts,
+  dpcc.Core.Versions.Project,
+  dpcc.Core.Projects.ContextGate,
+  dpcc.Core.Diagnostics.Deadline,
+  dpcc.Core.Diagnostics.Hangs;
+
+type
+  /// <summary>Meldet das Schließen jedes modalen Dialogs der IDE als Ereignis (V2): In Projektoptionen und Tools ›
+  /// Optionen ändert man Suchpfad, Defines und Bibliothekspfad. Nur im Hauptthread erzeugt und freigegeben.</summary>
+  TModalWatch = class
+  private
+    FEvents: TApplicationEvents;
+    procedure ModalEnded(Sender: TObject);
+  public
+    constructor Create;
+    destructor Destroy; override;
+  end;
+
+var
+  /// <summary>Entscheidung „voll lesen ja/nein“; von initialization bis finalization.</summary>
+  ContextGate: TDpccProjectContextGate;
+  /// <summary>Beobachter der modalen Dialoge; beim ersten vollen Lesen erzeugt, in finalization freigegeben.</summary>
+  ModalWatch: TModalWatch;
+  /// <summary>Ergebnis des letzten vollen Lesens (nur Hauptthread).</summary>
+  ReadProjects: TArray<string>;
+  ReadGeneration: Cardinal;
+
+{ TModalWatch }
+
+constructor TModalWatch.Create;
+begin
+  inherited Create;
+  FEvents := TApplicationEvents.Create(nil);
+  FEvents.OnModalEnd := ModalEnded;
+end;
+
+destructor TModalWatch.Destroy;
+begin
+  // Abmelden, bevor das Package entladen ist: TApplicationEvents trägt sich beim Freigeben aus der Verteilung der VCL
+  // aus.
+  FreeAndNil(FEvents);
+  inherited;
+end;
+
+procedure TModalWatch.ModalEnded(Sender: TObject);
+begin
+  // Nur ein Zähler: kann nicht werfen und kostet nichts im Dialog der IDE.
+  TDpccIdeProjectContext.Invalidate;
+end;
+
+/// <summary>Modale Dialoge beobachten, einmal je Laden des Packages (Hauptthread).</summary>
+procedure WatchModalDialogs;
+begin
+  if (ModalWatch = nil) and (Application <> nil) and (GetCurrentThreadId = MainThreadID) then
+  begin
+    ModalWatch := TModalWatch.Create;
+  end;
+end;
+
+/// <summary>Fingerabdruck der Gruppe nur aus der Open Tools API im Speicher (ohne Datei und Registry); False, wenn
+/// nicht lesbar.</summary>
+function TryFingerprint(const AGroup: IOTAProjectGroup; out AFingerprint: string): Boolean;
+var
+  mActive, mProject: IOTAProject;
+  mIndex: Integer;
+  mConfiguration, mPlatform: string;
+begin
+  AFingerprint := '';
+  if AGroup = nil then
+  begin
+    Exit(True);
+  end;
+  try
+    mActive := AGroup.ActiveProject;
+    for mIndex := 0 to AGroup.ProjectCount - 1 do
+    begin
+      mProject := AGroup.Projects[mIndex];
+      if mProject = nil then
+      begin
+        Continue;
+      end;
+      mConfiguration := '';
+      mPlatform := '';
+      // Wie Read: Konfiguration und Plattform nur bei .dproj.
+      if SameText(ExtractFileExt(mProject.FileName), '.dproj') then
+      begin
+        mConfiguration := mProject.CurrentConfiguration;
+        mPlatform := mProject.CurrentPlatform;
+      end;
+      AFingerprint := AFingerprint + TDpccProjectContextGate.ProjectPart(mProject.FileName, mConfiguration, mPlatform,
+        mProject = mActive);
+    end;
+    Result := True;
+  except
+    on Exception do
+    begin
+      AFingerprint := '';
+      Result := False;
+    end;
+  end;
+end;
+
+function MainGroup: IOTAProjectGroup;
+var
+  mModules: IOTAModuleServices;
+begin
+  Result := nil;
+  if Supports(BorlandIDEServices, IOTAModuleServices, mModules) then
+  begin
+    Result := mModules.MainProjectGroup;
+  end;
+end;
 
 /// <summary>Konfiguration AConfiguration ('' = aktive), für APlatform deren Plattformkonfiguration; nil ohne.
 /// </summary>
@@ -399,30 +531,94 @@ end;
 
 class function TDpccIdeProjectContext.Group: TArray<TDpccProjectContext>;
 var
-  mModules: IOTAModuleServices;
+  mActivity: IInterface;
   mProjects: IOTAProjectGroup;
   mIndex: Integer;
   mContext: TDpccProjectContext;
+  mSignals: Integer;
+  mFingerprint: string;
+  mKnown: Boolean;
+  mActive, mOthers: TArray<string>;
 begin
+  // Messbar im Einfrier-Wächter (Hauptthread ab 50 ms).
+  mActivity := TDpccActivity.Scope('Projektkontext lesen');
   Result := nil;
-  if not Supports(BorlandIDEServices, IOTAModuleServices, mModules) then
+  WatchModalDialogs;
+  // Vor dem Lesen: Ein Ereignis währenddessen löst das nächste volle Lesen aus.
+  mSignals := ContextGate.Signals;
+  mProjects := MainGroup;
+  mKnown := TryFingerprint(mProjects, mFingerprint);
+  if mProjects <> nil then
   begin
-    Exit;
-  end;
-  mProjects := mModules.MainProjectGroup;
-  if mProjects = nil then
-  begin
-    Exit;
-  end;
-  for mIndex := 0 to mProjects.ProjectCount - 1 do
-  begin
-    mContext := Read(mProjects.Projects[mIndex]);
-    // Aktives Projekt für Dateien, die zu mehreren Projekten gehören (#46).
-    mContext.Active := mProjects.Projects[mIndex] = mProjects.ActiveProject;
-    if mContext.Project <> '' then
+    for mIndex := 0 to mProjects.ProjectCount - 1 do
     begin
-      Result := Result + [mContext];
+      mContext := Read(mProjects.Projects[mIndex]);
+      // Aktives Projekt für Dateien, die zu mehreren Projekten gehören (#46).
+      mContext.Active := mProjects.Projects[mIndex] = mProjects.ActiveProject;
+      if mContext.Project <> '' then
+      begin
+        Result := Result + [mContext];
+        // Projektliste wie TDpccCodeInsightSession.GroupProjects: gespeicherte .dproj, das aktive zuerst.
+        if mContext.Active then
+        begin
+          mActive := mActive + [mContext.Project];
+        end
+        else
+        begin
+          mOthers := mOthers + [mContext.Project];
+        end;
+      end;
     end;
+  end;
+  ReadProjects := mActive + mOthers;
+  Inc(ReadGeneration);
+  // Ohne lesbaren Fingerabdruck bleibt der alte Stand; GroupIfDue liest dann jedes Mal voll (wie vor V2).
+  if mKnown then
+  begin
+    ContextGate.Done(mFingerprint, mSignals);
+  end;
+end;
+
+class function TDpccIdeProjectContext.GroupIfDue(out AContexts: TArray<TDpccProjectContext>;
+  out AReason: string): Boolean;
+var
+  mFingerprint: string;
+  mReason: TDpccContextReadReason;
+begin
+  AContexts := nil;
+  AReason := '';
+  if TryFingerprint(MainGroup, mFingerprint) then
+  begin
+    mReason := ContextGate.Due(mFingerprint);
+  end
+  else
+  begin
+    mReason := TDpccContextReadReason.Changed;
+  end;
+  if mReason = TDpccContextReadReason.None then
+  begin
+    Exit(False);
+  end;
+  AReason := TDpccProjectContextGate.ReasonText(mReason);
+  AContexts := Group;
+  Result := True;
+end;
+
+class function TDpccIdeProjectContext.SavedProjects: TArray<string>;
+begin
+  Result := ReadProjects;
+end;
+
+class function TDpccIdeProjectContext.Generation: Cardinal;
+begin
+  Result := ReadGeneration;
+end;
+
+class procedure TDpccIdeProjectContext.Invalidate;
+begin
+  if ContextGate <> nil then
+  begin
+    ContextGate.Signal;
   end;
 end;
 
@@ -443,5 +639,23 @@ begin
   Result := TDpccProjectVersion.FromOptions(Value('VerInfo_IncludeVerInfo'), Value('VerInfo_Keys'), Value('VerInfo_MajorVer'),
     Value('VerInfo_MinorVer'), Value('VerInfo_Release'), Value('VerInfo_Build'));
 end;
+
+/// <summary>Entscheidung mit dem 64-Bit-Tickzähler als Uhr.</summary>
+function NewContextGate: TDpccProjectContextGate;
+begin
+  Result := TDpccProjectContextGate.Create(
+    function: UInt64
+    begin
+      Result := TDpccTicks.Now;
+    end);
+end;
+
+initialization
+  ContextGate := NewContextGate;
+
+finalization
+  // Erst den Beobachter (er meldet an ContextGate), dann die Entscheidung; beides im Hauptthread beim Entladen.
+  FreeAndNil(ModalWatch);
+  FreeAndNil(ContextGate);
 
 end.

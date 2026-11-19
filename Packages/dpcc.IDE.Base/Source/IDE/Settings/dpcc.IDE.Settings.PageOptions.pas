@@ -98,7 +98,9 @@ begin
   except
     on E: Exception do
     begin
-      Exit(TDpccSettingsStrings.Fmt(TDpccSettingsTextId.SettingsIndexCacheFailed, [E.Message]));
+      // Auch als Zustand: Sonst überschreibt die nächste Abfrage der Seite die Meldung mit einer älteren.
+      gRebuildText := TDpccSettingsStrings.Fmt(TDpccSettingsTextId.SettingsIndexCacheFailed, [E.Message]);
+      Exit(gRebuildText);
     end;
   end;
   // Im Hintergrund-Thread: nur Dateien, keine VCL; Fehler als Text an den Abschluss.
@@ -137,8 +139,10 @@ begin
     end;
     if not mStarted then
     begin
-      // Abgelehnt (läuft in der Sitzung schon, entladen): nichts angestoßen, Knopf wieder frei.
+      // Abgelehnt (läuft in der Sitzung schon, entladen): nichts angestoßen, Knopf wieder frei. Nicht „läuft …“
+      // stehen lassen: Die Seite zeigt den Text neben dem freien Knopf.
       gRebuildRunning := False;
+      gRebuildText := TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsIndexRebuildRejected);
     end;
   except
     on E: Exception do

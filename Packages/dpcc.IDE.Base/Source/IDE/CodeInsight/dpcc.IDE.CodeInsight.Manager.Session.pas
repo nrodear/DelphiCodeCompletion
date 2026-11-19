@@ -6,7 +6,9 @@
 // Ordner der Projekte (Git-Arbeitsverzeichnis, sonst Projektordner) werden beobachtet; gesammelte Änderungen gehen
 // bei der nächsten Anfrage als workspace/didChangeWatchedFiles an den Server. Projektkontext (#396): Konfiguration,
 // Plattform und Optionen der Projekte gehen in initialize mit; Änderungen prüft die Sitzung höchstens einmal je
-// Sekunde. workspace/applyEdit (#397) und window/showMessage (#121) übernimmt der Hauptthread. Typen der IDE: Beim
+// Sekunde, seit V2 nur über einen billigen Fingerabdruck: Voll gelesen wird nur bei geändertem Fingerabdruck, nach
+// einem Ereignis oder im Sicherheitstakt (TDpccIdeProjectContext.GroupIfDue); Projektliste und beobachtete Ordner
+// folgen nur einem neuen vollen Lesen. workspace/applyEdit (#397) und window/showMessage (#121) übernimmt der Hauptthread. Typen der IDE: Beim
 // Start jeder Sitzung gehen die Typen der geladenen Packages als dpcc/ideTypes an den Server (auch ohne .pas).
 // Start und Stopp ohne Warten im Hauptthread (Hänger beim Öffnen einer Formular-Unit):
 //   - EnsureSession gibt eine laufende Sitzung zurück; sonst stößt es einen Start an und liefert sofort False. Der
@@ -16,6 +18,14 @@
 //     oder verwirft sie, wenn inzwischen Hauptschalter aus, Manager abgeschaltet oder abgebaut. Ein Fehlschlag sperrt
 //     neue Versuche für 30 s (TDpccSessionLifecycle). Die RTTI der Packages liest der Hauptthread danach in kleinen
 //     Schritten (TDpccIdeTypeCollector.StartRun).
+//   - Typen und Mitglieder der IDE (dpcc/ideTypes, dpcc/ideMembers): Jeder Takt ist ein eigener Eintrag
+//     (TDpccMainThread.ForceQueue, „IDE-Typen sammeln“ bzw. „IDE-Mitglieder sammeln“) mit höchstens etwa
+//     cIdeTypesSliceMs, das Budget gilt nach jedem Typ. Der fertige Lauf liefert reine Datensätze; Eindeutig machen,
+//     JSON und Senden erledigt ein Arbeiter aus TDpccTimeLimit (Post), wie der Abgleich der Formulare: nur, solange
+//     das Ticket des Laufs noch die Sitzung ist; der Stopp schließt vorher die Verbindung und wartet auf diese
+//     Arbeiter (WaitIdle), bevor er die Sitzung freigibt. Mitglieder: höchstens ein Lauf (TDpccIdeMemberQueue);
+//     Anforderungen währenddessen laufen danach genau einmal zusammen. Neue Sitzung, Stopp, „Index neu aufbauen“
+//     und Entladen brechen jeden Lauf ab, er sendet nichts mehr.
 //   - Stopp (SetEnabled(False), Neustart, Abbruch eines Starts): Der Hauptthread bricht die Anfragen von
 //     Vervollständigung und Parameter-Hint nur ab (BeginStop wartet nicht), schließt die Verbindung (offene Anfragen
 //     kehren sofort zurück) und löst Sitzung und Server aus den Feldern; Warten auf laufende Abfragen, auf die
@@ -51,6 +61,7 @@ uses
   dpcc.Core.Lsp.SessionStart,
   dpcc.Core.Files.WatchedChanges,
   dpcc.Core.Diagnostics.ThreadList,
+  dpcc.Core.Lsp.IdeSlices,
   dpcc.IDE.CodeInsight.Manager.State;
 
 type
@@ -80,6 +91,9 @@ type
   protected
     // Zuletzt geprüfte Projektgruppe (#648).
     FProjectsChecked: UInt64;
+    /// <summary>Stand von TDpccIdeProjectContext.Generation, mit dem die Projekte zuletzt gemeldet wurden (V2).
+    /// </summary>
+    FProjectsGeneration: Cardinal;
     /// <summary>Zuletzt geprüfter Projektkontext (#396).</summary>
     FContextsChecked: UInt64;
     /// <summary>Änderungen außerhalb der IDE (#395).</summary>
@@ -102,6 +116,9 @@ type
     FRebuildRun: IDpccRebuildRun;
     /// <summary>Start-, Stopp- und Neuaufbau-Threads; ShutdownSession wartet auf sie.</summary>
     FLifeThreads: TDpccThreadList;
+    /// <summary>Anforderungen dpcc/ideMembersWanted: höchstens ein Lauf; was währenddessen kommt, läuft danach
+    /// genau einmal zusammengeführt (nur Hauptthread).</summary>
+    FIdeMembers: TDpccIdeMemberQueue;
     /// <summary>Laufende Sitzung oder Start anstoßen (nur im Hauptthread); False, solange keine Sitzung läuft.
     /// Außerhalb des Hauptthreads nur, was schon läuft.</summary>
     function EnsureSession: Boolean;
@@ -135,12 +152,20 @@ type
     procedure RefreshProjects;
     /// <summary>Meldet geänderte Projektkontexte (#396); höchstens einmal je Sekunde (Hauptthread).</summary>
     procedure RefreshContexts;
-    /// <summary>Typen der geladenen Packages an ASession (dpcc/ideTypes), in Schritten im Hauptthread.</summary>
+    /// <summary>Typen der geladenen Packages an ASession (dpcc/ideTypes): RTTI in Takten im Hauptthread, JSON und
+    /// Senden im Hintergrund. Verwirft einen Lauf der Mitglieder der vorigen Sitzung.</summary>
     procedure QueueIdeTypes(ASession: TLspSession);
-    /// <summary>Ein Schritt davon; reiht den nächsten ein, solange ASession die Sitzung ist.</summary>
-    procedure StepIdeTypes(ASession: TLspSession; const ARun: IInterface; AStartedAt: UInt64; ASteps: Integer);
-    /// <summary>Hauptthread: Mitglieder der Typen in AUnits an die Sitzung.</summary>
+    /// <summary>Ein Takt davon; reiht den nächsten ein, solange ATicket die Sitzung ist.</summary>
+    procedure StepIdeTypes(const ATicket: IDpccStartTicket; const ARun: IInterface; AStartedAt: UInt64);
+    /// <summary>Hauptthread: Mitglieder der Typen in AUnits an die Sitzung; läuft schon ein Lauf, danach genau einmal
+    /// zusammengeführt.</summary>
     procedure SendIdeMembers(const AUnits: TArray<string>);
+    /// <summary>Nächsten Lauf der Mitglieder beginnen, falls keiner läuft und Units warten (Hauptthread).</summary>
+    procedure StartIdeMembers;
+    /// <summary>Ein Takt eines Laufs der Mitglieder; reiht den nächsten ein, solange ATicket die Sitzung und
+    /// AGeneration der laufende Lauf ist.</summary>
+    procedure StepIdeMembers(const ATicket: IDpccStartTicket; const ARun: IInterface; AGeneration: Cardinal;
+      AStartedAt: UInt64);
     /// <summary>Hauptthread: workspace/applyEdit der Sitzung ausführen (#397); genau eine Antwort.</summary>
     procedure ServerApplyEdit(const AEdit: TLspWorkspaceEdit; const AReply: TLspApplyEditReply);
     /// <summary>Hauptthread: Warnungen und Fehler des Servers (window/showMessage) ins Meldungsfenster (#121).
@@ -211,7 +236,8 @@ uses
   dpcc.Core.Diagnostics.Deadline,
   dpcc.Core.Diagnostics.Hangs,
   dpcc.Core.Completion.Internals.Async,
-  dpcc.Core.Signature.Providers.Server;
+  dpcc.Core.Signature.Providers.Server,
+  dpcc.IDE.Hover.Editor;
 
 const
   /// <summary>Höchstens so oft die Projektgruppe bzw. die Projektkontexte neu lesen.</summary>
@@ -625,8 +651,10 @@ begin
           if mSession <> nil then
           begin
             mSignals.WaitQuery(5000);
-            // Aufgegebene Zeitlimit-Arbeiter können noch in Prepare bzw. Sync der Sitzung stecken.
-            if not TDpccTimeLimit.WaitIdle(TDpccShutdown.cStopMs) then
+            // Aufgegebene Zeitlimit-Arbeiter können noch in Prepare bzw. Sync der Sitzung stecken; auch das Senden von
+            // Formulartext, IDE-Typen und IDE-Mitgliedern läuft dort und hält die Sitzung als rohen Zeiger. Dieser
+            // Thread ist nicht der Hauptthread, deshalb die großzügige Grenze.
+            if not TDpccTimeLimit.WaitIdle(TDpccCodeInsightSession.cWorkersWaitMs) then
             begin
               DiagnoseFrom(mDiagnose, 'Sitzung beendet, während ein Zeitlimit-Arbeiter noch lief');
             end;
@@ -641,6 +669,11 @@ begin
             begin
               DiagnoseFrom(mDiagnose, Format('Sitzung beendet, während %d Arbeiter des Parameter-Hints liefen',
                 [TDpccServerSignatureProvider.RunningWorkers]));
+            end;
+            if not TDpccEditorHover.WaitWorkersIdle(TDpccCodeInsightSession.cWorkersWaitMs) then
+            begin
+              DiagnoseFrom(mDiagnose, Format('Sitzung beendet, während %d Arbeiter des Tooltips liefen',
+                [TDpccEditorHover.RunningWorkers]));
             end;
             mSignals.WaitCommand(5000);
             mSignals.WaitServerCommands(5000);
@@ -826,8 +859,7 @@ begin
   // Während des Schließens ist ein Ende des Servers kein Absturz (OnClosed läuft in Close, im Hauptthread sofort).
   // Nichts davon wartet: BeginStop bricht die Anfragen von Vervollständigung und Parameter-Hint nur ab (vor dem
   // Schließen, damit kein geweckter Arbeiter noch liefert); Close weckt alle offenen Anfragen sofort (Done). Auf die
-  // Arbeiter wartet StopWork im Hintergrund, bevor es die Sitzung freigibt. Nur die Hover-Arbeiter wartet EndStop
-  // noch ab; sie kehren nach Close sofort zurück.
+  // Arbeiter (auch die des Tooltips) wartet StopWork im Hintergrund, bevor es die Sitzung freigibt.
   FStopping := True;
   try
     if FEditors <> nil then
@@ -1363,7 +1395,7 @@ var
 begin
   if AMethod = TDpccIdeMembers.cWantedMethod then
   begin
-    // Open Tools API und RTTI der Packages nur im Hauptthread (hier sind wir schon).
+    // RTTI der Packages nur im Hauptthread (hier sind wir schon), in Takten; hier nur merken und anstoßen.
     mUnits := TDpccIdeMembers.WantedUnits(AParams);
     if Length(mUnits) > 0 then
     begin
@@ -1375,6 +1407,7 @@ end;
 procedure TDpccCodeInsightSession.RefreshProjects;
 var
   mProjects: TArray<string>;
+  mGeneration: Cardinal;
 begin
   // Open Tools API nur im Hauptthread.
   if (GetCurrentThreadId <> MainThreadID) or (TDpccTicks.Since(FProjectsChecked) < cProjectsCheckMs) then
@@ -1382,9 +1415,18 @@ begin
     Exit;
   end;
   FProjectsChecked := TDpccTicks.Now;
+  // V2: Die Liste stammt aus dem letzten vollen Lesen des Projektkontexts (RefreshContexts); melden und Ordner
+  // beobachten (Suche nach .git) nur nach einem neuen, nicht je Takt.
+  mGeneration := TDpccIdeProjectContext.Generation;
+  if mGeneration = FProjectsGeneration then
+  begin
+    Exit;
+  end;
   try
-    mProjects := GroupProjects;
+    mProjects := TDpccIdeProjectContext.SavedProjects;
     FSession.SetProjects(mProjects);
+    // Erst nach dem Melden: Schlägt es fehl, versucht es der nächste Takt wieder.
+    FProjectsGeneration := mGeneration;
     WatchProjects(mProjects);
   except
     on E: Exception do
@@ -1397,7 +1439,8 @@ end;
 procedure TDpccCodeInsightSession.RefreshContexts;
 var
   mContext: TDpccProjectContext;
-  mChanged: TArray<TDpccProjectContext>;
+  mContexts, mChanged: TArray<TDpccProjectContext>;
+  mReason: string;
 begin
   // Open Tools API nur im Hauptthread.
   if (GetCurrentThreadId <> MainThreadID) or
@@ -1407,45 +1450,166 @@ begin
   end;
   FContextsChecked := TDpccTicks.Now;
   try
+    // V2: Je Takt nur der billige Fingerabdruck der Gruppe; voll gelesen (Dateien, Registry, Optionen) nur, wenn er
+    // sich geändert hat, nach einem Ereignis (modaler Dialog geschlossen) oder im Sicherheitstakt.
+    if not TDpccIdeProjectContext.GroupIfDue(mContexts, mReason) then
+    begin
+      Exit;
+    end;
     // Mit Diagnose=1 prüfbar, ob die geerbten Optionen ankommen (#396).
-    mChanged := FSession.SetProjectContexts(TDpccIdeProjectContext.Group);
+    mChanged := FSession.SetProjectContexts(mContexts);
     for mContext in mChanged do
     begin
-      Diagnose('Projektkontext: ' + mContext.Describe);
+      Diagnose('Projektkontext (' + mReason + '): ' + mContext.Describe);
     end;
   except
     on E: Exception do
     begin
+      // Nächster Takt liest wieder voll, wie vor V2.
+      TDpccIdeProjectContext.Invalidate;
       Diagnose('Projektkontext nicht gemeldet: ' + E.Message);
     end;
   end;
 end;
 
-procedure TDpccCodeInsightSession.QueueIdeTypes(ASession: TLspSession);
+const
+  /// <summary>Namen der Takte für den Wächter (dpcc.log).</summary>
+  cIdeTypesActivity = 'IDE-Typen sammeln';
+  cIdeMembersActivity = 'IDE-Mitglieder sammeln';
+
+/// <summary>Arbeiter aus TDpccTimeLimit (Post): Typen eindeutig machen, JSON bauen und an ASession senden
+/// (dpcc/ideTypes), danach die Diagnosezeile. Hält nur Kopien (Datensätze, Texte) und die Sitzung als rohen Zeiger
+/// wie der Abgleich der Formulare: Der Hauptthread hat beim Post geprüft, dass sie noch die laufende ist; der Stopp
+/// schließt vorher die Verbindung (Notify sendet dann nichts) und wartet auf diese Arbeiter (TDpccTimeLimit.WaitIdle),
+/// bevor er sie freigibt. Nie der Manager.</summary>
+function SendIdeTypesWork(ASession: TLspSession; const ATypes: TArray<TDpccIdeType>; const AInfo: string;
+  ADiagnose: Boolean): TProc;
+var
+  mSession: TLspSession;
+  mTypes: TArray<TDpccIdeType>;
+  mInfo: string;
+  mDiagnose: Boolean;
 begin
+  mSession := ASession;
+  mTypes := ATypes;
+  mInfo := AInfo;
+  mDiagnose := ADiagnose;
+  Result :=
+    procedure
+    var
+      mWatch: TStopwatch;
+      mUnique: TArray<TDpccIdeType>;
+    begin
+      mWatch := TStopwatch.StartNew;
+      try
+        if TDpccShutdown.Signalled then
+        begin
+          Exit;
+        end;
+        // Palette und RTTI der Packages melden dieselben Komponenten: einmal je Unit.Typ, der erste bleibt.
+        mUnique := TDpccIdeTypes.Unique(mTypes);
+        // Nach Initialize: Der Server ersetzt mit jeder Meldung den ganzen Stand und prüft offene Dateien neu.
+        mSession.Notify(TDpccIdeTypes.cMethod, TDpccIdeTypes.ToJson(mUnique));
+        DiagnoseFrom(mDiagnose, Format('IDE-Typen: %d, %s, im Hintergrund gesendet in %d ms',
+          [Length(mUnique), mInfo, mWatch.ElapsedMilliseconds]));
+      except
+        on E: Exception do
+        begin
+          DiagnoseFrom(mDiagnose, 'IDE-Typen: ' + E.Message);
+        end;
+      end;
+    end;
+end;
+
+/// <summary>Arbeiter aus TDpccTimeLimit (Post): JSON der Mitglieder bauen und an ASession senden (dpcc/ideMembers),
+/// danach die Diagnosezeile AInfo mit der Zeit dafür. Lebensdauer der Sitzung wie bei SendIdeTypesWork.</summary>
+function SendIdeMembersWork(ASession: TLspSession; const ADetails: TArray<TDpccIdeTypeDetail>; const AInfo: string;
+  ADiagnose: Boolean): TProc;
+var
+  mSession: TLspSession;
+  mDetails: TArray<TDpccIdeTypeDetail>;
+  mInfo: string;
+  mDiagnose: Boolean;
+begin
+  mSession := ASession;
+  mDetails := ADetails;
+  mInfo := AInfo;
+  mDiagnose := ADiagnose;
+  Result :=
+    procedure
+    var
+      mWatch: TStopwatch;
+    begin
+      mWatch := TStopwatch.StartNew;
+      try
+        if TDpccShutdown.Signalled then
+        begin
+          Exit;
+        end;
+        mSession.Notify(TDpccIdeMembers.cMethod, TDpccIdeMembers.ToJson(mDetails));
+        DiagnoseFrom(mDiagnose, Format('%s, im Hintergrund gesendet in %d ms', [mInfo, mWatch.ElapsedMilliseconds]));
+      except
+        on E: Exception do
+        begin
+          DiagnoseFrom(mDiagnose, 'IDE-Mitglieder: ' + E.Message);
+        end;
+      end;
+    end;
+end;
+
+procedure TDpccCodeInsightSession.QueueIdeTypes(ASession: TLspSession);
+var
+  mManager: TDpccCodeInsightSession;
+  mTicket: IDpccStartTicket;
+  mRun: IInterface;
+  mStartedAt: UInt64;
+begin
+  // Neue Sitzung: Ein Lauf der Mitglieder für die alte sendet nichts mehr, wartende Anforderungen entfallen.
+  FIdeMembers.Cancel;
+  if FShutDown or (ASession = nil) or (ASession <> FSession) or (FSessionTicket = nil) then
+  begin
+    Exit;
+  end;
   try
-    StepIdeTypes(ASession, TDpccIdeTypeCollector.StartRun, TDpccTicks.Now, 0);
+    mRun := TDpccIdeTypeCollector.StartRun;
   except
     on E: Exception do
     begin
       Diagnose('IDE-Typen: ' + E.Message);
+      Exit;
     end;
   end;
+  // Nur im Hauptthread verglichen (ManagerLive), nie in einem anderen Thread benutzt.
+  mManager := Self;
+  mTicket := FSessionTicket;
+  mStartedAt := TDpccTicks.Now;
+  // Jeder Takt ein eigener Eintrag mit Namen für den Wächter, auch der erste (nicht mehr in der Übernahme).
+  TDpccMainThread.ForceQueue(TDpccFeature.Server, cIdeTypesActivity,
+    procedure
+    begin
+      if ManagerLive(mManager) then
+      begin
+        mManager.StepIdeTypes(mTicket, mRun, mStartedAt);
+      end;
+    end);
 end;
 
-procedure TDpccCodeInsightSession.StepIdeTypes(ASession: TLspSession; const ARun: IInterface; AStartedAt: UInt64;
-  ASteps: Integer);
+procedure TDpccCodeInsightSession.StepIdeTypes(const ATicket: IDpccStartTicket; const ARun: IInterface;
+  AStartedAt: UInt64);
 var
   mRun: IDpccIdeTypeRun;
   mManager: TDpccCodeInsightSession;
-  mSession: TLspSession;
+  mTicket: IDpccStartTicket;
   mNext: IInterface;
   mStartedAt: UInt64;
-  mSteps: Integer;
+  mStats: TDpccSliceStats;
   mCache: string;
+  mInfo: string;
 begin
-  // Sitzung gewechselt oder gestoppt: Die neue sammelt selbst.
-  if FShutDown or (FSession <> ASession) or (ASession = nil) or not Supports(ARun, IDpccIdeTypeRun, mRun) then
+  // Sitzung gewechselt, gestoppt, „Index neu aufbauen“ oder entladen: abbrechen, nichts senden; die neue sammelt
+  // selbst. Das Ticket statt des Zeigers: Eine neue Sitzung kann an derselben Adresse liegen.
+  if FShutDown or (ATicket = nil) or (FSessionTicket <> ATicket) or (FSession = nil) or
+    not Supports(ARun, IDpccIdeTypeRun, mRun) then
   begin
     Exit;
   end;
@@ -1453,31 +1617,34 @@ begin
     // RTTI nur im Hauptthread, in kleinen Stücken: Zwischen den Takten bleibt die IDE bedienbar.
     if not mRun.Step(cIdeTypesSliceMs) then
     begin
-      // Nur im Hauptthread verglichen (ManagerLive), nie in einem anderen Thread benutzt.
       mManager := Self;
-      mSession := ASession;
+      mTicket := ATicket;
       mNext := ARun;
       mStartedAt := AStartedAt;
-      mSteps := ASteps + 1;
-      TDpccMainThread.ForceQueue(TDpccFeature.Server,
+      TDpccMainThread.ForceQueue(TDpccFeature.Server, cIdeTypesActivity,
         procedure
         begin
           if ManagerLive(mManager) then
           begin
-            mManager.StepIdeTypes(mSession, mNext, mStartedAt, mSteps);
+            mManager.StepIdeTypes(mTicket, mNext, mStartedAt);
           end;
         end);
       Exit;
     end;
-    // Nach Initialize: Der Server ersetzt mit jeder Meldung den ganzen Stand und prüft offene Dateien neu.
-    FSession.Notify(TDpccIdeTypes.cMethod, TDpccIdeTypes.ToJson(mRun.Types));
+    mStats := mRun.Stats;
     mCache := '';
     if mRun.FromCache then
     begin
       mCache := ', gemerkt';
     end;
-    Diagnose(Format('IDE-Typen: %d, %d Module, %d Takte, %d ms bis fertig, RTTI unlesbar: %d%s',
-      [Length(mRun.Types), mRun.Modules, ASteps + 1, TDpccTicks.Since(AStartedAt), mRun.Failed, mCache]));
+    mInfo := Format('%d Module, %d Takte, %d ms bis fertig, %d ms in Takten, längster Takt %d ms, ' +
+      'RTTI unlesbar: %d%s', [mRun.Modules, mStats.Steps, TDpccTicks.Since(AStartedAt), mStats.TotalMs,
+      mStats.LongestMs, mRun.Failed, mCache]);
+    // Eindeutig machen, JSON und Senden im Hintergrund; FSession ist hier noch die Sitzung des Laufs.
+    if not TDpccTimeLimit.Post(SendIdeTypesWork(FSession, mRun.Types, mInfo, FDiagnose)) then
+    begin
+      Diagnose('IDE-Typen: nicht gesendet, dpcc wird beendet');
+    end;
   except
     on E: Exception do
     begin
@@ -1487,22 +1654,134 @@ begin
 end;
 
 procedure TDpccCodeInsightSession.SendIdeMembers(const AUnits: TArray<string>);
-var
-  mWatch: TStopwatch;
-  mDetails: TArray<TDpccIdeTypeDetail>;
-  mFailed: Integer;
 begin
+  // Läuft schon ein Lauf, kommen die Units dazu und laufen danach genau einmal zusammen; nie zwei Läufe zugleich.
+  if FIdeMembers.Request(AUnits) then
+  begin
+    StartIdeMembers;
+  end;
+end;
+
+procedure TDpccCodeInsightSession.StartIdeMembers;
+var
+  mUnits: TArray<string>;
+  mGeneration: Cardinal;
+  mManager: TDpccCodeInsightSession;
+  mTicket: IDpccStartTicket;
+  mRun: IInterface;
+  mStartedAt: UInt64;
+begin
+  if FShutDown or (FSession = nil) or (FSessionTicket = nil) then
+  begin
+    FIdeMembers.Cancel;
+    Exit;
+  end;
+  if not FIdeMembers.TryStart(mUnits, mGeneration) then
+  begin
+    Exit;
+  end;
   try
-    mWatch := TStopwatch.StartNew;
-    mDetails := TDpccIdeMemberCollector.Details(AUnits, mFailed);
-    FSession.Notify(TDpccIdeMembers.cMethod, TDpccIdeMembers.ToJson(mDetails));
-    Diagnose(Format('IDE-Mitglieder: %d Units, %d Typen, %d ms, RTTI unlesbar: %d', [Length(AUnits),
-      Length(mDetails), mWatch.ElapsedMilliseconds, mFailed]));
+    mRun := TDpccIdeMemberCollector.StartRun(mUnits);
+  except
+    on E: Exception do
+    begin
+      Diagnose('IDE-Mitglieder: ' + E.Message);
+      FIdeMembers.Cancel;
+      Exit;
+    end;
+  end;
+  mManager := Self;
+  mTicket := FSessionTicket;
+  mStartedAt := TDpccTicks.Now;
+  TDpccMainThread.ForceQueue(TDpccFeature.Server, cIdeMembersActivity,
+    procedure
+    begin
+      if ManagerLive(mManager) then
+      begin
+        mManager.StepIdeMembers(mTicket, mRun, mGeneration, mStartedAt);
+      end;
+    end);
+end;
+
+procedure TDpccCodeInsightSession.StepIdeMembers(const ATicket: IDpccStartTicket; const ARun: IInterface;
+  AGeneration: Cardinal; AStartedAt: UInt64);
+var
+  mRun: IDpccIdeMemberRun;
+  mManager: TDpccCodeInsightSession;
+  mTicket: IDpccStartTicket;
+  mNext: IInterface;
+  mGeneration: Cardinal;
+  mStartedAt: UInt64;
+  mDetails: TArray<TDpccIdeTypeDetail>;
+  mStats: TDpccSliceStats;
+  mScope: string;
+  mInfo: string;
+begin
+  // Abgelöst (neue Sitzung, Abbruch): Der neue Stand gilt.
+  if not FIdeMembers.IsCurrent(AGeneration) then
+  begin
+    Exit;
+  end;
+  // Sitzung gewechselt, gestoppt, „Index neu aufbauen“ oder entladen: abbrechen, nichts senden.
+  if FShutDown or (ATicket = nil) or (FSessionTicket <> ATicket) or (FSession = nil) or
+    not Supports(ARun, IDpccIdeMemberRun, mRun) then
+  begin
+    FIdeMembers.Cancel;
+    Exit;
+  end;
+  // Nur im Hauptthread verglichen (ManagerLive), nie in einem anderen Thread benutzt.
+  mManager := Self;
+  try
+    // RTTI nur im Hauptthread, in kleinen Stücken: Zwischen den Takten bleibt die IDE bedienbar.
+    if not mRun.Step(cIdeTypesSliceMs) then
+    begin
+      mTicket := ATicket;
+      mNext := ARun;
+      mGeneration := AGeneration;
+      mStartedAt := AStartedAt;
+      TDpccMainThread.ForceQueue(TDpccFeature.Server, cIdeMembersActivity,
+        procedure
+        begin
+          if ManagerLive(mManager) then
+          begin
+            mManager.StepIdeMembers(mTicket, mNext, mGeneration, mStartedAt);
+          end;
+        end);
+      Exit;
+    end;
+    mDetails := mRun.Details;
+    mStats := mRun.Stats;
+    mScope := 'alle';
+    if mRun.Filtered then
+    begin
+      mScope := 'nur die der Units';
+    end;
+    // ms = Summe der Takte im Hauptthread.
+    mInfo := Format('IDE-Mitglieder: %d Units, %d Typen, %d ms, %d Schritte, längster Schritt %d ms, ' +
+      '%d ms bis fertig, %d Packages (%s), RTTI unlesbar: %d', [mRun.UnitCount, Length(mDetails), mStats.TotalMs,
+      mStats.Steps, mStats.LongestMs, TDpccTicks.Since(AStartedAt), mRun.Packages, mScope, mRun.Failed]);
+    // JSON und Senden im Hintergrund; FSession ist hier noch die Sitzung des Laufs.
+    if not TDpccTimeLimit.Post(SendIdeMembersWork(FSession, mDetails, mInfo, FDiagnose)) then
+    begin
+      Diagnose('IDE-Mitglieder: nicht gesendet, dpcc wird beendet');
+    end;
   except
     on E: Exception do
     begin
       Diagnose('IDE-Mitglieder: ' + E.Message);
     end;
+  end;
+  // Lauf zu Ende (auch nach einem Fehler): Was inzwischen angefordert wurde, läuft genau einmal danach.
+  if FIdeMembers.Finish(AGeneration) then
+  begin
+    TDpccMainThread.ForceQueue(TDpccFeature.Server, cIdeMembersActivity,
+      procedure
+      begin
+        if ManagerLive(mManager) then
+        begin
+          mManager.StartIdeMembers;
+        end;
+      end);
   end;
 end;
 

@@ -6,22 +6,50 @@
 // Vorfahr, Interfaces, Felder, Properties (auch Array-Properties) und Methoden mit Parametern, sichtbar ab
 // protected; bei Interfaces und Records ebenso, bei Aufzählungen die Werte. Was die RTTI nicht kennt, fehlt:
 // Methoden ohne erweiterte RTTI ({$RTTI EXPLICIT METHODS([])}), Vorgabewerte von Parametern, private Mitglieder.
+// Ohne Hänger: Die RTTI liest nur der Hauptthread, aber in Takten mit Zeitbudget (StartRun, Step) wie die IDE-Typen
+// (dpcc.IDE.CodeInsight.IdeTypes): ein TRttiContext und die Packages für den ganzen Lauf (TDpccRttiPackages, bei
+// geladenen oder entladenen Modulen neu geholt), das Budget nach jedem Typ (TDpccSliceWalk). Besucht werden nur die
+// Packages, die der Lauf der IDE-Typen für die gewünschten Units gemerkt hat (UnitModules); ist eine Unit unbekannt
+// oder ihr Package nicht mehr geladen, alle. Unteilbar bleiben je Package GetTypes, die Namenstabelle beim ersten Typ
+// und ein einzelner Typ samt Mitgliedern (Detail). JSON und Senden laufen danach im Hintergrund
+// (dpcc.IDE.CodeInsight.Manager.Session).
 
 interface
 
 uses
   System.Rtti,
-  dpcc.Core.Lsp.IdeMembers;
+  dpcc.Core.Lsp.IdeMembers,
+  dpcc.Core.Lsp.IdeSlices;
 
 type
+  /// <summary>Schrittweise Sammlung der Mitglieder im Hauptthread.</summary>
+  IDpccIdeMemberRun = interface
+    ['{4DA400A1-130E-4884-82E4-7F54A21FC676}']
+    /// <summary>Höchstens etwa ABudgetMs arbeiten (Budget nach jedem Typ geprüft, mindestens ein Schritt); True,
+    /// wenn fertig.</summary>
+    function Step(ABudgetMs: Cardinal): Boolean;
+    /// <summary>Typen samt Mitgliedern der gewünschten Units (reine Datensätze).</summary>
+    function Details: TArray<TDpccIdeTypeDetail>;
+    /// <summary>Packages, deren RTTI nicht lesbar war.</summary>
+    function Failed: Integer;
+    /// <summary>Gewünschte Units.</summary>
+    function UnitCount: Integer;
+    /// <summary>Besuchte Packages.</summary>
+    function Packages: Integer;
+    /// <summary>Nur die Packages der gewünschten Units besucht (sonst alle)?</summary>
+    function Filtered: Boolean;
+    /// <summary>Takte dieses Laufs: Anzahl, Summe und längster.</summary>
+    function Stats: TDpccSliceStats;
+  end;
+
   TDpccIdeMemberCollector = class
   private
     class function Detail(AType: TRttiType; const AUnit: string; out ADetail: TDpccIdeTypeDetail): Boolean;
       static;
   public
-    /// <summary>Typen samt Mitgliedern der Units AUnits aus den geladenen Packages außerhalb der Installation;
-    /// nur im Hauptthread. AFailed: Packages, deren RTTI nicht lesbar war.</summary>
-    class function Details(const AUnits: TArray<string>; out AFailed: Integer): TArray<TDpccIdeTypeDetail>; static;
+    /// <summary>Neuer Lauf für die Typen samt Mitgliedern der Units AUnits aus den geladenen Packages (ohne die von
+    /// dpcc); nur im Hauptthread, Step im Hauptthread aufrufen.</summary>
+    class function StartRun(const AUnits: TArray<string>): IDpccIdeMemberRun; static;
   end;
 
 implementation
@@ -29,6 +57,7 @@ implementation
 uses
   System.SysUtils,
   System.TypInfo,
+  System.Diagnostics,
   System.Generics.Collections,
   dpcc.Core.Lsp.IdeTypes,
   dpcc.IDE.CodeInsight.IdeTypes;
@@ -296,67 +325,241 @@ begin
   ADetail.Members := MembersOf(AType);
 end;
 
-/// <summary>Typen von APackage in den Units AWanted (Großbuchstaben) an ADetails anhängen.</summary>
-procedure AddPackageDetails(APackage: TRttiPackage; AWanted: TDictionary<string, Boolean>;
-  ADetails: TList<TDpccIdeTypeDetail>);
+type
+  /// <summary>Lauf von StartRun: die Packages der gewünschten Units, Typ für Typ bis zum Zeitbudget.</summary>
+  TIdeMemberRun = class(TInterfacedObject, IDpccIdeMemberRun)
+  private
+    FUnitCount: Integer;
+    FSkipped: TArray<string>;
+    /// <summary>Gewünschte Units (groß).</summary>
+    FWanted: TDictionary<string, Boolean>;
+    /// <summary>Dateinamen (groß) der zu besuchenden Packages; nil = alle.</summary>
+    FFilter: TDictionary<string, Boolean>;
+    FPackages: TDpccRttiPackages;
+    FPackageCount: Integer;
+    FWalk: TDpccSliceWalk;
+    FCurrentTypes: TArray<TRttiType>;
+    FCurrentFailed: Boolean;
+    FDetails: TList<TDpccIdeTypeDetail>;
+    FResult: TArray<TDpccIdeTypeDetail>;
+    FFailed: Integer;
+    FDone: Boolean;
+    FStats: TDpccSliceStats;
+    function LoadPackage(AOuter: Integer): Integer;
+    procedure VisitType(AOuter, AInner: Integer);
+    /// <summary>Erster Takt: Kontext und Packages für den ganzen Lauf.</summary>
+    procedure OpenPackages;
+    procedure ReleaseRtti;
+    procedure Finish;
+  public
+    constructor Create(const AUnits: TArray<string>);
+    destructor Destroy; override;
+    function Step(ABudgetMs: Cardinal): Boolean;
+    function Details: TArray<TDpccIdeTypeDetail>;
+    function Failed: Integer;
+    function UnitCount: Integer;
+    function Packages: Integer;
+    function Filtered: Boolean;
+    function Stats: TDpccSliceStats;
+  end;
+
+class function TDpccIdeMemberCollector.StartRun(const AUnits: TArray<string>): IDpccIdeMemberRun;
+begin
+  Result := TIdeMemberRun.Create(AUnits);
+end;
+
+{ TIdeMemberRun }
+
+constructor TIdeMemberRun.Create(const AUnits: TArray<string>);
+var
+  mUnit: string;
+  mModule: string;
+  mModules: TArray<string>;
+begin
+  inherited Create;
+  FUnitCount := Length(AUnits);
+  FSkipped := TDpccIdeTypeCollector.SkippedFolders;
+  FDetails := TList<TDpccIdeTypeDetail>.Create;
+  FWanted := TDictionary<string, Boolean>.Create;
+  for mUnit in AUnits do
+  begin
+    FWanted.AddOrSetValue(UpperCase(mUnit), True);
+  end;
+  // Packages der Units aus dem Lauf der IDE-Typen; ist eine Unit unbekannt, alle (gestückelt wie sonst).
+  if (TDpccIdeTypeCollector.UnitModules <> nil) and
+    TDpccIdeTypeCollector.UnitModules.ModulesOf(AUnits, mModules) then
+  begin
+    FFilter := TDictionary<string, Boolean>.Create;
+    for mModule in mModules do
+    begin
+      FFilter.AddOrSetValue(UpperCase(mModule), True);
+    end;
+  end;
+end;
+
+destructor TIdeMemberRun.Destroy;
+begin
+  // Auch beim Abbruch (Sitzung gewechselt, Entladen): Kontext und Packages hier freigeben.
+  ReleaseRtti;
+  FreeAndNil(FFilter);
+  FreeAndNil(FWanted);
+  FreeAndNil(FDetails);
+  inherited;
+end;
+
+procedure TIdeMemberRun.ReleaseRtti;
+begin
+  FCurrentTypes := nil;
+  FreeAndNil(FWalk);
+  FreeAndNil(FPackages);
+end;
+
+procedure TIdeMemberRun.OpenPackages;
+begin
+  FPackages := TDpccRttiPackages.Create(FSkipped, FFilter);
+  if (FFilter <> nil) and (FPackages.Count < FFilter.Count) then
+  begin
+    // Ein gemerktes Package ist nicht mehr geladen: wie ohne Zuordnung alle besuchen.
+    FreeAndNil(FPackages);
+    FreeAndNil(FFilter);
+    FPackages := TDpccRttiPackages.Create(FSkipped, nil);
+  end;
+  FPackageCount := FPackages.Count;
+  FWalk := TDpccSliceWalk.Create(FPackages.Count);
+end;
+
+function TIdeMemberRun.LoadPackage(AOuter: Integer): Integer;
+var
+  mPackage: TRttiPackage;
+begin
+  FCurrentTypes := nil;
+  FCurrentFailed := False;
+  mPackage := FPackages.Package(AOuter);
+  // Inzwischen entladen: übergehen.
+  if mPackage = nil then
+  begin
+    Exit(0);
+  end;
+  // Ein Aufruf, nicht teilbar. Ein Package mit beschädigter RTTI darf die übrigen nicht verhindern.
+  try
+    FCurrentTypes := mPackage.GetTypes;
+  except
+    on Exception do
+    begin
+      FCurrentFailed := True;
+      Inc(FFailed);
+    end;
+  end;
+  Result := Length(FCurrentTypes);
+end;
+
+procedure TIdeMemberRun.VisitType(AOuter, AInner: Integer);
 var
   mRttiType: TRttiType;
   mType: TDpccIdeType;
   mDetail: TDpccIdeTypeDetail;
 begin
-  for mRttiType in APackage.GetTypes do
+  if AInner >= Length(FCurrentTypes) then
   begin
-    if mRttiType.IsPublicType and TDpccIdeType.FromQualified(mRttiType.QualifiedName, '', mType) and
-      AWanted.ContainsKey(UpperCase(mType.UnitName)) and
+    Exit;
+  end;
+  try
+    mRttiType := FCurrentTypes[AInner];
+    if (mRttiType <> nil) and mRttiType.IsPublicType and
+      TDpccIdeType.FromQualified(mRttiType.QualifiedName, '', mType) and
+      FWanted.ContainsKey(UpperCase(mType.UnitName)) and
       TDpccIdeMemberCollector.Detail(mRttiType, mType.UnitName, mDetail) then
     begin
-      ADetails.Add(mDetail);
+      FDetails.Add(mDetail);
+    end;
+  except
+    // Je Package höchstens einmal gezählt; die übrigen Typen des Packages zählen weiter.
+    on Exception do
+    begin
+      if not FCurrentFailed then
+      begin
+        FCurrentFailed := True;
+        Inc(FFailed);
+      end;
     end;
   end;
 end;
 
-class function TDpccIdeMemberCollector.Details(const AUnits: TArray<string>;
-  out AFailed: Integer): TArray<TDpccIdeTypeDetail>;
-var
-  mUnit: string;
-  mFolders: TArray<string>;
-  mWanted: TDictionary<string, Boolean>;
-  mDetails: TList<TDpccIdeTypeDetail>;
-  mContext: TRttiContext;
-  mPackage: TRttiPackage;
+procedure TIdeMemberRun.Finish;
 begin
-  AFailed := 0;
-  mFolders := TDpccIdeTypeCollector.SkippedFolders;
-  mWanted := TDictionary<string, Boolean>.Create;
-  mDetails := TList<TDpccIdeTypeDetail>.Create;
-  mContext := TRttiContext.Create;
-  try
-    for mUnit in AUnits do
-    begin
-      mWanted.AddOrSetValue(UpperCase(mUnit), True);
-    end;
-    for mPackage in mContext.GetPackages do
-    begin
-      if TDpccIdeTypes.InFolders(mPackage.Name, mFolders) then
-      begin
-        Continue;
-      end;
-      // Ein Package mit beschädigter RTTI darf die übrigen nicht verhindern.
-      try
-        AddPackageDetails(mPackage, mWanted, mDetails);
-      except
-        on Exception do
-        begin
-          Inc(AFailed);
-        end;
-      end;
-    end;
-    Result := mDetails.ToArray;
-  finally
-    mContext.Free;
-    mDetails.Free;
-    mWanted.Free;
+  ReleaseRtti;
+  FResult := FDetails.ToArray;
+  FDetails.Clear;
+  FDone := True;
+end;
+
+function TIdeMemberRun.Step(ABudgetMs: Cardinal): Boolean;
+var
+  mWatch: TStopwatch;
+  mBudgetMs: Cardinal;
+  mExhausted: TFunc<Boolean>;
+begin
+  if FDone then
+  begin
+    Exit(True);
   end;
+  mWatch := TStopwatch.StartNew;
+  mBudgetMs := ABudgetMs;
+  // Nach jedem Typ gefragt (TDpccSliceWalk), nicht erst nach einem ganzen Package.
+  mExhausted :=
+    function: Boolean
+    begin
+      Result := mWatch.ElapsedMilliseconds >= mBudgetMs;
+    end;
+  try
+    if FPackages = nil then
+    begin
+      OpenPackages;
+    end
+    else if FPackages.Refresh then
+    begin
+      // Module geladen oder entladen: Die Typen des laufenden Packages neu holen, an derselben Stelle weiter.
+      FCurrentTypes := nil;
+      FWalk.Reload;
+    end;
+    if not mExhausted() and FWalk.Run(LoadPackage, VisitType, mExhausted) then
+    begin
+      Finish;
+    end;
+  finally
+    FStats.Add(mWatch.ElapsedMilliseconds);
+  end;
+  Result := FDone;
+end;
+
+function TIdeMemberRun.Details: TArray<TDpccIdeTypeDetail>;
+begin
+  Result := FResult;
+end;
+
+function TIdeMemberRun.Failed: Integer;
+begin
+  Result := FFailed;
+end;
+
+function TIdeMemberRun.UnitCount: Integer;
+begin
+  Result := FUnitCount;
+end;
+
+function TIdeMemberRun.Packages: Integer;
+begin
+  Result := FPackageCount;
+end;
+
+function TIdeMemberRun.Filtered: Boolean;
+begin
+  Result := FFilter <> nil;
+end;
+
+function TIdeMemberRun.Stats: TDpccSliceStats;
+begin
+  Result := FStats;
 end;
 
 end.

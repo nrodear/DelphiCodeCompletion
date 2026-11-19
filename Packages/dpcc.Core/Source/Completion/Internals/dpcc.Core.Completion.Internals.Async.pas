@@ -68,7 +68,8 @@ type
     /// anderen Threads, aber nur bis Fetch zurückkehrt; das Ergebnis kommt danach dazu.</summary>
     function Fetch(const AContext: TDpccContext; AData: TObject; const ACancelled: TDpccCancelledFunc;
       const AEmit: TDpccEmitProc; out AState: TDpccFetchState): TDpccCompletionItems; virtual; abstract;
-    /// <summary>Weitere Arbeit im Hintergrund (z. B. Details nachfragen); Shutdown wartet auch darauf.</summary>
+    /// <summary>Weitere Arbeit im Hintergrund (z. B. Details nachfragen); gezählt wie die Arbeiter von Query
+    /// (WaitWorkersIdle, Destroy warten auch darauf).</summary>
     procedure RunInBackground(const AWork: TProc);
     /// <summary>Für Aufrufe per TDpccMainThread.Queue: nur ausführen, solange Token.Alive gilt.</summary>
     property Token: TDpccAliveToken read FToken;

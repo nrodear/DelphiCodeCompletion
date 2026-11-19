@@ -107,7 +107,7 @@ is selected there does dpcc jump (see [Usage](usage.md#when-dpcc-is-selected-as-
 |---|---|
 | The target is in a unit without source (known only from a package). | Expected: no jump, no message. If the source is available, add its folder under “Additional source folders”. |
 | dpcc does not find the unit or cannot resolve the name uniquely (ambiguous overload, `with` with an unknown type). | Expected. Check the search paths; see [The list is empty or incomplete](#the-list-is-empty-or-incomplete). |
-| The index is still being built or the answer took longer than 1 second. | Wait and try again. |
+| The index is still being built or the answer took longer than 3 seconds (after 250 ms dpcc jumps by itself, but only until then and only while the cursor stays in place). | Wait and try again. |
 | A dpcc parameter hint with several overloads is open. | Since this version, Ctrl+Alt+↑/↓ switches the overload there; Alt+↑ goes to the IDE. |
 | The dpcc tooltip covers the word. | Hold down Ctrl: mouse and click then go through the tooltip to the editor. |
 

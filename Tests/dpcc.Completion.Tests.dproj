@@ -164,6 +164,8 @@
         <DCCReference Include="IDE\dpcc.Core.Lsp.SessionStart.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Lsp\dpcc.Core.Lsp.LateAnswers.pas"/>
         <DCCReference Include="IDE\dpcc.Core.Lsp.LateAnswers.Tests.pas"/>
+        <DCCReference Include="..\Packages\dpcc.Core\Source\Lsp\dpcc.Core.Lsp.IdeSlices.pas"/>
+        <DCCReference Include="IDE\dpcc.Core.Lsp.IdeSlices.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Settings\dpcc.Core.Settings.MasterSwitch.pas"/>
         <DCCReference Include="IDE\dpcc.Core.Settings.MasterSwitch.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Diagnostics\dpcc.Core.Diagnostics.LogRedaction.pas"/>
@@ -214,6 +216,8 @@
         <DCCReference Include="..\Packages\dpcc.Core\Source\Files\dpcc.Core.Files.TextFile.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Files\dpcc.Core.Files.DataFile.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Projects\dpcc.Core.Projects.Contract.pas"/>
+        <DCCReference Include="..\Packages\dpcc.Core\Source\Projects\dpcc.Core.Projects.ContextGate.pas"/>
+        <DCCReference Include="IDE\dpcc.Core.Projects.ContextGate.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Status\dpcc.Core.Status.Contract.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Notifications\dpcc.Core.Notifications.Contract.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Notifications\dpcc.Core.Notifications.Sources.pas"/>

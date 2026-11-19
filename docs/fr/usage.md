@@ -77,7 +77,8 @@ comme d'habitude via DelphiLSP ; dpcc n'y participe pas.
 - Pas de cible, pas de saut : unités sans source (connues seulement par les packages), unités que dpcc ne trouve pas,
   surcharges ambiguës et `with` avec un type inconnu. L'IDE ne saute alors pas et n'affiche aucun message.
 - Pour Ctrl+clic, c'est la position sous la souris qui compte, pour « Find Declaration » le curseur.
-- L'IDE attend dpcc au plus 1 seconde. Si cela dure plus longtemps, elle ne saute pas.
+- L'IDE attend dpcc au plus 250 ms. Si la réponse arrive plus tard, dpcc saute lui-même, à condition que le même
+  fichier soit actif, que le curseur soit toujours à la position de départ et que 3 secondes au plus se soient écoulées.
 
 La première fois de chaque session, la fenêtre Messages indique que dpcc est choisi et ce qui manque alors : Error
 Insight (marques d'erreur dans l'éditeur) et les autres services de DelphiLSP. Si vous en avez besoin, désactivez

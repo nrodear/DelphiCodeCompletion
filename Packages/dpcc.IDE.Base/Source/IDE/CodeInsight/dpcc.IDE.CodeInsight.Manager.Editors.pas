@@ -78,7 +78,9 @@ type
     /// zurück; der Stopp-Thread der Sitzung wartet auf sie (WaitWorkersIdle der Quellen), bevor er die Sitzung
     /// freigibt.</summary>
     procedure BeginStop;
-    /// <summary>Nach dem Schließen der Verbindung: Hover-Anfragen kehren sofort zurück.</summary>
+    /// <summary>Nach dem Schließen der Verbindung: Ergebnisse laufender Hover-Anfragen verwerfen, ohne zu warten.
+    /// Ihre Arbeiter kehren nach dem Schließen sofort zurück; der Stopp-Thread der Sitzung wartet auf sie
+    /// (TDpccEditorHover.WaitWorkersIdle), bevor er die Sitzung freigibt.</summary>
     procedure EndStop;
     /// <summary>Hauptschalter aus (#407): offene Liste samt Platzhalter-Modus, Parameter-Hint und Tooltip schließen;
     /// die Anbindungen bleiben für das Wiedereinschalten. Nur im Hauptthread.</summary>
@@ -369,7 +371,8 @@ end;
 
 procedure TDpccCodeInsightEditors.EndStop;
 begin
-  // Hover-Anfragen halten die Sitzung als rohen Zeiger; nach Close kehren sie sofort zurück.
+  // Hover-Anfragen halten die Sitzung als rohen Zeiger; nach Close kehren sie sofort zurück. Hier nur abbrechen;
+  // gewartet wird im Stopp-Thread (TDpccEditorHover.WaitWorkersIdle).
   if FHover <> nil then
   begin
     FHover.Shutdown;

@@ -101,7 +101,8 @@ type
     function Query(const AFileName, AText: string; ALine, ACharacter: Integer;
       const ACallback: TDpccSignatureCallback): Boolean;
     procedure Cancel;
-    /// <summary>Bricht laufende Anfragen ab und wartet auf sie.</summary>
+    /// <summary>Bricht laufende Anfragen ab, ohne auf sie zu warten (gewartet wird im Stopp-Thread der Sitzung bzw.
+    /// beim Freigeben der Quelle).</summary>
     procedure Shutdown;
   end;
 

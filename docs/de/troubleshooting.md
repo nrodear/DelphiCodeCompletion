@@ -104,7 +104,7 @@ ist. Nur wenn dort dpcc gewählt ist, springt dpcc (siehe
 |---|---|
 | Das Ziel liegt in einer Unit ohne Quelltext (nur aus einem Package bekannt). | Erwartet: kein Sprung, keine Meldung. Liegt der Quelltext vor, seinen Ordner unter „Zusätzliche Quellordner“ eintragen. |
 | dpcc findet die Unit nicht oder kann den Namen nicht eindeutig auflösen (mehrdeutige Überladung, `with` mit unbekanntem Typ). | Erwartet. Suchpfade prüfen; siehe [Die Liste ist leer oder unvollständig](#die-liste-ist-leer-oder-unvollständig). |
-| Der Index wird noch aufgebaut oder die Antwort dauerte länger als 1 Sekunde. | Warten und noch einmal versuchen. |
+| Der Index wird noch aufgebaut oder die Antwort dauerte länger als 3 Sekunden (nach 250 ms springt dpcc selbst, aber nur bis dahin und nur, solange der Cursor an der Stelle bleibt). | Warten und noch einmal versuchen. |
 | Ein Parameter-Hint von dpcc mit mehreren Überladungen ist offen. | Seit dieser Fassung wechselt dort Strg+Alt+↑/↓ die Überladung; Alt+↑ geht an die IDE. |
 | Der Tooltip von dpcc verdeckt das Wort. | Strg gedrückt halten: Maus und Klick gehen dann durch den Tooltip an den Editor. |
 

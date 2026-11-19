@@ -26,6 +26,10 @@
 // Wort, das er verdeckt, mit Strg+Klick erreichbar.
 // Seit S3 entfallen Verlauf und Anheften, Aktionen, Links und Kopieren. Probleme an der Mausposition zeigt der
 // Tooltip nicht: Seit R6 gibt es in der IDE keine Quelle mehr dafür (der Rückruf war schon vor S3 nil).
+// Stopp der Sitzung ohne Warten im Hauptthread (wie Vervollständigung und Parameter-Hint): Shutdown verwirft nur
+// die Ergebnisse laufender Anfragen und gibt beendete Arbeiter frei. Die Arbeiter halten die Sitzung als rohen
+// Zeiger; gRunningWorkers zählt sie, und der Stopp-Thread der Sitzung wartet mit WaitWorkersIdle auf sie, bevor er
+// die Sitzung freigibt. Destroy wartet auf alle (Entladen).
 
 interface
 
@@ -169,9 +173,15 @@ type
     constructor Create(const ASession: TDpccHoverSessionFunc; const ALog: TDpccHoverLogFunc); overload;
     destructor Destroy; override;
     procedure Hide;
-    /// <summary>Laufende Anfragen abwarten, bevor die Sitzung wegfällt (Neustart, Abschalten).
-    /// Ihre Ergebnisse zeigt der Tooltip nicht mehr. Nur im Hauptthread.</summary>
+    /// <summary>Bevor die Sitzung wegfällt (Neustart, Abschalten): Ergebnisse laufender Anfragen zeigt der Tooltip
+    /// nicht mehr; beendete Arbeiter werden freigegeben, laufende erst später (spätestens Destroy). Wartet nicht.
+    /// Vor dem Freigeben der Sitzung WaitWorkersIdle abwarten. Nur im Hauptthread.</summary>
     procedure Shutdown;
+    /// <summary>Laufende Hover-Anfragen aller Tooltips (sie halten die Sitzung als rohen Zeiger).</summary>
+    class function RunningWorkers: Integer; static;
+    /// <summary>Bis zu AMs warten, bis keine Hover-Anfrage mehr läuft; vorzeitig beim Abbruchsignal (TDpccShutdown).
+    /// Nur im Hintergrund (Stopp-Thread der Sitzung), nie im Hauptthread. True, wenn keine läuft.</summary>
+    class function WaitWorkersIdle(AMs: Cardinal): Boolean; static;
   end;
 
 implementation
@@ -179,7 +189,9 @@ implementation
 uses
   dpcc.Core.Diagnostics.Guard,
   dpcc.Core.Diagnostics.MainThread,
+  dpcc.Core.Diagnostics.Shutdown,
   Winapi.Windows,
+  System.Diagnostics,
   Vcl.Forms,
   dpcc.Core.Completion.Word,
   dpcc.Core.Documentation.Contract,
@@ -187,6 +199,14 @@ uses
   dpcc.IDE.Foundation.EditorBuffer,
   dpcc.IDE.Foundation.EditorStyle,
   dpcc.IDE.Foundation.Settings;
+
+const
+  /// <summary>Takt von WaitWorkersIdle (nur im Hintergrund).</summary>
+  cWorkerPollMs = 10;
+
+var
+  /// <summary>Laufende Hover-Anfragen aller Tooltips; gezählt vor dem Start, vermindert am Ende des Threads.</summary>
+  gRunningWorkers: Integer;
 
 { TDpccEditorHover.TEvents }
 
@@ -396,7 +416,26 @@ begin
   // Eingereihte Ergebnisse veralten (Show vergleicht FRequest); die Arbeiter halten die Sitzung als rohen Zeiger.
   // Ohne Hide: Der Tooltip zeigt kopierte Daten, ein Neustart soll ihn nicht schließen.
   Inc(FRequest);
-  ReapWorkers(True);
+  // Nicht warten: Laufende Arbeiter bleiben in der Liste; der Stopp-Thread wartet auf sie (WaitWorkersIdle).
+  ReapWorkers(False);
+end;
+
+class function TDpccEditorHover.RunningWorkers: Integer;
+begin
+  Result := AtomicCmpExchange(gRunningWorkers, 0, 0);
+end;
+
+class function TDpccEditorHover.WaitWorkersIdle(AMs: Cardinal): Boolean;
+var
+  mWatch: TStopwatch;
+begin
+  mWatch := TStopwatch.StartNew;
+  Result := RunningWorkers <= 0;
+  while not Result and (mWatch.ElapsedMilliseconds < AMs) and not TDpccShutdown.Signalled do
+  begin
+    TThread.Sleep(cWorkerPollMs);
+    Result := RunningWorkers <= 0;
+  end;
 end;
 
 procedure TDpccEditorHover.EditorMouseMove(const Editor: TWinControl; Shift: TShiftState; X, Y: Integer);
@@ -597,33 +636,45 @@ begin
       mData: TDpccHoverData;
       mShow: TThreadProcedure;
     begin
-      mData := Default(TDpccHoverData);
       try
-        mData := ASession.HoverDataAt(mFileName, mLine, mCharacter, 0);
-      except
-        // Server langsam oder weg: kein Tooltip, die IDE wartet nie darauf.
         mData := Default(TDpccHoverData);
-      end;
-      mShow :=
-        procedure
-        begin
-          // Nur die jüngste Anfrage und nur, solange die Maus noch auf demselben Wort steht.
-          if not mAlive.Alive or (mAliveRef = nil) or (mOwner.FRequest <> mRequest) or (mOwner.FKey <> mKey) then
-          begin
-            Exit;
-          end;
-          TDpccGuard.Run(TDpccFeature.Hover,
-            procedure
-            begin
-              mOwner.ShowData(mData);
-            end);
+        try
+          mData := ASession.HoverDataAt(mFileName, mLine, mCharacter, 0);
+        except
+          // Server langsam oder weg: kein Tooltip, die IDE wartet nie darauf.
+          mData := Default(TDpccHoverData);
         end;
-      // dpcc gehört der Eintrag: beim Entladen verworfen, übersteht aber ReapWorkers.
-      TDpccMainThread.Queue(TDpccFeature.Hover, mShow);
+        mShow :=
+          procedure
+          begin
+            // Nur die jüngste Anfrage und nur, solange die Maus noch auf demselben Wort steht.
+            if not mAlive.Alive or (mAliveRef = nil) or (mOwner.FRequest <> mRequest) or (mOwner.FKey <> mKey) then
+            begin
+              Exit;
+            end;
+            TDpccGuard.Run(TDpccFeature.Hover,
+              procedure
+              begin
+                mOwner.ShowData(mData);
+              end);
+          end;
+        // dpcc gehört der Eintrag: beim Entladen verworfen, übersteht aber ReapWorkers.
+        TDpccMainThread.Queue(TDpccFeature.Hover, mShow);
+      finally
+        // Ab hier fasst der Arbeiter die Sitzung nicht mehr an (WaitWorkersIdle im Stopp-Thread).
+        AtomicDecrement(gRunningWorkers);
+      end;
     end);
   mWorker.FreeOnTerminate := False;
   FWorkers.Add(mWorker);
-  mWorker.Start;
+  // Vor dem Start gezählt: Der Stopp der Sitzung sieht den Arbeiter, bevor er die Sitzung freigibt.
+  AtomicIncrement(gRunningWorkers);
+  try
+    mWorker.Start;
+  except
+    AtomicDecrement(gRunningWorkers);
+    raise;
+  end;
 end;
 
 procedure TDpccEditorHover.ShowData(const AData: TDpccHoverData);

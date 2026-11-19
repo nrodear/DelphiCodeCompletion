@@ -13,10 +13,12 @@
 // geht sofort ans Popup. Rank zählt über alle Teile fort.
 //
 // Lebensdauer: Die Sitzung gehört dem Aufrufer. Bevor er sie freigibt (Neustart
-// des Servers, Entladen), muss er Shutdown aufrufen; das wartet auf laufende Anfragen.
+// des Servers, Entladen), muss er Shutdown aufrufen; das bricht laufende Anfragen
+// nur ab und wartet nicht. Auf die Arbeiter wartet der Stopp-Thread der Sitzung
+// (TDpccAsyncCompletionProvider.WaitWorkersIdle), beim Freigeben der Quelle Destroy.
 //
 // Befehl eines Eintrags (#473, perf1): RunCommand (IDpccCompletionCommandRunner) schickt
-// workspace/executeCommand im Hintergrund (RunInBackground, Shutdown wartet darauf) und meldet
+// workspace/executeCommand im Hintergrund (RunInBackground, gezählt wie die Arbeiter von Fetch) und meldet
 // Antwort bzw. Fehler im Hauptthread. Vorher wartete der Hauptthread beim Übernehmen bis zu 3 s.
 
 interface
@@ -880,7 +882,8 @@ begin
   mAliveToken := Token;
   mAliveRef := TokenRef;
   mDone := ADone;
-  // Im Hintergrund: Shutdown wartet auf diesen Thread, bevor der Aufrufer die Sitzung freigibt.
+  // Im Hintergrund: Der Stopp-Thread der Sitzung wartet auf diesen Thread (WaitWorkersIdle), bevor er die Sitzung
+  // freigibt; Shutdown bricht nur ab.
   RunInBackground(
     procedure
     var

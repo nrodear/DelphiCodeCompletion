@@ -32,7 +32,9 @@ S'y ajoutent :
 - les types des paquets chargés dans l'IDE, même sans code source. dpcc les communique au serveur au démarrage de
   chaque session. Parmi les paquets de l'installation, seules comptent les unités sans code source (par exemple DUnitX,
   DUnit, FireDAC) ; ce qui existe en `.pas` sous `$(BDS)\source` ou `$(BDS)\OCX` vient du code source. Le serveur ne
-  demande les membres de ces types que pour les unités qu'un projet cite dans ses `uses`.
+  demande les membres de ces types que pour les unités qu'un projet cite dans ses `uses`. dpcc lit les deux par
+  petites étapes d'environ 15 ms pour que l'IDE reste réactif, et envoie en arrière-plan ; avec `Diagnose` = 1, les
+  lignes `IDE-Typen` et `IDE-Mitglieder` du journal de diagnostic indiquent le nombre d'étapes et la plus longue.
 - les unités de `uses X in 'chemin'` du `.dpr`, même sans entrée dans le `.dproj`. Comme le compilateur, dpcc cherche
   les `uses` d'une unité d'abord dans son propre dossier.
 - Un fichier hors du groupe de projets reçoit le projet de son dossier ou d'un dossier parent. S'il y a plusieurs
@@ -181,7 +183,10 @@ aussi par projet.
 ## Modifications
 
 - dpcc vérifie les modifications du groupe de projets au plus toutes les deux secondes, les modifications de la
-  configuration et des options au plus une fois par seconde.
+  configuration et des options au plus une fois par seconde. Il ne compare que les projets, le projet actif, la
+  configuration et la plate-forme ; il relit les chemins de recherche, les defines et le chemin de bibliothèque quand
+  l'un d'eux change, quand un dialogue de l'IDE (par exemple les options du projet) se ferme, et sinon au moins toutes
+  les 15 secondes.
 - dpcc signale au serveur les fichiers enregistrés.
 - Modifications en dehors de l'IDE : dpcc surveille les dossiers des projets (le répertoire de travail Git, sinon le
   dossier du projet). Les modifications collectées partent vers le serveur avec la requête suivante.

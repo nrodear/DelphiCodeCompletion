@@ -30,7 +30,9 @@ Dazu kommen:
 - die Typen der Packages, die in der IDE geladen sind, auch ohne Quelltext. dpcc meldet sie beim Start jeder
   Sitzung an den Server. Aus den Packages der Installation zählen nur Units ohne Quelltext (etwa DUnitX, DUnit,
   FireDAC); was als `.pas` unter `$(BDS)\source` oder `$(BDS)\OCX` liegt, kommt aus dem Quelltext. Die Mitglieder
-  dieser Typen holt der Server nur für Units, die ein Projekt in seinen `uses` nennt.
+  dieser Typen holt der Server nur für Units, die ein Projekt in seinen `uses` nennt. dpcc liest beides in kleinen
+  Schritten von etwa 15 ms, damit die IDE bedienbar bleibt, und sendet im Hintergrund; mit `Diagnose` = 1 nennen
+  die Zeilen `IDE-Typen` und `IDE-Mitglieder` im Diagnoseprotokoll die Zahl der Schritte und den längsten.
 - Units aus `uses X in 'Pfad'` in der `.dpr`, auch ohne Eintrag in der `.dproj`. Die `uses` einer Unit sucht dpcc wie
   der Compiler zuerst in ihrem eigenen Ordner.
 - Eine Datei außerhalb der Projektgruppe bekommt das Projekt aus ihrem Ordner oder einem darüber. Liegen dort mehrere
@@ -166,7 +168,9 @@ Quellordner. Ohne Projektbezug gilt: Projekt vor Suchpfad vor Bibliothek vor Zus
 ## Änderungen
 
 - Änderungen in der Projektgruppe prüft dpcc höchstens alle zwei Sekunden, Änderungen an Konfiguration und
-  Optionen höchstens einmal je Sekunde.
+  Optionen höchstens einmal je Sekunde. Dabei vergleicht dpcc nur Projekte, aktives Projekt, Konfiguration und
+  Plattform; Suchpfade, Defines und Bibliothekspfad liest es neu, wenn sich davon etwas ändert, ein Dialog der IDE
+  (etwa Projektoptionen) geschlossen wird, und sonst spätestens alle 15 Sekunden.
 - Gespeicherte Dateien meldet dpcc dem Server.
 - Änderungen außerhalb der IDE: dpcc beobachtet die Ordner der Projekte (das Git-Arbeitsverzeichnis, sonst den
   Projektordner). Gesammelte Änderungen gehen mit der nächsten Anfrage an den Server.

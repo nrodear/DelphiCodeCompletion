@@ -45,9 +45,11 @@
 //   mit "[" am Anfang vor einer Deklaration (Attribut). Die Zeile "[lists]" nennt Einträge, Antwortzeit und die
 //   dabei nachgeladenen Units (raise und Attribute laden seit L4 keine kalte Unit mehr nach).
 // - DPCC_MEMBENCH_DEFINITIONS (NAV): durch "|" getrennte Fälle "Units#Zeile#Wort": eine Projekt-Unit mit diesen
-//   uses und der Zeile im Rumpf einer Routine, darin Strg+Klick auf das Wort (TLspSession.GotoTarget mit dem
-//   Zeitlimit des Hauptthreads wie in der IDE). Die Zeile "[definition]" nennt Ziel (Datei, Zeile), Antwortzeit und
-//   die dabei nachgeladenen Units; "[definition] Summe" Treffer, Median und Höchstwert.
+//   uses und der Zeile im Rumpf einer Routine, darin Strg+Klick auf das Wort (TLspSession.GotoTarget mit eigener
+//   Grenze cDefinitionLimitMs = 1 s, dem früheren Zeitlimit der IDE). Die Zeile "[definition]" nennt Ziel (Datei,
+//   Zeile), Antwortzeit und die dabei nachgeladenen Units; "[definition] Summe" Treffer, Median, Höchstwert und
+//   zuletzt, wie viele Antworten über der heutigen Wartezeit der IDE lagen (cMainThreadTimeoutMs, 250 ms; dort käme
+//   der Sprung nachgereicht).
 // Je Messpunkt eine Zeile "[lazy]" mit geladenen, gepinnten, verdrängbaren und verdrängten Units, Katalog und
 // Dauer des Nachladens (Median, Höchstwert, größte Unit).
 // Der Cache gehört nicht dem Benutzer: Der Aufrufer setzt LOCALAPPDATA bzw. DPCC_CACHE_ROOT auf einen eigenen Ordner
@@ -108,6 +110,10 @@ const
   cIndexMaxMs = 45 * 60 * 1000;
   cOpenMax = 10;
   cFileCount = 50;
+  /// <summary>Strg+Klick (NAV): eigene Grenze des Messprogramms für GotoTarget, wie früher das Zeitlimit der IDE.
+  /// Die IDE wartet heute nur TLspSession.cMainThreadTimeoutMs und reicht spätere Sprünge nach; wie oft das nötig
+  /// wäre, zählt "[definition] Summe".</summary>
+  cDefinitionLimitMs = 1000;
 
 type
   TBenchPoint = record
@@ -1409,13 +1415,14 @@ var
   mLocation: TLspLocation;
   mFound: Boolean;
   mTimes: TList<Double>;
-  mHits, mAt: Integer;
+  mHits, mAt, mLate: Integer;
   mMedian: Double;
 begin
   mFile := FFiles[0];
   mOwn := ChangeFileExt(ExtractFileName(mFile), '');
   EnsureOpen(mFile);
   mHits := 0;
+  mLate := 0;
   mTimes := TList<Double>.Create;
   try
     for mCase in ACases do
@@ -1435,11 +1442,16 @@ begin
         FSession.Sync(mFile, mText);
         mBefore := LazyNow(mFile);
         mWatch := TStopwatch.StartNew;
-        mFound := FSession.GotoTarget(mFile, mText, 6, mAt + 1, TLspSession.cMainThreadTimeoutMs, mLocation);
+        mFound := FSession.GotoTarget(mFile, mText, 6, mAt + 1, cDefinitionLimitMs, mLocation);
         mWatch.Stop;
         mAfter := LazyNow(mFile);
         Inc(FRequests);
         mTimes.Add(mWatch.Elapsed.TotalMilliseconds);
+        // Über der Wartezeit der IDE: Dort käme der Sprung nachgereicht (TDpccLateGoto).
+        if mWatch.Elapsed.TotalMilliseconds > TLspSession.cMainThreadTimeoutMs then
+        begin
+          Inc(mLate);
+        end;
         if mFound then
         begin
           Inc(mHits);
@@ -1470,9 +1482,10 @@ begin
       begin
         mMedian := (mTimes[mTimes.Count div 2 - 1] + mTimes[mTimes.Count div 2]) / 2;
       end;
-      System.Writeln(Format('[definition] Summe: %d von %d mit Ziel, Median %s ms, Höchstwert %s ms',
+      // Neue Angaben nur hinten anhängen: Auswertungen lesen die Zeile von vorn.
+      System.Writeln(Format('[definition] Summe: %d von %d mit Ziel, Median %s ms, Höchstwert %s ms, über %d ms %d',
         [mHits, mTimes.Count, FormatFloat('0.0', mMedian, TFormatSettings.Invariant),
-        FormatFloat('0.0', mTimes.Last, TFormatSettings.Invariant)]));
+        FormatFloat('0.0', mTimes.Last, TFormatSettings.Invariant), TLspSession.cMainThreadTimeoutMs, mLate]));
     end;
   finally
     mTimes.Free;

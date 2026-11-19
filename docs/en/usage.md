@@ -73,7 +73,8 @@ involved.
 - No target, no jump: units without source (known only from packages), units dpcc does not find, ambiguous
   overloads and `with` with an unknown type. The IDE then does not jump and shows no message.
 - For Ctrl+click the position under the mouse counts, for “Find Declaration” the cursor.
-- The IDE waits at most 1 second for dpcc. If it takes longer, it does not jump.
+- The IDE waits at most 250 ms for dpcc. If the answer comes later, dpcc jumps by itself, provided the same file is
+  active, the cursor is still at the starting point and no more than 3 seconds have passed.
 
 The first time in each session, the Messages window says that dpcc is selected and what is missing then: Error
 Insight (error marks in the editor) and the other DelphiLSP services. If you need them, turn the master switch off

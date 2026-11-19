@@ -526,7 +526,8 @@ begin
   begin
     Exit;
   end;
-  // Im Hintergrund über die Serverquelle: Ihr Shutdown wartet auf den Befehl, bevor die Sitzung freigegeben wird.
+  // Im Hintergrund über die Serverquelle: Der Stopp-Thread der Sitzung wartet auf den Befehl (WaitWorkersIdle),
+  // bevor er die Sitzung freigibt.
   // Die Antwort wird nur protokolliert; die Änderungen des Servers kommen über workspace/applyEdit.
   mLog := FLog;
   if not Supports(FSources.Server, IDpccCompletionCommandRunner, mRunner) or

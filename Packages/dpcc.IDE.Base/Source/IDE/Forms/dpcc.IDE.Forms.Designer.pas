@@ -13,12 +13,9 @@
 //   266 ms je Änderung). Ein geschlossenes Formular meldet dpcc mit
 //   didClose ab, danach gilt wieder die Datei. Nach einem Serverneustart
 //   gehen alle Formulare neu an den Server.
-// - Änderungen des Servers an einem offenen Formular (Umbenennen eines
-//   Handlers, #397) schreibt dpcc nicht auf die Platte, sonst überschreibt
-//   der Designer sie beim Speichern: TDpccFormChanges vergleicht den
-//   gesendeten mit dem geänderten Text, die Ereignis-Zuordnungen und einzeilige
-//   Eigenschaften (Eigenschaftsregeln, #309) setzt dpcc im Designer über RTTI.
-//   Andere Änderungen an offenen Formularen lehnt dpcc ab.
+// - Änderungen des Servers an offenen Formularen (#397, #309: Check, Apply, IsOpen, SentText; Ereignisse und
+//   Eigenschaften über RTTI im Designer) sind entfallen: Sie hatten keinen Aufrufer mehr. Damit merkt sich dpcc auch
+//   den gesendeten Text nicht mehr (früher FTexts, Grundlage für Check).
 // - Nur Formulare mit offenem Designer (Hänger beim Öffnen einer Formular-Unit): dpcc geht nicht mehr über
 //   ModuleFileEditors aller Module (das konnte Designer laden), sondern merkt sich die Designer aus DesignerOpened
 //   bzw. der ersten Änderung (beim Laden des Plugins schon offene VCL-Designer aus Screen.CustomForms). Der Abgleich
@@ -57,8 +54,6 @@ uses
   ToolsAPI,
   DesignIntf,
   dpcc.Core.Lsp.Session,
-  dpcc.Core.Lsp.WorkspaceEdits,
-  dpcc.Core.Forms.Changes,
   dpcc.Core.Forms.Sync,
   dpcc.Core.Diagnostics.ThreadList;
 
@@ -100,8 +95,6 @@ type
     /// benutzt (die Komponente kann inzwischen frei sein).</summary>
     FDirtyRoots: TList<TComponent>;
     FLastSession: TLspSession;
-    /// <summary>Zuletzt gesendeter Text je Formulardatei (Schlüssel in Großbuchstaben).</summary>
-    FTexts: TDictionary<string, string>;
     /// <summary>Wurzelkomponente → Formulardatei, für DesignerClosed.</summary>
     FRoots: TDictionary<TComponent, string>;
     /// <summary>Offene Designer je Wurzel samt Formulardatei (DesignerOpened bis DesignerClosed).</summary>
@@ -119,8 +112,7 @@ type
     procedure StartJob(const AJob: TDpccFormSyncJob);
     /// <summary>Text fertig (Hauptthread): Senden im Hintergrund anstoßen oder den Auftrag abschließen.</summary>
     procedure SendConverted(const AJob: TDpccFormSyncJob; const AText, AError: string);
-    /// <summary>Auftrag abschließen: gesendeten Text merken, geschlossenes Formular abmelden, nächsten starten.
-    /// </summary>
+    /// <summary>Auftrag abschließen: geschlossenes Formular abmelden, nächsten starten.</summary>
     procedure Settle(const AJob: TDpccFormSyncJob; ASucceeded: Boolean; const AText: string);
     /// <summary>Rückmeldungen der Threads (über TDpccMainThread.Queue); ohne lebendes Objekt verworfen.</summary>
     class procedure Converted(const AJob: TDpccFormSyncJob; const AText, AError: string); static;
@@ -146,33 +138,16 @@ type
     procedure SyncForm(ARoot: TComponent; const ADesigner: IDesigner);
     /// <summary>Formulardatei des offenen Designers zu ARoot (gemerkt in FDesigners); '' wenn unbekannt.</summary>
     function FileNameOf(ARoot: TComponent): string;
-    /// <summary>Offenes Formular zu AFileName.</summary>
-    function FindOpen(const AFileName: string; out ARoot: TComponent; out ADesigner: IDesigner): Boolean;
     procedure Log(const AText: string);
   public
     /// <summary>ASessionOf: laufende Sitzung, ohne den Server zu starten; ALog: Diagnoseprotokoll.</summary>
     constructor Create(const ASessionOf: TFunc<TLspSession>; const ALog: TProc<string>);
     destructor Destroy; override;
-    /// <summary>Zuletzt an den Server geschickter Text eines offenen Formulars (Stand nach dem letzten fertigen
-    /// Auftrag).</summary>
-    class function SentText(const AFileName: string; out AText: string): Boolean; static;
-    /// <summary>Ist AFileName (.dfm/.fmx) gerade im Designer offen?</summary>
-    class function IsOpen(const AFileName: string): Boolean; static;
-    /// <summary>Lassen sich AEdits im offenen Formular ausführen? '' mit AChanges und AProperties, sonst der
-    /// Grund.</summary>
-    class function Check(const AFileName: string; const AEdits: TArray<TLspTextEdit>;
-      out AChanges: TArray<TDpccFormEventChange>; out AProperties: TArray<TDpccFormPropertyChange>): string;
-      static;
-    /// <summary>Setzt Ereignis-Zuordnungen und Eigenschaften (#309) im Designer; '' bei Erfolg, sonst der
-    /// Grund (nichts geändert).</summary>
-    class function Apply(const AFileName: string; const AChanges: TArray<TDpccFormEventChange>;
-      const AProperties: TArray<TDpccFormPropertyChange>): string; static;
   end;
 
 implementation
 
 uses
-  System.TypInfo,
   Vcl.Forms,
   dpcc.Core.Diagnostics.Guard,
   dpcc.Core.Diagnostics.Hangs,
@@ -180,52 +155,7 @@ uses
   dpcc.Core.Diagnostics.Shutdown,
   dpcc.Core.Diagnostics.TimeLimit,
   dpcc.Core.Forms.Text,
-  dpcc.IDE.Foundation.EditorSnapshot,
-  dpcc.Core.Localization.Language;
-
-{$SCOPEDENUMS ON}
-
-type
-  /// <summary>Benutzertexte dieser Unit (#1458).</summary>
-  TDesignerText = (IsNotAnObjectProperty, IsNotSet, CannotBeSet, HasNoDefaultValue, NotAStringValue, IsNotANumber,
-    TypeIsNotSetIn, ComponentNotFound, IsNotAnEvent, MethodIsMissingInThe, OpenInTheDesignerBut,
-    OpenInTheDesignerThere, FormIsNoLongerOpen);
-{$SCOPEDENUMS OFF}
-
-const
-  cTexts: array[TDpccLanguage, TDesignerText] of string = (
-    ('%s ist keine Objekt-Eigenschaft',
-     '%s ist nicht gesetzt',
-     '%s lässt sich nicht setzen',
-     '%s hat keinen Vorgabewert',
-     '%s: kein String-Wert',
-     '%s: %s ist keine Zahl',
-     '%s: Typ wird im Designer nicht gesetzt',
-     'Komponente %s nicht gefunden',
-     '%s.%s ist kein Ereignis',
-     'Methode %s fehlt in der Unit',
-     'im Designer offen, aber noch nicht an den Server gemeldet',
-     'im Designer offen; dort ändert dpcc nur Ereignis-Zuordnungen und einzeilige Eigenschaften (%s)',
-     'Formular ist nicht mehr offen'),
-    ('%s is not an object property',
-     '%s is not set',
-     '%s cannot be set',
-     '%s has no default value',
-     '%s: not a string value',
-     '%s: %s is not a number',
-     '%s: type is not set in the designer',
-     'component %s not found',
-     '%s.%s is not an event',
-     'method %s is missing in the unit',
-     'open in the designer, but not yet reported to the server',
-     'open in the designer; there dpcc only changes event assignments and single-line properties (%s)',
-     'form is no longer open'));
-
-/// <summary>Text AId in der Sprache der Oberfläche.</summary>
-function UiText(AId: TDesignerText): string;
-begin
-  Result := cTexts[TDpccTextLanguage.Current, AId];
-end;
+  dpcc.IDE.Foundation.EditorSnapshot;
 
 const
   cSyncDelayMs = 500;
@@ -236,11 +166,6 @@ const
   /// <summary>Ab dieser Größe des letzten Binärstroms gilt ein Formular als groß: beim Abgleich aller allein im Takt.
   /// </summary>
   cLargeFormBytes = 64 * 1024;
-
-function Key(const AFileName: string): string;
-begin
-  Result := AnsiUpperCase(AFileName);
-end;
 
 /// <summary>Formulardatei des Designers ADesigner aus seinen eigenen Moduldateien (IDesigner.ModuleFileNames), nicht
 /// über den Namen der Wurzel: Formularnamen sind in einer Projektgruppe nicht eindeutig (mehrere "Form1"). Fasst
@@ -360,280 +285,6 @@ begin
     end;
 end;
 
-const
-  /// <summary>PropInfo.Default ohne default-Angabe (wie in System.Classes).</summary>
-  cNoDefaultValue = Integer($80000000);
-
-/// <summary>Löst APath (auch Font.Name) an AComponent auf; '' oder der Grund.</summary>
-function ResolveProperty(AComponent: TObject; const APath: string; out AInstance: TObject;
-  out AProp: PPropInfo): string;
-var
-  mParts: TArray<string>;
-  mIndex: Integer;
-begin
-  AInstance := AComponent;
-  AProp := nil;
-  mParts := APath.Split(['.']);
-  if Length(mParts) = 0 then
-  begin
-    Exit('ohne Eigenschaft');
-  end;
-  for mIndex := 0 to High(mParts) - 1 do
-  begin
-    AProp := GetPropInfo(AInstance, mParts[mIndex]);
-    if (AProp = nil) or (AProp^.PropType^.Kind <> tkClass) then
-    begin
-      Exit(Format(UiText(TDesignerText.IsNotAnObjectProperty), [mParts[mIndex]]));
-    end;
-    AInstance := GetObjectProp(AInstance, AProp);
-    if AInstance = nil then
-    begin
-      Exit(Format(UiText(TDesignerText.IsNotSet), [mParts[mIndex]]));
-    end;
-  end;
-  AProp := GetPropInfo(AInstance, mParts[High(mParts)]);
-  if (AProp = nil) or (AProp^.SetProc = nil) then
-  begin
-    Exit(Format(UiText(TDesignerText.CannotBeSet), [APath]));
-  end;
-  Result := '';
-end;
-
-/// <summary>Zeile entfernt (Rückgängig, #721): zurück zum Vorgabewert der Deklaration.</summary>
-function ResetValue(AInstance: TObject; AProp: PPropInfo; const APath: string; ACheckOnly: Boolean): string;
-var
-  mKind: TTypeKind;
-begin
-  Result := '';
-  mKind := AProp^.PropType^.Kind;
-  if (mKind in [tkInteger, tkChar, tkWChar, tkEnumeration, tkSet]) and (AProp^.Default <> cNoDefaultValue) then
-  begin
-    if not ACheckOnly then
-    begin
-      SetOrdProp(AInstance, AProp, AProp^.Default);
-    end;
-  end
-  else if mKind in [tkString, tkLString, tkWString, tkUString] then
-  begin
-    if not ACheckOnly then
-    begin
-      SetStrProp(AInstance, AProp, '');
-    end;
-  end
-  else
-  begin
-    Result := Format(UiText(TDesignerText.HasNoDefaultValue), [APath]);
-  end;
-end;
-
-function AssignString(AInstance: TObject; AProp: PPropInfo; const AChange: TDpccFormPropertyChange;
-  ACheckOnly: Boolean): string;
-var
-  mText: string;
-begin
-  Result := '';
-  if not TDpccFormChanges.StringValue(AChange.Value, mText) then
-  begin
-    Result := Format(UiText(TDesignerText.NotAStringValue), [AChange.PropertyPath]);
-  end
-  else if not ACheckOnly then
-  begin
-    SetStrProp(AInstance, AProp, mText);
-  end;
-end;
-
-/// <summary>Ganzzahl oder Bezeichner wie clRed oder crHandPoint.</summary>
-function AssignInteger(AInstance: TObject; AProp: PPropInfo; const AChange: TDpccFormPropertyChange;
-  ACheckOnly: Boolean): string;
-var
-  mNumber: Integer;
-  mIdentToInt: TIdentToInt;
-begin
-  Result := '';
-  if not TryStrToInt(AChange.Value, mNumber) then
-  begin
-    mIdentToInt := FindIdentToInt(AProp^.PropType^);
-    if not Assigned(mIdentToInt) or not mIdentToInt(AChange.Value, mNumber) then
-    begin
-      Exit(Format(UiText(TDesignerText.IsNotANumber), [AChange.PropertyPath, AChange.Value]));
-    end;
-  end;
-  if not ACheckOnly then
-  begin
-    SetOrdProp(AInstance, AProp, mNumber);
-  end;
-end;
-
-function AssignInt64(AInstance: TObject; AProp: PPropInfo; const AChange: TDpccFormPropertyChange;
-  ACheckOnly: Boolean): string;
-var
-  mNumber: Int64;
-begin
-  Result := '';
-  if not TryStrToInt64(AChange.Value, mNumber) then
-  begin
-    Result := Format(UiText(TDesignerText.IsNotANumber), [AChange.PropertyPath, AChange.Value]);
-  end
-  else if not ACheckOnly then
-  begin
-    SetInt64Prop(AInstance, AProp, mNumber);
-  end;
-end;
-
-function AssignEnumeration(AInstance: TObject; AProp: PPropInfo; const AChange: TDpccFormPropertyChange;
-  ACheckOnly: Boolean): string;
-var
-  mNumber: Integer;
-begin
-  Result := '';
-  mNumber := GetEnumValue(AProp^.PropType^, AChange.Value);
-  if mNumber < 0 then
-  begin
-    Result := Format('%s: unbekannter Wert %s', [AChange.PropertyPath, AChange.Value]);
-  end
-  else if not ACheckOnly then
-  begin
-    SetOrdProp(AInstance, AProp, mNumber);
-  end;
-end;
-
-function AssignSet(AInstance: TObject; AProp: PPropInfo; const AChange: TDpccFormPropertyChange;
-  ACheckOnly: Boolean): string;
-var
-  mNumber: Integer;
-begin
-  Result := '';
-  try
-    mNumber := StringToSet(AProp, AChange.Value);
-  except
-    on EPropertyConvertError do
-      Exit(Format('%s: unbekanntes Element in %s', [AChange.PropertyPath, AChange.Value]));
-  end;
-  if not ACheckOnly then
-  begin
-    SetOrdProp(AInstance, AProp, mNumber);
-  end;
-end;
-
-function AssignFloat(AInstance: TObject; AProp: PPropInfo; const AChange: TDpccFormPropertyChange;
-  ACheckOnly: Boolean): string;
-var
-  mFloat: Double;
-begin
-  Result := '';
-  if not TryStrToFloat(AChange.Value, mFloat, TFormatSettings.Invariant) then
-  begin
-    Result := Format(UiText(TDesignerText.IsNotANumber), [AChange.PropertyPath, AChange.Value]);
-  end
-  else if not ACheckOnly then
-  begin
-    SetFloatProp(AInstance, AProp, mFloat);
-  end;
-end;
-
-/// <summary>DFM-Wert aus AChange in die Eigenschaft; mit ACheckOnly nur prüfen. '' oder der Grund.</summary>
-function AssignValue(AInstance: TObject; AProp: PPropInfo; const AChange: TDpccFormPropertyChange;
-  ACheckOnly: Boolean): string;
-begin
-  if AChange.Removed then
-  begin
-    Exit(ResetValue(AInstance, AProp, AChange.PropertyPath, ACheckOnly));
-  end;
-  case AProp^.PropType^.Kind of
-    tkString, tkLString, tkWString, tkUString:
-      Result := AssignString(AInstance, AProp, AChange, ACheckOnly);
-    tkInteger:
-      Result := AssignInteger(AInstance, AProp, AChange, ACheckOnly);
-    tkInt64:
-      Result := AssignInt64(AInstance, AProp, AChange, ACheckOnly);
-    tkEnumeration:
-      Result := AssignEnumeration(AInstance, AProp, AChange, ACheckOnly);
-    tkSet:
-      Result := AssignSet(AInstance, AProp, AChange, ACheckOnly);
-    tkFloat:
-      Result := AssignFloat(AInstance, AProp, AChange, ACheckOnly);
-  else
-    Result := Format(UiText(TDesignerText.TypeIsNotSetIn), [AChange.PropertyPath]);
-  end;
-end;
-
-/// <summary>Komponente AName unter ARoot; '' ist die Wurzel selbst.</summary>
-function ComponentOf(ARoot: TComponent; const AName: string): TComponent;
-begin
-  Result := ARoot;
-  if AName <> '' then
-  begin
-    Result := ARoot.FindComponent(AName);
-  end;
-end;
-
-/// <summary>Ziele der Ereignis-Zuordnungen; '' oder der Grund.</summary>
-function CheckEvents(ARoot: TComponent; const ADesigner: IDesigner; const AChanges: TArray<TDpccFormEventChange>;
-  out ATargets: TArray<TComponent>; out AProperties: TArray<PPropInfo>): string;
-var
-  mChange: TDpccFormEventChange;
-  mComponent: TComponent;
-  mPropInfo: PPropInfo;
-begin
-  ATargets := nil;
-  AProperties := nil;
-  for mChange in AChanges do
-  begin
-    mComponent := ComponentOf(ARoot, mChange.Component);
-    if mComponent = nil then
-    begin
-      Exit(Format(UiText(TDesignerText.ComponentNotFound), [mChange.Component]));
-    end;
-    mPropInfo := GetPropInfo(mComponent, mChange.EventName);
-    if (mPropInfo = nil) or (mPropInfo^.PropType^.Kind <> tkMethod) then
-    begin
-      Exit(Format(UiText(TDesignerText.IsNotAnEvent), [mComponent.Name, mChange.EventName]));
-    end;
-    // Die Unit ist schon geändert; der Handler muss dort unter dem neuen Namen stehen.
-    if not ADesigner.MethodExists(mChange.NewHandler) then
-    begin
-      Exit(Format(UiText(TDesignerText.MethodIsMissingInThe), [mChange.NewHandler]));
-    end;
-    ATargets := ATargets + [mComponent];
-    AProperties := AProperties + [mPropInfo];
-  end;
-  Result := '';
-end;
-
-/// <summary>Ziele der Eigenschaften, Werte geprüft; '' oder der Grund.</summary>
-function CheckProperties(ARoot: TComponent; const AProperties: TArray<TDpccFormPropertyChange>;
-  out ATargets: TArray<TObject>; out AProps: TArray<PPropInfo>): string;
-var
-  mProp: TDpccFormPropertyChange;
-  mComponent: TComponent;
-  mInstance: TObject;
-  mPropInfo: PPropInfo;
-  mReason: string;
-begin
-  ATargets := nil;
-  AProps := nil;
-  for mProp in AProperties do
-  begin
-    mComponent := ComponentOf(ARoot, mProp.Component);
-    if mComponent = nil then
-    begin
-      Exit(Format(UiText(TDesignerText.ComponentNotFound), [mProp.Component]));
-    end;
-    mReason := ResolveProperty(mComponent, mProp.PropertyPath, mInstance, mPropInfo);
-    if mReason = '' then
-    begin
-      mReason := AssignValue(mInstance, mPropInfo, mProp, True);
-    end;
-    if mReason <> '' then
-    begin
-      Exit(Format('%s: %s', [mComponent.Name, mReason]));
-    end;
-    ATargets := ATargets + [mInstance];
-    AProps := AProps + [mPropInfo];
-  end;
-  Result := '';
-end;
-
 { TDpccIdeForms.TNotification }
 
 procedure TDpccIdeForms.TNotification.ItemDeleted(const ADesigner: IDesigner; AItem: TPersistent);
@@ -701,7 +352,6 @@ begin
   inherited Create;
   FSessionOf := ASessionOf;
   FLog := ALog;
-  FTexts := TDictionary<string, string>.Create;
   FRoots := TDictionary<TComponent, string>.Create;
   FDesigners := TDictionary<TComponent, TOpenForm>.Create;
   FPendingAll := TList<TComponent>.Create;
@@ -741,7 +391,6 @@ begin
   FPendingAll.Free;
   FDesigners.Free;
   FRoots.Free;
-  FTexts.Free;
   inherited;
 end;
 
@@ -900,7 +549,6 @@ begin
       if mSession <> FLastSession then
       begin
         FLastSession := mSession;
-        FTexts.Clear;
         FPlan.Reset;
         FDirty := True;
         FAll := True;
@@ -1036,25 +684,6 @@ begin
   Result := mForm.FileName;
 end;
 
-function TDpccIdeForms.FindOpen(const AFileName: string; out ARoot: TComponent; out ADesigner: IDesigner): Boolean;
-var
-  mPair: TPair<TComponent, TOpenForm>;
-begin
-  ARoot := nil;
-  ADesigner := nil;
-  // Gemerkte Dateien; Remember hält sie eindeutig (ReleaseOthers).
-  for mPair in FDesigners do
-  begin
-    if (mPair.Value.FileName <> '') and SameText(mPair.Value.FileName, AFileName) then
-    begin
-      ARoot := mPair.Key;
-      ADesigner := mPair.Value.Designer;
-      Exit(True);
-    end;
-  end;
-  Result := False;
-end;
-
 procedure TDpccIdeForms.SyncForm(ARoot: TComponent; const ADesigner: IDesigner);
 var
   mFileName: string;
@@ -1151,15 +780,9 @@ var
   mSession: TLspSession;
 begin
   mDone := FPlan.Finished(AJob, ASucceeded);
-  if mDone.Accepted and (AText <> '') then
-  begin
-    // Stand des Servers: Grundlage für Check (Positionen des Servers beziehen sich auf diesen Text).
-    FTexts.AddOrSetValue(Key(AJob.FileName), AText);
-  end;
   if mDone.CloseFile <> '' then
   begin
     // Während des Auftrags geschlossen: erst jetzt abmelden, nach dessen Senden.
-    FTexts.Remove(Key(mDone.CloseFile));
     mSession := CurrentSession;
     if mSession <> nil then
     begin
@@ -1218,7 +841,6 @@ begin
     Exit;
   end;
   FRoots.Remove(ARoot);
-  FTexts.Remove(Key(mFileName));
   // Läuft noch ein Auftrag, meldet Settle die Datei nach dessen Senden ab (sonst öffnete er sie beim Server wieder).
   if not FPlan.Close(mFileName) then
   begin
@@ -1233,94 +855,5 @@ begin
         Log(Format('Formular %s nicht abgemeldet: %s', [ExtractFileName(mFileName), E.Message]));
     end;
 end;
-
-class function TDpccIdeForms.SentText(const AFileName: string; out AText: string): Boolean;
-begin
-  AText := '';
-  Result := (FCurrent <> nil) and FCurrent.FTexts.TryGetValue(Key(AFileName), AText);
-end;
-
-class function TDpccIdeForms.IsOpen(const AFileName: string): Boolean;
-var
-  mRoot: TComponent;
-  mDesigner: IDesigner;
-begin
-  Result := (FCurrent <> nil) and FCurrent.FindOpen(AFileName, mRoot, mDesigner);
-end;
-
-class function TDpccIdeForms.Check(const AFileName: string; const AEdits: TArray<TLspTextEdit>;
-  out AChanges: TArray<TDpccFormEventChange>; out AProperties: TArray<TDpccFormPropertyChange>): string;
-var
-  mSent, mEdited, mReason: string;
-begin
-  AChanges := nil;
-  AProperties := nil;
-  // Die Positionen des Servers beziehen sich auf den Text, den dpcc zuletzt geschickt hat.
-  if (FCurrent = nil) or not FCurrent.FTexts.TryGetValue(Key(AFileName), mSent) then
-  begin
-    Exit(UiText(TDesignerText.OpenInTheDesignerBut));
-  end;
-  try
-    mEdited := TLspEdits.Apply(mSent, AEdits);
-  except
-    on E: ELspEditError do
-      Exit(E.Message);
-  end;
-  if not TDpccFormChanges.Diff(mSent, mEdited, AChanges, AProperties, mReason) then
-  begin
-    Exit(Format(UiText(TDesignerText.OpenInTheDesignerThere),
-      [mReason]));
-  end;
-  Result := '';
-end;
-
-class function TDpccIdeForms.Apply(const AFileName: string; const AChanges: TArray<TDpccFormEventChange>;
-  const AProperties: TArray<TDpccFormPropertyChange>): string;
-var
-  mDesigner: IDesigner;
-  mRoot: TComponent;
-  mTargets: TArray<TComponent>;
-  mProperties, mValueProps: TArray<PPropInfo>;
-  mValueTargets: TArray<TObject>;
-  mIndex: Integer;
-begin
-  mRoot := nil;
-  mDesigner := nil;
-  if (FCurrent = nil) or not FCurrent.FindOpen(AFileName, mRoot, mDesigner) or (mRoot = nil) or
-    (mDesigner = nil) then
-  begin
-    Exit(UiText(TDesignerText.FormIsNoLongerOpen));
-  end;
-  // Erst alles prüfen, dann setzen: Entweder alle Zuordnungen oder keine.
-  Result := CheckEvents(mRoot, mDesigner, AChanges, mTargets, mProperties);
-  if Result = '' then
-  begin
-    Result := CheckProperties(mRoot, AProperties, mValueTargets, mValueProps);
-  end;
-  if Result <> '' then
-  begin
-    Exit;
-  end;
-  for mIndex := 0 to High(AChanges) do
-  begin
-    SetMethodProp(mTargets[mIndex], mProperties[mIndex], mDesigner.CreateMethod(AChanges[mIndex].NewHandler,
-      GetTypeData(mProperties[mIndex]^.PropType^)));
-  end;
-  for mIndex := 0 to High(AProperties) do
-  begin
-    AssignValue(mValueTargets[mIndex], mValueProps[mIndex], AProperties[mIndex], False);
-  end;
-  if (Length(AChanges) > 0) or (Length(AProperties) > 0) then
-  begin
-    mDesigner.Modified;
-    if FCurrent <> nil then
-    begin
-      FCurrent.Changed(mDesigner);
-    end;
-  end;
-end;
-
-initialization
-  TDpccTextLanguage.AddTable('dpcc.IDE.Forms.Designer', cTexts[TDpccLanguage.German], cTexts[TDpccLanguage.English]);
 
 end.

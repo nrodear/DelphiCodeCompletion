@@ -98,6 +98,7 @@
         <DCCReference Include="Source\Lsp\dpcc.Core.Lsp.Session.Base.pas"/>
         <DCCReference Include="Source\Lsp\dpcc.Core.Lsp.IdeTypes.pas"/>
         <DCCReference Include="Source\Lsp\dpcc.Core.Lsp.IdeMembers.pas"/>
+        <DCCReference Include="Source\Lsp\dpcc.Core.Lsp.IdeSlices.pas"/>
         <DCCReference Include="Source\Lsp\dpcc.Core.Lsp.Session.Requests.pas"/>
         <DCCReference Include="Source\Lsp\dpcc.Core.Lsp.Session.pas"/>
         <DCCReference Include="Source\Lsp\dpcc.Core.Lsp.TextChanges.pas"/>
@@ -189,6 +190,7 @@
         <DCCReference Include="Source\Files\dpcc.Core.Files.DataFile.pas"/>
         <DCCReference Include="Source\Files\dpcc.Core.Files.EncodingDefault.pas"/>
         <DCCReference Include="Source\Projects\dpcc.Core.Projects.Contract.pas"/>
+        <DCCReference Include="Source\Projects\dpcc.Core.Projects.ContextGate.pas"/>
         <DCCReference Include="Source\Forms\dpcc.Core.Forms.Text.pas"/>
         <DCCReference Include="Source\Forms\dpcc.Core.Forms.Changes.pas"/>
         <DCCReference Include="Source\Forms\dpcc.Core.Forms.Sync.pas"/>

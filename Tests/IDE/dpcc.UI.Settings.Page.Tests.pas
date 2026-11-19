@@ -46,6 +46,10 @@ type
     /// tut nichts, danach wieder frei; eine neu geöffnete Seite zeigt einen laufenden Neuaufbau sofort.</summary>
     [Test]
     procedure RebuildIndexRunningState;
+    /// <summary>„Index neu aufbauen“ von der Sitzung abgelehnt (wie TDpccPageOptions dann meldet: läuft nicht, eigener
+    /// Text): Knopf sofort wieder frei, neben ihm nicht mehr „läuft …“, ein weiterer Klick ist möglich.</summary>
+    [Test]
+    procedure RebuildIndexRejected;
     /// <summary>Abschnitt IDE: „Jetzt prüfen“ ohne Haken grau; mit Haken zeigt die Seite die Statuszeilen sofort und
     /// nach jedem Klick neu; hängt nicht am Hauptschalter.</summary>
     [Test]
@@ -491,6 +495,51 @@ begin
       end;
     Assert.IsFalse(mPage.Rebuild.Enabled, 'neu geöffnet: grau');
     Assert.AreEqual('running', mPage.RebuildInfo.Caption, 'neu geöffnet: Meldung');
+  finally
+    mPage.Free;
+  end;
+end;
+
+procedure TDpccSettingsPageTests.RebuildIndexRejected;
+var
+  mPage: TDpccSettingsPage;
+  mCalls: Integer;
+  mStatus: TDpccRebuildStatus;
+begin
+  mCalls := 0;
+  mStatus := Default(TDpccRebuildStatus);
+  mPage := TDpccSettingsPage.Create(nil);
+  try
+    mPage.LoadFrom(TDpccPluginSettings.Defaults);
+    mPage.ConfirmRebuild :=
+      function: Boolean
+      begin
+        Result := True;
+      end;
+    // Wie TDpccPageOptions nach der Ablehnung: läuft nicht, Zustand und Antwort mit eigenem Text statt „läuft …“.
+    mPage.OnRebuildIndex :=
+      function: string
+      begin
+        Inc(mCalls);
+        mStatus.Running := False;
+        mStatus.Text := 'rejected';
+        Result := mStatus.Text;
+      end;
+    mPage.OnRebuildStatus :=
+      function: TDpccRebuildStatus
+      begin
+        Result := mStatus;
+      end;
+    mPage.Rebuild.Click;
+    Assert.AreEqual(1, mCalls, 'angestoßen');
+    Assert.IsTrue(mPage.Rebuild.Enabled, 'abgelehnt: Knopf frei');
+    Assert.AreEqual('rejected', mPage.RebuildInfo.Caption, 'abgelehnt: Meldung');
+    // Nächste Abfrage (Timer) ändert nichts mehr.
+    mPage.RefreshRebuild;
+    Assert.IsTrue(mPage.Rebuild.Enabled, 'bleibt frei');
+    Assert.AreEqual('rejected', mPage.RebuildInfo.Caption, 'bleibt ohne „läuft …“');
+    mPage.Rebuild.Click;
+    Assert.AreEqual(2, mCalls, 'erneut möglich');
   finally
     mPage.Free;
   end;

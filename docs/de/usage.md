@@ -76,7 +76,8 @@ daran nicht beteiligt.
 - Kein Ziel, kein Sprung: Units ohne Quelltext (nur aus Packages bekannt), Units, die dpcc nicht findet,
   mehrdeutige Überladungen und `with` mit unbekanntem Typ. Die IDE springt dann nicht und zeigt keine Meldung.
 - Bei Strg+Klick gilt die Stelle unter der Maus, bei „Deklaration suchen“ der Cursor.
-- Die IDE wartet höchstens 1 Sekunde auf dpcc. Dauert es länger, springt sie nicht.
+- Die IDE wartet höchstens 250 ms auf dpcc. Kommt die Antwort später, springt dpcc selbst, sofern dieselbe Datei
+  aktiv ist, der Cursor noch an der Ausgangsstelle steht und höchstens 3 Sekunden vergangen sind.
 
 Beim ersten Mal je Sitzung nennt das Meldungsfenster, dass dpcc gewählt ist und was dann fehlt: Error Insight
 (Fehlermarkierungen im Editor) und die übrigen Dienste von DelphiLSP. Wer sie braucht, schaltet den Hauptschalter
