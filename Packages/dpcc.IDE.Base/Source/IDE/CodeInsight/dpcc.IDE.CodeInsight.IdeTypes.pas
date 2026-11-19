@@ -313,7 +313,7 @@ begin
   try
     AddPalette(mSkipped, mTypes);
     AFailed := AddPackages(mSkipped, mTypes);
-    Result := mTypes.ToArray;
+    Result := TDpccIdeTypes.Unique(mTypes.ToArray);
   finally
     mTypes.Free;
   end;
@@ -409,7 +409,8 @@ end;
 
 procedure TIdeTypeRun.Finish;
 begin
-  FResult := FTypes.ToArray;
+  // Palette und RTTI der Packages melden dieselben Komponenten: einmal je Unit.Typ, der erste bleibt.
+  FResult := TDpccIdeTypes.Unique(FTypes.ToArray);
   FDone := True;
   TDpccIdeTypeCollector.Remember(FSignature, FResult, FFailed);
 end;

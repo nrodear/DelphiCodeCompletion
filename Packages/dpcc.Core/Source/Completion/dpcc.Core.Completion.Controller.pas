@@ -60,12 +60,20 @@
 // Diagnosemodus (#479): Ist TDpccQueryTimings.Enabled, beginnt Start eine gemessene Abfrage (Kontext ab
 // AContext.Started, Art des Kontexts, nur der Dateiname), Refresh meldet die Dauer von Filtern und Sortieren
 // samt Anzahl der Einträge und die erste sichtbare Liste. Aus wird nichts gemessen.
+//
+// Doppelte Einträge (Befund beim Start): Teilergebnisse (#616) und Endantwort kamen ohne Abgleich in die Liste;
+// abgeglichen wurde nur im Server. TDpccCompletionDedup verwirft jeden Eintrag, dessen Schlüssel (KeyOf) die Liste
+// schon hat, auch innerhalb eines Teils; der erste bleibt, die Reihenfolge auch. Gewollte Varianten (gleichnamige
+// aus anderen Units #475, Typkonvertierung #490, Überladungen mit anderer Signatur) unterscheiden sich im
+// Schlüssel. Ersetzt Requery die Liste, beginnt der Abgleich neu. Entfernte Einträge meldet OnLog als eine Zeile,
+// Namen nur mit LogNames.
 
 interface
 
 uses
   System.SysUtils,
   System.Classes,
+  System.Generics.Collections,
   dpcc.Core.Completion.Contract,
   dpcc.Core.Completion.Ranking,
   dpcc.Core.Completion.Usage,
@@ -100,6 +108,36 @@ type
   TDpccCommitEvent = reference to procedure(const AItem: TDpccCompletionItem);
   /// <summary>Abfrage abgeschlossen (L3); AEmpty: Die Liste zeigt danach den leeren Zustand (#423).</summary>
   TDpccSettledEvent = reference to procedure(AEmpty: Boolean);
+  /// <summary>Zeile fürs Diagnoselog des Plugins; Namen aus dem Quelltext nur mit LogNames.</summary>
+  TDpccCompletionLog = reference to procedure(const AMessage: string);
+
+  /// <summary>Abgleich doppelter Einträge der offenen Liste: Teilergebnisse (#616) und Endantwort kommen ohne
+  /// Abgleich an. Merkt sich die Schlüssel (KeyOf) der Liste, bis Clear sie verwirft.</summary>
+  TDpccCompletionDedup = class
+  public const
+    /// <summary>Höchstzahl der Beispielnamen für das Diagnoselog.</summary>
+    cMaxExamples = 3;
+  private
+    FSeen: TDictionary<string, Boolean>;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    /// <summary>Schlüssel eines Eintrags: Name ohne Groß-/Kleinschreibung (wie Delphi), Art, Unit und Klasse der
+    /// Deklaration, Signatur (Detail), Bedingung, Typkonvertierung samt Original, Variante gleichnamiger Units,
+    /// Einfügetext, Deklaration eines unbekannten Namens, Befehl, Formular, Sender und die Merkmale Aktion, Postfix,
+    /// Hinweis, angeheftet, nicht verfügbar. Rang, Quelle (Datei, Position) und Daten für resolve zählen nicht: Ein
+    /// doppelter Eintrag kann aus einer zweiten Datei derselben Unit stammen.</summary>
+    class function KeyOf(const AItem: TDpccCompletionItem): string; static;
+    /// <summary>Alle gemerkten Schlüssel verwerfen (neue Liste).</summary>
+    procedure Clear;
+    /// <summary>AItems ohne die Einträge, deren Schlüssel schon gemerkt ist oder in AItems weiter vorn steht; der
+    /// erste bleibt, die Reihenfolge auch. Die übrigen Schlüssel werden gemerkt. ARemoved: Zahl der verworfenen,
+    /// AExamples: höchstens cMaxExamples ihrer Namen, ohne Wiederholung.</summary>
+    function Unique(const AItems: TDpccCompletionItems; out ARemoved: Integer;
+      out AExamples: TArray<string>): TDpccCompletionItems;
+    /// <summary>Zahl der gemerkten Schlüssel.</summary>
+    function Count: Integer;
+  end;
 
   /// <summary>Einstellungen der Vervollständigung, die der Aufrufer setzt (#418, #419, #458, #497).
   /// </summary>
@@ -107,6 +145,8 @@ type
   private
     FOnCommit: TDpccCommitEvent;
     FOnSettled: TDpccSettledEvent;
+    FOnLog: TDpccCompletionLog;
+    FLogNames: Boolean;
     FGroupInherited: Boolean;
     FListMode: TDpccListMode;
     FListScope: TDpccListScope;
@@ -124,6 +164,11 @@ type
     /// Die Liste zeigt den leeren Zustand. Nicht nach Close, nicht nach dem stillen Schließen nach "[" (#448).
     /// </summary>
     property OnSettled: TDpccSettledEvent read FOnSettled write FOnSettled;
+    /// <summary>Diagnoselog (Registry-Wert Diagnose): etwa die Zahl verworfener doppelter Einträge; nil = keins.
+    /// </summary>
+    property OnLog: TDpccCompletionLog read FOnLog write FOnLog;
+    /// <summary>Klarnamen in OnLog (diagnostics.log.names, Vorgabe aus): Beispielnamen der Dubletten.</summary>
+    property LogNames: Boolean read FLogNames write FLogNames;
     /// <summary>Geerbte Member gruppieren (#419).</summary>
     property GroupInherited: Boolean read FGroupInherited write FGroupInherited;
     /// <summary>Einträge ohne Treffer zeigen (#497); Filter = nur Treffer.</summary>
@@ -142,6 +187,8 @@ type
     FActive: Boolean;
     FLoading: Boolean;
     FItems: TDpccCompletionItems;
+    /// <summary>Schlüssel der Einträge in FItems (Abgleich doppelter Einträge); gehört dem Controller.</summary>
+    FDedup: TDpccCompletionDedup;
     FOrder: TArray<Integer>;
     FSelected: Integer;
     FPrefix: string;
@@ -246,6 +293,8 @@ type
     procedure ToggleSelected;
     procedure CommitSet;
     procedure ItemsArrived(AGeneration: Integer; const AItems: TDpccCompletionItems);
+    /// <summary>AItems ohne Einträge, die die Liste schon hat (FDedup); verworfene meldet OnLog.</summary>
+    function Deduplicated(const AItems: TDpccCompletionItems): TDpccCompletionItems;
     procedure IncompleteArrived(AGeneration: Integer);
     procedure SyntaxArrived(AGeneration: Integer; const ANotice: TDpccSyntaxNotice);
     /// <summary>FSyntax an eine Ansicht mit IDpccCompletionSyntaxView.</summary>
@@ -294,6 +343,7 @@ uses
   dpcc.Core.Diagnostics.Guard,
   dpcc.Core.Diagnostics.Timing,
   System.Math,
+  System.StrUtils,
   dpcc.Core.Completion.Matching,
   dpcc.Core.Completion.Presentation,
   dpcc.Core.Completion.Sets;
@@ -437,6 +487,79 @@ begin
     begin
       Result := AUsage.Boost(mItems[AIndex]);
     end;
+end;
+
+{ TDpccCompletionDedup }
+
+constructor TDpccCompletionDedup.Create;
+begin
+  inherited Create;
+  FSeen := TDictionary<string, Boolean>.Create;
+end;
+
+destructor TDpccCompletionDedup.Destroy;
+begin
+  FSeen.Free;
+  inherited;
+end;
+
+class function TDpccCompletionDedup.KeyOf(const AItem: TDpccCompletionItem): string;
+const
+  // Trennzeichen, das in keinem Namen und keiner Signatur steht.
+  cSeparator = #1;
+var
+  mFlags: Integer;
+begin
+  mFlags := Ord(AItem.IsAction) or (Ord(AItem.Postfix) shl 1) or (Ord(AItem.Hint) shl 2) or
+    (Ord(AItem.Pinned) shl 3) or (Ord(AItem.Unavailable) shl 4);
+  // Name, Unit und Klasse ohne Groß-/Kleinschreibung wie in Delphi; Signatur, Bedingung und Texte genau.
+  Result := AnsiUpperCase(AItem.Name) + cSeparator + IntToStr(Ord(AItem.Kind)) + cSeparator +
+    AnsiUpperCase(AItem.DeclaringUnit) + cSeparator + AnsiUpperCase(AItem.DeclaringClass) + cSeparator +
+    AItem.Signature + cSeparator + AItem.Condition + cSeparator + AItem.Conversion + cSeparator +
+    AnsiUpperCase(AItem.ConvertFrom) + cSeparator + AnsiUpperCase(AItem.SameNameOf) + cSeparator +
+    AItem.InsertText + cSeparator + AItem.Unknown + cSeparator + AItem.Command + cSeparator + AItem.Form +
+    cSeparator + AItem.Sender + cSeparator + IntToStr(mFlags);
+end;
+
+procedure TDpccCompletionDedup.Clear;
+begin
+  FSeen.Clear;
+end;
+
+function TDpccCompletionDedup.Count: Integer;
+begin
+  Result := FSeen.Count;
+end;
+
+function TDpccCompletionDedup.Unique(const AItems: TDpccCompletionItems; out ARemoved: Integer;
+  out AExamples: TArray<string>): TDpccCompletionItems;
+var
+  mIndex, mCount: Integer;
+  mKey: string;
+begin
+  ARemoved := 0;
+  AExamples := nil;
+  // Einmal anlegen statt je Eintrag anhängen (#616: bis zu 1000 Einträge je Teil).
+  Result := nil;
+  SetLength(Result, Length(AItems));
+  mCount := 0;
+  for mIndex := 0 to High(AItems) do
+  begin
+    mKey := KeyOf(AItems[mIndex]);
+    if FSeen.ContainsKey(mKey) then
+    begin
+      Inc(ARemoved);
+      if (Length(AExamples) < cMaxExamples) and not MatchText(AItems[mIndex].Name, AExamples) then
+      begin
+        AExamples := AExamples + [AItems[mIndex].Name];
+      end;
+      Continue;
+    end;
+    FSeen.Add(mKey, True);
+    Result[mCount] := AItems[mIndex];
+    Inc(mCount);
+  end;
+  SetLength(Result, mCount);
 end;
 
 { TDpccCompletionSettings }
@@ -665,6 +788,7 @@ begin
   FFlag := TAliveFlag.Create;
   FFlag.Alive := True;
   FFlagRef := FFlag;
+  FDedup := TDpccCompletionDedup.Create;
   FSelected := -1;
   FRestStart := -1;
   FDismissed.Line := -1;
@@ -676,6 +800,7 @@ begin
   // Eingereihte Aufrufe halten den Merker selbst und sehen dann Alive = False.
   FFlag.Alive := False;
   FFlagRef := nil;
+  FreeAndNil(FDedup);
   inherited;
 end;
 
@@ -710,6 +835,7 @@ begin
   FRestStart := -1;
   FToggled := False;
   FItems := nil;
+  FDedup.Clear;
   FOrder := nil;
   FSelected := -1;
   FEmpty := False;
@@ -792,6 +918,7 @@ begin
   Inc(FGeneration);
   FProvider.Cancel;
   FItems := nil;
+  FDedup.Clear;
   FOrder := nil;
   FSelected := -1;
   FEmpty := False;
@@ -804,6 +931,7 @@ procedure TDpccCompletionController.ItemsArrived(AGeneration: Integer; const AIt
 var
   mItem: TDpccCompletionItem;
   mSelectedName: string;
+  mItems: TDpccCompletionItems;
 begin
   if not FActive or (AGeneration <> FGeneration) or (Length(AItems) = 0) then
   begin
@@ -818,7 +946,9 @@ begin
       mSelectedName := mItem.Name;
     end;
     FReplace := False;
-    FItems := AItems;
+    // Der Abgleich beginnt mit der neuen Liste; Dubletten innerhalb dieses Teils fallen trotzdem weg.
+    FDedup.Clear;
+    FItems := Deduplicated(AItems);
     MarkItems(FItems, 0);
     Refresh(False);
     if (mSelectedName <> '') and (Length(FOrder) > 0) then
@@ -828,9 +958,36 @@ begin
     end;
     Exit;
   end;
-  FItems := FItems + AItems;
-  MarkItems(FItems, Length(FItems) - Length(AItems));
+  // Teilergebnisse (#616) und Endantwort: nur, was die Liste noch nicht hat.
+  mItems := Deduplicated(AItems);
+  if Length(mItems) = 0 then
+  begin
+    Exit;
+  end;
+  FItems := FItems + mItems;
+  MarkItems(FItems, Length(FItems) - Length(mItems));
   Refresh(True);
+end;
+
+function TDpccCompletionController.Deduplicated(const AItems: TDpccCompletionItems): TDpccCompletionItems;
+var
+  mRemoved: Integer;
+  mExamples: TArray<string>;
+begin
+  Result := FDedup.Unique(AItems, mRemoved, mExamples);
+  if (mRemoved = 0) or not Assigned(FOnLog) then
+  begin
+    Exit;
+  end;
+  // Ohne diagnostics.log.names keine Namen aus dem Quelltext im Protokoll.
+  if FLogNames and (Length(mExamples) > 0) then
+  begin
+    FOnLog(Format('Vervollständigung: %d Dubletten entfernt (z. B. %s)', [mRemoved, string.Join(', ', mExamples)]));
+  end
+  else
+  begin
+    FOnLog(Format('Vervollständigung: %d Dubletten entfernt', [mRemoved]));
+  end;
 end;
 
 function TDpccCompletionController.ToggleFavorite(APosition: Integer;
@@ -879,6 +1036,7 @@ begin
   begin
     FReplace := False;
     FItems := nil;
+    FDedup.Clear;
   end;
   // Automatisch nach "[" geöffnet, aber keine Menge (#448), oder beim Tippen geöffnet (L5): still schließen.
   if (Length(FItems) = 0) and ((FTrigger <> '') or FTyped) then
@@ -1128,6 +1286,8 @@ begin
   if Length(mItem.Assignments) > 0 then
   begin
     FItems := TDpccCompletionSets.AssignItems(mItem);
+    // Eigene Liste ohne Abgleich mit der alten.
+    FDedup.Clear;
     FToggled := True;
     // Die Liste zeigt alle Felder, auch wenn hinter dem Punkt schon etwas getippt ist; späte Antworten der
     // alten Anfrage gehören nicht mehr dazu.

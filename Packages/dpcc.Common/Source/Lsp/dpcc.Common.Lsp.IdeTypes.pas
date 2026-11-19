@@ -40,6 +40,8 @@ type
     constructor Create;
     destructor Destroy; override;
     { IRuleIdeTypes }
+    /// <summary>Units, in denen die IDE ATypeName kennt, jede einmal, in der Reihenfolge der Meldung; nil ohne.
+    /// </summary>
     function UnitsOf(const ATypeName: string): TArray<string>;
     /// <summary>Ersetzt den Stand durch die Einträge aus AParams (Format oben); Einträge ohne Unit oder Namen,
     /// generische Instanzen (mit &lt;) und Namen mit Punkt entfallen. Ergebnis: Zahl der Typen.</summary>
@@ -73,6 +75,9 @@ type
   end;
 
 implementation
+
+uses
+  System.StrUtils;
 
 /// <summary>Taugt AName als Typname ohne Unit-Präfix?</summary>
 function UsableName(const AName: string): Boolean;
@@ -188,7 +193,11 @@ begin
     begin
       mKnown := nil;
     end;
-    mUnits.AddOrSetValue(UpperCase(mEntry.Name), mKnown + [mEntry.UnitName]);
+    // Jede Unit einmal je Typ (UnitsOf), auch wenn eine Meldung sie in anderer Schreibweise wiederholt.
+    if not MatchText(mEntry.UnitName, mKnown) then
+    begin
+      mUnits.AddOrSetValue(UpperCase(mEntry.Name), mKnown + [mEntry.UnitName]);
+    end;
   end;
   System.TMonitor.Enter(FLock);
   try

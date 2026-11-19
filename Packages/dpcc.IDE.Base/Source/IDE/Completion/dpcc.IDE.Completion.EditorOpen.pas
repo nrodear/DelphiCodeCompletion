@@ -201,6 +201,8 @@ begin
   end;
   // Favoriten (#458, fest an seit OPT1): angeheftete Einträge oben, Strg+D in der Liste.
   FController.Favorites := TDpccIdeFavorites.Instance;
+  // Beispielnamen verworfener Dubletten im Diagnoselog nur mit diagnostics.log.names (#1478).
+  FController.LogNames := TDpccIdeSettings.Current.LogNames;
 end;
 
 procedure TDpccEditorCompletionOpen.StartDelay(const AView: IOTAEditView; ALine, ACharacter: Integer;

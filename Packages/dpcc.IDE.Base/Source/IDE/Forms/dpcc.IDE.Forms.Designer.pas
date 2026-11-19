@@ -21,9 +21,14 @@
 //   Andere Änderungen an offenen Formularen lehnt dpcc ab.
 // - Nur Formulare mit offenem Designer (Hänger beim Öffnen einer Formular-Unit): dpcc geht nicht mehr über
 //   ModuleFileEditors aller Module (das konnte Designer laden), sondern merkt sich die Designer aus DesignerOpened
-//   bzw. der ersten Änderung (beim Laden des Plugins schon offene VCL-Designer aus Screen.CustomForms). Die
-//   Formulardatei folgt aus dem Modul des Formulars (FindFormModule, .dfm bzw. .fmx neben der Unit). Der Abgleich
+//   bzw. der ersten Änderung (beim Laden des Plugins schon offene VCL-Designer aus Screen.CustomForms). Der Abgleich
 //   aller Formulare (Start, neue Sitzung) verteilt sich auf die Takte des Timers, höchstens cFormsPerTick je Takt.
+// - Formulardatei je Designer (doppelte Einträge der Vervollständigung): Sie kommt aus den Moduldateien des
+//   Designers selbst (IDesigner.ModuleFileNames, TDpccFormText.FormFileOf), einmal je Wurzel ermittelt und in
+//   FDesigners gemerkt. Vorher suchte FindFormModule das Modul über den Namen der Wurzel; in einer Projektgruppe
+//   heißen mehrere Formulare "Form1", und der Text von Formular A ging als .dfm von B an den Server. Ohne bekannte
+//   Datei sendet dpcc das Formular nicht und schreibt eine Zeile ins Diagnoselog; meldet ein neuer Designer eine
+//   Datei, die noch ein alter hält, gilt der neue.
 // Nur im Hauptthread.
 
 interface
@@ -53,6 +58,14 @@ type
       procedure DesignerOpened(const ADesigner: IDesigner; AResurrecting: Boolean);
       procedure DesignerClosed(const ADesigner: IDesigner; AGoingDormant: Boolean);
     end;
+
+    /// <summary>Offener Designer mit seiner Formulardatei ('' = noch nicht bestimmt).</summary>
+    TOpenForm = record
+      Designer: IDesigner;
+      FileName: string;
+      /// <summary>Unbekannte Datei schon ins Diagnoselog geschrieben.</summary>
+      Reported: Boolean;
+    end;
   private class var
     FCurrent: TDpccIdeForms;
   private
@@ -73,15 +86,18 @@ type
     FTexts: TDictionary<string, string>;
     /// <summary>Wurzelkomponente → Formulardatei, für DesignerClosed.</summary>
     FRoots: TDictionary<TComponent, string>;
-    /// <summary>Offene Designer je Wurzel (DesignerOpened bis DesignerClosed).</summary>
-    FDesigners: TDictionary<TComponent, IDesigner>;
+    /// <summary>Offene Designer je Wurzel samt Formulardatei (DesignerOpened bis DesignerClosed).</summary>
+    FDesigners: TDictionary<TComponent, TOpenForm>;
     /// <summary>Wurzeln, die der laufende Abgleich aller Formulare noch senden muss.</summary>
     FPendingAll: TList<TComponent>;
     procedure Tick(Sender: TObject);
     /// <summary>Formular von ADesigner geändert; nil: welches, ist unbekannt (alle senden).</summary>
     procedure Changed(const ADesigner: IDesigner);
-    /// <summary>ADesigner ist offen: merken.</summary>
+    /// <summary>ADesigner ist offen: merken, die Formulardatei beim ersten Mal (bzw. solange unbekannt) ermitteln.
+    /// </summary>
     procedure Remember(const ADesigner: IDesigner);
+    /// <summary>Andere Wurzeln, die noch AFileName halten (alter Designer derselben Datei), vergessen.</summary>
+    procedure ReleaseOthers(ARoot: TComponent; const AFileName: string);
     procedure Closed(ARoot: TComponent);
     /// <summary>Beim Laden schon offene VCL-Designer (Screen.CustomForms) merken.</summary>
     procedure ScanOpenDesigners;
@@ -92,7 +108,7 @@ type
     /// <summary>Nur die geänderten Formulare (FDirtyRoots) senden.</summary>
     procedure SyncDirty(ASession: TLspSession);
     procedure SyncForm(ASession: TLspSession; ARoot: TComponent; const ADesigner: IDesigner);
-    /// <summary>Formulardatei zu ARoot (über das Modul, sonst die zuletzt bekannte); '' wenn unbekannt.</summary>
+    /// <summary>Formulardatei des offenen Designers zu ARoot (gemerkt in FDesigners); '' wenn unbekannt.</summary>
     function FileNameOf(ARoot: TComponent): string;
     /// <summary>Offenes Formular zu AFileName.</summary>
     function FindOpen(const AFileName: string; out ARoot: TComponent; out ADesigner: IDesigner): Boolean;
@@ -187,38 +203,27 @@ begin
   Result := AnsiUpperCase(AFileName);
 end;
 
-/// <summary>Formulardatei zu ARoot über das Modul seines Formulars (FindFormModule): .dfm neben der Unit, .fmx nur,
-/// wenn es nur diese gibt. Fasst keine Editoren des Moduls an (die könnten den Designer laden). '' ohne Modul.
-/// </summary>
-function ResolveFormFile(ARoot: TComponent): string;
+/// <summary>Formulardatei des Designers ADesigner aus seinen eigenen Moduldateien (IDesigner.ModuleFileNames), nicht
+/// über den Namen der Wurzel: Formularnamen sind in einer Projektgruppe nicht eindeutig (mehrere "Form1"). Fasst
+/// weder Module noch ihre Editoren an (die könnten einen Designer laden). '' wenn unbekannt.</summary>
+function DesignerFormFile(const ADesigner: IDesigner): string;
 var
-  mServices: IOTAModuleServices;
-  mModule: IOTAModule;
-  mBase: string;
+  mImplFileName, mIntfFileName, mFormFileName: string;
 begin
   Result := '';
-  if (ARoot = nil) or (ARoot.Name = '') or not Supports(BorlandIDEServices, IOTAModuleServices, mServices) then
+  if ADesigner = nil then
   begin
     Exit;
   end;
-  mModule := mServices.FindFormModule(ARoot.Name);
-  if (mModule = nil) or (mModule.FileName = '') then
-  begin
-    Exit;
-  end;
-  mBase := mModule.FileName;
-  if SameText(ExtractFileExt(mBase), '.dfm') or SameText(ExtractFileExt(mBase), '.fmx') then
-  begin
-    Exit(mBase);
-  end;
-  if FileExists(ChangeFileExt(mBase, '.fmx')) and not FileExists(ChangeFileExt(mBase, '.dfm')) then
-  begin
-    Result := ChangeFileExt(mBase, '.fmx');
-  end
-  else
-  begin
-    Result := ChangeFileExt(mBase, '.dfm');
-  end;
+  mImplFileName := '';
+  mIntfFileName := '';
+  mFormFileName := '';
+  ADesigner.ModuleFileNames(mImplFileName, mIntfFileName, mFormFileName);
+  Result := TDpccFormText.FormFileOf(mImplFileName, mFormFileName,
+    function(AFileName: string): Boolean
+    begin
+      Result := FileExists(AFileName);
+    end);
 end;
 
 function TextOf(ARoot: TComponent; const ADesigner: IDesigner): string;
@@ -578,7 +583,7 @@ begin
   FLog := ALog;
   FTexts := TDictionary<string, string>.Create;
   FRoots := TDictionary<TComponent, string>.Create;
-  FDesigners := TDictionary<TComponent, IDesigner>.Create;
+  FDesigners := TDictionary<TComponent, TOpenForm>.Create;
   FPendingAll := TList<TComponent>.Create;
   FDirtyRoots := TList<TComponent>.Create;
   ScanOpenDesigners;
@@ -625,15 +630,66 @@ end;
 procedure TDpccIdeForms.Remember(const ADesigner: IDesigner);
 var
   mRoot: TComponent;
+  mForm: TOpenForm;
 begin
   if ADesigner = nil then
   begin
     Exit;
   end;
   mRoot := ADesigner.Root;
-  if mRoot <> nil then
+  if mRoot = nil then
   begin
-    FDesigners.AddOrSetValue(mRoot, ADesigner);
+    Exit;
+  end;
+  // Datei schon bekannt: nur den Designer nachführen. Remember läuft bei jeder Änderung (beim Ziehen je
+  // Mausbewegung); die Datei wird je Wurzel einmal ermittelt.
+  if FDesigners.TryGetValue(mRoot, mForm) and (mForm.FileName <> '') then
+  begin
+    if mForm.Designer <> ADesigner then
+    begin
+      mForm.Designer := ADesigner;
+      FDesigners.AddOrSetValue(mRoot, mForm);
+    end;
+    Exit;
+  end;
+  mForm.Designer := ADesigner;
+  mForm.FileName := '';
+  try
+    mForm.FileName := DesignerFormFile(ADesigner);
+  except
+    on E: Exception do
+      Log('Formulardatei nicht ermittelt: ' + E.Message);
+  end;
+  if mForm.FileName <> '' then
+  begin
+    mForm.Reported := False;
+    ReleaseOthers(mRoot, mForm.FileName);
+  end;
+  FDesigners.AddOrSetValue(mRoot, mForm);
+end;
+
+procedure TDpccIdeForms.ReleaseOthers(ARoot: TComponent; const AFileName: string);
+var
+  mPair: TPair<TComponent, TOpenForm>;
+  mStale: TArray<TComponent>;
+  mOther: TComponent;
+begin
+  mStale := nil;
+  for mPair in FDesigners do
+  begin
+    if (mPair.Key <> ARoot) and SameText(mPair.Value.FileName, AFileName) then
+    begin
+      mStale := mStale + [mPair.Key];
+    end;
+  end;
+  for mOther in mStale do
+  begin
+    // Ein später DesignerClosed des alten Designers meldet die Datei so nicht beim Server ab.
+    FDesigners.Remove(mOther);
+    FPendingAll.Remove(mOther);
+    FDirtyRoots.Remove(mOther);
+    FRoots.Remove(mOther);
+    Log(Format('Formular %s: älterer Designer derselben Datei ersetzt', [ExtractFileName(AFileName)]));
   end;
 end;
 
@@ -762,7 +818,7 @@ end;
 procedure TDpccIdeForms.SyncPending(ASession: TLspSession; AMax: Integer);
 var
   mRoot: TComponent;
-  mDesigner: IDesigner;
+  mForm: TOpenForm;
   mDone: Integer;
 begin
   mDone := 0;
@@ -771,9 +827,9 @@ begin
     mRoot := FPendingAll[0];
     FPendingAll.Delete(0);
     // Inzwischen geschlossen: übergehen.
-    if FDesigners.TryGetValue(mRoot, mDesigner) then
+    if FDesigners.TryGetValue(mRoot, mForm) then
     begin
-      SyncForm(ASession, mRoot, mDesigner);
+      SyncForm(ASession, mRoot, mForm.Designer);
       Inc(mDone);
     end;
   end;
@@ -781,54 +837,60 @@ end;
 
 procedure TDpccIdeForms.SyncDirty(ASession: TLspSession);
 var
+  mRoots: TArray<TComponent>;
   mRoot: TComponent;
-  mDesigner: IDesigner;
+  mForm: TOpenForm;
 begin
   if FDirtyRoots.Count = 0 then
   begin
     Exit;
   end;
-  for mRoot in FDirtyRoots do
+  // Kopie: SyncForm kann über Remember einen alten Designer aus FDirtyRoots nehmen (ReleaseOthers).
+  mRoots := FDirtyRoots.ToArray;
+  FDirtyRoots.Clear;
+  for mRoot in mRoots do
   begin
-    if FDesigners.TryGetValue(mRoot, mDesigner) then
+    if FDesigners.TryGetValue(mRoot, mForm) then
     begin
-      SyncForm(ASession, mRoot, mDesigner);
+      SyncForm(ASession, mRoot, mForm.Designer);
     end;
   end;
-  FDirtyRoots.Clear;
 end;
 
 function TDpccIdeForms.FileNameOf(ARoot: TComponent): string;
+var
+  mForm: TOpenForm;
 begin
   Result := '';
-  try
-    Result := ResolveFormFile(ARoot);
-  except
-    on E: Exception do
-      Log('Formulardatei nicht ermittelt: ' + E.Message);
-  end;
-  if Result = '' then
+  if not FDesigners.TryGetValue(ARoot, mForm) then
   begin
-    // Zuletzt bekannte Datei (etwa während die IDE das Modul umbenennt).
-    if not FRoots.TryGetValue(ARoot, Result) then
+    Exit;
+  end;
+  if mForm.FileName = '' then
+  begin
+    // Beim Öffnen noch nicht bekannt: den Designer erneut fragen.
+    Remember(mForm.Designer);
+    if not FDesigners.TryGetValue(ARoot, mForm) then
     begin
-      Result := '';
+      Exit;
     end;
   end;
+  Result := mForm.FileName;
 end;
 
 function TDpccIdeForms.FindOpen(const AFileName: string; out ARoot: TComponent; out ADesigner: IDesigner): Boolean;
 var
-  mPair: TPair<TComponent, IDesigner>;
+  mPair: TPair<TComponent, TOpenForm>;
 begin
   ARoot := nil;
   ADesigner := nil;
+  // Gemerkte Dateien; Remember hält sie eindeutig (ReleaseOthers).
   for mPair in FDesigners do
   begin
-    if SameText(FileNameOf(mPair.Key), AFileName) then
+    if (mPair.Value.FileName <> '') and SameText(mPair.Value.FileName, AFileName) then
     begin
       ARoot := mPair.Key;
-      ADesigner := mPair.Value;
+      ADesigner := mPair.Value.Designer;
       Exit(True);
     end;
   end;
@@ -838,12 +900,20 @@ end;
 procedure TDpccIdeForms.SyncForm(ASession: TLspSession; ARoot: TComponent; const ADesigner: IDesigner);
 var
   mText, mPrevious, mFileName: string;
+  mForm: TOpenForm;
 begin
   mFileName := '';
   try
     mFileName := FileNameOf(ARoot);
     if mFileName = '' then
     begin
+      // Ohne eindeutige Datei nichts senden: Ein falscher Name hängt den Text an ein fremdes Formular.
+      if FDesigners.TryGetValue(ARoot, mForm) and not mForm.Reported then
+      begin
+        mForm.Reported := True;
+        FDesigners.AddOrSetValue(ARoot, mForm);
+        Log('Formular nicht gesendet: Formulardatei des Designers unbekannt');
+      end;
       Exit;
     end;
     FRoots.AddOrSetValue(ARoot, mFileName);

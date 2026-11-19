@@ -234,6 +234,8 @@
         <DCCReference Include="Common\dpcc.Common.Memory.Phase5.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Lsp\dpcc.Core.Lsp.IdeTypes.pas"/>
         <DCCReference Include="Common\dpcc.Common.Sources.Tests.pas"/>
+        <DCCReference Include="..\Packages\dpcc.Core\Source\Forms\dpcc.Core.Forms.Text.pas"/>
+        <DCCReference Include="IDE\dpcc.Core.Forms.Text.Tests.pas"/>
         <DCCReference Include="Memory\dpcc.Memory.Bench.Tests.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>

@@ -278,6 +278,12 @@ end;
 
 procedure TDpccEditorCompletionState.WireFallback;
 begin
+  // Verworfene doppelte Einträge ins Diagnoselog (Namen nur mit LogNames, siehe ApplyOptions).
+  FController.OnLog :=
+    procedure(const AMessage: string)
+    begin
+      Log(AMessage);
+    end;
   FController.OnSettled :=
     procedure(AEmpty: Boolean)
     begin

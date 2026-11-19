@@ -195,6 +195,8 @@ uses
   dpcc.Common.Memory.Phase5.Tests in 'Common\dpcc.Common.Memory.Phase5.Tests.pas',
   dpcc.Core.Lsp.IdeTypes in '..\Packages\dpcc.Core\Source\Lsp\dpcc.Core.Lsp.IdeTypes.pas',
   dpcc.Common.Sources.Tests in 'Common\dpcc.Common.Sources.Tests.pas',
+  dpcc.Core.Forms.Text in '..\Packages\dpcc.Core\Source\Forms\dpcc.Core.Forms.Text.pas',
+  dpcc.Core.Forms.Text.Tests in 'IDE\dpcc.Core.Forms.Text.Tests.pas',
   dpcc.Memory.Bench.Tests in 'Memory\dpcc.Memory.Bench.Tests.pas';
 
 // Speicherrest beim Beenden in den Testbericht (Konsole) statt in einen Dialog (#177).

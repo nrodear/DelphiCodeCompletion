@@ -52,6 +52,21 @@ type
     procedure SyntaxNoticeReachesView;
     [Test]
     procedure PartialResultsReplaceThenAppend;
+    /// <summary>Teilergebnis und Endantwort mit Überschneidung: jeder Eintrag einmal, der erste bleibt, die
+    /// Reihenfolge auch (doppelte Einträge beim Start).</summary>
+    [Test]
+    procedure OverlappingPartsAppearOnce;
+    /// <summary>Gewollte Doppelnamen bleiben: andere Unit (#475), Typkonvertierung (#490), andere Signatur
+    /// (Überladung); gleicher Name in anderer Schreibweise ist derselbe Eintrag.</summary>
+    [Test]
+    procedure VariantsSurviveDeduplication;
+    /// <summary>Requery ersetzt die Liste: Der Abgleich beginnt neu, Dubletten innerhalb der neuen Teile fallen
+    /// weg.</summary>
+    [Test]
+    procedure RequeryReplacesAndDeduplicatesAnew;
+    /// <summary>Eine Zeile je Teil mit Dubletten ins Diagnoselog; Namen nur mit LogNames.</summary>
+    [Test]
+    procedure RemovedDuplicatesAreLogged;
   end;
 
   /// <summary>Diagnosemodus (#479) über den ganzen Ablauf: Quellen, Filtern, erste Liste.</summary>
@@ -201,11 +216,70 @@ procedure TPrefixProvider.Cancel;
 begin
 end;
 
+type
+  /// <summary>Liefert die Teile Stages nacheinander als Teilergebnisse (#616), dann Complete.</summary>
+  TStagedProvider = class(TInterfacedObject, IDpccCompletionProvider)
+  public
+    Queries: Integer;
+    Stages: TArray<TDpccCompletionItems>;
+    /// <summary>AItems als weiteres Teil anhängen.</summary>
+    procedure Add(const AItems: TDpccCompletionItems);
+    procedure Query(const AContext: TDpccContext; const ASink: IDpccCompletionSink);
+    procedure Cancel;
+  end;
+
+procedure TStagedProvider.Add(const AItems: TDpccCompletionItems);
+begin
+  SetLength(Stages, Length(Stages) + 1);
+  Stages[High(Stages)] := AItems;
+end;
+
+procedure TStagedProvider.Query(const AContext: TDpccContext; const ASink: IDpccCompletionSink);
+var
+  Index: Integer;
+begin
+  Inc(Queries);
+  for Index := 0 to High(Stages) do
+  begin
+    ASink.AddItems(Stages[Index]);
+  end;
+  ASink.Complete;
+end;
+
+procedure TStagedProvider.Cancel;
+begin
+end;
+
 function Item(const AName: string; ARank: Integer = 0): TDpccCompletionItem;
 begin
   Result := Default(TDpccCompletionItem);
   Result.Name := AName;
   Result.Rank := ARank;
+end;
+
+/// <summary>Eintrag AName aus AUnit mit Signatur ASignature.</summary>
+function UnitItem(const AName, AUnit, ASignature: string; ARank: Integer): TDpccCompletionItem;
+begin
+  Result := Item(AName, ARank);
+  Result.Kind := TDpccItemKind.Function_;
+  Result.DeclaringUnit := AUnit;
+  Result.Signature := ASignature;
+end;
+
+/// <summary>Namen der Einträge in der Reihenfolge der Liste (nicht der Anzeige), durch Komma getrennt.</summary>
+function ItemNames(const AItems: TDpccCompletionItems): string;
+var
+  Index: Integer;
+begin
+  Result := '';
+  for Index := 0 to High(AItems) do
+  begin
+    if Result <> '' then
+    begin
+      Result := Result + ',';
+    end;
+    Result := Result + AItems[Index].Name;
+  end;
 end;
 
 function Context(const APrefix: string): TDpccContext;
@@ -791,6 +865,184 @@ begin
     Assert.AreEqual(1, View.Selected);
   finally
     Controller.Free;
+  end;
+end;
+
+procedure TDpccCompletionControllerTests.OverlappingPartsAppearOnce;
+var
+  View: TFakeView;
+  ViewRef: IDpccCompletionView;
+  Provider: TStagedProvider;
+  ProviderRef: IDpccCompletionProvider;
+  Controller: TDpccCompletionController;
+  Items: TDpccCompletionItems;
+begin
+  View := TFakeView.Create;
+  ViewRef := View;
+  Provider := TStagedProvider.Create;
+  ProviderRef := Provider;
+  // Eigener Bereich, dann uses (mit Wiederholung im selben Teil), dann die Endantwort mit Überschneidung.
+  Provider.Add([Item('Anzahl', 0), Item('Berechne', 1)]);
+  Provider.Add([Item('Berechne', 2), Item('Clear', 3), Item('Clear', 4)]);
+  Provider.Add([Item('Anzahl', 5), Item('Dauer', 6)]);
+  Controller := TDpccCompletionController.Create(ProviderRef, ViewRef);
+  try
+    Controller.Start(Context(''));
+    Assert.IsTrue(WaitFor(
+      function: Boolean
+      begin
+        Result := not Controller.Loading;
+      end));
+    Items := Controller.Items;
+    Assert.AreEqual('Anzahl,Berechne,Clear,Dauer', ItemNames(Items));
+    // Der erste bleibt: Rang aus dem ersten Teil.
+    Assert.AreEqual(1, Items[1].Rank, 'Berechne aus dem ersten Teil');
+    Assert.AreEqual(3, Items[2].Rank, 'erstes Clear');
+    Assert.AreEqual('Anzahl,Berechne,Clear,Dauer', View.Names);
+  finally
+    Controller.Free;
+  end;
+end;
+
+procedure TDpccCompletionControllerTests.VariantsSurviveDeduplication;
+var
+  Dedup: TDpccCompletionDedup;
+  Items, Kept: TDpccCompletionItems;
+  Removed: Integer;
+  Examples: TArray<string>;
+  Conversion, SameName: TDpccCompletionItem;
+begin
+  Conversion := UnitItem('Count', 'Classes', 'Integer', 2);
+  Conversion.Conversion := 'string';
+  Conversion.ConvertFrom := 'Count';
+  SameName := UnitItem('Count', 'Vcl.Controls', 'Integer', 3);
+  SameName.SameNameOf := 'Classes';
+  Items := [UnitItem('Count', 'Classes', 'Integer', 0),
+    // Gleich bis auf die Schreibweise des Namens und die Quelle: derselbe Eintrag.
+    UnitItem('count', 'classes', 'Integer', 1),
+    Conversion, SameName,
+    // Überladung mit anderer Signatur, falls eine Quelle sie einzeln liefert.
+    UnitItem('Count', 'Classes', 'Integer; overload', 4)];
+  Items[1].ResolveData := '{"file":"C:\\P2\\Classes.pas"}';
+  Dedup := TDpccCompletionDedup.Create;
+  try
+    Kept := Dedup.Unique(Items, Removed, Examples);
+    Assert.AreEqual(1, Removed);
+    Assert.AreEqual(4, Integer(Length(Kept)));
+    Assert.AreEqual(0, Kept[0].Rank, 'der erste bleibt');
+    Assert.AreEqual('string', Kept[1].Conversion);
+    Assert.AreEqual('Classes', Kept[2].SameNameOf);
+    Assert.AreEqual('Integer; overload', Kept[3].Signature);
+    Assert.AreEqual(1, Integer(Length(Examples)));
+    Assert.AreEqual('count', Examples[0]);
+    // Ein späterer Teil kennt die Schlüssel; Clear verwirft sie.
+    Kept := Dedup.Unique([UnitItem('COUNT', 'Classes', 'Integer', 9)], Removed, Examples);
+    Assert.AreEqual(0, Integer(Length(Kept)));
+    Assert.AreEqual(1, Removed);
+    Dedup.Clear;
+    Assert.AreEqual(0, Dedup.Count);
+    Kept := Dedup.Unique([UnitItem('COUNT', 'Classes', 'Integer', 9)], Removed, Examples);
+    Assert.AreEqual(1, Integer(Length(Kept)));
+    Assert.AreEqual(0, Removed);
+  finally
+    Dedup.Free;
+  end;
+end;
+
+procedure TDpccCompletionControllerTests.RequeryReplacesAndDeduplicatesAnew;
+var
+  View: TFakeView;
+  ViewRef: IDpccCompletionView;
+  Provider: TStagedProvider;
+  ProviderRef: IDpccCompletionProvider;
+  Controller: TDpccCompletionController;
+begin
+  View := TFakeView.Create;
+  ViewRef := View;
+  Provider := TStagedProvider.Create;
+  ProviderRef := Provider;
+  Provider.Add([Item('Anzahl', 0), Item('Berechne', 1)]);
+  Provider.Add([Item('Berechne', 2), Item('Clear', 3)]);
+  Controller := TDpccCompletionController.Create(ProviderRef, ViewRef);
+  try
+    Controller.Start(Context(''));
+    Assert.IsTrue(WaitFor(
+      function: Boolean
+      begin
+        Result := not Controller.Loading;
+      end));
+    Assert.AreEqual('Anzahl,Berechne,Clear', ItemNames(Controller.Items));
+    // Requery mit denselben Einträgen: Das erste Teil ersetzt die Liste, ohne gegen die alte abzugleichen; das
+    // zweite hängt an, ohne Berechne zu wiederholen.
+    Controller.Requery(Context(''));
+    Assert.IsTrue(WaitFor(
+      function: Boolean
+      begin
+        Result := not Controller.Loading;
+      end));
+    Assert.AreEqual(2, Provider.Queries);
+    Assert.AreEqual('Anzahl,Berechne,Clear', ItemNames(Controller.Items));
+    // Erstes Teil mit Wiederholung im Ersetzen-Pfad.
+    Provider.Stages := nil;
+    Provider.Add([Item('Dauer', 0), Item('Dauer', 1), Item('Anzahl', 2)]);
+    Controller.Requery(Context(''));
+    Assert.IsTrue(WaitFor(
+      function: Boolean
+      begin
+        Result := not Controller.Loading;
+      end));
+    Assert.AreEqual('Dauer,Anzahl', ItemNames(Controller.Items));
+  finally
+    Controller.Free;
+  end;
+end;
+
+procedure TDpccCompletionControllerTests.RemovedDuplicatesAreLogged;
+var
+  View: TFakeView;
+  ViewRef: IDpccCompletionView;
+  Provider: TStagedProvider;
+  ProviderRef: IDpccCompletionProvider;
+  Controller: TDpccCompletionController;
+  Lines: TStringList;
+begin
+  View := TFakeView.Create;
+  ViewRef := View;
+  Provider := TStagedProvider.Create;
+  ProviderRef := Provider;
+  Provider.Add([Item('Geheim', 0), Item('Berechne', 1)]);
+  Provider.Add([Item('Geheim', 2), Item('Clear', 3)]);
+  Provider.Add([Item('Dauer', 4)]);
+  Lines := TStringList.Create;
+  Controller := TDpccCompletionController.Create(ProviderRef, ViewRef);
+  try
+    Controller.OnLog :=
+      procedure(const AMessage: string)
+      begin
+        Lines.Add(AMessage);
+      end;
+    Controller.Start(Context(''));
+    Assert.IsTrue(WaitFor(
+      function: Boolean
+      begin
+        Result := not Controller.Loading;
+      end));
+    // Nur das Teil mit Dublette schreibt eine Zeile, ohne Namen.
+    Assert.AreEqual(1, Lines.Count, Lines.Text);
+    Assert.AreEqual('Vervollständigung: 1 Dubletten entfernt', Lines[0]);
+    Lines.Clear;
+    Controller.LogNames := True;
+    Controller.Start(Context(''));
+    Assert.IsTrue(WaitFor(
+      function: Boolean
+      begin
+        Result := not Controller.Loading;
+      end));
+    Assert.AreEqual(1, Lines.Count, Lines.Text);
+    Assert.AreEqual('Vervollständigung: 1 Dubletten entfernt (z. B. Geheim)', Lines[0]);
+  finally
+    Controller.Free;
+    Lines.Free;
   end;
 end;
 

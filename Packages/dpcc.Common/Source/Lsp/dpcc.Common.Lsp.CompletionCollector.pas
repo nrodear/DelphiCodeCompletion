@@ -1190,6 +1190,10 @@ type
     Wanted: TDictionary<string, Boolean>;
     // Hinter dem Wort folgt "<" (L1): generische Typen trotz gleichnamigem Eintrag (TList aus System.Classes).
     GenericFollows: Boolean;
+    // Schon vorgeschlagen (ImportKey) → Position in der Liste. Der Katalog führt jede Überladung als eigenes Symbol,
+    // und dieselbe Unit kann mehrfach darin stehen (gleichnamige Datei in zwei Projekten der Gruppe, Ersatz-Unit
+    // der IDE neben der echten, TIdeIndex): ohne Abgleich kam derselbe Vorschlag mehrfach.
+    Added: TDictionary<string, Integer>;
     /// <summary>Kann AEntry passen (Zeichenmaske) und gehört er zu einer Unit, die nicht eingebunden ist?
     /// </summary>
     function Candidate(const AEntry: TImportNameEntry): Boolean;
@@ -1838,6 +1842,31 @@ begin
   ACollector.FList[ACollector.FList.Count - 1] := mScored;
 end;
 
+/// <summary>Schlüssel eines Import-Vorschlags: Unit, Name und Generik-Arität (TList und TList&lt;T&gt; bleiben
+/// beide), groß geschrieben.</summary>
+function ImportKey(const AUnitName: string; const ASymbol: TCatalogSymbol): string;
+begin
+  Result := UpperCase(AUnitName + '.' + ASymbol.Name) + '/' + IntToStr(ASymbol.Arity);
+end;
+
+/// <summary>Weitere Überladung bzw. zweite Datei desselben Vorschlags (Position APosition): kein neuer Eintrag;
+/// hat sie Parameter, setzt das Plugin beim Übernehmen Klammern (#430).</summary>
+procedure MergeImport(ACollector: TCompletionCollector; APosition: Integer; const ASymbol: TCatalogSymbol);
+var
+  mScored: TScoredItem;
+begin
+  if (ASymbol.MaxArgs <= 0) or (APosition < 0) or (APosition >= ACollector.FList.Count) then
+  begin
+    Exit;
+  end;
+  mScored := ACollector.FList[APosition];
+  if not mScored.Item.HasParameters then
+  begin
+    mScored.Item.HasParameters := True;
+    ACollector.FList[APosition] := mScored;
+  end;
+end;
+
 /// <summary>Wie AddFromOtherUnits; AWanted = nil heißt alle Namen, sonst nur diese (Großbuchstaben).</summary>
 procedure AddImports(ACollector: TCompletionCollector; AWanted: TDictionary<string, Boolean>);
 var
@@ -1846,13 +1875,15 @@ var
   mUnitInfo: TCatalogUnit;
   mSymbol: TCatalogSymbol;
   mEdit: TRuleEdit;
-  mAdded: Integer;
+  mAdded, mPosition: Integer;
   mGenericFollows: Boolean;
+  mKey: string;
 begin
   mScan := Default(TImportScan);
   mScan.Collector := ACollector;
   mScan.Wanted := AWanted;
   mScan.Known := KnownNames(ACollector);
+  mScan.Added := TDictionary<string, Integer>.Create;
   try
     mScan.Used := TUsesClauses.UsedUnits(ACollector.FRequest.Tree.Tokens);
     mScan.Own := TUsesClauses.OwnName(ACollector.FRequest.Tree.Tokens);
@@ -1878,6 +1909,13 @@ begin
       begin
         Continue;
       end;
+      // Derselbe Vorschlag schon da (Überladung, gleichnamige Unit in einer zweiten Datei): nur zusammenführen.
+      mKey := ImportKey(mUnitInfo.UnitName, mSymbol);
+      if mScan.Added.TryGetValue(mKey, mPosition) then
+      begin
+        MergeImport(ACollector, mPosition, mSymbol);
+        Continue;
+      end;
       // Fest #13#10 wie bisher (eigener Befund: uses-Eintrag in LF-Dateien, siehe CHANGELOG).
       if not TUsesClauses.AddUnit(ACollector.FRequest.Tree.Tokens, ACollector.FContext.Offset, mUnitInfo.UnitName,
         #13#10, mEdit) then
@@ -1886,6 +1924,8 @@ begin
       end;
       if AddImport(ACollector, mUnitInfo, mSymbol, mEdit, mGenericFollows) then
       begin
+        // AddImport hängt den Eintrag zuletzt an (eine Typkonvertierung steht davor).
+        mScan.Added.Add(mKey, ACollector.FList.Count - 1);
         Inc(mAdded);
         if mAdded >= cCompletionMaxImportItems then
         begin
@@ -1895,6 +1935,7 @@ begin
       end;
     end;
   finally
+    mScan.Added.Free;
     mScan.Known.Free;
   end;
 end;

@@ -36,6 +36,10 @@ type
     procedure HiddenNamesAppearOnceWithHint;
     [Test]
     procedure ImportsKnowParameters;
+    /// <summary>Überladungen und dieselbe Unit in zwei Dateien (zwei Projekte der Gruppe): ein Import-Vorschlag je
+    /// Unit und Name; gleichnamige aus anderen Units bleiben.</summary>
+    [Test]
+    procedure ImportsAppearOncePerUnit;
     [Test]
     procedure ProjectImportsComeBeforeLibraryLimit;
     [Test]
@@ -706,6 +710,28 @@ begin
   Assert.AreEqual(1, Integer(Length(Items.Items[0].AdditionalEdits)));
   Assert.IsTrue(Items.Items[0].HasParameters);
   Assert.AreEqual('C:\P\Extra.pas', Items.Items[0].SourceFile);
+end;
+procedure TLspCompletionTests.ImportsAppearOncePerUnit;
+var
+  Bibliothek: TUnitIndex;
+  Items: TCompletionItems;
+begin
+  // Der Katalog führt jede Überladung einzeln, und dieselbe Unit steht in zwei Dateien: vorher dreimal Extra.Zeige.
+  FIndex.AddUnit(TIndexExtractor.ExtractText('unit Extra;'#10'interface'#10'procedure Zeige; overload;'#10 +
+    'procedure Zeige(const S: string); overload;'#10'implementation'#10'end.', 'C:\P1\Extra.pas', nil));
+  FIndex.AddUnit(TIndexExtractor.ExtractText('unit Extra;'#10'interface'#10'procedure Zeige;'#10 +
+    'implementation'#10'end.', 'C:\P2\Extra.pas', nil));
+  Bibliothek := TIndexExtractor.ExtractText('unit Bib.Mathe;'#10'interface'#10'procedure Zeige;'#10 +
+    'implementation'#10'end.', 'C:\Bib\Bib.Mathe.pas', nil);
+  Bibliothek.Library_ := True;
+  FIndex.AddUnit(Bibliothek);
+  Items := ItemsAt(WithCode('  Zeig'), '  Zeig', TCompletionMatching.Prefix);
+  Assert.AreEqual('Zeige Zeige', Names(Items));
+  Assert.AreEqual('Extra (uses ergänzen)', Items.Items[0].Detail);
+  Assert.AreEqual('Bib.Mathe (uses ergänzen)', Items.Items[1].Detail);
+  // Eine der Überladungen hat Parameter: Klammern beim Übernehmen (#430).
+  Assert.IsTrue(Items.Items[0].HasParameters, 'Parameter der Überladung');
+  Assert.IsFalse(Items.Items[1].HasParameters, 'Bib.Mathe ohne Parameter');
 end;
 procedure TLspCompletionTests.ItemsCarryTheirScope;
 var

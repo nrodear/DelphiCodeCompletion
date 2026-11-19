@@ -19,6 +19,12 @@ type
     /// <summary>DFM-Text zu ARoot. AMethodName liefert den Namen eines Ereignis-Handlers ('' = unbekannt);
     /// nil: Namen aus den published-Methoden der Wurzel.</summary>
     class function Write(ARoot: TComponent; const AMethodName: TFunc<TMethod, string>): string; static;
+    /// <summary>Formulardatei eines Designers aus seinen Moduldateien (IDesigner.ModuleFileNames): AFormFileName,
+    /// wenn es eine .dfm bzw. .fmx ist; sonst neben AImplFileName die .dfm, die .fmx nur, wenn es nur diese gibt
+    /// (AExists prüft, nil = keine vorhanden). '' ohne beides: Dann ist das Formular keiner Datei sicher zugeordnet.
+    /// </summary>
+    class function FormFileOf(const AImplFileName, AFormFileName: string;
+      const AExists: TFunc<string, Boolean>): string; static;
   end;
 
 implementation
@@ -69,6 +75,31 @@ begin
     mNamer.Free;
     mText.Free;
     mBinary.Free;
+  end;
+end;
+
+class function TDpccFormText.FormFileOf(const AImplFileName, AFormFileName: string;
+  const AExists: TFunc<string, Boolean>): string;
+var
+  mFmx, mDfm: string;
+begin
+  if SameText(ExtractFileExt(AFormFileName), '.dfm') or SameText(ExtractFileExt(AFormFileName), '.fmx') then
+  begin
+    Exit(AFormFileName);
+  end;
+  if AImplFileName = '' then
+  begin
+    Exit('');
+  end;
+  mDfm := ChangeFileExt(AImplFileName, '.dfm');
+  mFmx := ChangeFileExt(AImplFileName, '.fmx');
+  if Assigned(AExists) and AExists(mFmx) and not AExists(mDfm) then
+  begin
+    Result := mFmx;
+  end
+  else
+  begin
+    Result := mDfm;
   end;
 end;
 

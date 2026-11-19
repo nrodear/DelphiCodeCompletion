@@ -34,6 +34,9 @@ type
     /// <summary>Parameter von dpcc/ideTypes: je Unit ein Eintrag in der Reihenfolge des ersten Vorkommens, ohne
     /// doppelte Typen. Der Aufrufer übernimmt das Objekt.</summary>
     class function ToJson(const ATypes: TArray<TDpccIdeType>): TJSONObject; static;
+    /// <summary>ATypes ohne doppelte Typen (Unit.Typ ohne Groß-/Kleinschreibung), der erste bleibt samt Vorfahr, die
+    /// Reihenfolge auch: Palette und RTTI der Packages melden dieselben Komponenten.</summary>
+    class function Unique(const ATypes: TArray<TDpccIdeType>): TArray<TDpccIdeType>; static;
     /// <summary>Liegt AFileName unter einem der Ordner AFolders (ohne Groß-/Kleinschreibung)?</summary>
     class function InFolders(const AFileName: string; const AFolders: TArray<string>): Boolean; static;
     /// <summary>Unit-Namen (groß) der Dateien AFiles, etwa aller .pas der Installation (L2). Der Aufrufer gibt das
@@ -126,6 +129,35 @@ begin
     mSeen.Free;
     mUnits.Free;
   end;
+end;
+
+class function TDpccIdeTypes.Unique(const ATypes: TArray<TDpccIdeType>): TArray<TDpccIdeType>;
+var
+  mSeen: TDictionary<string, Boolean>;
+  mIndex, mCount: Integer;
+  mKey: string;
+begin
+  Result := nil;
+  SetLength(Result, Length(ATypes));
+  mCount := 0;
+  mSeen := TDictionary<string, Boolean>.Create(Length(ATypes));
+  try
+    for mIndex := 0 to High(ATypes) do
+    begin
+      // Derselbe Schlüssel wie in ToJson.
+      mKey := UpperCase(ATypes[mIndex].UnitName + '.' + ATypes[mIndex].Name);
+      if mSeen.ContainsKey(mKey) then
+      begin
+        Continue;
+      end;
+      mSeen.Add(mKey, True);
+      Result[mCount] := ATypes[mIndex];
+      Inc(mCount);
+    end;
+  finally
+    mSeen.Free;
+  end;
+  SetLength(Result, mCount);
 end;
 
 class function TDpccIdeTypes.UnitNames(const AFiles: TArray<string>): TDictionary<string, Boolean>;

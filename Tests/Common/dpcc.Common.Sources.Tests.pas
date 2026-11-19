@@ -78,6 +78,10 @@ type
     /// <summary>Punkt 1a: Typen aus Packages der Installation nur für Units ohne Quelltext.</summary>
     [Test]
     procedure InstalledTypesOnlyWithoutSource;
+    /// <summary>Doppelte Einträge: Palette und RTTI melden dieselben Typen. Unique lässt je Unit.Typ den ersten
+    /// (samt Vorfahr); UnitsOf des Katalogs im Server nennt jede Unit einmal.</summary>
+    [Test]
+    procedure IdeTypesAndUnitsAreUnique;
     /// <summary>Punkt 8: Win64x ohne eigenen Browsing Path nimmt den von Win64 (liest nur die Registry; ohne Delphi 13
     /// nichts zu prüfen).</summary>
     [Test]
@@ -90,6 +94,8 @@ uses
   System.Classes,
   System.IOUtils,
   System.Generics.Collections,
+  dpcc.Common.Rules.Contract,
+  dpcc.Common.Lsp.IdeTypes,
   dpcc.Common.Index.SymbolIndex,
   dpcc.Common.Projects.DprojReader,
   dpcc.Common.Lsp.IdeProject,
@@ -863,6 +869,41 @@ begin
   finally
     mSources.Free;
   end;
+end;
+
+procedure TDpccSourcesTests.IdeTypesAndUnitsAreUnique;
+var
+  mTypes, mUnique: TArray<TDpccIdeType>;
+  mCatalog: TIdeTypeCatalog;
+  mCatalogRef: IRuleIdeTypes;
+  mParams: TJSONValue;
+  mUnits: TArray<string>;
+begin
+  SetLength(mTypes, 4);
+  Assert.IsTrue(TDpccIdeType.FromQualified('Vendor.Grid.TVendorGrid', 'Vcl.Controls.TCustomControl', mTypes[0]));
+  Assert.IsTrue(TDpccIdeType.FromQualified('Vendor.Grid.TVendorGrid', '', mTypes[1]), 'Palette');
+  Assert.IsTrue(TDpccIdeType.FromQualified('VENDOR.GRID.TVendorGrid', '', mTypes[2]), 'andere Schreibweise');
+  Assert.IsTrue(TDpccIdeType.FromQualified('Vendor.Other.TVendorGrid', '', mTypes[3]), 'andere Unit');
+  mUnique := TDpccIdeTypes.Unique(mTypes);
+  Assert.AreEqual(2, Integer(Length(mUnique)));
+  Assert.AreEqual('Vcl.Controls.TCustomControl', mUnique[0].Parent, 'der erste bleibt');
+  Assert.AreEqual('Vendor.Other', mUnique[1].UnitName);
+  // Server: dieselbe Unit mehrfach gemeldet, auch in anderer Schreibweise.
+  mCatalog := TIdeTypeCatalog.Create;
+  mCatalogRef := mCatalog;
+  mParams := TJSONObject.ParseJSONValue('{"units": [{"unit": "Vendor.Grid", "types": ["TVendorGrid"]}, ' +
+    '{"unit": "VENDOR.GRID", "types": ["TVendorGrid", {"name": "TVendorGrid"}]}, ' +
+    '{"unit": "Vendor.Other", "types": ["TVendorGrid"]}]}');
+  try
+    Assert.AreEqual(2, mCatalog.Replace(mParams));
+  finally
+    mParams.Free;
+  end;
+  mUnits := mCatalog.UnitsOf('tvendorgrid');
+  Assert.AreEqual(2, Integer(Length(mUnits)));
+  Assert.AreEqual('Vendor.Grid', mUnits[0]);
+  Assert.AreEqual('Vendor.Other', mUnits[1]);
+  Assert.AreEqual(0, Integer(Length(mCatalog.UnitsOf('TUnbekannt'))));
 end;
 
 procedure TDpccSourcesTests.Win64xBorrowsBrowsingPath;
