@@ -71,10 +71,17 @@ involved.
   library units that dpcc loads just for this (also Office type libraries and WinRT). For units with the same name,
   the one of the own project counts.
 - No target, no jump: units without source (known only from packages), units dpcc does not find, ambiguous
-  overloads and `with` with an unknown type. The IDE then does not jump and shows no message.
+  overloads and `with` with an unknown type. The IDE then does not jump; dpcc names the reason in the Messages
+  window (group dpcc), for example “unit X is only available as a package (no source)”, “unit X not found” or
+  “"Name" could not be resolved”, while the index is being built with the addition “The index is still being
+  built.” The same message does not appear several times in a row. Every jump without a target is also one line in
+  `dpcc.log`.
 - For Ctrl+click the position under the mouse counts, for “Find Declaration” the cursor.
 - The IDE waits at most 250 ms for dpcc. If the answer comes later, dpcc jumps by itself, provided the same file is
-  active, the cursor is still at the starting point and no more than 3 seconds have passed.
+  active, the cursor is still in the same identifier (the clicked one or the one it was in at the click) and the
+  answer arrived no more than 10 seconds after the click.
+- While dpcc is still starting, it remembers the jump (“dpcc is still starting” in the Messages window) and makes it
+  as soon as it is ready, by the same rules.
 
 The first time in each session, the Messages window says that dpcc is selected and what is missing then: Error
 Insight (error marks in the editor) and the other DelphiLSP services. If you need them, turn the master switch off

@@ -175,6 +175,9 @@ type
     /// <summary>Liest die Property AProperty direkt aus einem Feld (read FFeld, read FFeld.X)? False, wenn das
     /// nicht sicher feststeht (kein read, Typ oder Mitglied unbekannt); sonst AReadsField (#1005).</summary>
     function PropertyReadsField(const AProperty: TResolvedSymbol; out AReadsField: Boolean): Boolean;
+    /// <summary>Units, die dieser Resolver gesucht und weder im Index noch über das Nachladen gefunden hat, in der
+    /// Reihenfolge der Suche (höchstens 64; Grund eines leeren Sprungs, dpcc/noTarget).</summary>
+    function MissingUnits: TArray<string>;
     /// <summary>Unit-Namespaces des Projekts (DCC_Namespace) für uses ohne Präfix.</summary>
     property Namespaces: TArray<string> read GetNamespaces write SetNamespaces;
     /// <summary>Kandidaten für die Vervollständigung (sichtbare Namen, Mitglieder, inherited, NameFilter).</summary>
@@ -227,6 +230,11 @@ end;
 function TNameResolver.GetQueries: TResolverQueries;
 begin
   Result := FCore.Queries;
+end;
+
+function TNameResolver.MissingUnits: TArray<string>;
+begin
+  Result := FCore.Units.NotFoundUnits;
 end;
 
 function TNameResolver.TypeOf(const AResolved: TResolvedSymbol; out AType: TResolvedSymbol): Boolean;

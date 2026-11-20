@@ -4,6 +4,9 @@
 // außerhalb der Sperre (EnsureUnit), die Projekte der Projektgruppen und die gewählten Projekte je Datei. Anlegen,
 // Laden und Verdrahten der Arbeitsbereiche bleibt in der Komposition. Den Vorrat der Projekte für projektweite
 // Prüfregeln (#1102) gibt es seit Rückbau R3 (K13) nicht mehr.
+// Sprung in ein anderes Package: PackageFolders nennt die Ordner aller gemeldeten Projekte, auch derer, deren
+// Arbeitsbereich noch nicht angelegt ist (NoteProjects vor dem Anlegen); sonst sah das zuerst angelegte, aktive
+// Projekt die .dpk seiner requires nie.
 
 interface
 
@@ -44,6 +47,9 @@ type
     function ChooseProject(const AFileName: string; const ACandidates: TArray<TShellWorkspace>): TShellWorkspace;
     function PreferredProject(const ACandidates: TArray<TShellWorkspace>; out AReason: string): TShellWorkspace;
     procedure LogChoice(const AFileName: string; ACount: Integer; AChosen: TShellWorkspace; const AReason: string);
+    /// <summary>Hängt die noch nicht gemerkten Projekte aus AProjects an FGroupProjectFiles; unter der Sperre.
+    /// </summary>
+    procedure AddKnown(const AProjects: TArray<string>);
   public
     constructor Create(const AServices: TShellWorkspaceRegistryServices);
     destructor Destroy; override;
@@ -54,11 +60,18 @@ type
     procedure Add(AWorkspace: TShellWorkspace);
     /// <summary>Merkt die Projekte einer Gruppe; True, wenn schon Arbeitsbereiche bestehen.</summary>
     function AddGroupProjects(const AProjects: TArray<string>): Boolean;
+    /// <summary>Merkt Projekte, die gleich angelegt werden (alle Einträge einer Meldung des Clients), damit schon das
+    /// erste die Ordner der übrigen kennt (PackageFolders).</summary>
+    procedure NoteProjects(const AProjects: TArray<string>);
     function HasProject(const AProjectFile: string): Boolean;
     /// <summary>Projekte der Gruppen und aller Arbeitsbereiche (uses-unit-not-found).</summary>
     function GroupProjectFiles: TArray<string>;
-    /// <summary>Ordner aller Projekte, für requires-Packages als Quelle (#46).</summary>
+    /// <summary>Ordner aller Projekte ohne Doppelte, auch der gemerkten ohne Arbeitsbereich, für requires-Packages
+    /// als Quelle (#46).</summary>
     function PackageFolders: TArray<string>;
+    /// <summary>Alle Arbeitsbereiche vergessen die Units, die EnsureUnit nicht gefunden hat (ein Projekt kam dazu
+    /// oder ist fertig indiziert). Jeder Thread; die Arbeitsbereiche nutzt es außerhalb der Sperre.</summary>
+    procedure ForgetFailedUnits;
     /// <summary>Nimmt alle Arbeitsbereiche des Ursprungs heraus, ohne sie freizugeben.</summary>
     function Extract(const AOrigin: string; out ARemaining: TArray<TShellWorkspace>): TArray<TShellWorkspace>;
     /// <summary>Gibt einen herausgenommenen Arbeitsbereich frei, sobald keine Anfrage ihn mehr nutzt.</summary>
@@ -88,6 +101,7 @@ implementation
 uses
   System.SysUtils,
   System.Math,
+  System.StrUtils,
   dpcc.Common.Lsp.WorkspaceFolders,
   dpcc.Common.Rules.LibrarySources,
   dpcc.Text.LogMarks;
@@ -136,7 +150,30 @@ begin
   System.TMonitor.Enter(FLock);
   try
     Result := FItems.Count > 0;
-    FGroupProjectFiles := FGroupProjectFiles + AProjects;
+    AddKnown(AProjects);
+  finally
+    System.TMonitor.Exit(FLock);
+  end;
+end;
+
+procedure TShellWorkspaceRegistry.AddKnown(const AProjects: TArray<string>);
+var
+  mProject: string;
+begin
+  for mProject in AProjects do
+  begin
+    if (mProject <> '') and (IndexText(mProject, FGroupProjectFiles) < 0) then
+    begin
+      FGroupProjectFiles := FGroupProjectFiles + [mProject];
+    end;
+  end;
+end;
+
+procedure TShellWorkspaceRegistry.NoteProjects(const AProjects: TArray<string>);
+begin
+  System.TMonitor.Enter(FLock);
+  try
+    AddKnown(AProjects);
   finally
     System.TMonitor.Exit(FLock);
   end;
@@ -181,22 +218,69 @@ begin
   end;
 end;
 
+/// <summary>Hängt den Ordner von AProjectFile an AFolders, wenn er dort noch fehlt.</summary>
+procedure AddFolderOf(const AProjectFile: string; var AFolders: TArray<string>);
+var
+  mFolder: string;
+begin
+  if AProjectFile = '' then
+  begin
+    Exit;
+  end;
+  mFolder := ExtractFileDir(AProjectFile);
+  if (mFolder <> '') and (IndexText(mFolder, AFolders) < 0) then
+  begin
+    AFolders := AFolders + [mFolder];
+  end;
+end;
+
 function TShellWorkspaceRegistry.PackageFolders: TArray<string>;
 var
   mOther: TShellWorkspace;
+  mProject: string;
 begin
   Result := nil;
   System.TMonitor.Enter(FLock);
   try
+    // Erst die angelegten, dann die gemerkten: Die Projekte einer Meldung entstehen nacheinander, und das erste (das
+    // aktive) indiziert sofort; ohne die gemerkten fände es die .dpk seiner requires nicht.
     for mOther in FItems do
     begin
-      if mOther.Setup.ProjectFile <> '' then
-      begin
-        Result := Result + [ExtractFileDir(mOther.Setup.ProjectFile)];
-      end;
+      AddFolderOf(mOther.Setup.ProjectFile, Result);
+    end;
+    for mProject in FGroupProjectFiles do
+    begin
+      AddFolderOf(mProject, Result);
     end;
   finally
     System.TMonitor.Exit(FLock);
+  end;
+end;
+
+procedure TShellWorkspaceRegistry.ForgetFailedUnits;
+var
+  mTargets: TArray<TShellWorkspace>;
+  mWorkspace: TShellWorkspace;
+begin
+  System.TMonitor.Enter(FLock);
+  try
+    // Nach FreeWorkspaces (Beenden) gibt es nichts mehr zu vergessen.
+    if FItems = nil then
+    begin
+      Exit;
+    end;
+    mTargets := FItems.ToArray;
+    Hold(mTargets);
+  finally
+    System.TMonitor.Exit(FLock);
+  end;
+  try
+    for mWorkspace in mTargets do
+    begin
+      mWorkspace.ForgetFailedUnits;
+    end;
+  finally
+    Release(mTargets);
   end;
 end;
 

@@ -108,6 +108,19 @@ Nach `raise`, `on E: ` und in Attributklammern prüft die Vervollständigung Kla
 stehen, über die Vorfahren im Katalog und lädt diese Units dafür nicht nach. Klassen aus Packages der IDE ohne
 Quelltext kommen über ihren Vorfahren dazu, wie ihn die IDE meldet.
 
+#### Vorladen beim Öffnen
+
+Wird eine Datei im Editor aktiv (Öffnen, Tab-Wechsel, Sprung) und bleibt sie es rund 0,4 s, gleicht das Plugin sie im
+Hintergrund mit dem Server ab und meldet sie zum Vorladen (`dpcc/prewarm`); schnelles Durchblättern der Tabs löst
+nichts aus, je Datei und Stand geschieht es höchstens einmal. Der Server legt dann in einem eigenen Thread mit niedriger
+Priorität den Syntaxbaum der Datei in den Zwischenspeicher der Anfragen und lädt die Units ihrer `uses` (samt System)
+so, wie es die erste Anfrage täte: aus dem Katalog oder über die Suchpfade. So muss der erste Strg+Klick, Tooltip oder
+die erste Vorschlagsliste nach dem Öffnen nichts mehr nachladen. Höchstens ein Auftrag läuft; eine andere Datei bricht
+ihn vor der nächsten Unit ab. Kalte Units lädt das Vorladen nur, solange die nachgeladenen unter drei Vierteln der
+Grenze von 32 MB liegen; es pinnt nichts und verdrängt keine benutzte Unit. Während der Index aufgebaut wird, wartet
+es bis zum Ende des Aufbaus. Das Diagnoselog des Servers zeigt je Auftrag eine Zeile `prewarm doc#n units … catalog …
+parsed … missing … ms … cancelled …`.
+
 #### Nutzungsstatistik
 
 dpcc zählt je Unit der Bibliothek, wie oft Anfragen sie brauchen und wie oft eine Projekt-Unit sie neu in ihre `uses`

@@ -6,6 +6,8 @@
 // L2: Office-Typbibliotheken und WinRT gehören immer zur Bibliothek (Katalog, bei Bedarf geladen; der Schalter
 // index.officeAndWinRt und der eigene Cache ohne sie sind entfallen). Zusätzliche Quellordner
 // (index.extraSourceFolders) kommen samt Unterordnern nach der Bibliothek, mit eigenem gemeinsamen Cache.
+// Units eines requires-Packages mit Quelltext gelten als Suchpfad-Units, auch wenn sie zugleich in der Bibliothek
+// oder einem Zusatzordner liegen (Sprung in ein anderes Package).
 
 interface
 
@@ -288,6 +290,21 @@ begin
   end;
 end;
 
+/// <summary>Die Dateien aus AFiles, die nicht in AKnown stehen (Schlüssel groß), in ihrer Reihenfolge.</summary>
+function WithoutKnown(const AFiles: TArray<string>; AKnown: TDictionary<string, Boolean>): TArray<string>;
+var
+  mFileName: string;
+begin
+  Result := nil;
+  for mFileName in AFiles do
+  begin
+    if not AKnown.ContainsKey(AnsiUpperCase(mFileName)) then
+    begin
+      Result := Result + [mFileName];
+    end;
+  end;
+end;
+
 /// <summary>Quelltext der .dpk von AProject; False, wenn es kein lesbares Package ist.</summary>
 function PackageSourceOf(const AProject: TProjectInfo; out ASource: TPackageSource): Boolean;
 var
@@ -322,6 +339,12 @@ begin
     end;
     mAdded := AddNew(TPackageLocator.ContainedFiles(AProject.MainSource, mSource), mKnown, AFiles.Files);
     mRequired := AddNew(ALocator.RequiredFiles(mSource), mKnown, AFiles.SearchFiles);
+    // Liegt ein requires-Package in einem zusätzlichen Quellordner oder im Bibliothekspfad, stehen seine Units auch
+    // in der Bibliotheksstufe; wie in FilesOf gilt die frühere Stufe.
+    if (mAdded > 0) or (mRequired > 0) then
+    begin
+      AFiles.LibraryFiles := WithoutKnown(AFiles.LibraryFiles, mKnown);
+    end;
   finally
     mKnown.Free;
   end;

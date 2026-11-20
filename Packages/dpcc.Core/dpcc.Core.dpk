@@ -128,6 +128,7 @@ contains
   dpcc.Core.Editor.Guides in 'Source\Editor\dpcc.Core.Editor.Guides.pas',
   dpcc.Core.Editor.CodeInsightKeys in 'Source\Editor\dpcc.Core.Editor.CodeInsightKeys.pas',
   dpcc.Core.Editor.Navigation in 'Source\Editor\dpcc.Core.Editor.Navigation.pas',
+  dpcc.Core.Editor.Prewarm in 'Source\Editor\dpcc.Core.Editor.Prewarm.pas',
   dpcc.Core.Status.Contract in 'Source\Status\dpcc.Core.Status.Contract.pas',
   dpcc.Core.Files.Format in 'Source\Files\dpcc.Core.Files.Format.pas',
   dpcc.Core.Status.Lines in 'Source\Status\dpcc.Core.Status.Lines.pas',

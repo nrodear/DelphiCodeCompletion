@@ -105,11 +105,29 @@ is selected there does dpcc jump (see [Usage](usage.md#when-dpcc-is-selected-as-
 
 | Cause | Remedy |
 |---|---|
-| The target is in a unit without source (known only from a package). | Expected: no jump, no message. If the source is available, add its folder under “Additional source folders”. |
-| dpcc does not find the unit or cannot resolve the name uniquely (ambiguous overload, `with` with an unknown type). | Expected. Check the search paths; see [The list is empty or incomplete](#the-list-is-empty-or-incomplete). |
-| The index is still being built or the answer took longer than 3 seconds (after 250 ms dpcc jumps by itself, but only until then and only while the cursor stays in place). | Wait and try again. |
+| The target is in a unit without source (known only from a package). Message “unit X is only available as a package”. | Expected: no jump. If the source is available, add its folder under “Additional source folders”. |
+| dpcc does not find the unit or cannot resolve the name uniquely (ambiguous overload, `with` with an unknown type). Message “unit X not found” or “"Name" could not be resolved”. | Expected. Check the search paths; see [The list is empty or incomplete](#the-list-is-empty-or-incomplete). |
+| The index is still being built (addition “The index is still being built.”), dpcc is still starting or the answer took longer than 10 seconds (“no answer from dpcc within 10 s”). After 250 ms dpcc jumps by itself, but only until then and only while the cursor stays in the same identifier. | Wait and try again. |
+| No message in the Messages window. | `dpcc.log` records every jump without a target in one line `Gehe zu Definition: <outcome> nach <n> ms, <file> <line>:<column> (Maus\|Cursor)` (log lines are not translated), including discarded late answers (“Cursor bewegt”, “andere Datei aktiv”, “neuerer Sprungwunsch”, “zu spät”). |
 | A dpcc parameter hint with several overloads is open. | Since this version, Ctrl+Alt+↑/↓ switches the overload there; Alt+↑ goes to the IDE. |
 | The dpcc tooltip covers the word. | Hold down Ctrl: mouse and click then go through the tooltip to the editor. |
+
+### Jumping into another package
+
+If a package requires another one (`requires`), dpcc looks for its source `<Name>.dpk` and adds the units of its
+`contains` to the project's index. It searches the folders of all reported projects of the group (including those still
+loading), the project folder, the search paths, the
+[additional source folders](index-cache.md#additional-source-folders) and the folders next to the project folder
+(`Packages\<Name>\<Name>.dpk`, one level). The other package does not have to be a project of the group. If a package
+project joins the group later, the existing packages reload. If only the compiled package (`.dcp`, BPL) exists, there
+is no target; if the source is elsewhere, add its folder under “Additional source folders”.
+
+If dpcc finds no target, the server reports the reason (`dpcc/noTarget`) before the empty answer: `noDocument` (file
+unknown to the server), `noIdentifier` (no identifier at the position), `unresolved` (name not resolved),
+`unitNotFound` (unit from `uses` not found), `noSource` (unit only available as a package without source),
+`inactiveBranch` (inactive `$IFDEF` branch), `other`; plus whether the index is still being built. The server
+diagnostic log shows the same reason in the request line (`empty:unitNotFound` …, the name only as a code `name=h…`),
+preceded by a line `declaration start` or `definition start`.
 
 ## Two tooltips appear
 

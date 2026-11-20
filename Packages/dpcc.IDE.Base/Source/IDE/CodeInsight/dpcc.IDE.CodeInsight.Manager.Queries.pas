@@ -7,6 +7,12 @@
 // „Deklaration suchen“ (Auftrag NAV) an der Klickstelle bzw. am Cursor. Gefragt wird der Server im Hintergrund
 // (dpcc.IDE.CodeInsight.Manager, dpcc.Core.Lsp.LateAnswers); hier steht nur, was der Hauptthread dafür vom Editor
 // liest. Zeilen kommen aus der Zeilentabelle (TLineTable), ohne den Text in Strings je Zeile zu zerlegen.
+// Position beim Sprung (UNGEPRÜFT, nur aus der ToolsAPI gelesen): GotoDefinition bekommt von der IDE keine Stelle,
+// nur Index. Angenommen wird: Bei Strg+Klick ist Strg beim Aufruf noch gedrückt und die Maus steht über dem Wort, bei
+// „Deklaration suchen“ (Kontextmenü, Tastatur) gilt der Cursor. Ob die IDE den Cursor bei Strg+Klick vorher (oder
+// erst danach) auf die Klickstelle setzt und ob ein Rechtsklick fürs Kontextmenü ihn versetzt, ist nicht geprüft.
+// Mit Diagnose = 1 schreibt GotoPlace dazu Strg, Cursor, Mausstelle und die gewählte Stelle ins Protokoll; der
+// nachgereichte Sprung den Cursor bei Ankunft. Ein Lauf klärt so die Annahmen.
 
 interface
 
@@ -81,6 +87,9 @@ type
     /// <summary>Ist AAnswer ein Sprungziel? Nicht bei Fehler, ohne Datei und bei einer Ersatz-Unit des Servers
     /// (dpcc-ide:…), die es nicht als Datei gibt.</summary>
     class function TargetOf(const AAnswer: TDpccAnswer): Boolean; static;
+    /// <summary>Grund ohne Sprungziel: der des Servers (AAnswer.NoTarget); zeigt die Antwort auf eine Ersatz-Unit
+    /// (dpcc-ide:Unit.pas), NoSource mit dem Namen der Unit.</summary>
+    class function NoTargetOf(const AAnswer: TDpccAnswer): TDpccNoTarget; static;
     /// <summary>Zeile fürs Diagnoseprotokoll zu einem Sprungwunsch mit Ergebnis AResult.</summary>
     class function GotoNote(AIndex: Integer; const APlace: TDpccGotoPlace; const AResult: string): string; static;
   end;
@@ -319,6 +328,17 @@ begin
     not TDpccIdeMembers.IsIdePath(AAnswer.FileName);
 end;
 
+class function TDpccCodeInsightQueries.NoTargetOf(const AAnswer: TDpccAnswer): TDpccNoTarget;
+begin
+  Result := AAnswer.NoTarget;
+  // Älterer Server: Ziel in einer Ersatz-Unit aus der RTTI der Packages (dpcc-ide:Vcl.Forms.pas), ohne Quelltext.
+  if AAnswer.Found and TDpccIdeMembers.IsIdePath(AAnswer.FileName) then
+  begin
+    Result.Reason := TDpccNoTargetReason.NoSource;
+    Result.Name := ChangeFileExt(Copy(AAnswer.FileName, Length(TDpccIdeMembers.cPathPrefix) + 1, MaxInt), '');
+  end;
+end;
+
 /// <summary>Stelle unter der Maus im Editor von AView: Zeile (1-basiert) und Zeichen (0-basiert) über einem
 /// Bezeichner; False außerhalb des Editors oder neben einem Bezeichner. Zeilen aus AText über ATable.</summary>
 function MousePosition(const AView: IOTAEditView; const AText: string; const ATable: TLineTable; ATabWidth: Integer;
@@ -369,8 +389,9 @@ var
   mTable: TLineTable;
   mCursor: TOTAEditPos;
   mTabWidth, mMouseLine, mMouseCharacter: Integer;
-  mMouseValid, mCtrlDown: Boolean;
+  mMouseOver, mMouseValid, mCtrlDown: Boolean;
   mCaret, mAt: TPoint;
+  mCaretLineText: string;
 begin
   APlace := Default(TDpccGotoPlace);
   APlace.Text := TDpccEditorBuffer.Text(AView.Buffer);
@@ -380,16 +401,23 @@ begin
   // IDE den Cursor vorher dorthin setzt, ist nicht geprüft), sonst der Cursor („Deklaration suchen“, Alt+↑).
   mCursor := AView.CursorPos;
   mCaret := TPoint.Create(-1, mCursor.Line);
+  mCaretLineText := '';
   if (mCursor.Line >= 1) and (mCursor.Line <= mTable.LineCount) then
   begin
-    mCaret.X := TLspSession.ColumnToIndex(LineOf(APlace.Text, mTable, mCursor.Line - 1), mCursor.Col, mTabWidth);
+    mCaretLineText := LineOf(APlace.Text, mTable, mCursor.Line - 1);
+    mCaret.X := TLspSession.ColumnToIndex(mCaretLineText, mCursor.Col, mTabWidth);
   end;
-  mMouseLine := 0;
-  mMouseCharacter := 0;
   mCtrlDown := GetKeyState(VK_CONTROL) < 0;
-  mMouseValid := mCtrlDown and MousePosition(AView, APlace.Text, mTable, mTabWidth, mMouseLine, mMouseCharacter);
+  // Die Mausstelle auch ohne Strg: nur fürs Diagnoseprotokoll.
+  mMouseOver := MousePosition(AView, APlace.Text, mTable, mTabWidth, mMouseLine, mMouseCharacter);
+  mMouseValid := mCtrlDown and mMouseOver;
   mAt := TDpccGotoDefinition.ChoosePosition(mCtrlDown, mMouseValid, TPoint.Create(mMouseCharacter, mMouseLine),
     mCaret);
+  // Ein Lauf mit Diagnose = 1 klärt, welche Stelle die IDE meint (Annahmen im Kopf der Unit).
+  ADiagnose(Format('Gehe zu Definition: Stelle der IDE keine (nur Index), Strg %s, Cursor %d:%d (Editorspalte ' +
+    '%d), Maus %s %d:%d, gefragt %d:%d (%s)', [BoolToStr(mCtrlDown, True), mCaret.Y, mCaret.X + 1, mCursor.Col,
+    IfThen(mMouseOver, 'über Bezeichner', 'nicht über Bezeichner'), mMouseLine, mMouseCharacter + 1, mAt.Y,
+    mAt.X + 1, IfThen(mMouseValid, 'Maus', 'Cursor')]));
   Result := (mAt.X >= 0) and (mAt.Y >= 1) and (mAt.Y <= mTable.LineCount);
   if not Result then
   begin
@@ -404,6 +432,10 @@ begin
   APlace.Origin.StartedMs := TThread.GetTickCount64;
   APlace.LineText := LineOf(APlace.Text, mTable, mAt.Y - 1);
   APlace.Mouse := mMouseValid;
+  APlace.Origin.AtMouse := mMouseValid;
+  // Für das Urteil über eine nachgereichte Antwort: der Bezeichner an Klickstelle und Cursor (gleiches Wort genügt).
+  TDpccLateGoto.WordRange(APlace.LineText, mAt.X, APlace.Origin.AtWordStart, APlace.Origin.AtWordEnd);
+  TDpccLateGoto.WordRange(mCaretLineText, mCaret.X, APlace.Origin.CaretWordStart, APlace.Origin.CaretWordEnd);
 end;
 
 class function TDpccCodeInsightQueries.GotoNow(AGeneration: Cardinal): TDpccGotoNow;

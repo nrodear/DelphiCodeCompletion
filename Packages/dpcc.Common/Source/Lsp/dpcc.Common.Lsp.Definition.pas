@@ -18,6 +18,12 @@
 // Strg+Klick (Auftrag NAV): Seit NAV meldet die Wurzel des Completion-Servers diese Anfragen an. Findet die
 // Namensauflösung nichts, gilt eine Deklaration der eigenen Unit aus einem nicht geltenden $IFDEF-Zweig (L1, L3:
 // der Index kennt Name, Art und Zeile; UnavailableTargets), wie beim Hover.
+// Kein Ziel (Sprung in ein anderes Package): Bevor declaration bzw. definition leer (null oder []) antworten, geht
+// dpcc/noTarget mit dem Grund an den Client (Notify; im selben Thread vor der Antwort, also davor auf demselben
+// Ausgang): noDocument, noIdentifier, unresolved, unitNotFound, noSource, inactiveBranch, other; dazu Name, Stelle
+// und ob der Index noch aufgebaut wird. Derselbe Grund steht im Diagnoselog (statt empty:unspecified), der Name dort
+// nur als Kennzahl (#647). Führt die Auflösung nur in Ersatz-Units der IDE (Package ohne Quelltext im Index), lädt
+// sie zuerst die echte Quelle über EnsureUnit nach; vorher verdeckte die Ersatz-Unit sie still.
 
 interface
 
@@ -41,6 +47,18 @@ type
 
   TDefinitionRequestKind = (Definition, Declaration, TypeDefinition);
 
+  /// <summary>Schickt eine Benachrichtigung an den Client; übernimmt AParams.</summary>
+  TDefinitionNotifyProc = reference to procedure(const AMethod: string; AParams: TJSONObject);
+  /// <summary>Wird der Index noch aufgebaut oder geladen?</summary>
+  TDefinitionIndexingFunc = reference to function: Boolean;
+
+  /// <summary>Warum ein Sprung kein Ziel hat (dpcc/noTarget): Grundcode und Bezeichner bzw. Unit ('' ohne).
+  /// </summary>
+  TDefinitionNoTarget = record
+    Reason: string;
+    Name: string;
+  end;
+
   /// <summary>Stelle einer Sprungabfrage: Baum, Datei, Position und ob zur Deklaration.</summary>
   TDefinitionQuery = record
     Tree: TSyntaxTree;
@@ -57,13 +75,39 @@ type
     cDefinitionMethod = 'textDocument/definition';
     cDeclarationMethod = 'textDocument/declaration';
     cTypeDefinitionMethod = 'textDocument/typeDefinition';
+    /// <summary>Benachrichtigung vor einer leeren Antwort auf declaration bzw. definition.</summary>
+    cNoTargetMethod = 'dpcc/noTarget';
+    /// <summary>Der Server kennt das Dokument nicht.</summary>
+    cReasonNoDocument = 'noDocument';
+    /// <summary>An der Stelle steht kein Bezeichner (auch Kommentar, String, Direktive).</summary>
+    cReasonNoIdentifier = 'noIdentifier';
+    /// <summary>Bezeichner nicht aufgelöst.</summary>
+    cReasonUnresolved = 'unresolved';
+    /// <summary>Eine benutzte Unit wurde nicht gefunden.</summary>
+    cReasonUnitNotFound = 'unitNotFound';
+    /// <summary>Das Ziel liegt in einer Unit ohne Quelltext (nur Package bzw. RTTI der IDE).</summary>
+    cReasonNoSource = 'noSource';
+    /// <summary>Das Ziel bzw. die Stelle liegt in einem nicht geltenden $IFDEF-Zweig.</summary>
+    cReasonInactiveBranch = 'inactiveBranch';
+    cReasonOther = 'other';
   private
     FStore: IDocumentStore;
     FIndex: ISymbolIndex;
     FEnsureUnit: TEnsureUnitFunc;
     FNamespaces: TArray<string>;
     FReadText: TDfmReadText;
+    FNotify: TDefinitionNotifyProc;
+    FIndexing: TDefinitionIndexingFunc;
     function FormTargets(const AText, AUri: string; const APosition: TTextPosition): TJSONValue;
+    /// <summary>Ziele über die Namensauflösung, sonst aus nicht geltenden Zweigen der eigenen Unit.</summary>
+    function ResolveTargets(AResolver: TNameResolver; ATree: TSyntaxTree; const AFileName, AText: string;
+      const APosition: TTextPosition; ADeclaration: Boolean): TArray<TDefinitionTarget>;
+    /// <summary>Lädt die echten Quellen der Ersatz-Units in ATargets über EnsureUnit; True, wenn eine geladen ist.
+    /// </summary>
+    function LoadIdeSources(const ATargets: TArray<TDefinitionTarget>): Boolean;
+    /// <summary>Grund ins Diagnoselog und, außer bei typeDefinition, dpcc/noTarget an den Client.</summary>
+    procedure ReportNoTarget(AKind: TDefinitionRequestKind; const AUri: string; const APosition: TTextPosition;
+      const AWhy: TDefinitionNoTarget);
     function Handle(const AParams: TJSONValue; const ACancellation: IJsonRpcCancellationToken;
       AKind: TDefinitionRequestKind): TJSONValue;
     function HandleDefinition(const AParams: TJSONValue; const ACancellation: IJsonRpcCancellationToken): TJSONValue;
@@ -101,16 +145,32 @@ type
     /// <summary>LocationLink[] des LSP ohne Ziele in Ersatz-Units der IDE. Der Aufrufer übernimmt das Objekt.
     /// </summary>
     class function ToJson(const ATargets: TArray<TDefinitionTarget>): TJSONArray; static;
+    /// <summary>Warum ATargets (nach ToJson) kein Ziel ergibt: noSource (nur Ersatz-Units), noIdentifier,
+    /// inactiveBranch (Stelle oder Deklaration in einer benutzten Unit in einem nicht geltenden Zweig), unitNotFound
+    /// (eine Unit aus uses fehlt; Name = Unit) oder unresolved. AResolver hat die Stelle schon aufgelöst.</summary>
+    class function Explain(AResolver: TNameResolver; const AIndex: ISymbolIndex; ATree: TSyntaxTree;
+      const AFileName, AText: string; const APosition: TTextPosition;
+      const ATargets: TArray<TDefinitionTarget>): TDefinitionNoTarget; static;
+    /// <summary>Unit-Name einer Ersatz-Unit der IDE (dpcc-ide:Vendor.Grid.pas → Vendor.Grid).</summary>
+    class function IdeUnitName(const AFileName: string): string; static;
     /// <summary>Unit-Namespaces des Projekts (DCC_Namespace).</summary>
     property Namespaces: TArray<string> read GetNamespaces write SetNamespaces;
     /// <summary>Liest die Unit neben einer Formulardatei (#44); ohne sie gibt es dort keine Sprünge.</summary>
     property ReadText: TDfmReadText read FReadText write FReadText;
+    /// <summary>Für dpcc/noTarget; ohne geht der Grund nur ins Diagnoselog. Vor dem ersten Attach zu setzen.
+    /// </summary>
+    property Notify: TDefinitionNotifyProc read FNotify write FNotify;
+    /// <summary>Feld "indexing" von dpcc/noTarget; ohne gilt False.</summary>
+    property Indexing: TDefinitionIndexingFunc read FIndexing write FIndexing;
   end;
 
 implementation
 
 uses
   System.Generics.Collections,
+  System.StrUtils,
+  System.Hash,
+  dpcc.Common.Diagnostics.RequestScope,
   dpcc.Common.Lsp.Internals.Namespaces,
   dpcc.Common.Index.Files,
   dpcc.Common.Documents.Uris,
@@ -549,17 +609,258 @@ begin
   end;
 end;
 
+/// <summary>Bezeichner an APosition, sonst direkt davor (Schreibmarke hinter dem Namen); AAt ist die Stelle, an der
+/// er steht. '' ohne Bezeichner.</summary>
+function IdentifierAt(const AText: string; const APosition: TTextPosition; out AAt: TTextPosition): string;
+begin
+  AAt := APosition;
+  Result := NameAt(AText, AAt);
+  if (Result = '') and (APosition.Character > 0) then
+  begin
+    AAt := TTextPosition.Create(APosition.Line, APosition.Character - 1);
+    Result := NameAt(AText, AAt);
+  end;
+end;
+
+/// <summary>Steht an APosition ein Token des Baums? Nein in nicht geltenden Zweigen: Der Baum entsteht aus dem Text
+/// ohne sie.</summary>
+function HasTokenAt(ATree: TSyntaxTree; const APosition: TTextPosition): Boolean;
+var
+  mToken: TPascalToken;
+begin
+  for mToken in ATree.Tokens do
+  begin
+    if (ComparePositions(mToken.StartPos, APosition) <= 0) and (ComparePositions(APosition, mToken.EndPos) < 0) then
+    begin
+      Exit(True);
+    end;
+  end;
+  Result := False;
+end;
+
+/// <summary>Unit AName (auch mit einem der ANamespaces davor) im Index.</summary>
+function FindUsedUnit(const AIndex: ISymbolIndex; const AName: string; const ANamespaces: TArray<string>;
+  out AUnit: TUnitIndex): Boolean;
+var
+  mNamespace: string;
+begin
+  if AIndex.FindUnit(AName, AUnit) then
+  begin
+    Exit(True);
+  end;
+  for mNamespace in ANamespaces do
+  begin
+    if AIndex.FindUnit(mNamespace + '.' + AName, AUnit) then
+    begin
+      Exit(True);
+    end;
+  end;
+  Result := False;
+end;
+
+/// <summary>Deklariert eine der Units AUses AName nur in einem nicht geltenden Zweig?</summary>
+function DeclaredInactive(const AIndex: ISymbolIndex; const AUses, ANamespaces: TArray<string>;
+  const AName: string): Boolean;
+var
+  mUsed: string;
+  mUnit: TUnitIndex;
+  mSymbol: TIndexSymbol;
+begin
+  if AIndex = nil then
+  begin
+    Exit(False);
+  end;
+  for mUsed in AUses do
+  begin
+    if not FindUsedUnit(AIndex, mUsed, ANamespaces, mUnit) then
+    begin
+      Continue;
+    end;
+    for mSymbol in mUnit.Unavailable do
+    begin
+      if SameText(mSymbol.Name, AName) then
+      begin
+        Exit(True);
+      end;
+    end;
+  end;
+  Result := False;
+end;
+
+/// <summary>Name fürs Diagnoselog: nur eine Kennzahl, nie der Bezeichner (#647).</summary>
+function NameLabel(const AName: string): string;
+begin
+  Result := 'h' + IntToHex(Cardinal(THashFNV1a32.GetHashValue(UpperCase(AName))), 8);
+end;
+
+/// <summary>Führen alle Ziele in Ersatz-Units der IDE (und gibt es welche)?</summary>
+function OnlyIdeTargets(const ATargets: TArray<TDefinitionTarget>): Boolean;
+var
+  mTarget: TDefinitionTarget;
+begin
+  Result := Length(ATargets) > 0;
+  for mTarget in ATargets do
+  begin
+    if not TIdeUnits.IsIdePath(mTarget.FileName) then
+    begin
+      Exit(False);
+    end;
+  end;
+end;
+
+class function TLspDefinition.IdeUnitName(const AFileName: string): string;
+begin
+  Result := AFileName;
+  if TIdeUnits.IsIdePath(Result) then
+  begin
+    Result := Copy(Result, Length(TIdeUnits.cPathPrefix) + 1, MaxInt);
+  end;
+  if SameText(ExtractFileExt(Result), '.pas') then
+  begin
+    Result := ChangeFileExt(Result, '');
+  end;
+end;
+
+class function TLspDefinition.Explain(AResolver: TNameResolver; const AIndex: ISymbolIndex; ATree: TSyntaxTree;
+  const AFileName, AText: string; const APosition: TTextPosition;
+  const ATargets: TArray<TDefinitionTarget>): TDefinitionNoTarget;
+var
+  mTarget: TDefinitionTarget;
+  mAt: TTextPosition;
+  mOwn: TUnitIndex;
+  mUses: TArray<string>;
+  mMissing: string;
+begin
+  Result := Default(TDefinitionNoTarget);
+  // Aufgelöst, aber nur in eine Ersatz-Unit der IDE: Package ohne Quelltext.
+  for mTarget in ATargets do
+  begin
+    if TIdeUnits.IsIdePath(mTarget.FileName) then
+    begin
+      Result.Reason := cReasonNoSource;
+      Result.Name := IdeUnitName(mTarget.FileName);
+      Exit;
+    end;
+  end;
+  Result.Name := IdentifierAt(AText, APosition, mAt);
+  if (Result.Name = '') or not InCodeAt(ATree, mAt) then
+  begin
+    Result.Reason := cReasonNoIdentifier;
+    Result.Name := '';
+    Exit;
+  end;
+  // Ein Bezeichner im Text, aber kein Token im Baum: Die Stelle liegt in einem nicht geltenden Zweig.
+  if not HasTokenAt(ATree, mAt) then
+  begin
+    Result.Reason := cReasonInactiveBranch;
+    Exit;
+  end;
+  mOwn := AResolver.ExtractedUnit(ATree, AFileName);
+  mUses := mOwn.InterfaceUses + mOwn.ImplementationUses;
+  // Eine Unit aus uses fehlt (Package ohne gefundene Quelle): Sie ist der wahrscheinliche Ort der Deklaration.
+  for mMissing in AResolver.MissingUnits do
+  begin
+    if IndexText(mMissing, mUses) >= 0 then
+    begin
+      Result.Reason := cReasonUnitNotFound;
+      Result.Name := mMissing;
+      Exit;
+    end;
+  end;
+  if DeclaredInactive(AIndex, mUses, AResolver.Namespaces, Result.Name) then
+  begin
+    Result.Reason := cReasonInactiveBranch;
+    Exit;
+  end;
+  Result.Reason := cReasonUnresolved;
+end;
+
+function TLspDefinition.ResolveTargets(AResolver: TNameResolver; ATree: TSyntaxTree; const AFileName,
+  AText: string; const APosition: TTextPosition; ADeclaration: Boolean): TArray<TDefinitionTarget>;
+begin
+  Result := Targets(AResolver, FIndex, ATree, AFileName, APosition, ADeclaration);
+  // Nichts aufgelöst: vielleicht eine Deklaration aus einem nicht geltenden Zweig (NAV).
+  if Length(Result) = 0 then
+  begin
+    Result := UnavailableTargets(FIndex, ATree, AFileName, AText, APosition);
+  end;
+end;
+
+function TLspDefinition.LoadIdeSources(const ATargets: TArray<TDefinitionTarget>): Boolean;
+var
+  mTarget: TDefinitionTarget;
+begin
+  Result := False;
+  if not Assigned(FEnsureUnit) then
+  begin
+    Exit;
+  end;
+  for mTarget in ATargets do
+  begin
+    if TIdeUnits.IsIdePath(mTarget.FileName) and FEnsureUnit(IdeUnitName(mTarget.FileName)) then
+    begin
+      Result := True;
+    end;
+  end;
+end;
+
+procedure TLspDefinition.ReportNoTarget(AKind: TDefinitionRequestKind; const AUri: string;
+  const APosition: TTextPosition; const AWhy: TDefinitionNoTarget);
+var
+  mIndexing: Boolean;
+  mParams: TJSONObject;
+  mMethod: string;
+begin
+  mIndexing := Assigned(FIndexing) and FIndexing();
+  // Diagnoselog (#647): der Grund statt empty:unspecified, der Name nur als Kennzahl.
+  TRequestDiagnostics.Reason(AWhy.Reason);
+  if AWhy.Name <> '' then
+  begin
+    TRequestDiagnostics.Note('name', NameLabel(AWhy.Name));
+  end;
+  TRequestDiagnostics.Note('indexing', mIndexing);
+  if (AKind = TDefinitionRequestKind.TypeDefinition) or not Assigned(FNotify) then
+  begin
+    Exit;
+  end;
+  mMethod := cDefinitionMethod;
+  if AKind = TDefinitionRequestKind.Declaration then
+  begin
+    mMethod := cDeclarationMethod;
+  end;
+  mParams := TJSONObject.Create;
+  mParams.AddPair('method', mMethod);
+  mParams.AddPair('uri', AUri);
+  mParams.AddPair('line', TJSONNumber.Create(APosition.Line));
+  mParams.AddPair('character', TJSONNumber.Create(APosition.Character));
+  mParams.AddPair('reason', AWhy.Reason);
+  mParams.AddPair('name', AWhy.Name);
+  mParams.AddPair('indexing', TJSONBool.Create(mIndexing));
+  // Im Thread der Anfrage und vor ihrer Antwort: Der Client sieht den Grund vor dem leeren Ergebnis. Die Meldung ist
+  // ein Zusatz; scheitert sie, bleibt die Antwort.
+  try
+    FNotify(cNoTargetMethod, mParams);
+  except
+    // lsp-ignore: catch-all-without-raise -- Zusatzmeldung; die Antwort geht trotzdem
+    on Exception do
+      ;
+  end;
+end;
+
 function TLspDefinition.Handle(const AParams: TJSONValue; const ACancellation: IJsonRpcCancellationToken;
   AKind: TDefinitionRequestKind): TJSONValue;
 var
   mCancellation: IPascalCancellation;
-  mUri: string;
+  mUri, mFileName: string;
   mPositionValue: TJSONValue;
+  mPosition: TTextPosition;
   mDocument: ITextDocument;
   mTree: TSyntaxTree;
   mShared: ISharedSyntaxTree;
   mResolver: TNameResolver;
   mTargets: TArray<TDefinitionTarget>;
+  mJson: TJSONArray;
+  mWhy: TDefinitionNoTarget;
 begin
   if not ((AParams is TJSONObject) and TJSONObject(AParams).TryGetValue<string>('textDocument.uri', mUri) and
     TJSONObject(AParams).TryGetValue<TJSONValue>('position', mPositionValue)) then
@@ -567,14 +868,26 @@ begin
     raise EJsonRpcError.Create(TJsonRpcErrorCode.cInvalidParams,
       cTexts[TDefinitionText.FieldsTextDocumentUriAndPosition].Text);
   end;
+  mPosition := TLspPositions.ReadPosition(mPositionValue);
   if not FStore.TryGet(mUri, mDocument) then
   begin
+    mWhy := Default(TDefinitionNoTarget);
+    mWhy.Reason := cReasonNoDocument;
+    ReportNoTarget(AKind, mUri, mPosition, mWhy);
     Exit(TJSONNull.Create);
   end;
   if TDfmParser.IsFormFile(mUri) then
   begin
-    Exit(FormTargets(mDocument.Text, mUri, TLspPositions.ReadPosition(mPositionValue)));
+    Result := FormTargets(mDocument.Text, mUri, mPosition);
+    if not ((Result is TJSONArray) and (TJSONArray(Result).Count > 0)) then
+    begin
+      mWhy := Default(TDefinitionNoTarget);
+      mWhy.Reason := cReasonOther;
+      ReportNoTarget(AKind, mUri, mPosition, mWhy);
+    end;
+    Exit;
   end;
+  mFileName := TDocumentUris.ToPath(mUri);
   // Erst in einer Variablen halten: Bei Übergabe als const würde das Objekt nie freigegeben.
   mCancellation := TRequestCancellation.Create(ACancellation);
   mShared := TSyntaxTreeCache.Get(mDocument, mCancellation);
@@ -586,21 +899,33 @@ begin
     mResolver.Namespaces := Namespaces;
     if AKind = TDefinitionRequestKind.TypeDefinition then
     begin
-      Result := ToJson(TypeTargets(mResolver, mTree, TDocumentUris.ToPath(mUri),
-        TLspPositions.ReadPosition(mPositionValue)));
-    end
-    else
-    begin
-      mTargets := Targets(mResolver, FIndex, mTree, TDocumentUris.ToPath(mUri),
-        TLspPositions.ReadPosition(mPositionValue), AKind = TDefinitionRequestKind.Declaration);
-      // Nichts aufgelöst: vielleicht eine Deklaration aus einem nicht geltenden Zweig (NAV).
-      if Length(mTargets) = 0 then
-      begin
-        mTargets := UnavailableTargets(FIndex, mTree, TDocumentUris.ToPath(mUri), mDocument.Text,
-          TLspPositions.ReadPosition(mPositionValue));
-      end;
-      Result := ToJson(mTargets);
+      Exit(ToJson(TypeTargets(mResolver, mTree, mFileName, mPosition)));
     end;
+    mTargets := ResolveTargets(mResolver, mTree, mFileName, mDocument.Text, mPosition,
+      AKind = TDefinitionRequestKind.Declaration);
+    // Nur Ersatz-Units der IDE: Ein Package ohne Quelle im Index verdeckte die echte Unit (sie wurde nie
+    // nachgeladen, weil die Ersatz-Unit den Namen schon lieferte). Echte Quelle laden und neu auflösen; die Antworten
+    // des alten Resolvers kennen nur die Ersatz-Unit.
+    if OnlyIdeTargets(mTargets) and LoadIdeSources(mTargets) then
+    begin
+      FreeAndNil(mResolver);
+      mResolver := TNameResolver.Create(FIndex, FEnsureUnit);
+      mResolver.Namespaces := Namespaces;
+      mTargets := ResolveTargets(mResolver, mTree, mFileName, mDocument.Text, mPosition,
+        AKind = TDefinitionRequestKind.Declaration);
+    end;
+    mJson := ToJson(mTargets);
+    try
+      if mJson.Count = 0 then
+      begin
+        ReportNoTarget(AKind, mUri, mPosition, Explain(mResolver, FIndex, mTree, mFileName, mDocument.Text,
+          mPosition, mTargets));
+      end;
+    except
+      mJson.Free;
+      raise;
+    end;
+    Result := mJson;
   finally
     mResolver.Free;
   end;

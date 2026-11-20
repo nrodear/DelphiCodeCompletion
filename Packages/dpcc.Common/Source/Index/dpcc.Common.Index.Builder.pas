@@ -8,7 +8,9 @@
 // - Danach werden die referenzierten Units (uses) bedarfsweise über den
 //   Resolver gesucht und indiziert, rekursiv, aber nur was wirklich in einer
 //   uses-Liste vorkommt. So kommen RTL und VCL nur teilweise in den Index.
-// - EnsureUnit indiziert eine einzelne Unit nachträglich.
+// - EnsureUnit indiziert eine einzelne Unit nachträglich. Nicht gefundene
+//   Units merkt er sich; ForgetFailedUnits vergisst sie wieder (Sprung in ein
+//   anderes Package: ein Projekt der Gruppe kam dazu oder ist fertig indiziert).
 // - ApplyChanges übernimmt Dateiänderungen von außen (git checkout,
 //   andere Werkzeuge): bekannte Units neu einlesen, gelöschte entfernen.
 //   Neue Dateien kommen erst in den Index, wenn sie referenziert werden;
@@ -263,6 +265,9 @@ type
       const ACancelled: TIndexCancelled; const ATurn: IIndexTurn): TIndexBuildResult; overload;
     /// <summary>Indiziert die Unit, falls noch nicht vorhanden. False, wenn sie nicht gefunden wird.</summary>
     function EnsureUnit(const AUnitName: string): Boolean;
+    /// <summary>Vergisst die Units, die EnsureUnit nicht gefunden hat; die nächste Anfrage sucht sie neu.
+    /// Threadsicher.</summary>
+    procedure ForgetFailedUnits;
     /// <summary>Übernimmt Dateiänderungen; liefert die Zahl geänderter Units.</summary>
     function ApplyChanges(const AChanges: TArray<TFileChange>): Integer;
     /// <summary>Ungespeicherter Text einer bekannten Unit (Tipp-Pause, #492): nur im Speicher, ohne Cache;
@@ -1304,6 +1309,11 @@ begin
   begin
     FFailedUnits.Add(AUnitName);
   end;
+end;
+
+procedure TIndexBuilder.ForgetFailedUnits;
+begin
+  FFailedUnits.Clear;
 end;
 
 function TIndexBuilder.ApplyText(const AFileName, AText: string): Boolean;

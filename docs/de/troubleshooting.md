@@ -102,11 +102,29 @@ ist. Nur wenn dort dpcc gewählt ist, springt dpcc (siehe
 
 | Ursache | Abhilfe |
 |---|---|
-| Das Ziel liegt in einer Unit ohne Quelltext (nur aus einem Package bekannt). | Erwartet: kein Sprung, keine Meldung. Liegt der Quelltext vor, seinen Ordner unter „Zusätzliche Quellordner“ eintragen. |
-| dpcc findet die Unit nicht oder kann den Namen nicht eindeutig auflösen (mehrdeutige Überladung, `with` mit unbekanntem Typ). | Erwartet. Suchpfade prüfen; siehe [Die Liste ist leer oder unvollständig](#die-liste-ist-leer-oder-unvollständig). |
-| Der Index wird noch aufgebaut oder die Antwort dauerte länger als 3 Sekunden (nach 250 ms springt dpcc selbst, aber nur bis dahin und nur, solange der Cursor an der Stelle bleibt). | Warten und noch einmal versuchen. |
+| Das Ziel liegt in einer Unit ohne Quelltext (nur aus einem Package bekannt). Meldung „Unit X liegt nur als Package vor“. | Erwartet: kein Sprung. Liegt der Quelltext vor, seinen Ordner unter „Zusätzliche Quellordner“ eintragen. |
+| dpcc findet die Unit nicht oder kann den Namen nicht eindeutig auflösen (mehrdeutige Überladung, `with` mit unbekanntem Typ). Meldung „Unit X nicht gefunden“ bzw. „„Name“ nicht aufgelöst“. | Erwartet. Suchpfade prüfen; siehe [Die Liste ist leer oder unvollständig](#die-liste-ist-leer-oder-unvollständig). |
+| Der Index wird noch aufgebaut (Zusatz „Der Index wird noch aufgebaut.“), dpcc startet noch oder die Antwort dauerte länger als 10 Sekunden („keine Antwort binnen 10 s“). Nach 250 ms springt dpcc selbst, aber nur bis dahin und nur, solange der Cursor im selben Bezeichner bleibt. | Warten und noch einmal versuchen. |
+| Keine Meldung im Meldungsfenster. | `dpcc.log` nennt jeden Sprung ohne Ziel in einer Zeile `Gehe zu Definition: <Ausgang> nach <n> ms, <Datei> <Zeile>:<Spalte> (Maus\|Cursor)`, auch verworfene späte Antworten („Cursor bewegt“, „andere Datei aktiv“, „neuerer Sprungwunsch“, „zu spät“). |
 | Ein Parameter-Hint von dpcc mit mehreren Überladungen ist offen. | Seit dieser Fassung wechselt dort Strg+Alt+↑/↓ die Überladung; Alt+↑ geht an die IDE. |
 | Der Tooltip von dpcc verdeckt das Wort. | Strg gedrückt halten: Maus und Klick gehen dann durch den Tooltip an den Editor. |
+
+### Sprung in ein anderes Package
+
+Verlangt ein Package (`requires`) ein anderes, sucht dpcc dessen Quelle `<Name>.dpk` und nimmt die Units aus seinem
+`contains` in den Index des Projekts auf. Gesucht wird in den Ordnern aller gemeldeten Projekte der Gruppe (auch derer,
+die noch geladen werden), im Projektordner, in den Suchpfaden, in den
+[zusätzlichen Quellordnern](index-cache.md#zusätzliche-quellordner) und in den Ordnern neben dem Projektordner
+(`Packages\<Name>\<Name>.dpk`, eine Ebene). Das andere Package muss dafür kein Projekt der Gruppe sein. Kommt ein
+Package-Projekt später zur Gruppe, laden die vorhandenen Packages neu. Gibt es nur das übersetzte Package (`.dcp`,
+BPL), gibt es kein Ziel; liegt der Quelltext woanders, seinen Ordner unter „Zusätzliche Quellordner“ eintragen.
+
+Findet dpcc kein Ziel, meldet der Server den Grund (`dpcc/noTarget`) vor der leeren Antwort: `noDocument` (Datei dem
+Server unbekannt), `noIdentifier` (kein Bezeichner an der Stelle), `unresolved` (Name nicht aufgelöst),
+`unitNotFound` (Unit aus `uses` nicht gefunden), `noSource` (Unit nur als Package ohne Quelltext), `inactiveBranch`
+(nicht geltender `$IFDEF`-Zweig), `other`; dazu, ob der Index noch aufgebaut wird. Im Diagnoselog des Servers steht
+derselbe Grund in der Zeile der Anfrage (`empty:unitNotFound` …, der Name nur als Kennzahl `name=h…`), vorher eine
+Zeile `declaration start` bzw. `definition start`.
 
 ## Zwei Tooltips erscheinen
 

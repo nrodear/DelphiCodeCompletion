@@ -156,11 +156,22 @@ Strg+Klick und „Deklaration suchen“ erreichen dpcc nur, wenn es der gewählt
 `GotoDefinition` des Managers. Er gleicht den Puffer ab und fragt in einem Hintergrund-Thread über
 `TLspSession.GotoTargetAt` `textDocument/declaration` (auf der Deklaration selbst danach `textDocument/definition`).
 Der Hauptthread wartet höchstens 250 ms. Ohne Ziel antwortet er True mit leerem Dateinamen, die IDE bricht dann still
-ab. Kommt die Antwort später, antwortet er genauso still; dpcc springt dann selbst, sofern dieselbe Datei aktiv ist,
-der Cursor noch an der Ausgangsstelle steht, kein neuerer Sprungwunsch kam und höchstens 3 Sekunden vergangen sind.
+ab; den Grund schickt der Server vor der leeren Antwort als Benachrichtigung `dpcc/noTarget` (reason, name, indexing),
+die Sitzung legt ihn im Lese-Thread ab, `GotoTargetAt` holt ihn ab, und dpcc zeigt ihn im Meldungsfenster und
+schreibt eine Zeile ins `dpcc.log`. Kommt die Antwort später, antwortet er genauso still; dpcc springt dann selbst,
+sofern dieselbe Datei aktiv ist, der Cursor noch im Bezeichner der Klickstelle oder der Ausgangsstelle steht, kein
+neuerer Sprungwunsch kam und die Antwort höchstens 10 Sekunden nach dem Klick im Hintergrund-Thread eintraf (das ist
+zugleich das Zeitlimit der Anfrage). Startet der Server noch, merkt sich der Manager den Wunsch und fragt nach dem
+Start mit denselben Regeln.
 Der Symbolhinweis der IDE (`GetHintText`, nur ohne eigenen dpcc-Tooltip) wartet ebenso höchstens 250 ms; eine spätere
 Antwort merkt sich dpcc einige Sekunden, damit der nächste Hinweis auf dasselbe Wort sofort erscheint. Die Regeln dazu
 stehen in `dpcc.Core.Editor.Navigation` und `dpcc.Core.Lsp.LateAnswers`.
+
+Vorladen beim Öffnen und Aktivieren: Der Editor-Beobachter der Anbindungen (`dpcc.IDE.CodeInsight.Manager.Editors`)
+meldet jede aktive Ansicht; nach 0,4 s Ruhe (`dpcc.Core.Editor.Prewarm`) liest der Hauptthread den Puffer, ein
+Arbeiter aus `TDpccTimeLimit` gleicht ab und schickt `dpcc/prewarm` (`TLspSession.Prewarm`). Der Server
+(`Shell.Composition.Prewarm`) legt Baum und Units der `uses` im eigenen Thread in die Zwischenspeicher der Anfragen,
+siehe [Index und Cache](index-cache.md#vorladen-beim-öffnen).
 
 ## Robustheit
 

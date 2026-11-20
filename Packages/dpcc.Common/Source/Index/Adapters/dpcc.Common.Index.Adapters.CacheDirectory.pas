@@ -312,7 +312,9 @@ type
   /// <summary>Sperrdateien, die dieser Prozess offen hält (#1479). Das Aufräumen fragt bei jedem Projektstart
   /// alle Caches ab, ob sie gesperrt sind; in einer Projektgruppe hält der eigene Prozess die Sperren der schon
   /// gestarteten Projekte. Die Probe über die Datei schlägt dann nur fehl, kostet aber: Free Pascal wartet unter
-  /// Linux bei belegter Sperre, bevor es aufgibt (gemessen 14 von 17 s bis „bereit“ bei 18 Projekten).</summary>
+  /// Linux bei belegter Sperre, bevor es aufgibt (gemessen 14 von 17 s bis „bereit“ bei 18 Projekten). Ist keine
+  /// Sperre mehr gehalten, gibt Remove die Tabelle frei; sonst blieb sie nach dem Ende des Servers so groß wie beim
+  /// höchsten Stand (Leckmonitor: 48 Byte je nach Zeitablauf).</summary>
   TIndexCacheHeldLocks = class
   strict private
     class var FLock: TObject;
@@ -384,6 +386,13 @@ begin
   System.TMonitor.Enter(FLock);
   try
     FFiles.Remove(AKey);
+    // Ohne Sperre die Bucket-Tabelle freigeben: Remove verkleinert sie nie, sie bliebe so groß wie beim höchsten
+    // Stand gleichzeitig gehaltener Sperren (Projekte der Gruppe plus gemeinsame Caches beim Schreiben) über das Ende
+    // des Servers hinaus belegt. Clear gibt sie frei (Delphi 12 und 13).
+    if FFiles.Count = 0 then
+    begin
+      FFiles.Clear;
+    end;
   finally
     System.TMonitor.Exit(FLock);
   end;

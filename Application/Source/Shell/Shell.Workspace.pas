@@ -6,7 +6,8 @@
 // Ordnergrenzen funktionieren.
 // Projektgruppe (#648): Je Projekt der Gruppe ein Arbeitsbereich mit fest
 // vorgegebener Projektdatei (Setup.ProjectFile); mehrere können denselben Ordner
-// haben. Der gemeinsame Scheduler ordnet ihre Aufbauten.
+// haben. Der gemeinsame Scheduler ordnet ihre Aufbauten. Kommt ein Package-Projekt
+// später dazu, lädt RefreshPackages ein Package neu, damit seine requires es sehen.
 // Die Teile stehen in eigenen Units: Vorgaben und Ereignisse (Setup), Stand des
 // geladenen Projekts (State), Projektwahl (Build), Index-Cache (Cache), Laden
 // (Loader), Indexauftrag (Requests) und Aufbau (Indexing).
@@ -61,6 +62,12 @@ type
     /// ihn entfernen kann; Rebuild sperrt ihn wieder.</summary>
     procedure ReleaseCache;
     function EnsureUnit(const AUnitName: string): Boolean;
+    /// <summary>Vergisst die Units, die EnsureUnit nicht gefunden hat. Threadsicher.</summary>
+    procedure ForgetFailedUnits;
+    /// <summary>Ein Package-Projekt ist zur Gruppe gekommen: Ist das eigene Projekt ein Package, lädt es neu, damit
+    /// seine requires das neue Package sehen. Der Aufbau startet nur, wenn sich dabei die Dateien ändern. Nur im
+    /// Thread der Nachrichtenschleife.</summary>
+    procedure RefreshPackages;
     /// <summary>Unit-Suche des Projekts (Reihenfolge des Compilers, L2) als Rückruf; nil ohne Aufbau. Threadsicher;
     /// der Rückruf hält seinen Resolver selbst.</summary>
     function UnitFileResolver: TUnitFileResolver;
@@ -294,6 +301,28 @@ end;
 function TShellWorkspace.EnsureUnit(const AUnitName: string): Boolean;
 begin
   Result := FIndexing.EnsureUnit(AUnitName);
+end;
+
+procedure TShellWorkspace.ForgetFailedUnits;
+begin
+  FIndexing.ForgetFailedUnits;
+end;
+
+procedure TShellWorkspace.RefreshPackages;
+var
+  mProject: TProjectInfo;
+begin
+  // Nur Packages haben requires; ohne geladenes Projekt (noch nicht geladen, zurückgestellt) nichts zu tun.
+  if not FState.Project(mProject) or not SameText(ExtractFileExt(mProject.MainSource), '.dpk') then
+  begin
+    Exit;
+  end;
+  if (FSetup.LoopThreadId <> 0) and (TThread.Current.ThreadID <> FSetup.LoopThreadId) then
+  begin
+    raise EInvalidOpException.Create('RefreshPackages nur im Thread der Nachrichtenschleife');
+  end;
+  // Ohne Forget: Gleiche Dateien starten keinen neuen Aufbau.
+  StartIndex(FConfiguration.Settings);
 end;
 
 function TShellWorkspace.UnitFileResolver: TUnitFileResolver;

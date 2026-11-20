@@ -3,6 +3,9 @@
 // Internals-Rolle Shell: Indexaufbau eines Arbeitsbereichs. Startet den Aufbau eines geladenen Projekts in den
 // gemeinsamen Symbolindex (#648), mit Unit-Suche (#1016), Packages (#46), Cache-Sperre (#62, #184) und
 // Fortschritt, und meldet Ende, Fehler und Cache-Ereignisse an Protokoll, Diagnoselog (#647) und Zustand.
+// Sprung in ein anderes Package: Die .dpk eines requires-Packages sucht der Locator auch in den Ordnern noch nicht
+// angelegter Gruppenprojekte, in den zusätzlichen Quellordnern und in den Geschwisterordnern des Projektordners;
+// ForgetFailedUnits lässt den Builder nicht gefundene Units vergessen.
 
 interface
 
@@ -72,8 +75,9 @@ type
     procedure CacheNotWritten(const AFileName, AReason: string);
     procedure Failed(const AError: Exception);
     procedure IndexEvent(const AText: string);
-    /// <summary>Package-Locator und Unit-Suche des Projekts in den Zustand (#46, #1016).</summary>
-    function PublishLookups(const ALoaded: TShellLoadedProject): TPackageLocator;
+    /// <summary>Package-Locator und Unit-Suche des Projekts in den Zustand (#46, #1016). AExtraRoots: die
+    /// zusätzlichen Quellordner (L2); auch dort liegt die .dpk eines requires-Packages.</summary>
+    function PublishLookups(const ALoaded: TShellLoadedProject; const AExtraRoots: TArray<string>): TPackageLocator;
     /// <summary>Resolver des neuen Aufbaus; er lebt, solange Auftrag und Builder ihn über den Rückruf halten (a3).
     /// AExtraFolders (L2): zusätzliche Quellordner samt Unterordnern, nach den Bibliothekspfaden.</summary>
     function NewResolver(const ALoaded: TShellLoadedProject; const AExtraFolders: TArray<string>;
@@ -96,6 +100,9 @@ type
     procedure DiscardNext;
     procedure Stop;
     function EnsureUnit(const AUnitName: string): Boolean;
+    /// <summary>Vergisst die nicht gefundenen Units des Builders (Sprung in ein anderes Package). Threadsicher.
+    /// </summary>
+    procedure ForgetFailedUnits;
     /// <summary>Unit-Suche des letzten Aufbaus; nil ohne. Threadsicher.</summary>
     function UnitFileResolver: TUnitFileResolver;
     /// <summary>Ordner der Suchpfade, der Bibliothek und der Zusatzordner außerhalb des Projektordners (L2): Sie
@@ -118,6 +125,7 @@ implementation
 uses
   Shell.Workspace.Requests,
   System.StrUtils,
+  System.IOUtils,
   dpcc.Common.Index.Adapters.DiskFileSystem,
   dpcc.Common.Index.Adapters.CacheDirectory,
   dpcc.Common.Index.Processes,
@@ -142,6 +150,45 @@ const
 const
   /// <summary>So lange wartet ein lesender Prozess höchstens auf den Cache des schreibenden (#62).</summary>
   cCacheWaitMs = 120000;
+  /// <summary>Höchstens so viele Geschwisterordner durchsucht der Package-Locator nach einer .dpk.</summary>
+  cMaxSiblingFolders = 200;
+
+/// <summary>Die Ordner neben AFolder (eine Ebene, ohne AFolder selbst, höchstens cMaxSiblingFolders): Gängig ist
+/// Packages\&lt;Name&gt;\&lt;Name&gt;.dpk, und ein requires-Package muss kein Projekt der Gruppe sein. Leer am
+/// Laufwerk oder wenn der Elternordner nicht lesbar ist.</summary>
+function SiblingFolders(const AFolder: string): TArray<string>;
+var
+  mParent, mFolder: string;
+begin
+  Result := nil;
+  if AFolder = '' then
+  begin
+    Exit;
+  end;
+  mParent := ExtractFileDir(ExcludeTrailingPathDelimiter(AFolder));
+  if (mParent = '') or SameText(ExcludeTrailingPathDelimiter(mParent), ExcludeTrailingPathDelimiter(AFolder)) then
+  begin
+    Exit;
+  end;
+  try
+    for mFolder in TDirectory.GetDirectories(mParent) do
+    begin
+      if SameText(ExcludeTrailingPathDelimiter(mFolder), ExcludeTrailingPathDelimiter(AFolder)) then
+      begin
+        Continue;
+      end;
+      Result := Result + [mFolder];
+      if Length(Result) >= cMaxSiblingFolders then
+      begin
+        Break;
+      end;
+    end;
+  except
+    // Nicht lesbare Ordner: keine Geschwister.
+    on Exception do
+      Result := nil;
+  end;
+end;
 
 /// <summary>Private Bytes des Prozesses in MB (a0); 0, wenn die Abfrage scheitert. GetMemoryManagerState meldete in
 /// der IDE immer 0 (gemeinsamer Speichermanager borlndmm.dll).</summary>
@@ -447,14 +494,18 @@ begin
   FParts.Events.IndexFinished;
 end;
 
-function TShellWorkspaceIndexing.PublishLookups(const ALoaded: TShellLoadedProject): TPackageLocator;
+function TShellWorkspaceIndexing.PublishLookups(const ALoaded: TShellLoadedProject;
+  const AExtraRoots: TArray<string>): TPackageLocator;
 var
   mSource: TShellUnitLookupSource;
 begin
-  // requires-Packages (#46): Quelle .dpk in den Ordnern der Gruppe, im Projektordner und in den Suchpfaden,
-  // übersetzt .dcp in den Bibliothekspfaden.
+  // requires-Packages (#46): Quelle .dpk in den Ordnern der Gruppe (auch der noch nicht angelegten Projekte), im
+  // Projektordner, in den Suchpfaden, in den zusätzlichen Quellordnern und in den Geschwisterordnern des
+  // Projektordners (Packages\<Name>\<Name>.dpk; auch wenn das Package kein Projekt der Gruppe ist), übersetzt .dcp
+  // in den Bibliothekspfaden. Läuft im Thread der Nachrichtenschleife des Servers, nie im Hauptthread der IDE.
   Result := TPackageLocator.Create(FParts.Setup.PackageFolders + [ExtractFileDir(ALoaded.ProjectFile)] +
-    ALoaded.Project.SearchPaths + ALoaded.CompilerLibraryPaths);
+    ALoaded.Project.SearchPaths + AExtraRoots + SiblingFolders(ExtractFileDir(ALoaded.ProjectFile)) +
+    ALoaded.CompilerLibraryPaths);
   mSource := Default(TShellUnitLookupSource);
   mSource.Project := ALoaded.Project;
   mSource.Installation := ALoaded.Installation;
@@ -543,7 +594,8 @@ var
   mKey: string;
 begin
   mFiles := TShellIndexRequests.FilesOf(ALoaded, ASettings, FParts.Logger);
-  TShellIndexRequests.AddPackageFiles(ALoaded.Project, PublishLookups(ALoaded), mFiles, FParts.Logger, FParts.Name);
+  TShellIndexRequests.AddPackageFiles(ALoaded.Project, PublishLookups(ALoaded, mFiles.ExtraRoots), mFiles,
+    FParts.Logger, FParts.Name);
   mKey := mFiles.Key(TIndexProjectFiles.Signature(ALoaded.Project, ALoaded.Version));
   Result := mKey <> FSignature;
   if not Result then
@@ -599,6 +651,11 @@ end;
 function TShellWorkspaceIndexing.EnsureUnit(const AUnitName: string): Boolean;
 begin
   Result := FService.EnsureUnit(AUnitName);
+end;
+
+procedure TShellWorkspaceIndexing.ForgetFailedUnits;
+begin
+  FService.ForgetFailedUnits;
 end;
 
 function TShellWorkspaceIndexing.UnitFileResolver: TUnitFileResolver;

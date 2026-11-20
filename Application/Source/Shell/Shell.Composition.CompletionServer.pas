@@ -7,8 +7,10 @@
 // Nachrichten aus der IDE (Shell.Composition.Ide), Dateiänderungen (Shell.Composition.FileChanges), Vervollständigung
 // samt resolve, dpcc/expressionCompletion und dpcc/postfixTemplates (Shell.Composition.Completion), Hover,
 // Parameterhilfe und Sprungziele (textDocument/definition, declaration, typeDefinition; Auftrag NAV: Strg+Klick, wenn
-// dpcc der gewählte Code-Insight-Anbieter ist). Keine Diagnosen, kein Compiler, keine Befehle (executeCommand), keine Refactorings, kein MCP,
+// dpcc der gewählte Code-Insight-Anbieter ist; ohne Ziel vorher dpcc/noTarget mit dem Grund). Keine Diagnosen, kein Compiler, keine Befehle (executeCommand), keine Refactorings, kein MCP,
 // keine Absturzfälle (Rückbau R3).
+// Vorladen beim Öffnen und Aktivieren (dpcc/prewarm, Shell.Composition.Prewarm): Baum und Units der uses im eigenen
+// Thread; Destroy hält es vor allem anderen an.
 //
 // Der Transport kommt von außen (Create bzw. CreateForStreams); diese Unit liegt im Package dpcc.Server. Seit S1 ist
 // der In-Process-Betrieb (Shell.Composition.InProcess, Konzept Abschnitt 4.5) der einzige: kein eigener
@@ -39,7 +41,8 @@ uses
   Shell.Composition.IndexArea,
   Shell.Composition.Ide,
   Shell.Composition.FileChanges,
-  Shell.Composition.Completion;
+  Shell.Composition.Completion,
+  Shell.Composition.Prewarm;
 
 type
   /// <summary>Teile des Completion-Servers; öffentliche Felder, weil nur die Wurzel sie setzt. Die Dienste der Teile
@@ -63,6 +66,7 @@ type
     function IdeServices: TShellIdeServices;
     function FileChangesServices: TShellFileChangesServices;
     function CompletionServices: TShellCompletionServices;
+    function PrewarmServices: TShellPrewarmServices;
     procedure CreateDocuments;
     procedure CreateCore;
     procedure CreateIde;
@@ -92,6 +96,8 @@ type
     /// <summary>Sprungziele (NAV): Strg+Klick und „Deklaration suchen“, wenn dpcc der gewählte Anbieter ist.
     /// </summary>
     Definition: TLspDefinition;
+    /// <summary>Vorladen beim Öffnen und Aktivieren (dpcc/prewarm): Baum und Units der uses im Hintergrund.</summary>
+    Prewarm: TShellPrewarm;
     Connection: TJsonRpcConnection;
     /// <summary>Der Client hat keinen brauchbaren Ordner gemeldet (RAD Studio, #175).</summary>
     DeriveWorkspaces: Boolean;
@@ -184,6 +190,11 @@ begin
   begin
     FileChanges.StopRefresh;
   end;
+  // Ebenso früh: Das Vorladen nutzt Ordner, Index und Diagnoselog; Stop bricht ab und wartet auf seinen Thread.
+  if Prewarm <> nil then
+  begin
+    Prewarm.Stop;
+  end;
   // Vor der Verbindung: Der Wächter der Einstellungen ruft Connection.
   if Core <> nil then
   begin
@@ -252,6 +263,8 @@ end;
 
 procedure TShellCompletionServerParts.FreeFeatures;
 begin
+  // Das Vorladen zuerst (sein Thread endet in Stop): Es nutzt Ordner und Index.
+  FreeAndNil(Prewarm);
   // Ordner vor dem Index: ihre Index-Threads laufen noch.
   if Core <> nil then
   begin
@@ -299,6 +312,7 @@ begin
   mLeft.Hover := Hover;
   mLeft.SignatureHelp := SignatureHelp;
   mLeft.Definition := Definition;
+  mLeft.Prewarm := Prewarm;
   Connection := nil;
   Protocol := nil;
   Documents := nil;
@@ -312,6 +326,7 @@ begin
   Hover := nil;
   SignatureHelp := nil;
   Definition := nil;
+  Prewarm := nil;
   mDone := OnLateRelease;
   mThread := TThread.CreateAnonymousThread(
     procedure
@@ -371,7 +386,8 @@ begin
   // Aus dem Verteiler: gemeldet wird nur, was angemeldet ist. Eigen-Benachrichtigungen kennt der Verteiler nicht
   // als Liste; es sind die von Vervollständigung, Index und IDE-Nachrichten.
   Result := TShellCompletionCapabilities.Build(Protocol.Dispatcher.Methods,
-    [TLspCompletion.cPostfixTemplatesMethod, TIdeUnits.cMethod, TLspIdeTypes.cMethod, TLspIdeProject.cMethod]);
+    [TLspCompletion.cPostfixTemplatesMethod, TIdeUnits.cMethod, TLspIdeTypes.cMethod, TLspIdeProject.cMethod,
+     TLspDefinition.cNoTargetMethod, TShellPrewarm.cMethod]);
 end;
 
 procedure TShellCompletionServerParts.CreateDocuments;
@@ -553,6 +569,11 @@ begin
       begin
         Ide.IndexFinished;
       end;
+      // Während des Aufbaus gemeldetes Vorladen einmal nachholen.
+      if Prewarm <> nil then
+      begin
+        Prewarm.IndexFinished;
+      end;
     end;
 end;
 
@@ -707,6 +728,58 @@ begin
     end;
 end;
 
+function TShellCompletionServerParts.PrewarmServices: TShellPrewarmServices;
+var
+  mCore: TShellCoreBase;
+begin
+  mCore := Core;
+  Result := Default(TShellPrewarmServices);
+  Result.Documents := Documents;
+  // Derselbe Index und dasselbe Nachladen wie hover, definition und completion. Die Teile leben, bis Destroy das
+  // Vorladen angehalten hat (Stop vor Session, Index und Ordnern).
+  Result.Index :=
+    function: ISymbolIndex
+    begin
+      Result := nil;
+      if IndexArea <> nil then
+      begin
+        Result := IndexArea.EditorIndex;
+      end;
+    end;
+  Result.EnsureUnit := mCore.Folders.EnsureUnitFunc();
+  Result.Namespaces :=
+    function: TArray<string>
+    begin
+      Result := nil;
+      if Definition <> nil then
+      begin
+        Result := Definition.Namespaces;
+      end;
+    end;
+  Result.IndexBuilding :=
+    function: Boolean
+    begin
+      Result := (mCore.Workspaces.IndexLoading >= 0) or mCore.Workspaces.ProjectIndexPending;
+    end;
+  Result.Log :=
+    procedure(AText: string)
+    begin
+      if Session <> nil then
+      begin
+        Session.Diagnostics.IndexEvent(AText);
+      end;
+    end;
+  Result.DocumentLabel :=
+    function(AFileName: string): string
+    begin
+      Result := '';
+      if Session <> nil then
+      begin
+        Result := Session.Diagnostics.DocumentLabel(AFileName);
+      end;
+    end;
+end;
+
 procedure TShellCompletionServerParts.CreateFeatures;
 var
   mCore: TShellCoreBase;
@@ -732,7 +805,18 @@ begin
   // Namensauflösung über EnsureUnit nach (nur die gesuchte), ReadText für Sprünge aus Formulardateien.
   Definition := TLspDefinition.Create(Documents, IndexArea.EditorIndex, mCore.Folders.EnsureUnitFunc());
   Definition.ReadText := ReadText;
+  // Kein Ziel: dpcc/noTarget mit Grund vor der leeren Antwort, im Thread der Anfrage über denselben Transport.
+  Definition.Notify := NotifyClient;
+  Definition.Indexing :=
+    function: Boolean
+    begin
+      Result := (mCore.Workspaces.IndexLoading >= 0) or mCore.Workspaces.ProjectIndexPending;
+    end;
   Definition.Attach(Protocol.Dispatcher);
+  // Vorladen beim Öffnen und Aktivieren (dpcc/prewarm): Baum und Units der uses im eigenen Thread, damit die erste
+  // Anfrage nach dem Öffnen nichts nachladen muss.
+  Prewarm := TShellPrewarm.Create(PrewarmServices);
+  Prewarm.Attach(Protocol.Dispatcher);
 end;
 
 procedure TShellCompletionServerParts.Initialized;

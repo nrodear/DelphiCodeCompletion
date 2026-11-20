@@ -279,10 +279,8 @@ begin
   begin
     mCore.Folders.Remove(mFolder);
   end;
-  for mFolder in AAdded do
-  begin
-    mCore.Folders.Add(mFolder);
-  end;
+  // Zusammen: Die neuen Projekte kennen einander, vorhandene Packages sehen neue requires-Packages.
+  mCore.Folders.AddAll(AAdded);
 end;
 
 procedure TShellIndexArea.ProjectLoaded;

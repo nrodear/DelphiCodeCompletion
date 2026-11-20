@@ -108,6 +108,18 @@ After `raise`, `on E: ` and in attribute brackets, completion checks classes fro
 through the ancestors in the catalog and does not load those units for it. Classes from IDE packages without source
 code come in through their ancestor as reported by the IDE.
 
+#### Prewarming on open
+
+When a file becomes active in the editor (opening, switching tabs, a jump) and stays active for about 0.4 s, the plugin
+syncs it with the server in the background and asks for it to be prewarmed (`dpcc/prewarm`); flipping through tabs
+quickly triggers nothing, and each file and state is prewarmed at most once. The server then, on its own low-priority
+thread, puts the file's syntax tree into the cache used by requests and loads the units of its `uses` (plus System) the
+way the first request would: from the catalog or via the search paths. So the first Ctrl+Click, tooltip or completion
+list after opening no longer has to load anything. At most one job runs; another file cancels it before the next unit.
+Cold units are only loaded while the loaded-on-demand units stay below three quarters of the 32 MB limit; prewarming
+pins nothing and evicts no unit in use. While the index is being built it waits until the build has finished. The
+server's diagnostic log shows one line per job: `prewarm doc#n units … catalog … parsed … missing … ms … cancelled …`.
+
 #### Usage statistics
 
 For every unit of the library, dpcc counts how often requests need it and how often a project unit newly adds it to its

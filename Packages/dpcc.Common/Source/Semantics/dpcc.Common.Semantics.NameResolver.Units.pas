@@ -6,6 +6,7 @@
 // Gleichnamige Units (L2): Kennt der Index mehrere Dateien eines Namens, wählt das Projekt der Ausgangsdatei (die
 // erste Unit, nach der der Resolver gefragt wurde) in der Reihenfolge des Compilers (IIndexUnitScopes); seine
 // Unit-Scope-Namen gelten statt der aller Projekte.
+// NotFoundUnits nennt die Units, die nicht zu finden waren (Grund eines leeren Sprungs, dpcc/noTarget).
 
 interface
 
@@ -42,6 +43,9 @@ type
     FNamespaces: TArray<string>;
     // Units, die in diesem Resolver schon nicht gefunden wurden: nicht erneut suchen.
     FMissingUnits: TDictionary<string, Boolean>;
+    // Alle Units, die FindUnit in diesem Resolver nicht fand, in der Reihenfolge der Suche und Schreibweise der
+    // Frage, auch ohne Nachladen (Grund eines leeren Sprungs, dpcc/noTarget).
+    FNotFound: TArray<string>;
     // Antworten von FindUnit (Schlüssel Name groß) und FindQualifierUnit (Name, aktuelle Unit, Abschnitt): Jede
     // Typabfrage schlug sonst alle uses-Units samt Namespace-Varianten neu im Index nach (#1342).
     FUnitAnswers: TDictionary<string, TUnitAnswer>;
@@ -84,6 +88,8 @@ type
     /// <summary>FindQualifierUnit ohne gemerkte Antworten.</summary>
     function SearchQualifierUnit(const AName: string; out AUnit: TUnitIndex): Boolean;
     procedure SetNamespaces(const AValue: TArray<string>);
+    /// <summary>Merkt AName in FNotFound, einmal je Name.</summary>
+    procedure NoteNotFound(const AName: string);
   public
     constructor Create(APlace: TResolverPlace; const AEnsureUnit: TEnsureUnitFunc);
     destructor Destroy; override;
@@ -102,6 +108,9 @@ type
     function HelperPositions(const AUnit: TUnitIndex): TArray<Integer>;
     /// <summary>Ist AName der Anfang eines Unit-Namens im Bereich der aktuellen Unit?</summary>
     function IsUnitPrefix(const AName: string): Boolean;
+    /// <summary>Units, die FindUnit bisher nicht gefunden hat (auch nicht über Nachladen), in der Reihenfolge der
+    /// Suche.</summary>
+    function NotFoundUnits: TArray<string>;
     /// <summary>Unit-Namespaces des Projekts (DCC_Namespace) für uses ohne Präfix.</summary>
     property Namespaces: TArray<string> read FNamespaces write SetNamespaces;
   end;
@@ -335,8 +344,13 @@ begin
   // erst nachladen: EnsureUnit durchsucht die Suchpfade aller Projekte und ist viel teurer (#647).
   mKey := UpperCase(AName);
   Result := SearchIndex(AName, AUnit);
-  if Result or not Assigned(FEnsureUnit) or ((FMissingUnits <> nil) and FMissingUnits.ContainsKey(mKey)) then
+  if Result then
   begin
+    Exit;
+  end;
+  if not Assigned(FEnsureUnit) or ((FMissingUnits <> nil) and FMissingUnits.ContainsKey(mKey)) then
+  begin
+    NoteNotFound(AName);
     Exit;
   end;
   Result := EnsureAndSearch(AName, AUnit);
@@ -344,6 +358,7 @@ begin
   begin
     Exit;
   end;
+  NoteNotFound(AName);
   // Diagnoselog (#647): Unit weder im Index noch über die Suchpfade gefunden; je Unit einmal.
   if FMissingUnits = nil then
   begin
@@ -352,6 +367,22 @@ begin
   FMissingUnits.Add(mKey, True);
   TRequestDiagnostics.Increment('missingUnits');
   TRequestDiagnostics.ResolveFailed('unitNotFound');
+end;
+
+procedure TResolverUnits.NoteNotFound(const AName: string);
+const
+  // Ein Sprung braucht wenige; ein langer Prüflauf mit einem Resolver soll dafür nicht quadratisch suchen.
+  cMaxNotFound = 64;
+begin
+  if (Length(FNotFound) < cMaxNotFound) and (IndexText(AName, FNotFound) < 0) then
+  begin
+    FNotFound := FNotFound + [AName];
+  end;
+end;
+
+function TResolverUnits.NotFoundUnits: TArray<string>;
+begin
+  Result := FNotFound;
 end;
 
 function TResolverUnits.FindQualifierUnit(const AName: string; out AUnit: TUnitIndex): Boolean;

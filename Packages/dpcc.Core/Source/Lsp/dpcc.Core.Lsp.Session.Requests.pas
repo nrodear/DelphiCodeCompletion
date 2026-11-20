@@ -5,6 +5,8 @@
 // Parameterhilfe und Umbenennen. Der Aufrufer gleicht die Puffer vorher ab (Sync).
 // Strg+Klick und der Symbolhinweis der IDE fragen im Hintergrund (GotoTargetAt, HoverAt: ohne Abgleich, aus jedem
 // Thread); der Hauptthread gleicht vorher ab und wartet höchstens cMainThreadTimeoutMs (dpcc.Core.Lsp.LateAnswers).
+// Ohne Sprungziel liefert GotoTargetAt den Grund des Servers mit (dpcc/noTarget, im Lese-Thread abgelegt, kommt vor
+// der leeren Antwort); fehlt die Benachrichtigung (älterer Server), bleibt er Unknown.
 
 interface
 
@@ -107,7 +109,11 @@ type
     /// <summary>Wie GotoTarget ohne Abgleich (Sync vorher im Hauptthread): ALineText ist die Zeile ALine des
     /// abgeglichenen Texts. Aus jedem Thread, solange die Sitzung lebt (Strg+Klick im Hintergrund).</summary>
     function GotoTargetAt(const AFileName, ALineText: string; ALine, ACharacter: Integer; ATimeoutMs: Cardinal;
-      out ALocation: TLspLocation): Boolean;
+      out ALocation: TLspLocation): Boolean; overload;
+    /// <summary>Wie oben; ohne Ziel in ANoTarget der Grund des Servers (dpcc/noTarget, kam vor der leeren Antwort),
+    /// bei mehreren Anfragen der aussagekräftigste; ohne Benachrichtigung Reason = Unknown.</summary>
+    function GotoTargetAt(const AFileName, ALineText: string; ALine, ACharacter: Integer; ATimeoutMs: Cardinal;
+      out ALocation: TLspLocation; out ANoTarget: TDpccNoTarget): Boolean; overload;
     /// <summary>textDocument/definition ohne Abgleich (#505): alle Ziele; Sync vorher.</summary>
     function Definitions(const AFileName: string; ALine, ACharacter: Integer): TArray<TLspLocation>;
     /// <summary>textDocument/declaration ohne Abgleich (#505): alle Ziele; Sync vorher.</summary>
@@ -624,22 +630,60 @@ begin
   Result := GotoTargetAt(AFileName, mLineText, ALine, ACharacter, ATimeoutMs, ALocation);
 end;
 
+const
+  cDeclarationMethod = 'textDocument/declaration';
+  cDefinitionMethod = 'textDocument/definition';
+
+/// <summary>Grund aus dpcc/noTarget zur Anfrage AMethod an der Stelle aus ANoTargets abholen und mit ANoTarget
+/// zusammenführen (der aussagekräftigere zählt). Ohne Benachrichtigung bleibt ANoTarget, mit AMethod.</summary>
+procedure MergeNoTarget(const ANoTargets: IDpccNoTargets; const AMethod, AFileName: string; ALine,
+  ACharacter: Integer; var ANoTarget: TDpccNoTarget);
+var
+  mFound: TDpccNoTarget;
+begin
+  if (ANoTargets <> nil) and ANoTargets.Take(AMethod, AFileName, ALine, ACharacter, TThread.GetTickCount64,
+    mFound) then
+  begin
+    if mFound.Method = '' then
+    begin
+      mFound.Method := AMethod;
+    end;
+    ANoTarget := TDpccNoTarget.Better(ANoTarget, mFound);
+  end
+  else if ANoTarget.Method = '' then
+  begin
+    ANoTarget.Method := AMethod;
+  end;
+end;
+
 function TLspSessionRequests.GotoTargetAt(const AFileName, ALineText: string; ALine, ACharacter: Integer;
   ATimeoutMs: Cardinal; out ALocation: TLspLocation): Boolean;
+var
+  mNoTarget: TDpccNoTarget;
+begin
+  Result := GotoTargetAt(AFileName, ALineText, ALine, ACharacter, ATimeoutMs, ALocation, mNoTarget);
+end;
+
+function TLspSessionRequests.GotoTargetAt(const AFileName, ALineText: string; ALine, ACharacter: Integer;
+  ATimeoutMs: Cardinal; out ALocation: TLspLocation; out ANoTarget: TDpccNoTarget): Boolean;
 var
   mStarted: UInt64;
   mTimeout: Cardinal;
   mDeclared: Boolean;
   mImplementation: TLspLocation;
+  mKey: string;
 begin
   Result := False;
   ALocation := Default(TLspLocation);
+  ANoTarget := Default(TDpccNoTarget);
+  // Wie der Empfänger die URI der Benachrichtigung liest: über die URI zum Pfad.
+  mKey := UriToPath(PathToUri(AFileName));
   mTimeout := TimeoutOr(ATimeoutMs);
   mStarted := TThread.GetTickCount64;
-  mDeclared := Offers('textDocument/declaration');
+  mDeclared := Offers(cDeclarationMethod);
   if mDeclared then
   try
-    Result := FirstLocation(FClient, 'textDocument/declaration', PositionParams(AFileName, ALine, ACharacter),
+    Result := FirstLocation(FClient, cDeclarationMethod, PositionParams(AFileName, ALine, ACharacter),
       mTimeout, ALocation);
   except
     // Ein Server ohne declaration (erst die Antwort zeigt es): wie ohne declarationProvider.
@@ -648,10 +692,20 @@ begin
   end;
   if not mDeclared then
   begin
-    Exit(FirstLocation(FClient, 'textDocument/definition', PositionParams(AFileName, ALine, ACharacter),
-      RestOf(mTimeout, mStarted), ALocation));
+    Result := FirstLocation(FClient, cDefinitionMethod, PositionParams(AFileName, ALine, ACharacter),
+      RestOf(mTimeout, mStarted), ALocation);
+    if not Result then
+    begin
+      MergeNoTarget(FNoTargets, cDefinitionMethod, mKey, ALine, ACharacter, ANoTarget);
+    end;
+    Exit;
   end;
-  if not Result or not Offers('textDocument/definition') then
+  if not Result then
+  begin
+    MergeNoTarget(FNoTargets, cDeclarationMethod, mKey, ALine, ACharacter, ANoTarget);
+    Exit;
+  end;
+  if not Offers(cDefinitionMethod) then
   begin
     Exit;
   end;
@@ -666,10 +720,15 @@ begin
     Exit;
   end;
   try
-    if FirstLocation(FClient, 'textDocument/definition', PositionParams(AFileName, ALine, ACharacter),
+    if FirstLocation(FClient, cDefinitionMethod, PositionParams(AFileName, ALine, ACharacter),
       RestOf(mTimeout, mStarted), mImplementation) then
     begin
       ALocation := mImplementation;
+    end
+    else
+    begin
+      // Die Deklaration bleibt das Ziel; den Grund zur leeren definition nur abholen, damit er nicht liegen bleibt.
+      MergeNoTarget(FNoTargets, cDefinitionMethod, mKey, ALine, ACharacter, ANoTarget);
     end;
   except
     // Zeitlimit beim zweiten Schritt: Die Deklaration ist schon ein Ziel.

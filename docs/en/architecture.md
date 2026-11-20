@@ -155,11 +155,22 @@ Ctrl+click and “Find Declaration” only reach dpcc if it is the selected Code
 manager's `GotoDefinition`. It syncs the buffer and asks `textDocument/declaration` through
 `TLspSession.GotoTargetAt` in a background thread (on the declaration itself then `textDocument/definition`). The
 main thread waits at most 250 ms. Without a target it answers True with an empty file name, and the IDE then cancels
-silently. If the answer comes later, it answers just as silently; dpcc then jumps by itself, provided the same file is
-active, the caret is still at the starting point, no newer jump request came and at most 3 seconds have passed. The
+silently; the server sends the reason before the empty answer as the notification `dpcc/noTarget` (reason, name,
+indexing), the session stores it in the reader thread, `GotoTargetAt` picks it up, and dpcc shows it in the Messages
+window and writes one line to `dpcc.log`. If the answer comes later, it answers just as silently; dpcc then jumps by
+itself, provided the same file is active, the caret is still in the identifier of the click position or of the
+starting point, no newer jump request came and the answer reached the background thread at most 10 seconds after the
+click (this is also the request time limit). While the server is still starting, the manager remembers the request
+and asks after the start by the same rules. The
 IDE's symbol hint (`GetHintText`, only without dpcc's own tooltip) also waits at most 250 ms; a later answer is kept
 for a few seconds so that the next hint on the same word appears at once. The rules for this are in
 `dpcc.Core.Editor.Navigation` and `dpcc.Core.Lsp.LateAnswers`.
+
+Prewarming on open and activation: the editor watcher of the bindings (`dpcc.IDE.CodeInsight.Manager.Editors`) reports
+every active view; after 0.4 s of quiet (`dpcc.Core.Editor.Prewarm`) the main thread reads the buffer, a worker from
+`TDpccTimeLimit` syncs it and sends `dpcc/prewarm` (`TLspSession.Prewarm`). The server (`Shell.Composition.Prewarm`)
+puts the tree and the units of the `uses` into the requests' caches on its own thread, see
+[Index and cache](index-cache.md#prewarming-on-open).
 
 ## Robustness
 

@@ -60,6 +60,7 @@
         </DelphiCompile>
         <DCCReference Include="Common\Lsp\dpcc.Common.Lsp.Completion.Tests.pas"/>
         <DCCReference Include="Common\Lsp\dpcc.Common.Lsp.Definition.Tests.pas"/>
+        <DCCReference Include="Common\Lsp\dpcc.Common.Lsp.Definition.NoTarget.Tests.pas"/>
         <DCCReference Include="Common\Lsp\dpcc.Common.Lsp.Completion.TestSupport.pas"/>
         <DCCReference Include="Common\Lsp\dpcc.Common.Lsp.Completion.Proposals.Tests.pas"/>
         <DCCReference Include="Common\Lsp\dpcc.Common.Lsp.Completion.Handle.Tests.pas"/>
@@ -142,6 +143,8 @@
         <DCCReference Include="IDE\dpcc.Core.Editor.CloseRules.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Editor\dpcc.Core.Editor.Navigation.pas"/>
         <DCCReference Include="IDE\dpcc.Core.Editor.Navigation.Tests.pas"/>
+        <DCCReference Include="..\Packages\dpcc.Core\Source\Editor\dpcc.Core.Editor.Prewarm.pas"/>
+        <DCCReference Include="IDE\dpcc.Core.Editor.Prewarm.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Documentation\dpcc.Core.Documentation.Contract.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Documentation\dpcc.Core.Documentation.Layout.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Signature\dpcc.Core.Signature.Format.pas"/>
@@ -229,6 +232,8 @@
         <DCCReference Include="Application\Shell\Shell.Composition.Completion.Tests.pas"/>
         <DCCReference Include="Application\Shell\Shell.Composition.InProcess.Tests.pas"/>
         <DCCReference Include="Application\Shell\Shell.Composition.CompletionCapabilities.Tests.pas"/>
+        <DCCReference Include="Application\Shell\Shell.Composition.PackageJump.Tests.pas"/>
+        <DCCReference Include="Application\Shell\Shell.Composition.Prewarm.Tests.pas"/>
         <DCCReference Include="Common\Lsp\dpcc.Common.Lsp.Completion.Postfix.Tests.pas"/>
         <DCCReference Include="Common\Lsp\dpcc.Common.Lsp.Completion.Names.Tests.pas"/>
         <DCCReference Include="Common\Lsp\dpcc.Common.Lsp.Completion.Hooks.Tests.pas"/>

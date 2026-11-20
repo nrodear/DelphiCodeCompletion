@@ -74,10 +74,16 @@ daran nicht beteiligt.
   der Bibliothek, die dpcc erst dafür nachlädt (auch Office-Typbibliotheken und WinRT). Bei gleichnamigen Units gilt
   die des eigenen Projekts.
 - Kein Ziel, kein Sprung: Units ohne Quelltext (nur aus Packages bekannt), Units, die dpcc nicht findet,
-  mehrdeutige Überladungen und `with` mit unbekanntem Typ. Die IDE springt dann nicht und zeigt keine Meldung.
+  mehrdeutige Überladungen und `with` mit unbekanntem Typ. Die IDE springt dann nicht; dpcc nennt den Grund im
+  Meldungsfenster (Gruppe dpcc), etwa „Unit X liegt nur als Package vor (kein Quelltext)“, „Unit X nicht gefunden“
+  oder „„Name“ nicht aufgelöst“, bei laufendem Indexaufbau mit dem Zusatz „Der Index wird noch aufgebaut.“ Dieselbe
+  Meldung erscheint nicht mehrfach hintereinander. Jeder Sprung ohne Ziel steht zudem als eine Zeile in `dpcc.log`.
 - Bei Strg+Klick gilt die Stelle unter der Maus, bei „Deklaration suchen“ der Cursor.
 - Die IDE wartet höchstens 250 ms auf dpcc. Kommt die Antwort später, springt dpcc selbst, sofern dieselbe Datei
-  aktiv ist, der Cursor noch an der Ausgangsstelle steht und höchstens 3 Sekunden vergangen sind.
+  aktiv ist, der Cursor noch im selben Bezeichner steht (dem angeklickten oder dem, in dem er beim Klick stand) und
+  die Antwort höchstens 10 Sekunden nach dem Klick eintraf.
+- Startet dpcc noch, merkt es sich den Sprung („dpcc startet noch“ im Meldungsfenster) und holt ihn nach, sobald es
+  bereit ist, nach denselben Regeln.
 
 Beim ersten Mal je Sitzung nennt das Meldungsfenster, dass dpcc gewählt ist und was dann fehlt: Error Insight
 (Fehlermarkierungen im Editor) und die übrigen Dienste von DelphiLSP. Wer sie braucht, schaltet den Hauptschalter

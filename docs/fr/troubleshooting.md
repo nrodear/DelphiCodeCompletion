@@ -110,11 +110,30 @@ saute que s'il y est choisi (voir [Utilisation](usage.md#quand-dpcc-est-choisi-c
 
 | Cause | Remède |
 |---|---|
-| La cible se trouve dans une unité sans source (connue seulement par un package). | Attendu : pas de saut, pas de message. Si la source existe, ajouter son dossier sous « Additional source folders » (dossiers source supplémentaires). |
-| dpcc ne trouve pas l'unité ou ne peut pas résoudre le nom sans ambiguïté (surcharge ambiguë, `with` avec un type inconnu). | Attendu. Vérifier les chemins de recherche ; voir [La liste est vide ou incomplète](#la-liste-est-vide-ou-incomplète). |
-| L'index est encore en construction ou la réponse a pris plus de 3 secondes (après 250 ms, dpcc saute lui-même, mais seulement jusque-là et tant que le curseur reste en place). | Attendre et réessayer. |
+| La cible se trouve dans une unité sans source (connue seulement par un package). Message « unit X is only available as a package ». | Attendu : pas de saut. Si la source existe, ajouter son dossier sous « Additional source folders » (dossiers source supplémentaires). |
+| dpcc ne trouve pas l'unité ou ne peut pas résoudre le nom sans ambiguïté (surcharge ambiguë, `with` avec un type inconnu). Message « unit X not found » ou « "Name" could not be resolved ». | Attendu. Vérifier les chemins de recherche ; voir [La liste est vide ou incomplète](#la-liste-est-vide-ou-incomplète). |
+| L'index est encore en construction (ajout « The index is still being built. »), dpcc démarre encore ou la réponse a pris plus de 10 secondes (« no answer from dpcc within 10 s »). Après 250 ms, dpcc saute lui-même, mais seulement jusque-là et tant que le curseur reste dans le même identificateur. | Attendre et réessayer. |
+| Aucun message dans la fenêtre des messages. | `dpcc.log` consigne chaque saut sans cible sur une ligne `Gehe zu Definition: <issue> nach <n> ms, <fichier> <ligne>:<colonne> (Maus\|Cursor)` (lignes du journal non traduites), y compris les réponses tardives écartées (« Cursor bewegt », « andere Datei aktiv », « neuerer Sprungwunsch », « zu spät »). |
 | Une aide aux paramètres de dpcc avec plusieurs surcharges est ouverte. | Depuis cette version, Ctrl+Alt+↑/↓ y change de surcharge ; Alt+↑ va à l'IDE. |
 | L'infobulle de dpcc recouvre le mot. | Maintenir Ctrl enfoncée : la souris et le clic traversent alors l'infobulle jusqu'à l'éditeur. |
+
+### Saut vers un autre package
+
+Si un package en requiert un autre (`requires`), dpcc cherche sa source `<Nom>.dpk` et ajoute les unités de son
+`contains` à l'index du projet. Il cherche dans les dossiers de tous les projets signalés du groupe (y compris ceux en
+cours de chargement), dans le dossier du projet, dans les chemins de recherche, dans les
+[dossiers source supplémentaires](index-cache.md#dossiers-source-supplémentaires) et dans les dossiers voisins du
+dossier du projet (`Packages\<Nom>\<Nom>.dpk`, un niveau). L'autre package n'a pas besoin d'être un projet du groupe.
+Si un projet package rejoint le groupe plus tard, les packages existants se rechargent. S'il n'existe que le package
+compilé (`.dcp`, BPL), il n'y a pas de cible ; si la source est ailleurs, ajouter son dossier sous « Additional source
+folders ».
+
+Si dpcc ne trouve pas de cible, le serveur en indique la raison (`dpcc/noTarget`) avant la réponse vide : `noDocument`
+(fichier inconnu du serveur), `noIdentifier` (pas d'identificateur à cet endroit), `unresolved` (nom non résolu),
+`unitNotFound` (unité de `uses` introuvable), `noSource` (unité disponible seulement comme package sans source),
+`inactiveBranch` (branche `$IFDEF` inactive), `other` ; ainsi que si l'index est encore en construction. Le journal de
+diagnostic du serveur donne la même raison dans la ligne de la requête (`empty:unitNotFound` …, le nom seulement sous
+forme de code `name=h…`), précédée d'une ligne `declaration start` ou `definition start`.
 
 ## Deux infobulles apparaissent
 

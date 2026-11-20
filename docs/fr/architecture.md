@@ -159,12 +159,23 @@ Ctrl+clic et « Find Declaration » n'atteignent dpcc que s'il est le fourniss
 `GotoDefinition` du gestionnaire. Celui-ci synchronise le tampon et interroge `textDocument/declaration` via
 `TLspSession.GotoTargetAt` dans un thread d'arrière-plan (sur la déclaration elle-même ensuite
 `textDocument/definition`). Le thread principal attend au plus 250 ms. Sans cible, il répond True avec un nom de
-fichier vide, et l'IDE abandonne alors sans message. Si la réponse arrive plus tard, il répond de la même façon ; dpcc
-saute alors lui-même, à condition que le même fichier soit actif, que le curseur soit toujours au point de départ,
-qu'aucune demande de saut plus récente ne soit arrivée et que 3 secondes au plus se soient écoulées. L'indication de
+fichier vide, et l'IDE abandonne alors sans message ; le serveur envoie la raison avant la réponse vide sous forme de
+notification `dpcc/noTarget` (reason, name, indexing), la session la dépose dans le thread de lecture, `GotoTargetAt`
+la récupère, et dpcc l'affiche dans la fenêtre des messages et écrit une ligne dans `dpcc.log`. Si la réponse arrive
+plus tard, il répond de la même façon ; dpcc saute alors lui-même, à condition que le même fichier soit actif, que le
+curseur soit toujours dans l'identificateur du clic ou du point de départ, qu'aucune demande de saut plus récente ne
+soit arrivée et que la réponse soit parvenue au thread d'arrière-plan au plus 10 secondes après le clic (c'est aussi
+le délai de la requête). Si le serveur démarre encore, le gestionnaire mémorise la demande et interroge après le
+démarrage selon les mêmes règles. L'indication de
 symbole de l'IDE (`GetHintText`, seulement sans l'infobulle propre de dpcc) attend elle aussi au plus 250 ms ; une
 réponse plus tardive est conservée quelques secondes pour que l'indication suivante sur le même mot s'affiche tout de
 suite. Les règles se trouvent dans `dpcc.Core.Editor.Navigation` et `dpcc.Core.Lsp.LateAnswers`.
+
+Préchargement à l'ouverture et à l'activation : l'observateur d'éditeur des liaisons
+(`dpcc.IDE.CodeInsight.Manager.Editors`) signale chaque vue active ; après 0,4 s de calme (`dpcc.Core.Editor.Prewarm`)
+le thread principal lit le tampon, un travailleur de `TDpccTimeLimit` le synchronise et envoie `dpcc/prewarm`
+(`TLspSession.Prewarm`). Le serveur (`Shell.Composition.Prewarm`) place l'arbre et les unités des `uses` dans les
+caches des requêtes, dans son propre thread ; voir [Index et cache](index-cache.md#préchargement-à-louverture).
 
 ## Robustesse
 

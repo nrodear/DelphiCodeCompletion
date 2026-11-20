@@ -30,6 +30,7 @@ type
     FCapabilities: string;
     FReported: TList<string>;
     FReplies: TDictionary<string, string>;
+    FNotices: TDictionary<string, string>;
     procedure Answer(const ABytes: TBytes);
   public
     constructor Create;
@@ -44,6 +45,9 @@ type
     property Reported: TList<string> read FReported;
     /// <summary>Ergebnis (JSON) je Methode statt {"ok": true}.</summary>
     property Replies: TDictionary<string, string> read FReplies;
+    /// <summary>Parameter (JSON) einer Benachrichtigung dpcc/noTarget, die der Server je Methode vor der Antwort
+    /// schickt.</summary>
+    property Notices: TDictionary<string, string> read FNotices;
   end;
 
   [TestFixture]
@@ -107,11 +111,16 @@ type
     /// <summary>Kein Ziel: False ohne Ausnahme.</summary>
     [Test]
     procedure GotoTargetWithoutTarget;
+    /// <summary>Kein Ziel mit dpcc/noTarget vor der leeren Antwort: GotoTargetAt liefert den Grund; ohne
+    /// Benachrichtigung (älterer Server) Unknown.</summary>
+    [Test]
+    procedure GotoTargetAtReportsNoTargetReason;
   end;
 
 implementation
 
 uses
+  dpcc.Core.Lsp.LateAnswers,
   dpcc.Core.Lsp.Session;
 
 const
@@ -147,6 +156,7 @@ begin
   FErrors := TDictionary<string, Integer>.Create;
   FReported := TList<string>.Create;
   FReplies := TDictionary<string, string>.Create;
+  FNotices := TDictionary<string, string>.Create;
   FClient := TLspClient.Create(
     procedure(const ABytes: TBytes)
     begin
@@ -169,6 +179,7 @@ end;
 destructor TFakeLspServer.Destroy;
 begin
   FClient.Free;
+  FNotices.Free;
   FReplies.Free;
   FReported.Free;
   FErrors.Free;
@@ -182,7 +193,7 @@ var
   mStart: Integer;
   mMessage: TJSONValue;
   mId: Integer;
-  mMethod, mKey, mReply, mResult: string;
+  mMethod, mKey, mReply, mResult, mNotice: string;
   mCode: Integer;
   mBytes: TBytes;
 begin
@@ -198,6 +209,7 @@ begin
     mMethod := TJSONObject(mMessage).GetValue<string>('method', '');
     mKey := TLspClient.MethodKey(mMethod, TJSONObject(mMessage).GetValue('params'));
     FRequests.Add(mKey);
+    FNotices.TryGetValue(mKey, mNotice);
     if FErrors.TryGetValue(mKey, mCode) then
     begin
       mReply := Format('{"jsonrpc":"2.0","id":%d,"error":{"code":%d,"message":"Method not supported: %s"}}',
@@ -218,6 +230,12 @@ begin
     end;
   finally
     mMessage.Free;
+  end;
+  // Wie der Server: dpcc/noTarget auf demselben Kanal vor der leeren Antwort.
+  if mNotice <> '' then
+  begin
+    mBytes := TLspClient.Frame('{"jsonrpc":"2.0","method":"dpcc/noTarget","params":' + mNotice + '}');
+    FClient.Receive(mBytes, Length(mBytes));
   end;
   // Im Sendeaufruf: Die Anfrage ist schon angemeldet, die Antwort setzt ihr Ereignis vor dem Warten.
   mBytes := TLspClient.Frame(mReply);
@@ -636,6 +654,34 @@ begin
     Assert.IsFalse(mSession.GotoTarget(cUnitFile, cUnitText, 6, 0, cTimeoutMs, mLocation), 'kein Ziel');
     Assert.AreEqual('', mLocation.FileName);
     Assert.AreEqual(0, FServer.Sent('textDocument/definition'));
+  finally
+    mSession.Free;
+  end;
+end;
+
+procedure TLspMethodNotFoundTests.GotoTargetAtReportsNoTargetReason;
+var
+  mSession: TLspSession;
+  mLocation: TLspLocation;
+  mNoTarget: TDpccNoTarget;
+begin
+  FServer.Capabilities := cSlimCapabilities;
+  FServer.Replies.Add('textDocument/declaration', 'null');
+  FServer.Notices.Add('textDocument/declaration', '{"method":"textDocument/declaration",' +
+    '"uri":"file:///C:/Projekt/Unit1.pas","line":6,"character":0,"reason":"unitNotFound","name":"Werkzeuge",' +
+    '"indexing":true}');
+  mSession := TLspSession.Create(FServer.Client, cTimeoutMs);
+  try
+    mSession.Initialize;
+    Assert.IsFalse(mSession.GotoTargetAt(cUnitFile, 'end;', 6, 0, cTimeoutMs, mLocation, mNoTarget), 'kein Ziel');
+    Assert.AreEqual(Ord(TDpccNoTargetReason.UnitNotFound), Ord(mNoTarget.Reason), 'Grund des Servers');
+    Assert.AreEqual('Werkzeuge', mNoTarget.Name);
+    Assert.IsTrue(mNoTarget.Indexing);
+    // Abgeholt: Die nächste leere Antwort ohne Benachrichtigung hat keinen Grund mehr.
+    FServer.Notices.Clear;
+    Assert.IsFalse(mSession.GotoTargetAt(cUnitFile, 'end;', 6, 0, cTimeoutMs, mLocation, mNoTarget), 'wieder');
+    Assert.AreEqual(Ord(TDpccNoTargetReason.Unknown), Ord(mNoTarget.Reason), 'älterer Server: unbekannt');
+    Assert.AreEqual('textDocument/declaration', mNoTarget.Method);
   finally
     mSession.Free;
   end;

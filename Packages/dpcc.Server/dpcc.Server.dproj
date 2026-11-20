@@ -104,6 +104,7 @@
         <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.IndexArea.pas"/>
         <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.InProcess.pas"/>
         <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.LanguageOptions.pas"/>
+        <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.Prewarm.pas"/>
         <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.Protocol.pas"/>
         <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.Session.pas"/>
         <DCCReference Include="..\..\Application\Source\Shell\Shell.Composition.Settings.pas"/>

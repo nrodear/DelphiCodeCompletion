@@ -17,12 +17,20 @@
 // Elemente des Dialogs sichtbar wie bisher.
 // Strg+Klick und Symbolhinweis der IDE ohne Einfrieren (dpcc.Core.Lsp.LateAnswers): Der Hauptthread gleicht den
 // Puffer ab und startet die Anfrage in einem Hintergrund-Thread (FThreads, Leerlauf-Signal für den Stopp); er wartet
-// höchstens TDpccLateAnswers.cWaitMs. Kommt das Sprungziel später, antwortet GotoDefinition still (True ohne Datei,
-// keine Meldung), und LateGoto springt selbst, wenn es noch passt (dieselbe Datei, Cursor an der Ausgangsstelle,
-// kein neuerer Sprungwunsch, höchstens cMaxAgeMs alt). Ein später Symbolhinweis kommt in FHintCache; der nächste
-// Aufruf der IDE für dasselbe Wort antwortet dann sofort. Nachgereicht wird nur über TDpccMainThread.Queue; der
-// Eintrag sucht den lebenden Manager erst im Hauptthread (LiveManagerObject). Wartezeiten über cWaitMs stehen
-// gedrosselt im Protokoll (TDpccGuard.ReportProviderSlow).
+// höchstens TDpccLateAnswers.cWaitMs. Kommt das Sprungziel später, antwortet GotoDefinition still (True ohne Datei),
+// und LateGoto springt selbst, wenn es noch passt (dieselbe Datei, Cursor im Bezeichner der Klickstelle oder der
+// Ausgangsstelle, kein neuerer Sprungwunsch, höchstens cMaxAgeMs = 10 s vom Klick bis zur Ankunft der Antwort im
+// Hintergrund-Thread). Ein später Symbolhinweis kommt in FHintCache; der nächste Aufruf der IDE für dasselbe Wort
+// antwortet dann sofort. Nachgereicht wird nur über TDpccMainThread.Queue; der Eintrag sucht den lebenden Manager erst
+// im Hauptthread (LiveManagerObject). Wartezeiten über cWaitMs stehen gedrosselt im Protokoll
+// (TDpccGuard.ReportProviderSlow).
+// Rückmeldung zu Sprüngen: Jeder Sprungwunsch ohne Ziel schreibt genau eine Zeile ins dpcc.log (TDpccGuard.Log,
+// TDpccGotoLog: Ausgang samt Grund des Servers aus dpcc/noTarget, Dauer, Datei ohne Pfad, Zeile:Spalte); ein
+// gelungener nur mit Diagnose = 1, ein nachgereichter immer. Den Grund (Unit nur als Package, nicht gefunden, Name
+// nicht aufgelöst, keine Antwort …) zeigt das Meldungsfenster (Gruppe dpcc, TDpccGotoNotice), dieselbe Meldung nicht
+// mehrfach hintereinander; verworfene späte Antworten (Cursor bewegt, andere Datei, neuer Sprung) nur im Protokoll.
+// Startet der Server noch, merkt sich GotoDefinition den Wunsch (FStartGoto, Meldung „dpcc startet noch“);
+// SessionStartDone fragt ihn nach dem Start im Hintergrund, die Antwort läuft über LateGoto mit derselben Prüfung.
 
 interface
 
@@ -40,10 +48,29 @@ uses
 type
   TDpccCodeInsightManager = class(TDpccCodeInsightCrashes, IOTACodeInsightManager, IOTACodeInsightManager90,
     IOTACodeInsightSelection, IOTACodeInsightManagerEnvOptions)
+  private type
+    /// <summary>Was ein Sprungwunsch für Protokoll und Rückmeldung liefert.</summary>
+    TGotoReport = record
+      /// <summary>Stelle des Wunschs; gilt nur mit HasPlace (nach GotoPlace).</summary>
+      Place: TDpccGotoPlace;
+      HasPlace: Boolean;
+      /// <summary>Grund des Servers ohne Ziel (NotFound).</summary>
+      NoTarget: TDpccNoTarget;
+      /// <summary>Fehlertext (TimedOut, NotOffered, Failed) bzw. Grund bei NoSession; '' ohne.</summary>
+      Detail: string;
+      /// <summary>NoSession: dpcc ist für die Datei zuständig, aber kein Server läuft (sonst Hauptschalter aus,
+      /// Manager abgeschaltet oder Datei nicht von dpcc).</summary>
+      Responsible: Boolean;
+    end;
   private
     /// <summary>Laufende Nummer der Sprungwünsche: Ein nachgereichtes Ziel gilt nur für den neuesten. Nur
     /// Hauptthread.</summary>
     FGotoGeneration: Cardinal;
+    /// <summary>Sprungwunsch, der auf den Start der Sitzung wartet (Origin.Generation 0 = keiner). Nur Hauptthread.
+    /// </summary>
+    FStartGoto: TDpccGotoPlace;
+    /// <summary>Rückmeldungen zu Sprüngen im Meldungsfenster, gegen Fluten (nur Hauptthread).</summary>
+    FGotoNotices: TDpccNoticeRepeat;
     /// <summary>Gemerkte Symbolhinweise (nur Hauptthread). Referenzgezählt: Nachgereichte Antworten erreichen ihn über
     /// TDpccMainThread.Queue, ohne den Manager zu halten.</summary>
     FHintCache: IDpccHintCache;
@@ -54,12 +81,28 @@ type
     /// Leerlauf-Signal (BeginServerCommand), bevor er die Sitzung freigibt. AWork beendet das Signal selbst.</summary>
     procedure StartWork(const AWork: TProc);
     /// <summary>Sprungwunsch an AView: abgleichen, im Hintergrund fragen, höchstens cWaitMs warten. Deferred, wenn
-    /// die Antwort später kommt (LateGoto). Unerwartete Fehler kommen als Exception.</summary>
-    function AskDefinition(const AView: IOTAEditView; AIndex: Integer; out AFileName: string;
-      out ALine: Integer): TDpccGotoOutcome;
-    /// <summary>Nachgereichtes Sprungziel (Hauptthread): springen, wenn es noch passt, sonst still verwerfen.
+    /// die Antwort später kommt (LateGoto). Unerwartete Fehler kommen als Exception (AReport ist dann schon gefüllt).
     /// </summary>
+    function AskDefinition(const AView: IOTAEditView; AIndex: Integer; out AFileName: string;
+      out ALine: Integer; var AReport: TGotoReport): TDpccGotoOutcome;
+    /// <summary>Der Server startet noch: Stelle des Wunschs an AView merken (FStartGoto); Starting, oder NoView
+    /// außerhalb des Puffers.</summary>
+    function RememberStartGoto(const AView: IOTAEditView; var AReport: TGotoReport): TDpccGotoOutcome;
+    /// <summary>Gemerkten Sprungwunsch nach dem Start fragen, wenn er noch passt (Datei, Cursor, Alter, Text); die
+    /// Antwort geht wie eine nachgereichte über LateGoto. Sonst verwerfen (Zeile im Protokoll).</summary>
+    procedure ResumeStartGoto(const APlace: TDpccGotoPlace; AAdopted: Boolean);
+    /// <summary>Nachgereichtes Sprungziel (Hauptthread): springen, wenn es noch passt, sonst verwerfen; jeder Ausgang
+    /// als Zeile im dpcc.log, ein Grund ohne Ziel auch im Meldungsfenster.</summary>
     procedure LateGoto(const AOrigin: TDpccGotoOrigin; const AAnswer: TDpccAnswer);
+    /// <summary>Ausgang eines Sprungwunschs aus GotoDefinition: Zeile im dpcc.log (ohne Ziel immer, mit Ziel nur mit
+    /// Diagnose = 1) und Rückmeldung im Meldungsfenster. Deferred und Starting schreiben ihre Zeile später.</summary>
+    procedure FinishGoto(AOutcome: TDpccGotoOutcome; const AReport: TGotoReport; const AView: IOTAEditView;
+      AStartedMs: UInt64);
+    /// <summary>Zeile „Gehe zu Definition: AOutcome nach n ms, Datei Zeile:Spalte (Maus|Cursor)“ ins dpcc.log; nur
+    /// bei AAlways oder mit Diagnose = 1.</summary>
+    procedure GotoLog(AAlways: Boolean; const AOutcome: string; const AOrigin: TDpccGotoOrigin);
+    /// <summary>AText im Meldungsfenster (Gruppe dpcc), dieselbe Meldung nicht mehrfach hintereinander.</summary>
+    procedure GotoNotice(const AText: string);
     /// <summary>Hover-Text des Servers für APlace: gemerkt, sonst im Hintergrund gefragt und höchstens cWaitMs
     /// gewartet ('' und gemerkt, wenn er später kommt). ASource fürs Diagnoseprotokoll.</summary>
     function ServerHint(const APlace: TDpccHintPlace; out ASource: string): string;
@@ -70,6 +113,10 @@ type
     /// <summary>Einmal je Sitzung (NAV): Ist dpcc für die Datei im Editor der gewählte Anbieter, eine Zeile im
     /// Meldungsfenster, was dann fehlt und dass Strg+Klick über dpcc läuft.</summary>
     procedure NoticeIfSelected;
+  protected
+    /// <summary>Ein Start ist fertig (übernommen oder nicht): einen gemerkten Sprungwunsch fragen oder verwerfen.
+    /// </summary>
+    procedure SessionStartDone(AAdopted: Boolean); override;
   public
     constructor Create(const AAdapters: TDpccCodeInsightAdapters);
     destructor Destroy; override;
@@ -166,6 +213,7 @@ uses
   dpcc.Core.Diagnostics.MainThread,
   dpcc.IDE.Foundation.Settings,
   dpcc.IDE.Foundation.EditorSnapshot,
+  dpcc.IDE.Foundation.EditorBuffer,
   dpcc.IDE.Foundation.LineTracker,
   dpcc.IDE.Foundation.Navigation,
   dpcc.Core.Localization.Language;
@@ -345,6 +393,7 @@ begin
     var
       mAnswer: TDpccAnswer;
       mLocation: TLspLocation;
+      mNoTarget: TDpccNoTarget;
     begin
       try
         try
@@ -352,16 +401,19 @@ begin
           mAnswer := Default(TDpccAnswer);
           try
             mAnswer.Found := mSession.GotoTargetAt(mOrigin.FileName, mLineText, mOrigin.AtLine - 1,
-              mOrigin.AtCharacter, TDpccLateAnswers.cMaxAgeMs, mLocation);
+              mOrigin.AtCharacter, TDpccLateAnswers.cMaxAgeMs, mLocation, mNoTarget);
             mAnswer.FileName := mLocation.FileName;
             mAnswer.Line := mLocation.Line;
             mAnswer.Character := mLocation.Character;
+            mAnswer.NoTarget := mNoTarget;
           except
             on E: Exception do
             begin
               FailAnswer(E, mAnswer);
             end;
           end;
+          // Das Alter einer späten Antwort zählt bis hier, nicht bis zur Zustellung im Hauptthread.
+          mAnswer.ArrivedMs := TThread.GetTickCount64;
           if not mSlot.Complete(mAnswer) then
           begin
             QueueLateGoto(mOrigin, mAnswer);
@@ -435,7 +487,7 @@ begin
           TThread.NameThreadForDebugging('dpcc.HintText');
           mAnswer := Default(TDpccAnswer);
           try
-            mAnswer.Text := mSession.HoverAt(mFileName, mLine, mCharacter, TDpccLateAnswers.cMaxAgeMs);
+            mAnswer.Text := mSession.HoverAt(mFileName, mLine, mCharacter, TDpccLateAnswers.cHintTimeoutMs);
             mAnswer.Found := True;
           except
             on E: Exception do
@@ -541,6 +593,7 @@ begin
   RetireManager(Self);
   // Noch ausstehende Sprünge und Hinweise gelten nicht mehr; ihre Threads wartet FThreads.StopAll ab.
   Inc(FGotoGeneration);
+  FStartGoto := Default(TDpccGotoPlace);
   FHintSlot := nil;
   if FHintCache <> nil then
   begin
@@ -700,13 +753,18 @@ var
   mFileName: string;
   mLine: Integer;
   mAnswer: TDpccGotoAnswer;
+  mReport: TGotoReport;
+  mStarted: UInt64;
 begin
   mActivity := TDpccActivity.Scope('Gehe zu Definition');
+  mStarted := TThread.GetTickCount64;
   // Die IDE fragt nur den gewählten Anbieter und reicht nie an einen anderen weiter (ToolsAPI). Laut ToolsAPI
   // meldet False einen Fehlschlag („Datei "" nicht gefunden“); True mit AFileName = '' bricht still ab. Deshalb
-  // immer True, mit Datei und Zeile nur bei einem Ziel (TDpccGotoDefinition.Answer).
+  // immer True, mit Datei und Zeile nur bei einem Ziel (TDpccGotoDefinition.Answer). Den Grund ohne Ziel nennt dpcc
+  // selbst (FinishGoto).
   mFileName := '';
   mLine := 0;
+  mReport := Default(TGotoReport);
   // Durch die Sicherung abgeschaltet (#493): still abbrechen.
   if TDpccGuard.Disabled(TDpccFeature.GoToDefinition) then
   begin
@@ -727,16 +785,24 @@ begin
       begin
         // Hauptschalter aus oder keine Datei von dpcc: ohne Sitzung wie bisher, kein Start.
         Diagnose('Gehe zu Definition: dpcc bedient die Datei nicht');
+        mReport.Detail := 'nicht zuständig (Hauptschalter, Manager abgeschaltet oder Datei nicht von dpcc)';
         mOutcome := TDpccGotoOutcome.NoSession;
       end
       else if not EnsureSession then
       begin
-        // Der Start läuft im Hintergrund; bis dahin wie ohne Server.
+        // Der Start läuft im Hintergrund: Wunsch merken, nach dem Start fragen (SessionStartDone). Ohne Start (Sperre
+        // nach Fehlschlag, nach Abstürzen angehalten) wie ohne Server.
         if StartPending then
         begin
-          Diagnose('Gehe zu Definition: dpcc startet noch');
+          Diagnose('Gehe zu Definition: dpcc startet noch, Sprungwunsch gemerkt');
+          mOutcome := RememberStartGoto(mView, mReport);
+        end
+        else
+        begin
+          mReport.Detail := 'keine Sitzung (Server nicht gestartet)';
+          mReport.Responsible := True;
+          mOutcome := TDpccGotoOutcome.NoSession;
         end;
-        mOutcome := TDpccGotoOutcome.NoSession;
       end
       else if not FSession.Offers(cDefinitionMethod) then
       begin
@@ -747,28 +813,40 @@ begin
       else
       begin
         // Im Hintergrund gefragt, höchstens cWaitMs gewartet; später kommt der Sprung über LateGoto.
-        mOutcome := AskDefinition(mView, Index, mFileName, mLine);
+        mOutcome := AskDefinition(mView, Index, mFileName, mLine, mReport);
       end;
     except
       on E: ELspMethodNotFound do
       begin
         // Erst jetzt als fehlend erkannt (-32601): wie oben.
         Diagnose('Gehe zu Definition: ' + E.Message);
+        mReport.Detail := TDpccGuard.MessageText(E.Message);
         mOutcome := TDpccGotoOutcome.NotOffered;
       end;
       on E: ELspClientError do
       begin
-        // Beendeter Server beim Abgleich: erwartbar, keine Meldung. (Eine langsame Antwort ist kein Fehler mehr: Sie
-        // wird nachgereicht, AskDefinition.)
+        // Beendeter Server beim Abgleich: erwartbar. (Eine langsame Antwort ist kein Fehler mehr: Sie wird
+        // nachgereicht, AskDefinition.)
         Diagnose('Gehe zu Definition: ' + E.Message);
+        mReport.Detail := TDpccGuard.MessageText(E.Message);
         mOutcome := TDpccGotoOutcome.TimedOut;
       end;
       on E: Exception do
       begin
         mOutcome := TDpccGotoOutcome.Failed;
+        mReport.Detail := TDpccGuard.ErrorText(E);
         ReportError('Gehe zu Definition: ' + E.Message);
         ReportFailure(TDpccFeature.GoToDefinition, E);
       end;
+    end;
+  end;
+  // Protokoll und Rückmeldung dürfen die Antwort an die IDE nie verhindern.
+  try
+    FinishGoto(mOutcome, mReport, mView, mStarted);
+  except
+    on E: Exception do
+    begin
+      TDpccGuard.Report(TDpccFeature.GoToDefinition, E);
     end;
   end;
   mAnswer := TDpccGotoDefinition.Answer(mOutcome, mFileName, mLine);
@@ -778,9 +856,8 @@ begin
 end;
 
 function TDpccCodeInsightManager.AskDefinition(const AView: IOTAEditView; AIndex: Integer; out AFileName: string;
-  out ALine: Integer): TDpccGotoOutcome;
+  out ALine: Integer; var AReport: TGotoReport): TDpccGotoOutcome;
 var
-  mPlace: TDpccGotoPlace;
   mSlot: IDpccAnswerSlot;
   mAnswer: TDpccAnswer;
   mTarget: string;
@@ -791,23 +868,24 @@ begin
     procedure(AMessage: string)
     begin
       Diagnose(AMessage);
-    end, mPlace) then
+    end, AReport.Place) then
   begin
     Exit(TDpccGotoOutcome.NoView);
   end;
-  // Jeder Sprungwunsch macht ältere, noch ausstehende ungültig.
+  AReport.HasPlace := True;
+  // Jeder Sprungwunsch macht ältere, noch ausstehende ungültig (auch einen, der auf den Start wartet).
   Inc(FGotoGeneration);
-  mPlace.Origin.Generation := FGotoGeneration;
+  AReport.Place.Origin.Generation := FGotoGeneration;
   // Abgleich im Hauptthread: braucht den Puffertext, wartet nicht auf den Server.
-  FSession.Sync(mPlace.Origin.FileName, mPlace.Text);
-  mSlot := TDpccAnswerSlot.Create(mPlace.Origin.StartedMs);
-  StartWork(GotoWork(FSession, FSignals, mSlot, mPlace));
+  FSession.Sync(AReport.Place.Origin.FileName, AReport.Place.Text);
+  mSlot := TDpccAnswerSlot.Create(AReport.Place.Origin.StartedMs);
+  StartWork(GotoWork(FSession, FSignals, mSlot, AReport.Place));
   if not mSlot.Await(TDpccLateAnswers.cWaitMs) then
   begin
-    // Die Anfrage läuft weiter (nicht abgebrochen); die IDE bricht still ab, ohne Hinweis im Meldungsfenster.
+    // Die Anfrage läuft weiter (nicht abgebrochen); die IDE bricht still ab, LateGoto meldet später den Ausgang.
     TDpccGuard.ReportProviderSlow(cGotoSlowName, Format('keine Antwort innerhalb von %d ms, Sprung wird nachgereicht',
       [TDpccLateAnswers.cWaitMs]));
-    Diagnose(TDpccCodeInsightQueries.GotoNote(AIndex, mPlace, 'kommt später'));
+    Diagnose(TDpccCodeInsightQueries.GotoNote(AIndex, AReport.Place, 'kommt später'));
     Exit(TDpccGotoOutcome.Deferred);
   end;
   mAnswer := mSlot.Answer;
@@ -816,12 +894,14 @@ begin
       begin
         // Erst jetzt als fehlend erkannt (-32601): Server ohne Sprungziele.
         Diagnose('Gehe zu Definition: ' + mAnswer.ErrorText);
+        AReport.Detail := TDpccGuard.MessageText(mAnswer.ErrorText);
         Exit(TDpccGotoOutcome.NotOffered);
       end;
     TDpccAnswerError.ClientError:
       begin
-        // Beendeter Server: erwartbar, keine Meldung.
+        // Beendeter Server: erwartbar, keine Sicherung.
         Diagnose('Gehe zu Definition: ' + mAnswer.ErrorText);
+        AReport.Detail := TDpccGuard.MessageText(mAnswer.ErrorText);
         Exit(TDpccGotoOutcome.TimedOut);
       end;
     TDpccAnswerError.Other:
@@ -838,44 +918,318 @@ begin
     ALine := mAnswer.Line;
     Result := TDpccGotoOutcome.Found;
     mTarget := Format('%s, Zeile %d', [ExtractFileExt(AFileName), ALine + 1]);
+  end
+  else
+  begin
+    AReport.NoTarget := TDpccCodeInsightQueries.NoTargetOf(mAnswer);
   end;
-  Diagnose(TDpccCodeInsightQueries.GotoNote(AIndex, mPlace, mTarget));
+  Diagnose(TDpccCodeInsightQueries.GotoNote(AIndex, AReport.Place, mTarget));
+end;
+
+function TDpccCodeInsightManager.RememberStartGoto(const AView: IOTAEditView;
+  var AReport: TGotoReport): TDpccGotoOutcome;
+begin
+  if not TDpccCodeInsightQueries.GotoPlace(AView,
+    procedure(AMessage: string)
+    begin
+      Diagnose(AMessage);
+    end, AReport.Place) then
+  begin
+    Exit(TDpccGotoOutcome.NoView);
+  end;
+  AReport.HasPlace := True;
+  // Wie ein Sprungwunsch an den Server: Ein neuerer (oder ein späterer Klick) macht ihn ungültig.
+  Inc(FGotoGeneration);
+  AReport.Place.Origin.Generation := FGotoGeneration;
+  FStartGoto := AReport.Place;
+  Result := TDpccGotoOutcome.Starting;
+end;
+
+procedure TDpccCodeInsightManager.SessionStartDone(AAdopted: Boolean);
+var
+  mPlace: TDpccGotoPlace;
+begin
+  inherited;
+  if FStartGoto.Origin.Generation = 0 then
+  begin
+    Exit;
+  end;
+  mPlace := FStartGoto;
+  FStartGoto := Default(TDpccGotoPlace);
+  try
+    ResumeStartGoto(mPlace, AAdopted);
+  except
+    on E: Exception do
+    begin
+      // Im Ablauf des Starts: kein Fehler darf ihn stören.
+      GotoLog(True, 'nach dem Start: Fehler ' + TDpccGuard.ErrorText(E), mPlace.Origin);
+      ReportFailure(TDpccFeature.GoToDefinition, E);
+    end;
+  end;
+end;
+
+procedure TDpccCodeInsightManager.ResumeStartGoto(const APlace: TDpccGotoPlace; AAdopted: Boolean);
+var
+  mActivity: IInterface;
+  mNow: TDpccGotoNow;
+  mVerdict: TDpccGotoVerdict;
+  mView: IOTAEditView;
+  mSlot: IDpccAnswerSlot;
+begin
+  mActivity := TDpccActivity.Scope('Gehe zu Definition (nach dem Start)');
+  if not AAdopted or (FSession = nil) then
+  begin
+    GotoLog(True, 'nach dem Start verworfen: Start fehlgeschlagen oder verworfen', APlace.Origin);
+    Exit;
+  end;
+  if FShutDown or not FEnabled or TDpccGuard.Disabled(TDpccFeature.GoToDefinition) then
+  begin
+    GotoLog(True, 'nach dem Start verworfen: dpcc abgeschaltet', APlace.Origin);
+    Exit;
+  end;
+  // Dieselbe Prüfung wie für eine nachgereichte Antwort, nur noch ohne Antwort (Ziel angenommen).
+  mNow := TDpccCodeInsightQueries.GotoNow(FGotoGeneration);
+  mVerdict := TDpccLateGoto.Verdict(APlace.Origin, mNow, True, TDpccLateAnswers.cMaxAgeMs);
+  if mVerdict <> TDpccGotoVerdict.Jump then
+  begin
+    GotoLog(True, Format('nach dem Start verworfen: %s (Start nach %d ms)', [TDpccLateGoto.VerdictText(mVerdict),
+      Int64(TDpccLateGoto.AgeMs(APlace.Origin, mNow))]), APlace.Origin);
+    Exit;
+  end;
+  // Der Puffer muss noch der vom Klick sein: Die Stelle bezieht sich auf diesen Text.
+  mView := TDpccEditorBuffer.ActiveView;
+  if (mView = nil) or (mView.Buffer = nil) or (TDpccEditorBuffer.Text(mView.Buffer) <> APlace.Text) then
+  begin
+    GotoLog(True, 'nach dem Start verworfen: Text geändert', APlace.Origin);
+    Exit;
+  end;
+  if not FSession.Offers(cDefinitionMethod) then
+  begin
+    GotoLog(True, 'nach dem Start: Server bietet keine Sprungziele', APlace.Origin);
+    GotoNotice(TDpccGotoNotice.ForKind(TDpccTextLanguage.Current, TDpccGotoNoticeKind.NotOffered, '', 0, False));
+    Exit;
+  end;
+  Diagnose(TDpccCodeInsightQueries.GotoNote(-1, APlace, 'nach dem Start gefragt'));
+  FSession.Sync(APlace.Origin.FileName, APlace.Text);
+  mSlot := TDpccAnswerSlot.Create(APlace.Origin.StartedMs);
+  StartWork(GotoWork(FSession, FSignals, mSlot, APlace));
+  // Nicht warten: Ab jetzt reicht der Thread die Antwort nach (LateGoto). War er schon fertig, gleich hier.
+  if mSlot.Await(0) then
+  begin
+    LateGoto(APlace.Origin, mSlot.Answer);
+  end;
 end;
 
 procedure TDpccCodeInsightManager.LateGoto(const AOrigin: TDpccGotoOrigin; const AAnswer: TDpccAnswer);
 var
   mActivity: IInterface;
   mVerdict: TDpccGotoVerdict;
-  mFileName: string;
+  mNow: TDpccGotoNow;
+  mCurrent, mOpened: Boolean;
+  mArrival, mFileName, mProblem: string;
   mLine, mCharacter: Integer;
 begin
-  if FShutDown or not FEnabled or TDpccGuard.Disabled(TDpccFeature.GoToDefinition) then
+  // Abgebaut: Protokoll und Editor gehören nicht mehr uns.
+  if FShutDown then
   begin
     Exit;
   end;
   mActivity := TDpccActivity.Scope('Gehe zu Definition (nachgereicht)');
+  mNow := TDpccCodeInsightQueries.GotoNow(FGotoGeneration);
+  mNow.ArrivedMs := AAnswer.ArrivedMs;
+  mArrival := Format(' (Antwort nach %d ms)', [Int64(TDpccLateGoto.AgeMs(AOrigin, mNow))]);
+  // Nur der neueste Sprungwunsch bekommt eine Meldung; ältere stehen nur im Protokoll.
+  mCurrent := AOrigin.Generation = FGotoGeneration;
+  Diagnose(Format('Gehe zu Definition nachgereicht: Cursor jetzt %d:%d (%s), gefragt %d:%d, Cursor beim Fragen ' +
+    '%d:%d', [mNow.CaretLine, mNow.CaretCharacter + 1, ExtractFileExt(mNow.FileName), AOrigin.AtLine,
+    AOrigin.AtCharacter + 1, AOrigin.CaretLine, AOrigin.CaretCharacter + 1]));
+  if not FEnabled or TDpccGuard.Disabled(TDpccFeature.GoToDefinition) then
+  begin
+    GotoLog(True, 'nachgereicht verworfen: dpcc abgeschaltet' + mArrival, AOrigin);
+    Exit;
+  end;
   if AAnswer.Error <> TDpccAnswerError.None then
   begin
-    // Auch ein spätes Zeitlimit nicht stumm: gedrosselt ins Protokoll.
+    // Auch ein spätes Zeitlimit nicht stumm: gedrosselt ins Protokoll, dazu die Zeile zum Sprung.
     TDpccGuard.ReportProviderSlow(cGotoLateName, AAnswer.ErrorText);
-  end;
-  mVerdict := TDpccLateGoto.Verdict(AOrigin, TDpccCodeInsightQueries.GotoNow(FGotoGeneration),
-    TDpccCodeInsightQueries.TargetOf(AAnswer), TDpccLateAnswers.cMaxAgeMs);
-  Diagnose(Format('Gehe zu Definition nachgereicht nach %d ms: %s',
-    [Int64(TThread.GetTickCount64 - AOrigin.StartedMs), TDpccLateGoto.VerdictText(mVerdict)]));
-  if mVerdict <> TDpccGotoVerdict.Jump then
-  begin
+    case AAnswer.Error of
+      TDpccAnswerError.MethodNotFound:
+        begin
+          GotoLog(True, 'nachgereicht: Server bietet keine Sprungziele' + mArrival, AOrigin);
+          if mCurrent then
+          begin
+            GotoNotice(TDpccGotoNotice.ForKind(TDpccTextLanguage.Current, TDpccGotoNoticeKind.NotOffered, '', 0,
+              False));
+          end;
+        end;
+      TDpccAnswerError.ClientError:
+        begin
+          if TDpccLateGoto.AgeMs(AOrigin, mNow) >= TDpccLateAnswers.cMaxAgeMs then
+          begin
+            GotoLog(True, 'nachgereicht: Zeitlimit' + mArrival, AOrigin);
+            if mCurrent then
+            begin
+              GotoNotice(TDpccGotoNotice.ForKind(TDpccTextLanguage.Current, TDpccGotoNoticeKind.TimedOut, '',
+                TDpccLateAnswers.cMaxAgeMs div 1000, False));
+            end;
+          end
+          else
+          begin
+            GotoLog(True, 'nachgereicht: Server getrennt, ' + TDpccGuard.MessageText(AAnswer.ErrorText) + mArrival,
+              AOrigin);
+            if mCurrent then
+            begin
+              GotoNotice(TDpccGotoNotice.ForKind(TDpccTextLanguage.Current, TDpccGotoNoticeKind.ServerLost, '', 0,
+                False));
+            end;
+          end;
+        end;
+    else
+      GotoLog(True, 'nachgereicht: Fehler ' + TDpccGuard.MessageText(AAnswer.ErrorText) + mArrival, AOrigin);
+    end;
     Exit;
+  end;
+  mVerdict := TDpccLateGoto.Verdict(AOrigin, mNow, TDpccCodeInsightQueries.TargetOf(AAnswer),
+    TDpccLateAnswers.cMaxAgeMs);
+  case mVerdict of
+    TDpccGotoVerdict.NoTarget:
+      begin
+        GotoLog(True, 'nachgereicht ' + TDpccGotoLog.NoTargetOutcome(TDpccCodeInsightQueries.NoTargetOf(AAnswer)) +
+          mArrival, AOrigin);
+        if mCurrent then
+        begin
+          GotoNotice(TDpccGotoNotice.ForNoTarget(TDpccTextLanguage.Current,
+            TDpccCodeInsightQueries.NoTargetOf(AAnswer)));
+        end;
+        Exit;
+      end;
+    TDpccGotoVerdict.TooOld:
+      begin
+        // Eine Antwort nach der Frist: für den Nutzer wie keine Antwort.
+        GotoLog(True, 'nachgereicht verworfen: zu spät' + mArrival, AOrigin);
+        GotoNotice(TDpccGotoNotice.ForKind(TDpccTextLanguage.Current, TDpccGotoNoticeKind.TimedOut, '',
+          TDpccLateAnswers.cMaxAgeMs div 1000, False));
+        Exit;
+      end;
+    TDpccGotoVerdict.CursorMoved:
+      begin
+        GotoLog(True, Format('nachgereicht verworfen: Cursor bewegt (jetzt %d:%d)%s', [mNow.CaretLine,
+          mNow.CaretCharacter + 1, mArrival]), AOrigin);
+        Exit;
+      end;
+    TDpccGotoVerdict.Superseded, TDpccGotoVerdict.OtherFile:
+      begin
+        GotoLog(True, 'nachgereicht verworfen: ' + TDpccLateGoto.VerdictText(mVerdict) + mArrival, AOrigin);
+        Exit;
+      end;
   end;
   // Wie die IDE bei einer rechtzeitigen Antwort: Datei zeigen (nur öffnen, wenn nötig), Cursor aufs Ziel.
   mFileName := AAnswer.FileName;
   mLine := AAnswer.Line;
   mCharacter := AAnswer.Character;
+  mOpened := False;
+  mProblem := '';
   TDpccGuard.RunIde(
     procedure
     begin
-      TDpccIdeNavigation.GoToLocation(mFileName, mLine, mCharacter);
+      mOpened := TDpccIdeNavigation.TryGoToLocation(mFileName, mLine, mCharacter, mProblem);
     end);
+  if mOpened then
+  begin
+    FGotoNotices.Reset;
+    GotoLog(True, 'nachgereicht gesprungen' + mArrival, AOrigin);
+  end
+  else
+  begin
+    GotoLog(True, 'nachgereicht: Fehler beim Öffnen (' + mProblem + ')' + mArrival, AOrigin);
+    GotoNotice(TDpccGotoNotice.ForKind(TDpccTextLanguage.Current, TDpccGotoNoticeKind.OpenFailed,
+      ExtractFileName(mFileName), 0, False));
+  end;
+end;
+
+procedure TDpccCodeInsightManager.FinishGoto(AOutcome: TDpccGotoOutcome; const AReport: TGotoReport;
+  const AView: IOTAEditView; AStartedMs: UInt64);
+var
+  mOrigin: TDpccGotoOrigin;
+  mLanguage: TDpccLanguage;
+begin
+  // Stelle fürs Protokoll: die des Wunschs, sonst der Cursor der Ansicht (Spalte des Editors).
+  if AReport.HasPlace then
+  begin
+    mOrigin := AReport.Place.Origin;
+  end
+  else
+  begin
+    mOrigin := Default(TDpccGotoOrigin);
+    if (AView <> nil) and (AView.Buffer <> nil) then
+    begin
+      mOrigin.FileName := AView.Buffer.FileName;
+      mOrigin.AtLine := AView.CursorPos.Line;
+      mOrigin.AtCharacter := AView.CursorPos.Col - 1;
+    end;
+  end;
+  mOrigin.StartedMs := AStartedMs;
+  mLanguage := TDpccTextLanguage.Current;
+  case AOutcome of
+    TDpccGotoOutcome.Found:
+      begin
+        FGotoNotices.Reset;
+        GotoLog(False, 'gesprungen', mOrigin);
+      end;
+    TDpccGotoOutcome.NotFound:
+      begin
+        GotoLog(True, TDpccGotoLog.NoTargetOutcome(AReport.NoTarget), mOrigin);
+        GotoNotice(TDpccGotoNotice.ForNoTarget(mLanguage, AReport.NoTarget));
+      end;
+    TDpccGotoOutcome.Disabled:
+      GotoLog(True, 'abgeschaltet (Sicherung)', mOrigin);
+    TDpccGotoOutcome.NoView:
+      GotoLog(True, 'keine Editoransicht oder Stelle außerhalb des Puffers', mOrigin);
+    TDpccGotoOutcome.NoSession:
+      begin
+        GotoLog(True, AReport.Detail, mOrigin);
+        if AReport.Responsible then
+        begin
+          GotoNotice(TDpccGotoNotice.ForKind(mLanguage, TDpccGotoNoticeKind.NotRunning, '', 0, False));
+        end;
+      end;
+    TDpccGotoOutcome.NotOffered:
+      begin
+        GotoLog(True, 'Server bietet keine Sprungziele', mOrigin);
+        GotoNotice(TDpccGotoNotice.ForKind(mLanguage, TDpccGotoNoticeKind.NotOffered, '', 0, False));
+      end;
+    TDpccGotoOutcome.TimedOut:
+      begin
+        // Binnen cWaitMs ist das kein Zeitlimit, sondern ein beendeter Server.
+        GotoLog(True, 'Server getrennt: ' + AReport.Detail, mOrigin);
+        GotoNotice(TDpccGotoNotice.ForKind(mLanguage, TDpccGotoNoticeKind.ServerLost, '', 0, False));
+      end;
+    TDpccGotoOutcome.Failed:
+      // Die Meldung zeigt ReportError schon.
+      GotoLog(True, 'Fehler ' + AReport.Detail, mOrigin);
+    TDpccGotoOutcome.Starting:
+      // Die Zeile zum Ausgang schreibt SessionStartDone.
+      GotoNotice(TDpccGotoNotice.ForKind(mLanguage, TDpccGotoNoticeKind.Starting, '',
+        TDpccLateAnswers.cMaxAgeMs div 1000, False));
+  end;
+  // Deferred: Die Zeile schreibt LateGoto.
+end;
+
+procedure TDpccCodeInsightManager.GotoLog(AAlways: Boolean; const AOutcome: string; const AOrigin: TDpccGotoOrigin);
+var
+  mElapsed: Int64;
+begin
+  if not AAlways and not FDiagnose then
+  begin
+    Exit;
+  end;
+  mElapsed := 0;
+  if (AOrigin.StartedMs > 0) and (TThread.GetTickCount64 > AOrigin.StartedMs) then
+  begin
+    mElapsed := Int64(TThread.GetTickCount64 - AOrigin.StartedMs);
+  end;
+  TDpccGuard.Log(TDpccGotoLog.Line(AOutcome, mElapsed, AOrigin.FileName, AOrigin.AtLine, AOrigin.AtCharacter,
+    AOrigin.AtMouse));
 end;
 
 /// <summary>Zeile in der Meldungsansicht, Gruppe „dpcc“; nur im Hauptthread.</summary>
@@ -914,6 +1268,16 @@ begin
   begin
     MessageLine(TDpccProviderNotice.Text(TDpccTextLanguage.Current));
     Diagnose('Hinweis: dpcc ist der gewählte Code-Insight-Anbieter');
+  end;
+end;
+
+procedure TDpccCodeInsightManager.GotoNotice(const AText: string);
+begin
+  // Wie der Hinweis oben: Zeile in der Gruppe dpcc, ohne das Meldungsfenster nach vorn zu holen (kein Fokuswechsel
+  // nach Strg+Klick).
+  if FGotoNotices.Take(AText, TThread.GetTickCount64) then
+  begin
+    MessageLine(AText);
   end;
 end;
 

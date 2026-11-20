@@ -8,6 +8,12 @@
 //     Sicherung, kein Server) bricht es still ab: True mit leerem Dateinamen. False hieße für die IDE „Fehlschlag
 //     melden“; sie zeigte dann „Datei "" nicht gefunden“. An einen anderen Anbieter reicht die IDE nicht weiter.
 //     Kommt die Antwort nicht innerhalb der Wartezeit (Deferred), ebenso still; dpcc springt dann selbst nach.
+//     Startet der Server noch (Starting), merkt sich dpcc den Wunsch und springt nach, sobald er bereit ist.
+//   - Rückmeldung (TDpccGotoNotice, TDpccNoticeRepeat, TDpccGotoLog): Für die IDE bleibt es still, dpcc selbst nennt
+//     den Grund im Meldungsfenster (Unit nur als Package, Unit nicht gefunden, Name nicht aufgelöst, dpcc startet
+//     noch, keine Antwort …; dieselbe Meldung nicht mehrfach hintereinander) und schreibt jeden Sprung ohne Ziel als
+//     eine Zeile ins dpcc.log (Ausgang, Dauer, Datei ohne Pfad, Zeile:Spalte; Datei und Namen gekennzeichnet für die
+//     Anonymisierung, dpcc.Text.LogMarks).
 //   - Ziel wie „Deklaration suchen“ der IDE: Von einer Verwendung zur Deklaration; steht die Stelle schon auf
 //     der Deklaration selbst (OnTarget), zur Implementierung (textDocument/definition), von dort wieder zurück.
 //   - Stelle (ChoosePosition): Bei Strg+Klick die Stelle unter der Maus, sonst der Caret. Ob die IDE den Caret vor
@@ -25,6 +31,7 @@ interface
 uses
   System.Classes,
   System.Types,
+  dpcc.Core.Lsp.LateAnswers,
   dpcc.Core.Localization.Language;
 
 {$SCOPEDENUMS ON}
@@ -50,7 +57,27 @@ type
     Failed,
     /// <summary>Antwort nicht innerhalb der Wartezeit des Hauptthreads: still abbrechen, dpcc springt selbst, sobald
     /// sie kommt und noch passt (dpcc.Core.Lsp.LateAnswers).</summary>
-    Deferred);
+    Deferred,
+    /// <summary>Der Server startet noch: still abbrechen, der Wunsch ist gemerkt; dpcc fragt und springt selbst,
+    /// sobald die Sitzung bereit ist und er noch passt.</summary>
+    Starting);
+
+  /// <summary>Art der Rückmeldung im Meldungsfenster zu einem Sprung ohne Ziel.</summary>
+  TDpccGotoNoticeKind = (
+    /// <summary>Der Server kennt kein Ziel (Grund aus dpcc/noTarget, TDpccGotoNotice.ForNoTarget).</summary>
+    NoTarget,
+    /// <summary>Der Server startet noch; der Sprung folgt (Argument: Sekunden).</summary>
+    Starting,
+    /// <summary>Kein Server (Start gesperrt oder fehlgeschlagen).</summary>
+    NotRunning,
+    /// <summary>Der Server bietet keine Sprungziele.</summary>
+    NotOffered,
+    /// <summary>Keine Antwort binnen der Frist (Argument: Sekunden).</summary>
+    TimedOut,
+    /// <summary>Verbindung zum Server unterbrochen.</summary>
+    ServerLost,
+    /// <summary>Das Ziel ließ sich nicht öffnen (Argument: Dateiname).</summary>
+    OpenFailed);
 
   /// <summary>Antwort an die IDE: Ergebnis von GotoDefinition, Datei und Zeile (1-basiert); Report = Fehler melden.
   /// </summary>
@@ -74,6 +101,47 @@ type
     /// <summary>Stelle der Anfrage (X = Zeichen, Y = Zeile): bei gedrückter Strg-Taste (Strg+Klick) und gültiger
     /// Mausstelle über einem Bezeichner AMouse, sonst ACaret.</summary>
     class function ChoosePosition(ACtrlDown, AMouseValid: Boolean; const AMouse, ACaret: TPoint): TPoint; static;
+  end;
+
+  /// <summary>Texte der Rückmeldung im Meldungsfenster zu einem Sprung ohne Ziel.</summary>
+  TDpccGotoNotice = record
+  public
+    /// <summary>Meldung zum Grund des Servers in der Sprache ALanguage, mit Name (Unit, Bezeichner) wo vorhanden und
+    /// dem Zusatz „Der Index wird noch aufgebaut.“ bei Indexing.</summary>
+    class function ForNoTarget(ALanguage: TDpccLanguage; const ANoTarget: TDpccNoTarget): string; static;
+    /// <summary>Meldung der Art AKind (außer NoTarget): AArgument ist der Dateiname (OpenFailed), ASeconds die
+    /// Frist (Starting, TimedOut); AIndexing hängt den Zusatz zum Index an.</summary>
+    class function ForKind(ALanguage: TDpccLanguage; AKind: TDpccGotoNoticeKind; const AArgument: string;
+      ASeconds: Integer; AIndexing: Boolean): string; static;
+  end;
+
+  /// <summary>Gegen Fluten: dieselbe Meldung nicht mehrfach hintereinander (innerhalb von cRepeatMs). Ein
+  /// gelungener Sprung (Reset) gibt sie wieder frei.</summary>
+  TDpccNoticeRepeat = record
+  public const
+    cRepeatMs = 30000;
+  private
+    FLastText: string;
+    FLastMs: UInt64;
+  public
+    /// <summary>Soll AText jetzt erscheinen? False, wenn derselbe Text zuletzt vor höchstens cRepeatMs erschien.
+    /// Merkt sich AText, wenn True.</summary>
+    function Take(const AText: string; ANowMs: UInt64): Boolean;
+    procedure Reset;
+  end;
+
+  /// <summary>Zeilen fürs dpcc.log zu einem Sprung (nie übersetzt). Datei ohne Pfad und Namen sind gekennzeichnet
+  /// (TLogMarks): Das Protokoll anonymisiert sie, außer mit diagnostics.log.names.</summary>
+  TDpccGotoLog = record
+  public
+    /// <summary>„Gehe zu Definition: &lt;AOutcome&gt; nach &lt;n&gt; ms, &lt;Datei&gt; &lt;Zeile&gt;:&lt;Spalte&gt;
+    /// (Maus|Cursor)“; ALine 1-basiert, ACharacter 0-basiert (Spalte = ACharacter + 1, Tabs als ein Zeichen).
+    /// </summary>
+    class function Line(const AOutcome: string; AElapsedMs: Int64; const AFileName: string; ALine,
+      ACharacter: Integer; AMouse: Boolean): string; static;
+    /// <summary>Ausgang „kein Ziel (Grund[: Name][, Index im Aufbau])“ mit dem Wert von reason; ohne Benachrichtigung
+    /// „kein Ziel (Grund unbekannt)“.</summary>
+    class function NoTargetOutcome(const ANoTarget: TDpccNoTarget): string; static;
   end;
 
   /// <summary>Hinweis im Meldungsfenster, wenn dpcc der gewählte Code-Insight-Anbieter ist (einmal je Sitzung).
@@ -126,13 +194,16 @@ implementation
 
 uses
   System.SysUtils,
-  System.Math;
+  System.Math,
+  dpcc.Text.LogMarks;
 
 {$SCOPEDENUMS ON}
 
 type
   /// <summary>Texte der Unit in beiden Sprachen (#1458).</summary>
-  TNavigationText = (ProviderNotice, OverloadKeys);
+  TNavigationText = (ProviderNotice, OverloadKeys, NoSource, NoSourceUnnamed, UnitNotFound, UnitNotFoundUnnamed,
+    Unresolved, UnresolvedUnnamed, NoIdentifier, NoDocument, InactiveBranch, OtherReason, UnknownReason, Starting,
+    NotRunning, NotOffered, TimedOut, ServerLost, OpenFailed, IndexingSuffix);
 
 {$SCOPEDENUMS OFF}
 
@@ -143,13 +214,53 @@ const
      '(Fehlermarkierungen im Editor) und die übrigen Dienste von DelphiLSP fehlen dann. Wer sie braucht, schaltet ' +
      'den Hauptschalter der Seite dpcc aus oder wählt in den Optionen der IDE wieder DelphiLSP; dpcc ist dann ab ' +
      'dem nächsten Start aus.',
-     'Strg+Alt+↑/↓'),
+     'Strg+Alt+↑/↓',
+     'Kein Sprungziel: Unit %s liegt nur als Package vor (kein Quelltext). Quellordner unter Tools › Optionen › ' +
+     'Drittanbieter › dpcc › Zusätzliche Quellordner eintragen.',
+     'Kein Sprungziel: Die Unit liegt nur als Package vor (kein Quelltext). Quellordner unter Tools › Optionen › ' +
+     'Drittanbieter › dpcc › Zusätzliche Quellordner eintragen.',
+     'Kein Sprungziel: Unit %s nicht gefunden.',
+     'Kein Sprungziel: Unit nicht gefunden.',
+     'Kein Sprungziel: „%s“ nicht aufgelöst.',
+     'Kein Sprungziel: Name nicht aufgelöst.',
+     'Kein Sprungziel: An dieser Stelle steht kein Bezeichner.',
+     'Kein Sprungziel: dpcc kennt die Datei noch nicht.',
+     'Kein Sprungziel: Die Stelle liegt in einem nicht aktiven Zweig ({$IFDEF …}).',
+     'Kein Sprungziel gefunden.',
+     'Kein Sprungziel gefunden (Grund unbekannt).',
+     'dpcc startet noch; der Sprung folgt, sobald dpcc bereit ist (höchstens %d s nach dem Klick).',
+     'Kein Sprung: dpcc läuft nicht (Server nicht gestartet).',
+     'Kein Sprung: Der dpcc-Server bietet keine Sprungziele an.',
+     'Kein Sprung: keine Antwort von dpcc binnen %d s.',
+     'Kein Sprung: Die Verbindung zum dpcc-Server ist unterbrochen.',
+     'Kein Sprung: %s ließ sich nicht öffnen.',
+     'Der Index wird noch aufgebaut.'),
     ('dpcc is selected as the Code Insight provider for Delphi in the IDE options. Ctrl+click and “Find ' +
      'Declaration” go through dpcc; without a target (for example in units without source) the IDE does not ' +
      'jump. Error Insight (error marks in the editor) and the other DelphiLSP services are missing then. If you ' +
      'need them, turn off the master switch on the dpcc page or select DelphiLSP in the IDE options again; dpcc ' +
      'is then off from the next start.',
-     'Ctrl+Alt+↑/↓'));
+     'Ctrl+Alt+↑/↓',
+     'No jump target: unit %s is only available as a package (no source). Add its source folder under Tools › ' +
+     'Options › Third Party › dpcc › Additional source folders.',
+     'No jump target: the unit is only available as a package (no source). Add its source folder under Tools › ' +
+     'Options › Third Party › dpcc › Additional source folders.',
+     'No jump target: unit %s not found.',
+     'No jump target: unit not found.',
+     'No jump target: “%s” could not be resolved.',
+     'No jump target: name could not be resolved.',
+     'No jump target: there is no identifier at this position.',
+     'No jump target: dpcc does not know this file yet.',
+     'No jump target: the position is in an inactive branch ({$IFDEF …}).',
+     'No jump target found.',
+     'No jump target found (reason unknown).',
+     'dpcc is still starting; the jump follows as soon as dpcc is ready (at most %d s after the click).',
+     'No jump: dpcc is not running (server not started).',
+     'No jump: the dpcc server does not offer jump targets.',
+     'No jump: no answer from dpcc within %d s.',
+     'No jump: the connection to the dpcc server is lost.',
+     'No jump: %s could not be opened.',
+     'The index is still being built.'));
 
 function IsNameChar(AChar: Char): Boolean;
 begin
@@ -205,6 +316,143 @@ begin
   begin
     Result := ACaret;
   end;
+end;
+
+{ TDpccGotoNotice }
+
+/// <summary>Text AId in der Sprache ALanguage.</summary>
+function NavText(ALanguage: TDpccLanguage; AId: TNavigationText): string;
+begin
+  Result := cTexts[ALanguage, AId];
+end;
+
+/// <summary>ANamed mit AName, ohne Namen AUnnamed.</summary>
+function NamedText(ALanguage: TDpccLanguage; ANamed, AUnnamed: TNavigationText; const AName: string): string;
+begin
+  if Trim(AName) = '' then
+  begin
+    Result := NavText(ALanguage, AUnnamed);
+  end
+  else
+  begin
+    Result := Format(NavText(ALanguage, ANamed), [Trim(AName)]);
+  end;
+end;
+
+/// <summary>AText mit dem Zusatz „Der Index wird noch aufgebaut.“, wenn AIndexing.</summary>
+function WithIndexing(ALanguage: TDpccLanguage; const AText: string; AIndexing: Boolean): string;
+begin
+  Result := AText;
+  if AIndexing then
+  begin
+    Result := Result + ' ' + NavText(ALanguage, TNavigationText.IndexingSuffix);
+  end;
+end;
+
+class function TDpccGotoNotice.ForNoTarget(ALanguage: TDpccLanguage; const ANoTarget: TDpccNoTarget): string;
+begin
+  case ANoTarget.Reason of
+    TDpccNoTargetReason.NoSource:
+      Result := NamedText(ALanguage, TNavigationText.NoSource, TNavigationText.NoSourceUnnamed, ANoTarget.Name);
+    TDpccNoTargetReason.UnitNotFound:
+      Result := NamedText(ALanguage, TNavigationText.UnitNotFound, TNavigationText.UnitNotFoundUnnamed,
+        ANoTarget.Name);
+    TDpccNoTargetReason.Unresolved:
+      Result := NamedText(ALanguage, TNavigationText.Unresolved, TNavigationText.UnresolvedUnnamed, ANoTarget.Name);
+    TDpccNoTargetReason.NoIdentifier:
+      Result := NavText(ALanguage, TNavigationText.NoIdentifier);
+    TDpccNoTargetReason.NoDocument:
+      Result := NavText(ALanguage, TNavigationText.NoDocument);
+    TDpccNoTargetReason.InactiveBranch:
+      Result := NavText(ALanguage, TNavigationText.InactiveBranch);
+    TDpccNoTargetReason.Other:
+      Result := NavText(ALanguage, TNavigationText.OtherReason);
+  else
+    // Ohne Benachrichtigung (älterer Server).
+    Result := NavText(ALanguage, TNavigationText.UnknownReason);
+  end;
+  Result := WithIndexing(ALanguage, Result, ANoTarget.Indexing);
+end;
+
+class function TDpccGotoNotice.ForKind(ALanguage: TDpccLanguage; AKind: TDpccGotoNoticeKind;
+  const AArgument: string; ASeconds: Integer; AIndexing: Boolean): string;
+begin
+  case AKind of
+    TDpccGotoNoticeKind.Starting:
+      Result := Format(NavText(ALanguage, TNavigationText.Starting), [ASeconds]);
+    TDpccGotoNoticeKind.NotRunning:
+      Result := NavText(ALanguage, TNavigationText.NotRunning);
+    TDpccGotoNoticeKind.NotOffered:
+      Result := NavText(ALanguage, TNavigationText.NotOffered);
+    TDpccGotoNoticeKind.TimedOut:
+      Result := Format(NavText(ALanguage, TNavigationText.TimedOut), [ASeconds]);
+    TDpccGotoNoticeKind.ServerLost:
+      Result := NavText(ALanguage, TNavigationText.ServerLost);
+    TDpccGotoNoticeKind.OpenFailed:
+      Result := Format(NavText(ALanguage, TNavigationText.OpenFailed), [AArgument]);
+  else
+    // NoTarget gehört zu ForNoTarget.
+    Result := NavText(ALanguage, TNavigationText.UnknownReason);
+  end;
+  Result := WithIndexing(ALanguage, Result, AIndexing);
+end;
+
+{ TDpccNoticeRepeat }
+
+function TDpccNoticeRepeat.Take(const AText: string; ANowMs: UInt64): Boolean;
+begin
+  Result := (AText <> '') and not ((AText = FLastText) and (ANowMs >= FLastMs) and
+    (ANowMs - FLastMs <= cRepeatMs));
+  if Result then
+  begin
+    FLastText := AText;
+    FLastMs := ANowMs;
+  end;
+end;
+
+procedure TDpccNoticeRepeat.Reset;
+begin
+  FLastText := '';
+  FLastMs := 0;
+end;
+
+{ TDpccGotoLog }
+
+class function TDpccGotoLog.Line(const AOutcome: string; AElapsedMs: Int64; const AFileName: string; ALine,
+  ACharacter: Integer; AMouse: Boolean): string;
+const
+  cPlaces: array[Boolean] of string = ('Cursor', 'Maus');
+var
+  mFile: string;
+begin
+  mFile := '-';
+  if AFileName <> '' then
+  begin
+    mFile := TLogMarks.Path(ExtractFileName(AFileName));
+  end;
+  Result := Format('Gehe zu Definition: %s nach %d ms, %s %d:%d (%s)', [AOutcome, AElapsedMs, mFile, ALine,
+    ACharacter + 1, cPlaces[AMouse]]);
+end;
+
+class function TDpccGotoLog.NoTargetOutcome(const ANoTarget: TDpccNoTarget): string;
+begin
+  if ANoTarget.Reason = TDpccNoTargetReason.Unknown then
+  begin
+    Result := 'kein Ziel (Grund unbekannt';
+  end
+  else
+  begin
+    Result := 'kein Ziel (' + TDpccNoTarget.CodeOf(ANoTarget.Reason);
+  end;
+  if ANoTarget.Name <> '' then
+  begin
+    Result := Result + ': ' + TLogMarks.Name(ANoTarget.Name);
+  end;
+  if ANoTarget.Indexing then
+  begin
+    Result := Result + ', Index im Aufbau';
+  end;
+  Result := Result + ')';
 end;
 
 { TDpccProviderNotice }

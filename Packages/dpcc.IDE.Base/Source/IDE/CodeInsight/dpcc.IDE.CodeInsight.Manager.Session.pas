@@ -180,6 +180,9 @@ type
     procedure FlushFileChanges;
     /// <summary>Der Server endete von selbst (Hauptthread, aus ClientClosed).</summary>
     procedure ServerEnded(const AInfo: TLspCloseInfo); virtual;
+    /// <summary>Hauptthread, am Ende von StartFinished: Ein Start ist fertig, AAdopted = Sitzung übernommen (sonst
+    /// fehlgeschlagen oder verworfen). Der Manager fragt dann einen gemerkten Sprungwunsch; hier nichts.</summary>
+    procedure SessionStartDone(AAdopted: Boolean); virtual;
     function SessionOrNil: TLspSession;
     /// <summary>Gibt es den Server? Seit S1 läuft er im IDE-Prozess (Package dpcc.Server) und ist immer da; keine
     /// Exe mehr zu suchen.</summary>
@@ -1288,6 +1291,7 @@ begin
           Diagnose(Format('Nach Neustart erneut geöffnet: %d Dateien', [Length(mJob.Documents)]));
         end;
         QueueIdeTypes(FSession);
+        SessionStartDone(True);
       end;
     TDpccStartOutcome.Failed:
       begin
@@ -1296,6 +1300,7 @@ begin
           [mElapsedMs, TDpccSessionLifecycle.cRetryBlockMs div 1000]));
         ReportError('Start fehlgeschlagen: ' + mError);
         SetPhase(TDpccServerPhase.Failed, TDpccCodeInsightPaths.WithoutPaths(mError));
+        SessionStartDone(False);
       end;
   else
     begin
@@ -1305,8 +1310,14 @@ begin
       begin
         SetPhase(TDpccServerPhase.Stopped, '', True);
       end;
+      SessionStartDone(False);
     end;
   end;
+end;
+
+procedure TDpccCodeInsightSession.SessionStartDone(AAdopted: Boolean);
+begin
+  // Haken für den Manager (gemerkter Sprungwunsch, dpcc.IDE.CodeInsight.Manager).
 end;
 
 procedure TDpccCodeInsightSession.NotifyRestart(ACrashed: Boolean; APreviousStart: TDateTime; AReopened: Integer);

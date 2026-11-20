@@ -4,6 +4,10 @@
 // Projektkontexten, Empfänger im Lese-Thread (refresh, $/progress, showMessage, Absturzfälle, applyEdit) und der
 // Dokumentabgleich (didOpen, didChange mit geändertem Bereich, didClose). Anfragen stehen in
 // dpcc.Core.Lsp.Session.Requests und dpcc.Core.Lsp.Session.
+// Prewarm (Vorladen beim Aktivieren einer Datei): Abgleich wie Sync, danach dpcc/prewarm; aus einem Arbeiter.
+// dpcc/noTarget (Grund für ein fehlendes Sprungziel) nimmt der Empfänger im Lese-Thread selbst an und legt ihn in
+// FNoTargets ab (threadsicher, ohne Umweg über den Hauptthread); er kommt vor der leeren Antwort, GotoTargetAt holt
+// ihn danach ab.
 
 interface
 
@@ -15,6 +19,7 @@ uses
   dpcc.Core.Lsp.Progress,
   dpcc.Core.Projects.Contract,
   dpcc.Core.Lsp.WorkspaceEdits,
+  dpcc.Core.Lsp.LateAnswers,
   dpcc.Core.Lsp.Session.Json;
 
 type
@@ -68,6 +73,8 @@ type
     FClient: TLspClient;
     FRefresh: ILspSignal;
     FProgress: ILspProgress;
+    /// <summary>Gründe aus dpcc/noTarget (Lese-Thread legt ab, GotoTargetAt holt ab).</summary>
+    FNoTargets: IDpccNoTargets;
     FTimeoutMs: Cardinal;
     function PositionParams(const AFileName: string; ALine, ACharacter: Integer): TJSONObject;
     /// <summary>ATimeoutMs, wenn gesetzt; sonst das Zeitlimit der Sitzung.</summary>
@@ -104,6 +111,9 @@ type
     property InitializeOptions: TLspInitializeOptions read FInitializeOptions write FInitializeOptions;
     /// <summary>Schickt AText, falls neu oder geändert.</summary>
     procedure Sync(const AFileName, AText: string);
+    /// <summary>Gleicht AText ab wie Sync und bittet den Server danach, die Datei vorzuladen (dpcc/prewarm: Baum und
+    /// Units der uses im Hintergrund), damit die erste Anfrage nicht nachladen muss. Threadsicher wie Sync.</summary>
+    procedure Prewarm(const AFileName, AText: string);
     /// <summary>didClose für eine abgeglichene Datei; danach liest der Server sie wieder von der Platte.</summary>
     procedure Close(const AFileName: string);
     /// <summary>Abgeglichene Dateien (Hauptthread).</summary>
@@ -132,6 +142,7 @@ implementation
 
 uses
   dpcc.Core.Lsp.TextChanges,
+  System.Classes,
   System.SyncObjs;
 
 type
@@ -199,10 +210,28 @@ begin
   Result := TInterlocked.Exchange<TJSONValue>(FId, nil);
 end;
 
+const
+  /// <summary>Grund für ein fehlendes Sprungziel; kommt vor der leeren Antwort auf declaration/definition.</summary>
+  cNoTargetMethod = 'dpcc/noTarget';
+
+/// <summary>dpcc/noTarget im Lese-Thread in ANoTargets ablegen; die URI wird zum Pfad wie bei GotoTargetAt.
+/// </summary>
+procedure NoteNoTarget(const ANoTargets: IDpccNoTargets; const AParams: TJSONValue);
+var
+  mNote: TDpccNoTargetNote;
+begin
+  if TDpccNoTargetNote.Parse(AParams, mNote) then
+  begin
+    mNote.FileName := TLspSessionJson.UriToPath(mNote.FileName);
+    ANoTargets.Add(mNote, TThread.GetTickCount64);
+  end;
+end;
+
 /// <summary>Empfänger der Servernachrichten im Lese-Thread; fängt nur Zähler und Callbacks ein, nie die
 /// Sitzung, denn der Lese-Thread kann sie überleben.</summary>
 function ServerMessageHandler(const ARefresh: ILspSignal; const AProgress: ILspProgress;
-  const AShowMessage: TLspShowMessageProc; const ADpcc: TLspDpccNotificationProc): TLspServerMessageProc;
+  const AShowMessage: TLspShowMessageProc; const ADpcc: TLspDpccNotificationProc;
+  const ANoTargets: IDpccNoTargets): TLspServerMessageProc;
 begin
   Result :=
     procedure(const AMethod: string; const AParams: TJSONValue)
@@ -222,6 +251,11 @@ begin
         TLspSessionJson.ShowMessageParams(AParams, MessageType, Text) then
       begin
         AShowMessage(MessageType, Text);
+      end
+      else if AMethod = cNoTargetMethod then
+      begin
+        // Nicht über den Hauptthread: Die leere Antwort folgt gleich, GotoTargetAt holt den Grund danach ab.
+        NoteNoTarget(ANoTargets, AParams);
       end
       else if AMethod.StartsWith('dpcc/') and Assigned(ADpcc) then
       begin
@@ -281,7 +315,7 @@ end;
 procedure TLspSessionBase.AttachClientHandlers;
 begin
   FClient.OnServerMessage := ServerMessageHandler(FRefresh, FProgress, FEvents.OnShowMessage,
-    FEvents.OnDpccNotification);
+    FEvents.OnDpccNotification, FNoTargets);
   if Assigned(FEvents.OnApplyEdit) then
   begin
     FClient.OnServerRequest := ApplyEditRequestHandler(FEvents.OnApplyEdit, FClient);
@@ -305,6 +339,7 @@ begin
   FDocLock := TObject.Create;
   FRefresh := TLspSignal.Create;
   FProgress := TLspProgress.Create;
+  FNoTargets := TDpccNoTargets.Create;
 end;
 
 destructor TLspSessionBase.Destroy;
@@ -363,6 +398,14 @@ begin
   finally
     TMonitor.Exit(FDocLock);
   end;
+end;
+
+procedure TLspSessionBase.Prewarm(const AFileName, AText: string);
+begin
+  Sync(AFileName, AText);
+  // Nach dem Abgleich aus demselben Thread: Der Server verarbeitet Benachrichtigungen der Reihe nach und kennt den
+  // Stand schon, wenn dpcc/prewarm ankommt.
+  FClient.Notify('dpcc/prewarm', TJSONObject.Create(TJSONPair.Create('uri', PathToUri(AFileName))));
 end;
 
 procedure TLspSessionBase.SyncLocked(const AFileName, AText: string);

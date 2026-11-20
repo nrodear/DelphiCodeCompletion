@@ -61,6 +61,7 @@ contains
   Shell.Composition.IndexArea in '..\..\Application\Source\Shell\Shell.Composition.IndexArea.pas',
   Shell.Composition.InProcess in '..\..\Application\Source\Shell\Shell.Composition.InProcess.pas',
   Shell.Composition.LanguageOptions in '..\..\Application\Source\Shell\Shell.Composition.LanguageOptions.pas',
+  Shell.Composition.Prewarm in '..\..\Application\Source\Shell\Shell.Composition.Prewarm.pas',
   Shell.Composition.Protocol in '..\..\Application\Source\Shell\Shell.Composition.Protocol.pas',
   Shell.Composition.Session in '..\..\Application\Source\Shell\Shell.Composition.Session.pas',
   Shell.Composition.Settings in '..\..\Application\Source\Shell\Shell.Composition.Settings.pas',

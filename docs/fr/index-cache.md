@@ -119,6 +119,20 @@ Après `raise`, `on E: ` et entre crochets d'attribut, la complétion vérifie l
 que dans le catalogue au moyen des ancêtres du catalogue et ne charge pas ces unités pour cela. Les classes des
 packages de l'IDE sans code source s'y ajoutent par leur ancêtre, tel que l'IDE l'indique.
 
+#### Préchargement à l'ouverture
+
+Quand un fichier devient actif dans l'éditeur (ouverture, changement d'onglet, saut) et le reste environ 0,4 s, le
+plugin le synchronise en arrière-plan avec le serveur et demande son préchargement (`dpcc/prewarm`) ; parcourir
+rapidement les onglets ne déclenche rien, et chaque fichier n'est préchargé qu'une fois par état. Le serveur place
+alors, dans un thread à faible priorité, l'arbre syntaxique du fichier dans le cache des requêtes et charge les unités
+de ses `uses` (plus System) comme le ferait la première requête : depuis le catalogue ou par les chemins de recherche.
+Le premier Ctrl+clic, la première infobulle ou la première liste de complétion après l'ouverture n'ont ainsi plus rien
+à charger. Une seule tâche tourne à la fois ; un autre fichier l'interrompt avant l'unité suivante. Les unités froides
+ne sont chargées que tant que les unités chargées à la demande restent sous les trois quarts de la limite de 32 Mo ;
+le préchargement n'épingle rien et n'évince aucune unité utilisée. Pendant la construction de l'index, il attend la
+fin de celle-ci. Le journal de diagnostic du serveur indique une ligne par tâche : `prewarm doc#n units … catalog …
+parsed … missing … ms … cancelled …`.
+
 #### Statistiques d'utilisation
 
 Pour chaque unité de la bibliothèque, dpcc compte combien de fois des requêtes en ont besoin et combien de fois une

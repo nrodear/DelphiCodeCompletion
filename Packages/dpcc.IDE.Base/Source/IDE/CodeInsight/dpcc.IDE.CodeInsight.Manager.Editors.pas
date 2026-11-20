@@ -9,13 +9,23 @@
 // das Öffnen beim Tippen von Anfang an wirkt, beobachtet ein kleiner Editor-Beobachter die Änderungen, bis sie
 // existiert: Beim ersten Tippen in einer Datei, die dpcc bedient, legt er sie gleich nach der Benachrichtigung an und
 // merkt sich den Stand der Zeile; ab dann übernimmt ihr eigener Beobachter.
+// Vorladen beim Öffnen und Aktivieren (dpcc/prewarm): Derselbe Beobachter (er lebt bis ReleaseViews) meldet jede
+// aktive Ansicht. Bedient dpcc die Datei, wartet TDpccPrewarmGate cQuietMs Ruhe ab (schnelles Durchblättern der Tabs
+// löst nichts aus); ist sie dann noch vorn und die Sitzung bereit (nie ein Start), liest der Hauptthread den Puffer
+// über den gemeinsamen Pufferstand (TDpccEditorSnapshots, nur wenn er als veraltet gilt) und stößt je Datei und Stand
+// höchstens einmal einen Arbeiter aus TDpccTimeLimit an (Post, ohne Warten). Der gleicht ab (Session.Prewarm: Diff
+// bzw. didOpen samt JSON, dann dpcc/prewarm); den Rest lädt der Server im Hintergrund. Der Arbeiter hält nur Kopien
+// und die Sitzung als rohen Zeiger wie der Abgleich der Formulare; der Stopp wartet auf ihn (TDpccTimeLimit.WaitIdle).
+// Hauptschalter aus, Stopp und Entladen verwerfen eine wartende Aktivierung; danach geht nichts mehr hinaus.
 
 interface
 
 uses
   System.SysUtils,
+  Vcl.ExtCtrls,
   ToolsAPI,
   dpcc.Core.Lsp.Session,
+  dpcc.Core.Editor.Prewarm,
   dpcc.Core.Signature.Contract,
   dpcc.IDE.Completion.Editor,
   dpcc.IDE.Signature.Editor,
@@ -49,7 +59,8 @@ type
     FCompletion: TDpccEditorCompletion;
     FSignature: TDpccEditorSignature;
     FHover: TDpccEditorHover;
-    /// <summary>Beobachter bis zur ersten Vervollständigung (L5); -1 ohne.</summary>
+    /// <summary>Editor-Beobachter (Tippen bis zur ersten Vervollständigung, L5; aktive Ansicht fürs Vorladen); -1
+    /// ohne.</summary>
     FWatchIndex: Integer;
     FWatch: TObject;
     /// <summary>Eigene Referenz: Der Beobachter lebt, bis StopWatch ihn gelöst hat.</summary>
@@ -58,9 +69,19 @@ type
     FCreating: Boolean;
     /// <summary>ReleaseViews lief: nichts mehr anlegen.</summary>
     FReleased: Boolean;
+    /// <summary>Vorladen: Ruhe nach dem Aktivieren, je Datei und Stand einmal.</summary>
+    FPrewarmGate: TDpccPrewarmGate;
+    /// <summary>Weckt PrewarmTick, sobald die Ruhe vorbei ist.</summary>
+    FPrewarmTimer: TTimer;
     procedure CreateHover;
     procedure StartWatch;
     procedure StopWatch;
+    procedure PrewarmTick(Sender: TObject);
+    /// <summary>Ruhe vorbei: Ist AFileName noch vorn und die Sitzung bereit, abgleichen und dpcc/prewarm im
+    /// Hintergrund.</summary>
+    procedure PrewarmActive(const AFileName: string);
+    /// <summary>Wartende Aktivierung verwerfen und alle gemerkten Stände vergessen.</summary>
+    procedure StopPrewarm;
   public
     /// <summary>Hover anlegen; Vervollständigung und Parameter-Hint erst beim ersten Gebrauch.</summary>
     constructor Create(const AHooks: TDpccCodeInsightEditorHooks);
@@ -90,6 +111,9 @@ type
     /// <summary>Änderung in AView, solange es noch keine Vervollständigung gibt (L5): beim ersten Tippen in einer
     /// Datei von dpcc anlegen, wenn completion.autoMinChars nicht 0 ist.</summary>
     procedure TypingSeen(const AView: IOTAEditView);
+    /// <summary>AView wurde aktiv (Öffnen, Tab-Wechsel, Sprung): Bedient dpcc die Datei, nach der Ruhe vorladen;
+    /// sonst eine wartende Aktivierung verwerfen. Nur im Hauptthread.</summary>
+    procedure ViewActivated(const AView: IOTAEditView);
   end;
 
 implementation
@@ -98,11 +122,52 @@ uses
   System.Classes,
   DockForm,
   dpcc.Core.Diagnostics.Guard,
+  dpcc.Core.Diagnostics.Hangs,
   dpcc.Core.Diagnostics.MainThread,
+  dpcc.Core.Diagnostics.Shutdown,
+  dpcc.Core.Diagnostics.TimeLimit,
+  dpcc.IDE.Foundation.EditorBuffer,
+  dpcc.IDE.Foundation.EditorSnapshot,
   dpcc.IDE.Foundation.Settings;
 
+const
+  /// <summary>Kürzester Takt, wenn die Uhr beim Wecken noch etwas Ruhe übrig sieht.</summary>
+  cPrewarmMinTickMs = 50;
+
+/// <summary>Arbeiter aus TDpccTimeLimit (Post): Abgleich (didOpen bzw. didChange samt Diff und JSON, wie Sync) und
+/// danach dpcc/prewarm an ASession. Hält nur Kopien (Datei, Text) und die Sitzung als rohen Zeiger wie der Abgleich
+/// der Formulare (dpcc.IDE.Forms.Designer, SendWork): Der Hauptthread hat beim Post geprüft, dass sie die laufende
+/// ist; der Stopp schließt vorher die Verbindung (Notify sendet dann nichts) und wartet auf diese Arbeiter
+/// (TDpccTimeLimit.WaitIdle), bevor er sie freigibt. Nie die Anbindungen oder der Manager.</summary>
+function PrewarmWork(ASession: TLspSession; const AFileName, AText: string): TProc;
+var
+  mSession: TLspSession;
+  mFileName: string;
+  mText: string;
+begin
+  mSession := ASession;
+  mFileName := AFileName;
+  mText := AText;
+  Result :=
+    procedure
+    begin
+      try
+        if not TDpccShutdown.Signalled then
+        begin
+          mSession.Prewarm(mFileName, mText);
+        end;
+      except
+        // Verbindung geschlossen oder Server fort: Die nächste Anfrage gleicht selbst ab.
+        on Exception do
+        begin
+        end;
+      end;
+    end;
+end;
+
 type
-  /// <summary>Editor-Beobachter bis zur ersten Vervollständigung (L5): meldet Änderungen an TypingSeen.</summary>
+  /// <summary>Editor-Beobachter: meldet Änderungen bis zur ersten Vervollständigung an TypingSeen (L5) und jede
+  /// aktive Ansicht an ViewActivated (Vorladen). Lebt bis ReleaseViews.</summary>
   TTypingWatch = class(TNotifierObject, INTAEditServicesNotifier)
   private
     FOwner: TDpccCodeInsightEditors;
@@ -152,6 +217,15 @@ end;
 
 procedure TTypingWatch.EditorViewActivated(const EditWindow: INTAEditWindow; const EditView: IOTAEditView);
 begin
+  try
+    if FOwner <> nil then
+    begin
+      FOwner.ViewActivated(EditView);
+    end;
+  except
+    on E: Exception do
+      TDpccGuard.Report(TDpccFeature.Server, E);
+  end;
 end;
 
 procedure TTypingWatch.EditorViewModified(const EditWindow: INTAEditWindow; const EditView: IOTAEditView);
@@ -186,6 +260,11 @@ begin
   inherited Create;
   FHooks := AHooks;
   FWatchIndex := -1;
+  FPrewarmGate := TDpccPrewarmGate.Create;
+  FPrewarmTimer := TTimer.Create(nil);
+  FPrewarmTimer.Enabled := False;
+  FPrewarmTimer.Interval := FPrewarmGate.QuietMs;
+  FPrewarmTimer.OnTimer := PrewarmTick;
   CreateHover;
   StartWatch;
 end;
@@ -243,6 +322,128 @@ begin
         Completion.SeedTyping(mView);
       end;
     end);
+end;
+
+procedure TDpccCodeInsightEditors.ViewActivated(const AView: IOTAEditView);
+var
+  mActivity: IInterface;
+  mFileName: string;
+begin
+  if FReleased or (FPrewarmGate = nil) or (FPrewarmTimer = nil) then
+  begin
+    Exit;
+  end;
+  mActivity := TDpccActivity.Scope('Vorladen: Ansicht aktiv');
+  mFileName := '';
+  if (AView <> nil) and (AView.Buffer <> nil) then
+  begin
+    mFileName := AView.Buffer.FileName;
+  end;
+  // Datei, die dpcc nicht bedient (Formular, Text), Hauptschalter aus: Eine wartende Aktivierung entfällt.
+  if (mFileName = '') or not Assigned(FHooks.Handles) or not FHooks.Handles(mFileName) then
+  begin
+    FPrewarmTimer.Enabled := False;
+    FPrewarmGate.Cancel;
+    Exit;
+  end;
+  // Die Ruhe beginnt neu: Schnelles Durchblättern der Tabs löst nichts aus.
+  FPrewarmGate.Activated(mFileName);
+  FPrewarmTimer.Enabled := False;
+  FPrewarmTimer.Interval := FPrewarmGate.QuietMs;
+  FPrewarmTimer.Enabled := True;
+end;
+
+procedure TDpccCodeInsightEditors.PrewarmTick(Sender: TObject);
+var
+  mActivity: IInterface;
+  mFileName: string;
+  mWaitMs: Cardinal;
+begin
+  mActivity := TDpccActivity.Scope('Vorladen: Ruhe vorbei');
+  try
+    if FReleased or (FPrewarmGate = nil) or (FPrewarmTimer = nil) then
+    begin
+      Exit;
+    end;
+    if not FPrewarmGate.TakeDue(mFileName) then
+    begin
+      // Takt etwas vor der Uhr: den Rest abwarten; ohne wartende Aktivierung aufhören.
+      if FPrewarmGate.Pending then
+      begin
+        mWaitMs := FPrewarmGate.WaitMs;
+        if mWaitMs < cPrewarmMinTickMs then
+        begin
+          mWaitMs := cPrewarmMinTickMs;
+        end;
+        FPrewarmTimer.Interval := mWaitMs;
+      end
+      else
+      begin
+        FPrewarmTimer.Enabled := False;
+      end;
+      Exit;
+    end;
+    FPrewarmTimer.Enabled := False;
+    PrewarmActive(mFileName);
+  except
+    on E: Exception do
+      TDpccGuard.Report(TDpccFeature.Server, E);
+  end;
+end;
+
+procedure TDpccCodeInsightEditors.PrewarmActive(const AFileName: string);
+var
+  mView: IOTAEditView;
+  mSession: TLspSession;
+  mSnapshot: TDpccEditorSnapshot;
+  mSynced: string;
+begin
+  if FReleased or not Assigned(FHooks.Handles) or not FHooks.Handles(AFileName) or
+    not Assigned(FHooks.RunningSession) then
+  begin
+    Exit;
+  end;
+  // Inzwischen eine andere Datei vorn (ohne neue Aktivierung, etwa ein zweites Editorfenster): nichts.
+  mView := TDpccEditorBuffer.ActiveView;
+  if (mView = nil) or (mView.Buffer = nil) or not SameText(mView.Buffer.FileName, AFileName) then
+  begin
+    Exit;
+  end;
+  // Nur eine laufende, bereite Sitzung; startet nie einen Server und wartet nie.
+  mSession := FHooks.RunningSession();
+  if mSession = nil then
+  begin
+    Exit;
+  end;
+  // Den Puffer liest nur der Hauptthread; der gemeinsame Stand liest ihn nur, wenn er als veraltet gilt (nach dem
+  // Aktivieren immer: ein Lesevorgang je Datei, bei der der Benutzer bleibt).
+  mSnapshot := TDpccEditorSnapshots.Get(mView);
+  // Kennt die Sitzung die Datei nicht (neue Sitzung, auch an derselben Adresse): Der gemerkte Stand gilt nicht.
+  if not mSession.SyncedText(AFileName, mSynced) then
+  begin
+    FPrewarmGate.Forget(AFileName);
+  end;
+  if not FPrewarmGate.Claim(AFileName, mSnapshot.Version, mSession) then
+  begin
+    Exit;
+  end;
+  // Diff, JSON und Senden im Hintergrund; ohne Arbeiter (dpcc wird beendet) beim nächsten Mal neu.
+  if not TDpccTimeLimit.Post(PrewarmWork(mSession, AFileName, mSnapshot.Text)) then
+  begin
+    FPrewarmGate.Forget(AFileName);
+  end;
+end;
+
+procedure TDpccCodeInsightEditors.StopPrewarm;
+begin
+  if FPrewarmTimer <> nil then
+  begin
+    FPrewarmTimer.Enabled := False;
+  end;
+  if FPrewarmGate <> nil then
+  begin
+    FPrewarmGate.Reset;
+  end;
 end;
 
 destructor TDpccCodeInsightEditors.Destroy;
@@ -367,6 +568,9 @@ begin
   begin
     FSignature.Shutdown;
   end;
+  // Vorladen: Eine wartende Aktivierung geht nicht mehr an diese Sitzung; ein schon gestarteter Arbeiter sendet nach
+  // dem Schließen nichts mehr, auf ihn wartet der Stopp-Thread (TDpccTimeLimit.WaitIdle).
+  StopPrewarm;
 end;
 
 procedure TDpccCodeInsightEditors.EndStop;
@@ -394,11 +598,16 @@ begin
   begin
     FHover.Hide;
   end;
+  // Nach dem Wiedereinschalten gilt jeder Stand wieder als neu.
+  StopPrewarm;
 end;
 
 procedure TDpccCodeInsightEditors.ReleaseViews;
 begin
   FReleased := True;
+  StopPrewarm;
+  FreeAndNil(FPrewarmTimer);
+  FreeAndNil(FPrewarmGate);
   StopWatch;
   FreeAndNil(FHover);
   FreeAndNil(FSignature);

@@ -3,7 +3,8 @@
 // Host-Rolle Shell: Anbindung des anonymisierten Diagnoselogs (#647).
 // - Beobachter des Dispatchers: je Anfrage Dauer, Wartezeit, Ergebnis mit
 //   Grundcode, Dokument als Kurz-ID mit Version, Länge und Prüfsumme, Position
-//   als Zahlen und Zustand des Index.
+//   als Zahlen und Zustand des Index. Sprünge (definition, declaration) bekommen
+//   zusätzlich eine Startzeile „definition start“ bzw. „declaration start“.
 // - Start und Ende des Serverlaufs mit Grund, Speicher und Threads; bei einer
 //   Exception Klasse und Aufrufstapel (Adressen und dpcc-eigene Routinen aus
 //   der Map-Datei, ohne Dateinamen).
@@ -129,6 +130,8 @@ type
     /// <summary>Anonymes Kennzeichen einer Quelldatei für das Diagnoselog (#1094): "unit#N", unter einem
     /// Bibliothekspfad der Unit-Name.</summary>
     function FileLabel(const AFileName: string): string;
+    /// <summary>Kurz-ID eines Dokuments wie in den Zeilen der Anfragen ("doc#4"), etwa fürs Vorladen.</summary>
+    function DocumentLabel(const AFileName: string): string;
     /// <summary>Speicher jetzt (a0) mit Index und Dokumenten dieses Servers.</summary>
     function MemoryReport: TShellMemoryReport;
     /// <summary>Zeile "mem &lt;AReason&gt; private … MB …" ins Diagnoselog (a0).</summary>
@@ -471,6 +474,12 @@ begin
   Result := FIds.UnitLabel(ChangeFileExt(ExtractFileName(AFileName), ''), AFileName);
 end;
 
+function TShellDiagnostics.DocumentLabel(const AFileName: string): string;
+begin
+  // Dieselbe Kurz-ID wie DescribeDocument für die Zeilen der Anfragen.
+  Result := FIds.IdOf(TDiagnosticIdKind.Document, AFileName);
+end;
+
 function TShellDiagnostics.LibraryCount: Integer;
 var
   mGeneration: Int64;
@@ -594,6 +603,12 @@ begin
     end;
   finally
     TMonitor.Exit(FLock);
+  end;
+  // Sprung (Strg+Klick): eine Startzeile, damit eine Anfrage, die bei einem Absturz noch lief, im Log steht.
+  if (SameText(AMethod, 'textDocument/definition') or SameText(AMethod, 'textDocument/declaration')) and
+    not FEnded and FLog.Enabled then
+  begin
+    FLog.LogEvent(mName + ' start');
   end;
 end;
 

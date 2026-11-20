@@ -3,7 +3,9 @@
 // Start des Clients nach initialized: Name, Fähigkeiten und Editor-Einstellungen aus initialize, Projektkontext der
 // IDE, erste Arbeitsbereiche und Beobachtung der Dateien. Seit Schritt 2 bekommt
 // es die beteiligten Teile einzeln (TShellClientStartParts) statt aller Teile der alten Komposition; so nutzen es die
-// alte Wurzel (Shell.Composition) und die Wurzel der Completion (Shell.Composition.CompletionServer).
+// alte Wurzel (Shell.Composition) und die Wurzel der Completion (Shell.Composition.CompletionServer). Die gemeldeten
+// Projekte legt es zusammen an (TShellFolders.AddAll), damit requires-Packages unabhängig von der Reihenfolge
+// gefunden werden.
 
 interface
 
@@ -79,10 +81,9 @@ begin
     AParts.Logger.Info('Kein Arbeitsbereichsordner gemeldet; Ordner werden aus den geöffneten Dateien abgeleitet');
   end;
   AParts.Core.Configuration.Start;
-  for mFolder in mFolders do
-  begin
-    AParts.Core.Folders.Add(mFolder);
-  end;
+  // Alle auf einmal: Das zuerst angelegte (aktive) Projekt kennt so die Ordner der übrigen und findet die .dpk seiner
+  // requires (Sprung in ein anderes Package).
+  AParts.Core.Folders.AddAll(mFolders);
   AParts.Core.Configuration.UpdateWatchedFiles;
   AParts.FileChanges.RegisterWatchers(mParams);
 end;

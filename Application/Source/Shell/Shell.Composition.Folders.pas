@@ -6,6 +6,10 @@
 // eine Anfrage braucht, lädt es aus den Suchpfaden nach. Ein abgeleiteter Ordner verschwindet wieder, wenn das
 // letzte seiner geöffneten Dokumente geschlossen ist (a5, Speicher-Optimierung Phase 2): Sonst blieb je fremder Datei
 // ein Arbeitsbereich samt Projektindex bis zum Ende des Servers.
+// Sprung in ein anderes Package: AddAll merkt alle Projekte einer Meldung, bevor es das erste anlegt (die IDE meldet
+// jede .dproj einzeln, das aktive Projekt zuerst); kommt später ein Package-Projekt dazu, laden die vorhandenen
+// Package-Projekte neu (RefreshPackages). Ein neues Projekt und jede fertige Stufe eines Aufbaus lassen alle
+// Arbeitsbereiche die nicht gefundenen Units vergessen.
 
 interface
 
@@ -80,6 +84,11 @@ type
     /// <summary>Projekte zu einem Eintrag: die .dproj, die Projekte der .groupproj bzw. der einzigen im Ordner.
     /// </summary>
     function ProjectsOf(const AFolder: TWorkspaceFolder): TArray<string>;
+    /// <summary>Arbeitsbereiche zu einem Eintrag (Rumpf von Add).</summary>
+    procedure AddEntry(const AFolder: TWorkspaceFolder);
+    /// <summary>Kam mit diesem Aufruf ein Ordner mit .dpk dazu (AFoldersBefore: PackageFolders vorher), laden die
+    /// schon bestehenden Arbeitsbereiche AExisting neu, deren Projekt ein Package ist.</summary>
+    procedure RefreshPackages(const AExisting: TArray<TShellWorkspace>; const AFoldersBefore: TArray<string>);
     procedure AddProject(const ARoot, AName, AProjectFile, AOrigin: string; ADeferred: Boolean);
     function NewWorkspace(const ARoot, AName, AProjectFile, AOrigin: string; ADeferred: Boolean): TShellWorkspace;
     procedure WireEvents(AWorkspace: TShellWorkspace);
@@ -94,6 +103,9 @@ type
     /// <summary>Arbeitsbereiche zu einem gemeldeten Eintrag; Projektgruppe (#648): das erste Projekt ist aktiv,
     /// die übrigen warten bei index.projectGroup = false, bis eine ihrer Dateien geöffnet wird.</summary>
     procedure Add(const AFolder: TWorkspaceFolder);
+    /// <summary>Wie Add für alle Einträge einer Meldung (initialize, didChangeWorkspaceFolders): Die Projekte aller
+    /// Einträge sind gemerkt, bevor das erste angelegt wird.</summary>
+    procedure AddAll(const AFolders: TArray<TWorkspaceFolder>);
     /// <summary>Entfernt alle Arbeitsbereiche, die der Eintrag erzeugt hat.</summary>
     procedure Remove(const AFolder: TWorkspaceFolder);
     /// <summary>Datei ohne Arbeitsbereich: Ordner mit Projekt darüber anlegen (#175).</summary>
@@ -113,6 +125,7 @@ implementation
 uses
   System.Classes,
   System.IOUtils,
+  System.StrUtils,
   dpcc.Common.Documents.Uris,
   dpcc.Common.Index.Processes,
   dpcc.Common.JsonRpc.CurrentRequest,
@@ -230,6 +243,90 @@ begin
 end;
 
 procedure TShellFolders.Add(const AFolder: TWorkspaceFolder);
+begin
+  AddAll(TArray<TWorkspaceFolder>.Create(AFolder));
+end;
+
+/// <summary>Liegt in AFolder eine .dpk?</summary>
+function HasPackageSource(const AFolder: string): Boolean;
+begin
+  try
+    Result := Length(TDirectory.GetFiles(AFolder, '*.dpk')) > 0;
+  except
+    // Nicht lesbare Ordner zählen als ohne Package.
+    on Exception do
+      Result := False;
+  end;
+end;
+
+procedure TShellFolders.AddAll(const AFolders: TArray<TWorkspaceFolder>);
+var
+  mFolder: TWorkspaceFolder;
+  mKnown, mFoldersBefore: TArray<string>;
+  mExisting: TArray<TShellWorkspace>;
+begin
+  if Length(AFolders) = 0 then
+  begin
+    Exit;
+  end;
+  mFoldersBefore := FServices.Workspaces.PackageFolders;
+  System.TMonitor.Enter(FServices.Workspaces.Lock);
+  try
+    mExisting := FServices.Workspaces.Items.ToArray;
+  finally
+    System.TMonitor.Exit(FServices.Workspaces.Lock);
+  end;
+  // Die IDE meldet jede .dproj einzeln, das aktive Projekt zuerst; es indiziert sofort beim Anlegen und muss die
+  // Ordner der übrigen schon kennen.
+  mKnown := nil;
+  for mFolder in AFolders do
+  begin
+    if SameText(ExtractFileExt(mFolder.ProjectFile), '.dproj') then
+    begin
+      mKnown := mKnown + [mFolder.ProjectFile];
+    end;
+  end;
+  FServices.Workspaces.NoteProjects(mKnown);
+  for mFolder in AFolders do
+  begin
+    AddEntry(mFolder);
+  end;
+  RefreshPackages(mExisting, mFoldersBefore);
+end;
+
+procedure TShellFolders.RefreshPackages(const AExisting: TArray<TShellWorkspace>;
+  const AFoldersBefore: TArray<string>);
+var
+  mFolder: string;
+  mNewPackage: Boolean;
+  mWorkspace: TShellWorkspace;
+begin
+  if Length(AExisting) = 0 then
+  begin
+    Exit;
+  end;
+  mNewPackage := False;
+  for mFolder in FServices.Workspaces.PackageFolders do
+  begin
+    if (IndexText(mFolder, AFoldersBefore) < 0) and HasPackageSource(mFolder) then
+    begin
+      mNewPackage := True;
+      Break;
+    end;
+  end;
+  if not mNewPackage then
+  begin
+    Exit;
+  end;
+  FServices.Logger.Info('Package-Projekt dazugekommen; die requires der vorhandenen Packages werden neu aufgelöst');
+  // Die Arbeitsbereiche aus AExisting bestehen noch: Entfernen geschieht nur in diesem Thread.
+  for mWorkspace in AExisting do
+  begin
+    mWorkspace.RefreshPackages;
+  end;
+end;
+
+procedure TShellFolders.AddEntry(const AFolder: TWorkspaceFolder);
 var
   mProjects: TArray<string>;
   mIndex: Integer;
@@ -264,6 +361,8 @@ begin
   mWorkspace.Configuration.SetGlobalSettings(FServices.Settings.GlobalSettings);
   mWorkspace.Configuration.SetEditorSettings(FServices.Settings.EditorSettings);
   FServices.Workspaces.Add(mWorkspace);
+  // Ein neues Projekt kann eine bisher nicht gefundene Unit liefern (Sprung in ein anderes Package).
+  FServices.Workspaces.ForgetFailedUnits;
   FServices.Configuration.UpdateWatchedFiles;
   if AProjectFile <> '' then
   begin
@@ -323,14 +422,17 @@ begin
       Result := FServices.Workspaces.PackageFolders;
     end;
   AWorkspace.Events.OnProjectLoaded := FServices.ProjectLoaded;
+  // Eine fertige Stufe kann Units liefern, die andere Arbeitsbereiche vergeblich gesucht haben.
   AWorkspace.Events.OnIndexFinished :=
     procedure
     begin
+      FServices.Workspaces.ForgetFailedUnits;
       FServices.IndexStageDone(False);
     end;
   AWorkspace.Events.OnProjectReady :=
     procedure
     begin
+      FServices.Workspaces.ForgetFailedUnits;
       FServices.IndexStageDone(True);
     end;
   // Projekt- und Unit-Namen erscheinen im Server-Log nicht im Klartext (#647).

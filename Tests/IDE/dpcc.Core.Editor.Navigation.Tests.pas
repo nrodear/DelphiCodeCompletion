@@ -10,6 +10,9 @@
 // - Parameter-Hint: Überladung mit Strg+Alt+↑/↓; Alt+↑/↓ gehört der IDE (vor NAV schluckte der Hint Alt+↑/↓,
 //   gegen den alten Stand: AltArrowsBelongToIde).
 // - Tooltip: Strg lässt die Maus durch und schließt ihn, wenn sie über ihm steht.
+// - Rückmeldung zu einem Sprung ohne Ziel: Meldungstexte je Grund aus dpcc/noTarget (mit Name, Zusatz zum Index),
+//   gegen Fluten dieselbe Meldung nicht hintereinander, Zeile fürs dpcc.log ohne Pfad und mit gekennzeichneten
+//   Namen.
 
 interface
 
@@ -48,6 +51,25 @@ type
     procedure TooltipPassesMouseWithCtrl;
     [Test]
     procedure CtrlClosesTooltipOnlyUnderMouse;
+    /// <summary>Je Grund aus dpcc/noTarget der passende Text, mit Name; ohne Name die allgemeine Fassung.</summary>
+    [Test]
+    procedure NoTargetTextsNameTheReason;
+    /// <summary>indexing = true hängt „Der Index wird noch aufgebaut.“ an; ohne Benachrichtigung „Grund
+    /// unbekannt“.</summary>
+    [Test]
+    procedure NoTargetTextsIndexingAndUnknown;
+    /// <summary>Startet noch, Zeitlimit, Fehler beim Öffnen: Sekunden bzw. Dateiname im Text, beide Sprachen.
+    /// </summary>
+    [Test]
+    procedure KindTextsCarryArguments;
+    /// <summary>Dieselbe Meldung erscheint nicht zweimal hintereinander, eine andere schon; nach der Frist oder nach
+    /// Reset wieder.</summary>
+    [Test]
+    procedure NoticeRepeatSuppressesSameText;
+    /// <summary>Zeile fürs dpcc.log: Ausgang, Dauer, Datei ohne Pfad (gekennzeichnet), Zeile:Spalte, Maus/Cursor.
+    /// </summary>
+    [Test]
+    procedure LogLineHasNoPathAndMarksNames;
   end;
 
 implementation
@@ -56,8 +78,19 @@ uses
   System.SysUtils,
   System.Classes,
   System.Types,
+  dpcc.Text.LogMarks,
+  dpcc.Core.Lsp.LateAnswers,
   dpcc.Core.Localization.Language,
   dpcc.Core.Editor.Navigation;
+
+/// <summary>Grund AReason mit Name AName.</summary>
+function NoTarget(AReason: TDpccNoTargetReason; const AName: string; AIndexing: Boolean): TDpccNoTarget;
+begin
+  Result := Default(TDpccNoTarget);
+  Result.Reason := AReason;
+  Result.Name := AName;
+  Result.Indexing := AIndexing;
+end;
 
 const
   cUp = $26;
@@ -225,6 +258,89 @@ begin
   Assert.IsFalse(TDpccTooltipMouse.KeyCloses(TDpccTooltipMouse.cKeyMenu, True), 'Alt');
   Assert.IsTrue(TDpccTooltipMouse.KeyCloses(cEscape, False), 'Esc');
   Assert.IsTrue(TDpccTooltipMouse.KeyCloses(cKeyA, False), 'Buchstabe');
+end;
+
+procedure TDpccNavigationTests.NoTargetTextsNameTheReason;
+var
+  mText: string;
+begin
+  mText := TDpccGotoNotice.ForNoTarget(TDpccLanguage.German, NoTarget(TDpccNoTargetReason.NoSource, 'Vcl.Forms',
+    False));
+  Assert.AreEqual('Kein Sprungziel: Unit Vcl.Forms liegt nur als Package vor (kein Quelltext). Quellordner unter ' +
+    'Tools › Optionen › Drittanbieter › dpcc › Zusätzliche Quellordner eintragen.', mText);
+  mText := TDpccGotoNotice.ForNoTarget(TDpccLanguage.English, NoTarget(TDpccNoTargetReason.NoSource, 'Vcl.Forms',
+    False));
+  Assert.Contains(mText, 'Vcl.Forms');
+  Assert.Contains(mText, 'Additional source folders');
+  Assert.AreEqual('Kein Sprungziel: Unit Werkzeuge nicht gefunden.', TDpccGotoNotice.ForNoTarget(
+    TDpccLanguage.German, NoTarget(TDpccNoTargetReason.UnitNotFound, 'Werkzeuge', False)));
+  Assert.AreEqual('Kein Sprungziel: „TFoo“ nicht aufgelöst.', TDpccGotoNotice.ForNoTarget(TDpccLanguage.German,
+    NoTarget(TDpccNoTargetReason.Unresolved, 'TFoo', False)));
+  // Ohne Name: die allgemeine Fassung, kein leeres „Unit  nicht gefunden“.
+  Assert.AreEqual('Kein Sprungziel: Unit nicht gefunden.', TDpccGotoNotice.ForNoTarget(TDpccLanguage.German,
+    NoTarget(TDpccNoTargetReason.UnitNotFound, '', False)));
+  Assert.Contains(TDpccGotoNotice.ForNoTarget(TDpccLanguage.German, NoTarget(TDpccNoTargetReason.InactiveBranch, '',
+    False)), '{$IFDEF');
+  Assert.Contains(TDpccGotoNotice.ForNoTarget(TDpccLanguage.German, NoTarget(TDpccNoTargetReason.NoIdentifier, '',
+    False)), 'kein Bezeichner');
+end;
+
+procedure TDpccNavigationTests.NoTargetTextsIndexingAndUnknown;
+begin
+  Assert.AreEqual('Kein Sprungziel: „TFoo“ nicht aufgelöst. Der Index wird noch aufgebaut.',
+    TDpccGotoNotice.ForNoTarget(TDpccLanguage.German, NoTarget(TDpccNoTargetReason.Unresolved, 'TFoo', True)));
+  Assert.AreEqual('No jump target: unit X not found. The index is still being built.',
+    TDpccGotoNotice.ForNoTarget(TDpccLanguage.English, NoTarget(TDpccNoTargetReason.UnitNotFound, 'X', True)));
+  Assert.AreEqual('Kein Sprungziel gefunden (Grund unbekannt).', TDpccGotoNotice.ForNoTarget(TDpccLanguage.German,
+    NoTarget(TDpccNoTargetReason.Unknown, '', False)));
+  Assert.AreEqual('Kein Sprungziel gefunden.', TDpccGotoNotice.ForNoTarget(TDpccLanguage.German,
+    NoTarget(TDpccNoTargetReason.Other, '', False)));
+end;
+
+procedure TDpccNavigationTests.KindTextsCarryArguments;
+begin
+  Assert.AreEqual('dpcc startet noch; der Sprung folgt, sobald dpcc bereit ist (höchstens 10 s nach dem Klick).',
+    TDpccGotoNotice.ForKind(TDpccLanguage.German, TDpccGotoNoticeKind.Starting, '', 10, False));
+  Assert.AreEqual('Kein Sprung: keine Antwort von dpcc binnen 10 s.', TDpccGotoNotice.ForKind(TDpccLanguage.German,
+    TDpccGotoNoticeKind.TimedOut, '', 10, False));
+  Assert.AreEqual('No jump: no answer from dpcc within 10 s. The index is still being built.',
+    TDpccGotoNotice.ForKind(TDpccLanguage.English, TDpccGotoNoticeKind.TimedOut, '', 10, True));
+  Assert.AreEqual('Kein Sprung: Werkzeug.pas ließ sich nicht öffnen.', TDpccGotoNotice.ForKind(TDpccLanguage.German,
+    TDpccGotoNoticeKind.OpenFailed, 'Werkzeug.pas', 0, False));
+  Assert.Contains(TDpccGotoNotice.ForKind(TDpccLanguage.English, TDpccGotoNoticeKind.NotRunning, '', 0, False),
+    'not running');
+end;
+
+procedure TDpccNavigationTests.NoticeRepeatSuppressesSameText;
+const
+  cT0 = 1000000;
+var
+  mRepeat: TDpccNoticeRepeat;
+begin
+  mRepeat := Default(TDpccNoticeRepeat);
+  Assert.IsTrue(mRepeat.Take('A', cT0), 'erstes Mal');
+  Assert.IsFalse(mRepeat.Take('A', cT0 + 1000), 'gleich, gleich danach');
+  Assert.IsTrue(mRepeat.Take('B', cT0 + 2000), 'andere Meldung');
+  Assert.IsTrue(mRepeat.Take('A', cT0 + 3000), 'wieder A nach B');
+  Assert.IsTrue(mRepeat.Take('A', cT0 + 3000 + TDpccNoticeRepeat.cRepeatMs + 1), 'nach der Frist');
+  mRepeat.Reset;
+  Assert.IsTrue(mRepeat.Take('A', cT0 + 3000 + TDpccNoticeRepeat.cRepeatMs + 2), 'nach einem gelungenen Sprung');
+  Assert.IsFalse(mRepeat.Take('', cT0 + 90000), 'leer nie');
+end;
+
+procedure TDpccNavigationTests.LogLineHasNoPathAndMarksNames;
+var
+  mLine: string;
+begin
+  mLine := TDpccGotoLog.Line(TDpccGotoLog.NoTargetOutcome(NoTarget(TDpccNoTargetReason.NoSource, 'Vcl.Forms', True)),
+    87, 'C:\Projekte\Geheim\Werkzeug.pas', 12, 4, True);
+  Assert.IsTrue(TLogMarks.HasMarks(mLine), 'Datei und Name gekennzeichnet');
+  Assert.AreEqual('Gehe zu Definition: kein Ziel (noSource: Vcl.Forms, Index im Aufbau) nach 87 ms, Werkzeug.pas ' +
+    '12:5 (Maus)', TLogMarks.Plain(mLine));
+  Assert.IsFalse(mLine.Contains('Geheim'), 'ohne Pfad');
+  Assert.AreEqual('Gehe zu Definition: kein Ziel (Grund unbekannt) nach 0 ms, - 0:1 (Cursor)',
+    TLogMarks.Plain(TDpccGotoLog.Line(TDpccGotoLog.NoTargetOutcome(NoTarget(TDpccNoTargetReason.Unknown, '', False)),
+    0, '', 0, 0, False)));
 end;
 
 initialization

@@ -24,6 +24,7 @@
 // Zugriff auf den Builder und zählt seine Nutzer. Ein neuer Aufbau gibt den
 // alten Builder erst frei, wenn ihn niemand mehr nutzt. So warten Hover und
 // Vervollständigung nicht hintereinander auf das Parsen anderer Anfragen.
+// ForgetFailedUnits lässt den Builder die nicht gefundenen Units vergessen (Sprung in ein anderes Package).
 //
 // Ein beschädigter Cache (falsche Prüfsumme, abgeschnitten, andere
 // Formatversion, #492) wird nur über OnCacheRejected gemeldet; der Aufbau
@@ -396,6 +397,9 @@ type
     procedure WaitFor;
     /// <summary>Indiziert eine Unit nachträglich (z. B. für die Namensauflösung).</summary>
     function EnsureUnit(const AUnitName: string): Boolean;
+    /// <summary>Der Builder vergisst die Units, die EnsureUnit nicht gefunden hat; ohne Builder ohne Wirkung.
+    /// Threadsicher.</summary>
+    procedure ForgetFailedUnits;
     /// <summary>Übernimmt Dateiänderungen im aufrufenden Thread; 0 ohne laufenden Builder.</summary>
     function ApplyChanges(const AChanges: TArray<TFileChange>): Integer;
     /// <summary>Nimmt neu angelegte Dateien in die Stufe auf (L2: Suchpfade mit ALibrary = False, Bibliothek und
@@ -926,6 +930,12 @@ begin
     begin
       // Den bekannten Stand der Datei behält TSharedCacheWrites (b1).
       FFiles.Remove(mKey);
+      // Leer: auch die Bucket-Tabelle freigeben; Remove verkleinert sie nie, sie bliebe sonst so groß wie beim
+      // höchsten Stand gleichzeitig gelesener Caches über das Ende des Servers hinaus belegt.
+      if FFiles.Count = 0 then
+      begin
+        FFiles.Clear;
+      end;
     end;
   finally
     TMonitor.Exit(FLock);
@@ -2577,6 +2587,22 @@ begin
   end;
   try
     Result := mBuilder.EnsureUnit(AUnitName);
+  finally
+    ReleaseBuilder;
+  end;
+end;
+
+procedure TIndexService.ForgetFailedUnits;
+var
+  mBuilder: TIndexBuilder;
+begin
+  mBuilder := AcquireBuilder;
+  if mBuilder = nil then
+  begin
+    Exit;
+  end;
+  try
+    mBuilder.ForgetFailedUnits;
   finally
     ReleaseBuilder;
   end;
