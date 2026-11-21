@@ -108,7 +108,7 @@ Repo.
   `dpcc\Uninstall dpcc (IDE-Plugin)` früherer Setups entfernt `[InstallDelete]` beim Drüberinstallieren, den Ordner
   `dpcc` nur, wenn er dann leer ist.
 - **Anzeige**: Programmname „Delphi Pascal Code Completion (dpcc)“ (Wizard und „Apps“), Herausgeber
-  „Delphi Technologies by nrodear“, Version dreistellig (`x.y.z`). Die Paketbeschreibung in den Known Packages
+  „dear Technologies“, Version dreistellig (`x.y.z`). Die Paketbeschreibung in den Known Packages
   entspricht `{$DESCRIPTION}` aus `dpcc.IDE.Base.dpk`.
 - **IDE-PATH-Override**: `{app}\bpl\<version>` kommt vorn in den Wert. Er ist geteilt (InterBase trägt dort z. B.
   `…\IDE_spoof;$(PATH)`): nur das eigene Segment wird bewegt, alles andere bleibt Zeichen für Zeichen. Das Segment

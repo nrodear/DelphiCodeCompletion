@@ -63,7 +63,7 @@
 ; Anzeige ohne den letzten Teil: 0.1.0.0 -> 0.1.0 (AppVersion).
 #define DpccVersionShort Copy(DpccVersion, 1, RPos(".", DpccVersion) - 1)
 #define DpccAppName     "Delphi Pascal Code Completion (dpcc)"
-#define DpccPublisher   "Delphi Technologies by nrodear"
+#define DpccPublisher   "dear Technologies"
 
 ; --- Community-Buttons unten links im Wizard. Klick
 ; oeffnet den STANDARD-BROWSER - rein nutzerinitiiert, das Setup selbst baut
