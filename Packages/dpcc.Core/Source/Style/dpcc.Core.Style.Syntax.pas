@@ -5,6 +5,8 @@
 // string), String-Literale, Kommentare, Zahlen. Kein Parser: Es geht nur um
 // die Farbe kurzer Einzeiler, wie im Entwurf. LineTokens färbt mehrere Zeilen
 // (Peek, #505) und trägt offene {…}- und (*…*)-Kommentare in die Folgezeilen.
+// Typnamen (LOOK1): SignatureTokens markiert zusätzlich die Typen einer Signatur (TypeRanges) als TypeName; Tokens
+// und LineTokens liefern diese Art nie.
 
 interface
 
@@ -13,7 +15,8 @@ uses
   System.Types;
 
 type
-  TDpccTokenKind = (Plain, Keyword, StringLiteral, Comment, Number);
+  /// <summary>Art eines Tokens; TypeName nur aus SignatureTokens.</summary>
+  TDpccTokenKind = (Plain, Keyword, StringLiteral, Comment, Number, TypeName);
 
   TDpccToken = record
     /// <summary>0-basiert.</summary>
@@ -35,6 +38,16 @@ type
     /// <summary>Standardwerte der Parameter (#441): je Parameter der Bereich " = Wert" (0-basiert, Stop
     /// exklusiv, X = Start, Y = Stop) innerhalb der äußersten Klammern einer Signatur.</summary>
     class function DefaultRanges(const ASignature: string): TArray<TPoint>; static;
+    /// <summary>Typnamen einer Signatur (LOOK1), aufsteigend, X = Start, Y = Stop (0-basiert, exklusiv): der
+    /// Bezeichner direkt hinter einem Doppelpunkt (Parameter-, Rückgabe-, Property-Typ) bzw. hinter „of“ in „array
+    /// of X“ und „set of X“, auch mit Punkten und generischen Klammern (System.Classes.TStream, TProc&lt;Integer&gt;).
+    /// Er endet vor „;“, „)“, „=“, „,“, einem Leerzeichen oder am Textende. Schlüsselwörter (string, array, const
+    /// …) sind keine Typen, ein Standardwert hinter „=“ ebenso wenig; Doppelpunkte in Strings und Kommentaren
+    /// zählen nicht.</summary>
+    class function TypeRanges(const AText: string): TArray<TPoint>; static;
+    /// <summary>Wie Tokens, die Plain-Stücke in TypeRanges als TypeName; Schlüsselwörter darin (TArray&lt;string&gt;)
+    /// bleiben Schlüsselwörter.</summary>
+    class function SignatureTokens(const AText: string): TDpccTokens; static;
   end;
 
 implementation
@@ -435,6 +448,214 @@ begin
     end;
   end;
   Result := mScan.Ranges;
+end;
+
+{ Typnamen (LOOK1), 1-basiert über den Text }
+
+/// <summary>Position hinter dem Bezeichner an AIndex.</summary>
+function IdentEnd(const AText: string; AIndex: Integer): Integer;
+begin
+  Result := AIndex;
+  while (Result <= Length(AText)) and TTextChars.IsIdentChar(AText[Result]) do
+  begin
+    Inc(Result);
+  end;
+end;
+
+/// <summary>Erste Position ab AIndex, die kein Leerzeichen bzw. Tabulator ist.</summary>
+function SkipBlanks(const AText: string; AIndex: Integer): Integer;
+begin
+  Result := AIndex;
+  while (Result <= Length(AText)) and CharInSet(AText[Result], [' ', #9]) do
+  begin
+    Inc(Result);
+  end;
+end;
+
+/// <summary>Position hinter den generischen Klammern „&lt;…&gt;“ an AIndex (auch verschachtelt); AIndex selbst,
+/// wenn dort keine stehen oder sie vor „;“, „)“, „=“, „:“, einem String oder Kommentar nicht schließen.</summary>
+function GenericEnd(const AText: string; AIndex: Integer): Integer;
+var
+  mIndex, mDepth: Integer;
+begin
+  Result := AIndex;
+  if (AIndex > Length(AText)) or (AText[AIndex] <> '<') then
+  begin
+    Exit;
+  end;
+  mDepth := 0;
+  mIndex := AIndex;
+  while mIndex <= Length(AText) do
+  begin
+    case AText[mIndex] of
+      '<':
+        Inc(mDepth);
+      '>':
+        begin
+          Dec(mDepth);
+          if mDepth = 0 then
+          begin
+            Exit(mIndex + 1);
+          end;
+        end;
+      ';', ')', '(', '=', ':', '''', '{':
+        Exit;
+    end;
+    Inc(mIndex);
+  end;
+end;
+
+/// <summary>Typname ab AIndex (davor nur Leerzeichen) nach ARanges; AIndex steht danach hinter ihm. Ein
+/// Schlüsselwort ist kein Typ: AIndex steht dann vor ihm, damit der Aufrufer es liest („array of …“).</summary>
+procedure TakeType(const AText: string; var AIndex: Integer; var ARanges: TArray<TPoint>);
+var
+  mStart, mStop: Integer;
+begin
+  mStart := SkipBlanks(AText, AIndex);
+  if (mStart > Length(AText)) or not TTextChars.IsIdentStart(AText[mStart]) then
+  begin
+    Exit;
+  end;
+  mStop := IdentEnd(AText, mStart);
+  if TDpccSyntax.IsKeyword(Copy(AText, mStart, mStop - mStart)) then
+  begin
+    AIndex := mStart;
+    Exit;
+  end;
+  // Qualifizierter Name: System.Classes.TStream.
+  while (mStop < Length(AText)) and (AText[mStop] = '.') and TTextChars.IsIdentStart(AText[mStop + 1]) do
+  begin
+    mStop := IdentEnd(AText, mStop + 1);
+  end;
+  mStop := GenericEnd(AText, mStop);
+  ARanges := ARanges + [Point(mStart - 1, mStop - 1)];
+  AIndex := mStop;
+end;
+
+/// <summary>Folgt hinter „array“ bzw. „set“ (AIndex steht hinter dem Wort) nach Leerzeichen und wahlweise „[…]“
+/// das Wort „of“? AIndex steht dann hinter „of“, sonst bleibt er.</summary>
+function OfFollows(const AText: string; var AIndex: Integer): Boolean;
+var
+  mIndex, mStop: Integer;
+begin
+  Result := False;
+  mIndex := SkipBlanks(AText, AIndex);
+  if (mIndex <= Length(AText)) and (AText[mIndex] = '[') then
+  begin
+    while (mIndex <= Length(AText)) and (AText[mIndex] <> ']') do
+    begin
+      Inc(mIndex);
+    end;
+    mIndex := SkipBlanks(AText, mIndex + 1);
+  end;
+  if (mIndex > Length(AText)) or not TTextChars.IsIdentStart(AText[mIndex]) then
+  begin
+    Exit;
+  end;
+  mStop := IdentEnd(AText, mIndex);
+  if SameText(Copy(AText, mIndex, mStop - mIndex), 'of') then
+  begin
+    AIndex := mStop;
+    Result := True;
+  end;
+end;
+
+class function TDpccSyntax.TypeRanges(const AText: string): TArray<TPoint>;
+var
+  mIndex, mStop: Integer;
+  mWord: string;
+begin
+  Result := nil;
+  mIndex := 1;
+  while mIndex <= Length(AText) do
+  begin
+    // Strings und Kommentare überspringen: Ihre Doppelpunkte beginnen keinen Typ.
+    if AText[mIndex] = '''' then
+    begin
+      mIndex := AfterQuote(AText, mIndex);
+    end
+    else if AText[mIndex] = '{' then
+    begin
+      mIndex := AfterBrace(AText, mIndex);
+    end
+    else if (AText[mIndex] = '(') and IsPairAt(AText, mIndex, '*') then
+    begin
+      mIndex := AfterParenStar(AText, mIndex);
+    end
+    else if (AText[mIndex] = '/') and IsPairAt(AText, mIndex, '/') then
+    begin
+      Break;
+    end
+    else if (AText[mIndex] = ':') and not IsPairAt(AText, mIndex, '=') then
+    begin
+      Inc(mIndex);
+      TakeType(AText, mIndex, Result);
+    end
+    else if TTextChars.IsIdentStart(AText[mIndex]) then
+    begin
+      mStop := IdentEnd(AText, mIndex);
+      mWord := Copy(AText, mIndex, mStop - mIndex);
+      // Nach einem Punkt ist es ein Name (TFoo.Set), kein Schlüsselwort.
+      if ((mIndex = 1) or (AText[mIndex - 1] <> '.')) and (SameText(mWord, 'array') or SameText(mWord, 'set')) and
+        OfFollows(AText, mStop) then
+      begin
+        TakeType(AText, mStop, Result);
+      end;
+      mIndex := mStop;
+    end
+    else
+    begin
+      Inc(mIndex);
+    end;
+  end;
+end;
+
+class function TDpccSyntax.SignatureTokens(const AText: string): TDpccTokens;
+var
+  mList: TTokenList;
+  mToken: TDpccToken;
+  mRanges: TArray<TPoint>;
+  mRange: TPoint;
+  mFrom, mStart, mStop: Integer;
+begin
+  mRanges := TypeRanges(AText);
+  if Length(mRanges) = 0 then
+  begin
+    Exit(Tokens(AText));
+  end;
+  mList := Default(TTokenList);
+  for mToken in Tokens(AText) do
+  begin
+    // Nur Plain wird Typ; Schlüsselwörter, Strings, Kommentare und Zahlen bleiben.
+    if mToken.Kind <> TDpccTokenKind.Plain then
+    begin
+      mList.Emit(mToken.Start, mToken.Stop, mToken.Kind);
+      Continue;
+    end;
+    mFrom := mToken.Start;
+    for mRange in mRanges do
+    begin
+      if (mRange.Y <= mFrom) or (mRange.X >= mToken.Stop) then
+      begin
+        Continue;
+      end;
+      mStart := mRange.X;
+      if mStart < mFrom then
+      begin
+        mStart := mFrom;
+      end;
+      mStop := mRange.Y;
+      if mStop > mToken.Stop then
+      begin
+        mStop := mToken.Stop;
+      end;
+      mList.Emit(mFrom, mStart, TDpccTokenKind.Plain);
+      mList.Emit(mStart, mStop, TDpccTokenKind.TypeName);
+      mFrom := mStop;
+    end;
+    mList.Emit(mFrom, mToken.Stop, TDpccTokenKind.Plain);
+  end;
+  Result := mList.Done;
 end;
 
 end.

@@ -36,6 +36,10 @@ type
     procedure ClassAncestorListOffersTypesOnly;
     [Test]
     procedure ColonInDeclarationOffersTypes;
+    /// <summary>Cursor mitten in einem Schlüsselwort ("str|ing"): Der Teil links ist das Präfix, die Stelle
+    /// bleibt eine Typposition.</summary>
+    [Test]
+    procedure MidKeywordUsesLeftPartAsPrefix;
     [Test]
     procedure IsNotAndNotInBehave;
     [Test]
@@ -293,6 +297,29 @@ begin
   Assert.IsFalse(Has(Items, 'Wert'), Names(Items));
   Items := ItemsAt(InMethod('  case 1 of 1: '), 'of 1: ');
   Assert.IsTrue(Has(Items, 'Wert'), Names(Items));
+end;
+
+procedure TLspCompletionContextTests.MidKeywordUsesLeftPartAsPrefix;
+var
+  Text: string;
+  Items: TCompletionItems;
+begin
+  // Rückmeldung 21.11.2026 (System.pas, "class function ClassName: str|ing;"): Mitten in "string" lieferte der
+  // Server nichts (Kontext none), weil nur Bezeichner mitten im Wort galten.
+  // Feld in der Klassendeklaration.
+  Items := ItemsAt(UnitHaupt, '    Name: str');
+  Assert.IsTrue(Has(Items, 'string'), Names(Items));
+  // Rückgabetyp einer Klassenmethode, auch mit nur einem Zeichen links.
+  Text := StringReplace(UnitHaupt, '    procedure Bar;', '    procedure Bar;'#10'    class function Kennung: string;',
+    []);
+  Assert.IsTrue(Has(ItemsAt(Text, 'Kennung: str'), 'string'));
+  Assert.IsTrue(Has(ItemsAt(Text, 'Kennung: s'), 'string'));
+  // Inline-Variable in einer Anweisung.
+  Assert.IsTrue(Has(ItemsAt(InMethod('  var X: string;'), 'var X: str'), 'string'));
+  // Halbes Schlüsselwort einer Anweisung wie am Wortende.
+  Assert.IsTrue(Has(ItemsAt(InMethod('  begin end;'), #10'  beg'), 'begin'));
+  // Kommentare bleiben ohne Vorschläge.
+  Assert.AreEqual('', Names(ItemsAt(InMethod('  { string }'), '{ str')));
 end;
 
 procedure TLspCompletionContextTests.IsNotAndNotInBehave;

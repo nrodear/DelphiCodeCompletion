@@ -13,7 +13,8 @@
 //     gleicht dpcc die übrigen mit derselben Nummer an (gleich danach per
 //     ForceQueue, nicht in der Benachrichtigung).
 //   - Zeichnen (eckige 1-px-Rahmen in Farben des Editors, TDpccIdeStyle.ListColors, S8):
-//     aktueller Platzhalter durchgezogen in Textfarbe umrahmt, verknüpfte gestrichelt,
+//     aktueller Platzhalter durchgezogen umrahmt in Look.PlaceholderFrame der Stufe (LOOK1: Intensiv Akzent,
+//     Dezent Textfarbe, Unscheinbar gedämpft; TDpccIdeStyle.Look), verknüpfte gestrichelt,
 //     die übrigen gepunktet (beide gedämpft); hinter der Zeile gedämpft die Fußzeile
 //     „Platzhalter 1 / 3 · Tab weiter · Esc fertig“.
 //   - Eine Änderung außerhalb, ein Wechsel der Ansicht oder Esc beendet den Modus.
@@ -107,7 +108,9 @@ uses
   Vcl.Graphics,
   dpcc.Core.Diagnostics.Guard,
   dpcc.Core.Lsp.Session,
+  dpcc.Core.Style.Color,
   dpcc.Core.Style.Palette,
+  dpcc.Core.Style.Look,
   dpcc.IDE.Foundation.EditorBuffer,
   dpcc.IDE.Foundation.EditorStyle,
   dpcc.UI.Completion.Strings,
@@ -593,6 +596,9 @@ type
     Context: INTACodeEditorPaintContext;
     Area: TRect;
     Colors: TDpccColors;
+    /// <summary>Rahmen des aktuellen Platzhalters nach der Stufe der Darstellung (Look.PlaceholderFrame, LOOK1).
+    /// </summary>
+    CurrentFrame: TDpccColor;
     DC: HDC;
     /// <summary>Zeile (0-basiert) und ihr Text im Modell.</summary>
     Line: Integer;
@@ -643,7 +649,7 @@ begin
   if (AField.Start = ACurrent.Start) and (AField.Number = ACurrent.Number) then
   begin
     mPenStyle := PS_SOLID;
-    mColor := TColor(Colors.Text);
+    mColor := TColor(CurrentFrame);
   end
   else if AField.Number = ACurrent.Number then
   begin
@@ -711,6 +717,7 @@ procedure TDpccEditorPlaceholders.PaintLine(const Rect: TRect; const Stage: TPai
   const BeforeEvent: Boolean; var AllowDefaultPainting: Boolean; const Context: INTACodeEditorPaintContext);
 var
   mPaint: TPlaceholderPaint;
+  mLook: TDpccLook;
   mSaved: Integer;
 begin
   if BeforeEvent or (Stage <> plsEndPaint) or not PaintsLine(FSession, FFileName, Context) then
@@ -728,7 +735,10 @@ begin
     begin
       Exit;
     end;
-    mPaint.Colors := TDpccIdeStyle.ListColors;
+    // Farben des Editors (ListColors) in der eingestellten Stufe; Look.Colors sind die ListColors.
+    mLook := TDpccIdeStyle.Look;
+    mPaint.Colors := mLook.Colors;
+    mPaint.CurrentFrame := mLook.PlaceholderFrame;
     mPaint.DC := Context.Canvas.Handle;
     mSaved := SaveDC(mPaint.DC);
     try

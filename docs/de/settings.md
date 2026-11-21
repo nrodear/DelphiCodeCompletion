@@ -56,6 +56,19 @@ Registry, sondern in `settings.json` (siehe [Ablage](#ablage)).
 | Parameter-Hint bei „(“ und „,“ | `ParameterHints` | `completion.parameterHints` | an | Aus: keine Parameterhilfe von dpcc, auch nicht über Strg+Umschalt+Leertaste. Das automatische Öffnen bei „(“ und „,“ erreicht dpcc nur, wenn die IDE dpcc als Anbieter aufruft (siehe [Bedienung](usage.md#zusammenspiel-mit-delphilsp)). |
 | Eigener Tooltip beim Verweilen über Bezeichnern | `HoverTooltip` | `editor.hoverTooltip` | an | Tooltip von dpcc. Solange er an ist, schaltet dpcc in der Betriebsart dpcc Help Insight und den Kurzhinweis Symbol-Insight der IDE ab (`Help Insight`, `Declaration Information`). Gesperrt, solange der Hauptschalter aus ist. |
 | Werte beim Debuggen zeigen (schaltet den Wert-Tooltip der IDE ab) | `DebugHoverValues` | `debug.hoverValues` | an | Steht eingerückt unter dem Tooltip. Bei angehaltenem Programm steht der Wert des Ausdrucks oben im Tooltip; dpcc schaltet dann die Ausdrucksauswertung im Kurzhinweis der IDE ab (`ToolTip Watches`). Wer den Wert-Tooltip der IDE will, schaltet diese Option aus. Gesperrt, solange „Eigener Tooltip …“ aus ist. |
+| Darstellung der Popups: | `PopupLook` | `editor.popupLook` | Dezent | „Intensiv“ (`intense`), „Dezent“ (`subtle`), „Unscheinbar“ (`plain`). Bestimmt, wie stark die Fenster von dpcc färben: Vervollständigungsliste, Tooltip und Parameter-Hint, dazu die Platzhalter-Markierungen im Editor. Was jede Stufe ändert, steht unter [Darstellung der Popups](#darstellung-der-popups). Gilt nach OK ab dem nächsten Öffnen eines Fensters. Ein unbekannter Wert in der Registry gilt als Dezent. Gesperrt, solange der Hauptschalter aus ist. |
+
+### Darstellung der Popups
+
+| Stufe | Wirkung |
+|---|---|
+| Intensiv | Markierte Flächen – die gewählte Zeile der Liste, die Kopfzeile des Tooltips und die gewählte Überladung im Parameter-Hint – sehen aus wie in Dezent und bekommen zusätzlich einen dicken Balken in der Akzentfarbe: im Tooltip ganz oben am Fenster, in der Liste links vor der Zeile, im Parameter-Hint am linken Rand. Außerhalb der markierten Flächen zeigt die Art-Spalte eine Farbe je Art-Gruppe, die Marken rechts sind farbig (auch „+ Unit“ für eine fehlende Unit), Typ- und Parameternamen stehen in eigener Farbe, der aktive Parameter liegt auf einer Akzentfläche. |
+| Dezent (Vorgabe) | Dieselben Elemente abgeschwächt: schwache Akzentfläche für gewählte Zeile und Kopfzeile, Typ- und Parameternamen in abgeschwächter Farbe. Die Art-Spalte ist gedämpft, farbig sind nur Warnungen und Fehler. |
+| Unscheinbar | Fast ohne Farbe: gewählte Zeile und Kopfzeile auf hellgrauer Fläche, Typ- und Parameternamen in Textfarbe, Schlüsselwörter in Signaturen nur fett. Fehler bleiben rot. |
+
+Fehlerzeilen stehen in allen drei Stufen in der Fehlerfarbe. Nicht betroffen sind die Fenster der IDE selbst: der
+Symbolhinweis der IDE (wenn der eigene Tooltip aus ist), die Code-Insight-Liste der IDE und das Meldungsfenster. Dort
+bestimmt die IDE die Farben.
 
 ## Index
 
@@ -111,7 +124,7 @@ Diese Optionen stehen nicht mehr auf der Seite. Sie gelten fest mit ihrer bisher
   den Schlüssel nicht mehr.
 - Wer eine der jetzt [fest eingestellten](#fest-eingestellte-werte) Optionen geändert hatte, verliert die Abweichung
   ohne Meldung. Die alten Werte unter `HKCU\Software\dpcc\IdePlugin` bleiben liegen und werden nicht mehr beachtet.
-- OK speichert nur noch die Werte der Seite: den Hauptschalter und elf Optionen in der Registry,
+- OK speichert nur noch die Werte der Seite: den Hauptschalter und zwölf Optionen in der Registry,
   `index.extraSourceFolders` in `settings.json`. Früher schrieb jedes OK rund 600 Registry-Werte (auch versteckte
   Einstellungen früherer Reiter, Tasten, Modul-Schalter und experimentelle Schalter) und dazu Server-Schlüssel in
   `settings.json`: `slashCommands.enabled`, `codeLens.metrics`, `metrics`, `experimental.enabled`, `compiler.onSave`,
@@ -128,7 +141,7 @@ Diese Optionen stehen nicht mehr auf der Seite. Sie gelten fest mit ihrer bisher
 
 | Ort | Inhalt |
 |---|---|
-| `HKCU\Software\dpcc\IdePlugin` | alle Optionen der Seite außer `index.extraSourceFolders`. Schalter und Zahlen als DWORD (Schalter 0/1), Auswahlen als Text (`filter`, `all`, `rest`). Dazu die Merker für die IDE-Schalter (unten) und `PathOverrideBackup` von `Tools\IdePath.ps1`. Nur gelesen, nie geschrieben: der Support-Schalter `LogNames` (siehe [Fehlersuche](troubleshooting.md)). Alte Werte der fest eingestellten und der entfernten Optionen bleiben liegen, wirken aber nicht; dpcc schreibt sie nicht mehr. |
+| `HKCU\Software\dpcc\IdePlugin` | alle Optionen der Seite außer `index.extraSourceFolders`. Schalter und Zahlen als DWORD (Schalter 0/1), Auswahlen als Text (`CompletionListMode`: `filter`, `all`, `rest`; `PopupLook`: `intense`, `subtle`, `plain`). Dazu die Merker für die IDE-Schalter (unten) und `PathOverrideBackup` von `Tools\IdePath.ps1`. Nur gelesen, nie geschrieben: der Support-Schalter `LogNames` (siehe [Fehlersuche](troubleshooting.md)). Alte Werte der fest eingestellten und der entfernten Optionen bleiben liegen, wirken aber nicht; dpcc schreibt sie nicht mehr. |
 | `%APPDATA%\dpcc\settings.json` | `index.extraSourceFolders` (von der Seite) und `hints.xmlDocMaxLines` (nur in der Datei einstellbar). Der Server im IDE-Prozess liest die Datei selbst und beobachtet sie. dpcc liest `hints.xmlDocMaxLines` nur und schreibt den Schlüssel nie; fehlt er in der Datei, gilt ein Registry-Wert `XmlDocMaxLines` einer älteren Version, sonst 0. Andere Schlüssel der Datei fasst dpcc nicht an. Ein alter Wert `hints.xmlDocExpand` bzw. `hints.xmlDocFull` bleibt ohne Wirkung. |
 | `%APPDATA%\dpcc\settings-history.json` | nur aus älteren Versionen: frühere Stände der Einstellungen. dpcc schreibt und liest die Datei nicht mehr; sie kann gelöscht werden. |
 | `%APPDATA%\dpcc\usage.json` | Verlauf der lernenden Gewichtung |

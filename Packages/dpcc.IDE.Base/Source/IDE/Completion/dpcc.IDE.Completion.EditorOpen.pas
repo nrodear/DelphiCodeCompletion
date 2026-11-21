@@ -105,12 +105,10 @@ end;
 
 procedure TDpccEditorCompletionOpen.ApplyStyle(const ACaret: TRect);
 begin
-  // Farben aus dem Thema der IDE (hell/dunkel), Schrift aus den Editoroptionen, Monitor-DPI und Zoom
-  // am Caret (#411, #412, #445).
+  // Farben wie der Hover-Tooltip und die Code-Insight-Liste der IDE (Farbschema des Editors, ListColors) samt Stufe
+  // der Darstellung (LOOK1), Schrift aus den Editoroptionen, Monitor-DPI und Zoom am Caret (#411, #412, #445).
+  // Die gewählte Zeile nimmt Look.SelectionBack der Stufe, nicht mehr die Auswahlfarbe des IDE-Themas.
   Log(TDpccIdeStyle.Apply(FPopup, ACaret));
-  // Schlicht (S6): Farben wie der Hover-Tooltip und die Code-Insight-Liste der IDE (Farbschema des Editors),
-  // Auswahl in der Auswahlfarbe des IDE-Themas.
-  FPopup.Colors := TDpccIdeStyle.CompletionListColors;
 end;
 
 function TDpccEditorCompletionOpen.CaretRect(out AWindow: HWND; out ARect: TRect): Boolean;
@@ -138,6 +136,8 @@ begin
   Result.Line := ALine - 1;
   Result.Character := ACharacter;
   Result.Prefix := Copy(ALineText, AWordStart + 1, ACharacter - AWordStart);
+  // Look-ahead: Wortrest rechts des Cursors ("ing" in "str|ing"); die Liste wählt Präfix + Rest vor.
+  Result.Rest := Copy(ALineText, ACharacter + 1, TDpccWord.EndAfter(ALineText, ACharacter) - ACharacter);
   if (AWordStart > 0) and (ALineText[AWordStart] = '.') then
   begin
     Result.Kind := TDpccContextKind.MemberAccess;

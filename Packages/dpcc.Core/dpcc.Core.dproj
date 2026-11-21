@@ -130,6 +130,7 @@
         <DCCReference Include="Source\Signature\dpcc.Core.Signature.Providers.Server.pas"/>
         <DCCReference Include="Source\Style\dpcc.Core.Style.Color.pas"/>
         <DCCReference Include="Source\Style\dpcc.Core.Style.Palette.pas"/>
+        <DCCReference Include="Source\Style\dpcc.Core.Style.Look.pas"/>
         <DCCReference Include="Source\Style\dpcc.Core.Style.Syntax.pas"/>
         <DCCReference Include="Source\Style\dpcc.Core.Style.Wrap.pas"/>
         <DCCReference Include="Source\Style\dpcc.Core.Style.Scaling.pas"/>

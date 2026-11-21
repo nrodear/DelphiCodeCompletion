@@ -37,6 +37,9 @@ type
     Kind: TCompletionContextKind;
     /// <summary>Schon getippter Anfang des Namens.</summary>
     Prefix: string;
+    /// <summary>Ganzes Wort unter dem Cursor, wenn er mitten darin steht ("string" bei "str|ing", Look-ahead);
+    /// '' am Wortende. Ein Eintrag dieses Namens fällt beim Kürzen auf MaxItems nicht heraus.</summary>
+    WholeWord: string;
     /// <summary>Kette vor dem Punkt bei Member, z. B. ['Self', 'Liste'].</summary>
     Names: TArray<string>;
     /// <summary>Offset, an dem die Namen gelten.</summary>

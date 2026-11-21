@@ -6,6 +6,8 @@
 // - Show übernimmt die Stellen mit dem Text, auf den sie sich beziehen; Clear nimmt sie weg (Hint zu).
 // - PaintLine (plsEndPaint) überzieht die Stellen halb durchsichtig, aber nur in Zeilen, die im Editor noch dem
 //   angefragten Stand entsprechen. Nach einer Änderung bleibt die Zeile ungefärbt, bis die neue Antwort da ist.
+// - Deckkraft je Stufe der Darstellung (LOOK2): TDpccIdeStyle.Look.MarkAlpha, Intensiv 110, Dezent 70 (wie vorher
+//   fest), Unscheinbar 36 von 255. Die Farben der Marken hängen nicht von der Stufe ab.
 // - completion.formatPlaceholders aus: Der Editor ruft Show nicht auf.
 // Gesichert über TDpccFeature.Signature (#493). Nur im Hauptthread.
 
@@ -24,9 +26,6 @@ uses
 
 type
   TDpccIdeFormatMarks = class
-  private const
-    /// <summary>Deckkraft der Farbe über dem Text (0–255).</summary>
-    cMarkAlpha = 70;
   private type
     TEvents = class(TNTACodeEditorNotifier)
     protected
@@ -60,6 +59,7 @@ uses
   System.Math,
   dpcc.Text.Lines,
   dpcc.Core.Style.Palette,
+  dpcc.Core.Style.Look,
   dpcc.Core.Diagnostics.Guard,
   dpcc.Core.Lsp.Session,
   dpcc.IDE.Foundation.EditorStyle,
@@ -178,8 +178,11 @@ var
   mFirst, mLast, mCode: TRect;
   mDC: HDC;
   mSaved: Integer;
+  mAlpha: Byte;
 begin
   mColors := TDpccColors.ForBackground(ABack);
+  // Einmal je Zeile: Look liest die Einstellung PopupLook.
+  mAlpha := TDpccIdeStyle.Look.MarkAlpha;
   mDC := AContext.Canvas.Handle;
   mCode := AContext.LineState.CodeRect;
   mSaved := SaveDC(mDC);
@@ -195,7 +198,7 @@ begin
       mLast := AContext.EditorState.GetCharacterPosPx(TLspSession.IndexToColumn(AText, mMark.Stop, FTabWidth),
         AContext.EditorLineNum);
       TDpccIdeStyle.Blend(mDC, TRect.Create(mFirst.Left, ARect.Top, Max(mLast.Left, mFirst.Left + 1), ARect.Bottom),
-        COLORREF(ColorToRGB(TColor(mColors.Placeholders[mMark.Slot]))), cMarkAlpha);
+        COLORREF(ColorToRGB(TColor(mColors.Placeholders[mMark.Slot]))), mAlpha);
     end;
   finally
     RestoreDC(mDC, mSaved);

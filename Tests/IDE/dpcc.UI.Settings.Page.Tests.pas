@@ -5,7 +5,8 @@
 // genau Hauptschalter, zwölf Optionen und zwei Knöpfe in Reihenfolge und Abschnitten, Sperre durch den Hauptschalter,
 // Kopplung „Eigener Tooltip“ → „Werte beim Debuggen“, Laden und Speichern über TDpccPluginSettings, die Knöpfe und
 // das Layout (keine Beschriftung ragt in ein Feld, deutsch und englisch; passt ohne Rollen). Seit IDECHECK zuletzt der
-// Abschnitt IDE mit „Jetzt prüfen“ und den Statuszeilen (OnIdeStatus).
+// Abschnitt IDE mit „Jetzt prüfen“ und den Statuszeilen (OnIdeStatus). Seit LOOK1 dreizehn Optionen: zuletzt im
+// Abschnitt Parameter-Hint und Tooltip die Auswahl „Darstellung der Popups“ (Intensiv, Dezent, Unscheinbar).
 
 interface
 
@@ -19,10 +20,17 @@ type
     /// <summary>Einmalige Belegungen der VCL (Stil, Schriften) vor der Leckmessung der Tests.</summary>
     [SetupFixture]
     procedure Prewarm;
-    /// <summary>Genau Hauptschalter, zwölf Optionen und zwei Knöpfe, in der Reihenfolge der Seite und unter der
+    /// <summary>Genau Hauptschalter, dreizehn Optionen und zwei Knöpfe, in der Reihenfolge der Seite und unter der
     /// richtigen Überschrift; vier Überschriften in Großbuchstaben.</summary>
     [Test]
-    procedure PageHasTwelveOptionsAndTwoButtonsInSections;
+    procedure PageHasThirteenOptionsAndTwoButtonsInSections;
+    /// <summary>LOOK1: „Darstellung der Popups“ ist eine Auswahl mit Intensiv, Dezent, Unscheinbar (englisch Intense,
+    /// Subtle, Plain), zuletzt im Abschnitt Parameter-Hint und Tooltip; Vorgabe Dezent; jede Stufe geladen und
+    /// gespeichert; ohne Auswahl bleibt der bisherige Wert.</summary>
+    [Test]
+    [TestCase('Deutsch', 'False')]
+    [TestCase('Englisch', 'True')]
+    procedure PopupLookChoice(AEnglish: Boolean);
     /// <summary>Hauptschalter aus: alle Optionen und „Verlauf zurücksetzen“ grau, „Index neu aufbauen“ nicht.
     /// </summary>
     [Test]
@@ -74,7 +82,8 @@ uses
   dpcc.Core.Settings.CompletionView,
   dpcc.UI.Strings,
   dpcc.UI.Settings.Strings,
-  dpcc.UI.Settings.Page;
+  dpcc.UI.Settings.Page,
+  dpcc.Core.Style.Look;
 
 function RowIndex(APage: TDpccSettingsPage; ARow: TWinControl): Integer;
 var
@@ -110,13 +119,14 @@ begin
   TDpccStrings.Language := Low(TDpccLanguage);
 end;
 
-procedure TDpccSettingsPageTests.PageHasTwelveOptionsAndTwoButtonsInSections;
+procedure TDpccSettingsPageTests.PageHasThirteenOptionsAndTwoButtonsInSections;
 const
-  cNames: array[0..15] of string = ('Enabled', 'AutoMinChars', 'CompletionListMode', 'VisibleRows', 'ListWidth',
+  cNames: array[0..16] of string = ('Enabled', 'AutoMinChars', 'CompletionListMode', 'VisibleRows', 'ListWidth',
     'Learning', 'ResetHistory', 'AutoParentheses', 'CommitCharacters', 'AutoUses', 'ParameterHints', 'HoverTooltip',
-    'DebugHoverValues', 'IndexExtraSourceFolders', 'RebuildIndex', 'CheckIde');
-  cSections: array[0..15] of TDpccPageSection = (psMaster, psCompletion, psCompletion, psCompletion, psCompletion,
-    psCompletion, psCompletion, psCommit, psCommit, psCommit, psHints, psHints, psHints, psIndex, psIndex, psIde);
+    'DebugHoverValues', 'PopupLook', 'IndexExtraSourceFolders', 'RebuildIndex', 'CheckIde');
+  cSections: array[0..16] of TDpccPageSection = (psMaster, psCompletion, psCompletion, psCompletion, psCompletion,
+    psCompletion, psCompletion, psCommit, psCommit, psCommit, psHints, psHints, psHints, psHints, psIndex, psIndex,
+    psIde);
   cTitles: array[TDpccPageSection] of string = ('', 'VERVOLLSTÄNDIGUNG', 'BEIM ÜBERNEHMEN',
     'PARAMETER-HINT UND TOOLTIP', 'INDEX', 'IDE');
 var
@@ -176,10 +186,11 @@ begin
       end;
       Assert.AreEqual(Ord(mEntry.Item.Section), Ord(mFound), cNames[mIndex] + ': unter der Überschrift');
     end;
-    Assert.AreEqual(12, mOptions, 'Optionen');
+    Assert.AreEqual(13, mOptions, 'Optionen');
     Assert.AreEqual(3, mButtons, 'Knöpfe');
     // Art der Elemente.
     Assert.IsTrue(mPage.ControlOf('Enabled') is TCheckBox, 'Hauptschalter');
+    Assert.IsTrue(mPage.ControlOf('PopupLook') = mPage.PopupLookChoice, 'Darstellung der Popups');
     Assert.IsTrue(mPage.ControlOf('ListWidth') = mPage.AutoWidth, 'Breite automatisch');
     Assert.IsTrue(mPage.ControlOf('IndexExtraSourceFolders') is TEdit, 'Quellordner');
     Assert.IsTrue(mPage.ControlOf('CompletionListMode') = mPage.ListModeChoice, 'Listenmodus');
@@ -296,11 +307,13 @@ begin
   mLoaded.ParameterHints := False;
   mLoaded.HoverTooltip := False;
   mLoaded.DebugHoverValues := False;
+  mLoaded.PopupLook := TDpccLookLevel.Plain;
   mLoaded.IndexExtraSourceFolders := 'C:\A;C:\B';
   mPage := TDpccSettingsPage.Create(nil);
   try
     mPage.LoadFrom(mLoaded);
     Assert.AreEqual(4, mPage.AutoMinCharsChoice.Choice, 'Auswahl ab Zeichen');
+    Assert.AreEqual(Ord(TDpccLookLevel.Plain), mPage.PopupLookChoice.Choice, 'Darstellung der Popups');
     Assert.AreEqual(13 - TDpccPluginSettings.cMinVisibleRows, mPage.VisibleRowsChoice.Choice, 'Auswahl Zeilen');
     Assert.AreEqual(2, mPage.ListModeChoice.Choice, 'Listenmodus');
     Assert.IsFalse(mPage.AutoWidth.Checked, 'Breite automatisch');
@@ -322,6 +335,7 @@ begin
     Assert.IsFalse(mTarget.ParameterHints, 'ParameterHints');
     Assert.IsFalse(mTarget.HoverTooltip, 'HoverTooltip');
     Assert.IsFalse(mTarget.DebugHoverValues, 'DebugHoverValues');
+    Assert.AreEqual(Ord(TDpccLookLevel.Plain), Ord(mTarget.PopupLook), 'PopupLook');
     Assert.AreEqual('C:\A;C:\B', mTarget.IndexExtraSourceFolders, 'IndexExtraSourceFolders');
     Assert.AreEqual(9, mTarget.XmlDocMaxLines, 'XmlDocMaxLines bleibt');
     Assert.IsTrue(mTarget.LogNames, 'LogNames bleibt');
@@ -333,6 +347,7 @@ begin
     Assert.AreEqual(TDpccPluginSettings.Defaults.AutoMinChars, mTarget.AutoMinChars, 'AutoMinChars Vorgabe');
     Assert.AreEqual(TDpccPluginSettings.Defaults.VisibleRows, mTarget.VisibleRows, 'VisibleRows Vorgabe');
     Assert.AreEqual(TDpccPluginSettings.Defaults.CompletionListMode, mTarget.CompletionListMode, 'Listenmodus');
+    Assert.AreEqual(Ord(cDpccLookLevelDefault), Ord(mTarget.PopupLook), 'PopupLook Vorgabe');
     Assert.AreEqual(0, mTarget.ListWidth, 'ListWidth automatisch');
     Assert.AreEqual('', mTarget.IndexExtraSourceFolders, 'Quellordner leer');
   finally
@@ -579,6 +594,106 @@ begin
   end;
 end;
 
+procedure TDpccSettingsPageTests.PopupLookChoice(AEnglish: Boolean);
+const
+  cGerman: array[TDpccLookLevel] of string = ('Intensiv', 'Dezent', 'Unscheinbar');
+  cEnglish: array[TDpccLookLevel] of string = ('Intense', 'Subtle', 'Plain');
+var
+  mPage: TDpccSettingsPage;
+  mEntry: TDpccSettingsPageEntry;
+  mIndex, mLookIndex: Integer;
+  mLevel: TDpccLookLevel;
+  mSettings: TDpccPluginSettings;
+  mChoices: TArray<string>;
+begin
+  if AEnglish then
+  begin
+    TDpccStrings.Language := High(TDpccLanguage);
+  end
+  else
+  begin
+    TDpccStrings.Language := Low(TDpccLanguage);
+  end;
+  mPage := TDpccSettingsPage.Create(nil);
+  try
+    // Lage: letzte Option im Abschnitt Parameter-Hint und Tooltip, direkt danach beginnt der Abschnitt Index.
+    mLookIndex := -1;
+    for mIndex := 0 to High(mPage.Entries) do
+    begin
+      if mPage.Entries[mIndex].Item.Name = 'PopupLook' then
+      begin
+        mLookIndex := mIndex;
+      end;
+    end;
+    Assert.IsTrue((mLookIndex > 0) and (mLookIndex < High(mPage.Entries)), 'Zeile vorhanden');
+    mEntry := mPage.Entries[mLookIndex];
+    Assert.AreEqual(Ord(psHints), Ord(mEntry.Item.Section), 'Abschnitt');
+    Assert.AreEqual('DebugHoverValues', mPage.Entries[mLookIndex - 1].Item.Name, 'davor');
+    Assert.AreEqual(Ord(psIndex), Ord(mPage.Entries[mLookIndex + 1].Item.Section), 'danach der Abschnitt Index');
+    // Gebaut wie „Beim Tippen zeigen“: Beschriftung links in derselben Zeile, Auswahl in der Spalte der Felder.
+    Assert.IsTrue(mEntry.Control = mPage.PopupLookChoice, 'Auswahl');
+    Assert.IsNotNull(mEntry.Caption, 'Beschriftung');
+    Assert.IsTrue(mEntry.Caption.Parent = mEntry.Control.Parent, 'Beschriftung in derselben Zeile');
+    Assert.IsTrue(mEntry.Caption.FocusControl = mEntry.Control, 'Beschriftung führt zur Auswahl');
+    Assert.AreEqual(mPage.ListModeChoice.Left, mEntry.Control.Left, 'Spalte der Felder');
+    // Texte in der Reihenfolge von TDpccLookLevel.
+    mChoices := mPage.PopupLookChoice.Choices;
+    Assert.AreEqual(3, Integer(Length(mChoices)), 'Einträge');
+    if AEnglish then
+    begin
+      Assert.AreEqual('Popup appearance:', mEntry.Caption.Caption, 'Beschriftung');
+    end
+    else
+    begin
+      Assert.AreEqual('Darstellung der Popups:', mEntry.Caption.Caption, 'Beschriftung');
+    end;
+    for mLevel := Low(TDpccLookLevel) to High(TDpccLookLevel) do
+    begin
+      if AEnglish then
+      begin
+        Assert.AreEqual(cEnglish[mLevel], mChoices[Ord(mLevel)], 'Eintrag ' + cEnglish[mLevel]);
+      end
+      else
+      begin
+        Assert.AreEqual(cGerman[mLevel], mChoices[Ord(mLevel)], 'Eintrag ' + cGerman[mLevel]);
+      end;
+    end;
+    // Vorgabe: Dezent.
+    mPage.LoadFrom(TDpccPluginSettings.Defaults);
+    Assert.AreEqual(Ord(TDpccLookLevel.Subtle), mPage.PopupLookChoice.Choice, 'Vorgabe');
+    // Jede Stufe auf die Seite und zurück in die Einstellungen.
+    for mLevel := Low(TDpccLookLevel) to High(TDpccLookLevel) do
+    begin
+      mSettings := TDpccPluginSettings.Defaults;
+      mSettings.PopupLook := mLevel;
+      mPage.LoadFrom(mSettings);
+      Assert.AreEqual(Integer(Ord(mLevel)), mPage.PopupLookChoice.Choice, 'geladen ' + cEnglish[mLevel]);
+      mSettings := TDpccPluginSettings.Defaults;
+      mPage.SaveTo(mSettings);
+      Assert.AreEqual(Ord(mLevel), Ord(mSettings.PopupLook), 'gespeichert ' + cEnglish[mLevel]);
+    end;
+    // Auf der Seite gewählt.
+    mPage.LoadFrom(TDpccPluginSettings.Defaults);
+    mPage.PopupLookChoice.Choice := Ord(TDpccLookLevel.Intense);
+    mSettings := TDpccPluginSettings.Defaults;
+    mPage.SaveTo(mSettings);
+    Assert.AreEqual(Ord(TDpccLookLevel.Intense), Ord(mSettings.PopupLook), 'auf der Seite gewählt');
+    // Ohne Auswahl bleibt der bisherige Wert.
+    mPage.PopupLookChoice.Choice := -1;
+    mSettings := TDpccPluginSettings.Defaults;
+    mSettings.PopupLook := TDpccLookLevel.Plain;
+    mPage.SaveTo(mSettings);
+    Assert.AreEqual(Ord(TDpccLookLevel.Plain), Ord(mSettings.PopupLook), 'ohne Auswahl');
+    // Hängt am Hauptschalter wie alle Optionen.
+    mPage.MasterSwitch.Checked := False;
+    Assert.IsFalse(mPage.PopupLookChoice.Enabled, 'Hauptschalter aus');
+    Assert.IsFalse(mEntry.Caption.Enabled, 'Beschriftung grau');
+  finally
+    mPage.Free;
+    TDpccStrings.Language := Low(TDpccLanguage);
+  end;
+end;
+
 procedure TDpccSettingsPageTests.LabelsDoNotOverlapFields(AEnglish: Boolean);
 var
   mPage: TDpccSettingsPage;
@@ -630,9 +745,9 @@ begin
     Assert.AreEqual(mPage.ControlOf('Learning').Left, mPage.ControlOf('HoverTooltip').Left, 'Einrückung');
     Assert.IsTrue(mPage.DebugHoverValues.Left > mPage.HoverTooltip.Left, 'Unterpunkt eingerückt');
     Assert.IsTrue(mPage.ControlOf('AutoParentheses').Left > mPage.MasterSwitch.Left, 'unter der Überschrift');
-    // Passt ohne Rollen in einen Bereich üblicher Größe (bei 96 dpi etwa 580 Punkte hoch und 520 breit; seit IDECHECK
-    // mit dem Abschnitt IDE, vorher 500).
-    Assert.IsTrue(mPage.Height <= mPage.ScaleValue(580), 'Höhe ' + IntToStr(mPage.Height));
+    // Passt ohne Rollen in einen Bereich üblicher Größe (bei 96 dpi etwa 610 Punkte hoch und 520 breit; seit IDECHECK
+    // mit dem Abschnitt IDE, vorher 500; seit LOOK1 mit der Zeile „Darstellung der Popups“, vorher 580).
+    Assert.IsTrue(mPage.Height <= mPage.ScaleValue(610), 'Höhe ' + IntToStr(mPage.Height));
     Assert.IsTrue(mPage.ResetHistory.Left + mPage.ResetHistory.Width <= mPage.ScaleValue(520),
       'Breite der Lernen-Zeile ' + IntToStr(mPage.ResetHistory.Left + mPage.ResetHistory.Width));
   finally

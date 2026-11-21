@@ -5,8 +5,9 @@
 // - Es gibt genau eine Seite „dpcc“ ohne Unterseiten, Baum, Suche, Filter und Geändert-Markierung. cPageItems ist ihr
 //   Aufbau: Hauptschalter, dann die Abschnitte Vervollständigung, Beim Übernehmen, Parameter-Hint und Tooltip, Index
 //   mit zwölf Optionen und zwei Knöpfen; seit IDECHECK zuletzt der Abschnitt IDE mit dem Knopf „Jetzt prüfen“
-//   (Statuszeilen zur Betriebsart, keine Einstellung). Die Seite (dpcc.UI.Settings.Page) baut genau diese Liste, und
-//   TDpccPluginSettings speichert genau diese Optionen; die Tests prüfen beides gegeneinander.
+//   (Statuszeilen zur Betriebsart, keine Einstellung); seit LOOK1 als dreizehnte Option „Darstellung der Popups“
+//   (PopupLook) zuletzt im Abschnitt Parameter-Hint und Tooltip. Die Seite (dpcc.UI.Settings.Page) baut genau diese
+//   Liste, und TDpccPluginSettings speichert genau diese Optionen; die Tests prüfen beides gegeneinander.
 // - TDpccFixedSettings: Optionen, die es seit OPT1 nicht mehr auf der Seite gibt, gelten mit ihrer bisherigen Vorgabe.
 //   Seit OPT2 lesen die Stellen, die sie brauchen, die Werte direkt von hier; TDpccPluginSettings hat keine Felder
 //   mehr dafür. Abweichende alte Werte in der Registry bleiben liegen und werden nicht gelesen. hints.xmlDocMaxLines
@@ -40,10 +41,10 @@ const
   /// <summary>Kennung des Knopfs „Jetzt prüfen“ im Abschnitt IDE (IDECHECK): Betriebsart und Schalter der IDE.
   /// </summary>
   cPageCheckIde = 'CheckIde';
-  /// <summary>Aufbau der Seite „dpcc“ (OPT1): Hauptschalter, zwölf Optionen in vier Abschnitten und zwei Knöpfe;
-  /// dazu der Abschnitt IDE mit „Jetzt prüfen“ (IDECHECK). ListWidth ist „Breite automatisch“ (0 = automatisch) in
-  /// der Zeile der sichtbaren Zeilen.</summary>
-  cPageItems: array[0..15] of TDpccPageItem = (
+  /// <summary>Aufbau der Seite „dpcc“ (OPT1): Hauptschalter, dreizehn Optionen in vier Abschnitten (seit LOOK1 mit
+  /// „Darstellung der Popups“) und zwei Knöpfe; dazu der Abschnitt IDE mit „Jetzt prüfen“ (IDECHECK). ListWidth ist
+  /// „Breite automatisch“ (0 = automatisch) in der Zeile der sichtbaren Zeilen.</summary>
+  cPageItems: array[0..16] of TDpccPageItem = (
     (Section: psMaster; Kind: pkSetting; Name: 'Enabled'),
     (Section: psCompletion; Kind: pkSetting; Name: 'AutoMinChars'),
     (Section: psCompletion; Kind: pkSetting; Name: 'CompletionListMode'),
@@ -57,6 +58,7 @@ const
     (Section: psHints; Kind: pkSetting; Name: 'ParameterHints'),
     (Section: psHints; Kind: pkSetting; Name: 'HoverTooltip'),
     (Section: psHints; Kind: pkSetting; Name: 'DebugHoverValues'),
+    (Section: psHints; Kind: pkSetting; Name: 'PopupLook'),
     (Section: psIndex; Kind: pkSetting; Name: 'IndexExtraSourceFolders'),
     (Section: psIndex; Kind: pkButton; Name: cPageRebuildIndex),
     (Section: psIde; Kind: pkButton; Name: cPageCheckIde));

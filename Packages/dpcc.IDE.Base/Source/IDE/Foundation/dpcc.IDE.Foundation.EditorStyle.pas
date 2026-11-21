@@ -6,6 +6,8 @@
 // Caret mal Zoom des Editors (aus der Caret-Höhe, TDpccScaling). Wird bei
 // jedem Öffnen eines Fensters abgefragt, sodass Thema, Monitor und Zoom ohne
 // Neustart wirken.
+// Stufe der Darstellung (LOOK1): LookLevel aus der Einstellung PopupLook, Look = TDpccLook.From(ListColors,
+// LookLevel); Apply setzt beides am Fenster.
 
 interface
 
@@ -15,6 +17,7 @@ uses
   Vcl.Graphics,
   dpcc.Core.Style.Color,
   dpcc.Core.Style.Palette,
+  dpcc.Core.Style.Look,
   dpcc.UI.Popup.Window;
 
 type
@@ -44,11 +47,14 @@ type
     /// Farbschema WindowColors. Seit S8 nehmen alle dpcc-Fenster (Hover, Parameter-Hint, Tooltip) und die
     /// Editor-Überlagerungen sie, damit alles aussieht wie die Liste; eine Sekunde zwischengespeichert.</summary>
     class function ListColors: TDpccColors; static;
-    /// <summary>Farben der Vervollständigungsliste (S6): ListColors, die gewählte Zeile in der Auswahlfarbe des
-    /// IDE-Themas (clHighlight, ohne Thema die von Windows) wie in der Code-Insight-Liste der IDE.</summary>
-    class function CompletionListColors: TDpccColors; static;
-    /// <summary>Farben (ListColors), Editorschrift und Skalierung auf AWindow übertragen. ACaret: Caret-Rechteck in
-    /// Bildschirmkoordinaten (Monitor und Zoom). Liefert eine Zeile für das Diagnoseprotokoll.</summary>
+    /// <summary>Darstellung der Popups aus den Einstellungen (PopupLook, Optionsseite).</summary>
+    class function LookLevel: TDpccLookLevel; static;
+    /// <summary>Alle Farben der eingestellten Stufe: TDpccLook.From(ListColors, LookLevel); für Zeichner ohne
+    /// Fenster (Editor-Überlagerungen). Fenster nehmen TDpccPopupWindow.Look.</summary>
+    class function Look: TDpccLook; static;
+    /// <summary>Farben (ListColors), Stufe (LookLevel), Editorschrift und Skalierung auf AWindow übertragen. ACaret:
+    /// Caret-Rechteck in Bildschirmkoordinaten (Monitor und Zoom). Liefert eine Zeile für das Diagnoseprotokoll.
+    /// </summary>
     class function Apply(AWindow: TDpccPopupWindow; const ACaret: TRect): string; static;
     /// <summary>Texthöhe der Editorschrift bei 96 dpi ohne Zoom (Bezug für Linienbreiten, #653).</summary>
     class function BaseTextHeight: Integer; static;
@@ -64,7 +70,8 @@ uses
   System.SysUtils,
   System.Win.Registry,
   ToolsAPI,
-  dpcc.Core.Style.Scaling;
+  dpcc.Core.Style.Scaling,
+  dpcc.IDE.Foundation.Settings;
 
 function WindowsUsesLightApps: Boolean;
 var
@@ -263,19 +270,14 @@ begin
   end;
 end;
 
-class function TDpccIdeStyle.CompletionListColors: TDpccColors;
-var
-  mTheming: IOTAIDEThemingServices;
+class function TDpccIdeStyle.LookLevel: TDpccLookLevel;
 begin
-  Result := ListColors;
-  if Supports(BorlandIDEServices, IOTAIDEThemingServices, mTheming) and mTheming.IDEThemingEnabled then
-  begin
-    Result.Selection := TDpccColor(ColorToRGB(mTheming.StyleServices.GetSystemColor(clHighlight)));
-  end
-  else
-  begin
-    Result.Selection := TDpccColor(ColorToRGB(clHighlight));
-  end;
+  Result := TDpccIdeSettings.Current.PopupLook;
+end;
+
+class function TDpccIdeStyle.Look: TDpccLook;
+begin
+  Result := TDpccLook.From(ListColors, LookLevel);
 end;
 
 class function TDpccIdeStyle.BaseTextHeight: Integer;
@@ -300,6 +302,7 @@ var
   mZoom: Double;
 begin
   AWindow.Colors := ListColors;
+  AWindow.LookLevel := LookLevel;
   mFontName := AWindow.Font.Name;
   mFontSize := AWindow.Font.Size;
   if Supports(BorlandIDEServices, IOTAEditorServices, mEditor) and (mEditor.EditOptions <> nil) then

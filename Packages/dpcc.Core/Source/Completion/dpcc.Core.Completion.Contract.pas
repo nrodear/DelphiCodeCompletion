@@ -81,6 +81,10 @@ type
     Character: Integer;
     /// <summary>Schon getippter Anfang des Namens.</summary>
     Prefix: string;
+    /// <summary>Wortrest rechts des Cursors bis zum Wortende ("ing" in "str|ing"); '' am Wortende. Ist Prefix +
+    /// Rest der Name eines Eintrags, wählt die Liste ihn vor (Look-ahead); gefiltert wird nur nach Prefix.
+    /// </summary>
+    Rest: string;
     /// <summary>Erwarteter Typ an der Stelle, '' wenn unbekannt.</summary>
     ExpectedType: string;
     Kind: TDpccContextKind;

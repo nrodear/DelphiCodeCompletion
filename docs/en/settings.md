@@ -55,6 +55,19 @@ uses in hints and in `settings.json`. “–” under “Registry value”: the 
 | Parameter hint on “(” and “,” | `ParameterHints` | `completion.parameterHints` | on | Off: no dpcc parameter hint, not even via Ctrl+Shift+Space. Automatic opening on “(” and “,” reaches dpcc only if the IDE calls dpcc as the provider (see [Usage](usage.md#interaction-with-delphilsp)). |
 | Own tooltip when hovering identifiers | `HoverTooltip` | `editor.hoverTooltip` | on | dpcc tooltip. As long as it is on, dpcc switches off the IDE's Help Insight and tooltip symbol insight in the dpcc mode (`Help Insight`, `Declaration Information`). Locked as long as the master switch is off. |
 | Show values while debugging (turns off the IDE's value tooltip) | `DebugHoverValues` | `debug.hoverValues` | on | Indented below the tooltip. While the program is paused, the value of the expression is shown at the top of the tooltip; dpcc then switches off the IDE's tooltip expression evaluation (`ToolTip Watches`). If you want the IDE's value tooltip, switch this option off. Locked as long as “Own tooltip …” is off. |
+| Popup appearance: | `PopupLook` | `editor.popupLook` | Subtle | “Intense” (`intense`), “Subtle” (`subtle`), “Plain” (`plain`). Sets how much color the dpcc windows use: completion list, tooltip and parameter hint, plus the placeholder markers in the editor. What each level changes is described under [Popup appearance](#popup-appearance). After OK it applies from the next time a window opens. An unknown value in the registry counts as Subtle. Locked as long as the master switch is off. |
+
+### Popup appearance
+
+| Level | Effect |
+|---|---|
+| Intense | Highlighted areas – the selected row of the list, the header of the tooltip and the selected overload in the parameter hint – look as in Subtle and also get a thick bar in the accent color: at the very top of the tooltip window, to the left of the row in the list, at the left edge in the parameter hint. Outside the highlighted areas the kind column shows one color per kind group, the labels on the right are colored (including “+ Unit” for a missing unit), type and parameter names have their own color, and the active parameter sits on an accent background. |
+| Subtle (default) | The same elements, toned down: a light accent background for the selected row and the header, type and parameter names in a toned-down color. The kind column is dimmed; only warnings and errors are colored. |
+| Plain | Almost no color: selected row and header on a light gray background, type and parameter names in the text color, keywords in signatures only bold. Errors stay red. |
+
+Error lines use the error color at all three levels. The IDE's own windows are not affected: the IDE's tooltip
+symbol insight (when the own tooltip is off), the IDE's Code Insight list and the Messages window. There the IDE
+decides the colors.
 
 ## Index
 
@@ -109,7 +122,7 @@ These options are no longer on the page. They have fixed values, the former defa
   no longer writes the key.
 - If you had changed one of the options that are now [fixed](#fixed-values), the change is lost without a message.
   The old values under `HKCU\Software\dpcc\IdePlugin` stay in place and are ignored.
-- OK only saves the values of the page: the master switch and eleven options in the registry,
+- OK only saves the values of the page: the master switch and twelve options in the registry,
   `index.extraSourceFolders` in `settings.json`. Formerly every OK wrote about 600 registry values (including hidden
   settings of former tabs, keys, module switches and experimental switches) plus server keys in `settings.json`:
   `slashCommands.enabled`, `codeLens.metrics`, `metrics`, `experimental.enabled`, `compiler.onSave`,
@@ -126,7 +139,7 @@ These options are no longer on the page. They have fixed values, the former defa
 
 | Location | Contents |
 |---|---|
-| `HKCU\Software\dpcc\IdePlugin` | all options on the page except `index.extraSourceFolders`. Switches and numbers as DWORD (switches 0/1), choices as text (`filter`, `all`, `rest`). Also the markers for the IDE switches (below) and `PathOverrideBackup` from `Tools\IdePath.ps1`. Read only, never written: the support switch `LogNames` (see [Troubleshooting](troubleshooting.md)). Old values of the fixed and the removed options stay in place but have no effect; dpcc no longer writes them. |
+| `HKCU\Software\dpcc\IdePlugin` | all options on the page except `index.extraSourceFolders`. Switches and numbers as DWORD (switches 0/1), choices as text (`CompletionListMode`: `filter`, `all`, `rest`; `PopupLook`: `intense`, `subtle`, `plain`). Also the markers for the IDE switches (below) and `PathOverrideBackup` from `Tools\IdePath.ps1`. Read only, never written: the support switch `LogNames` (see [Troubleshooting](troubleshooting.md)). Old values of the fixed and the removed options stay in place but have no effect; dpcc no longer writes them. |
 | `%APPDATA%\dpcc\settings.json` | `index.extraSourceFolders` (from the page) and `hints.xmlDocMaxLines` (adjustable only in the file). The in-process server reads the file itself and watches it. dpcc only reads `hints.xmlDocMaxLines` and never writes the key; if it is missing from the file, a registry value `XmlDocMaxLines` from an older version applies, otherwise 0. dpcc does not touch other keys in the file. An old value `hints.xmlDocExpand` or `hints.xmlDocFull` has no effect. |
 | `%APPDATA%\dpcc\settings-history.json` | only from older versions: earlier states of the settings. dpcc no longer writes or reads the file; it can be deleted. |
 | `%APPDATA%\dpcc\usage.json` | history of the learned ranking |

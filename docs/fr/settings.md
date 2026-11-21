@@ -61,6 +61,19 @@ dans le registre, mais dans `settings.json` (voir [Stockage](#stockage)).
 | Parameter hint on “(” and “,” (aide aux paramètres sur « ( » et « , ») | `ParameterHints` | `completion.parameterHints` | activé | Désactivé : pas d'aide aux paramètres de dpcc, pas même via Ctrl+Maj+Espace. L'ouverture automatique sur « ( » et « , » n'atteint dpcc que si l'IDE appelle dpcc comme fournisseur (voir [Utilisation](usage.md#interaction-avec-delphilsp)). |
 | Own tooltip when hovering identifiers (infobulle propre au survol des identificateurs) | `HoverTooltip` | `editor.hoverTooltip` | activé | Infobulle de dpcc. Tant qu'elle est activée, dpcc désactive, dans le mode dpcc, Help Insight et l'infobulle Symbol Insight de l'IDE (`Help Insight`, `Declaration Information`). Verrouillé tant que l'interrupteur principal est désactivé. |
 | Show values while debugging (turns off the IDE's value tooltip) (afficher les valeurs pendant le débogage ; désactive l'infobulle de valeur de l'IDE) | `DebugHoverValues` | `debug.hoverValues` | activé | En retrait sous l'infobulle. Lorsque le programme est arrêté, la valeur de l'expression figure en haut de l'infobulle ; dpcc désactive alors l'évaluation d'expressions dans l'infobulle de l'IDE (`ToolTip Watches`). Qui veut l'infobulle de valeur de l'IDE désactive cette option. Verrouillé tant que « Own tooltip … » est désactivé. |
+| Popup appearance: (apparence des fenêtres contextuelles) | `PopupLook` | `editor.popupLook` | Subtle | « Intense » (`intense`, intense), « Subtle » (`subtle`, discret), « Plain » (`plain`, sobre). Détermine l'intensité des couleurs des fenêtres de dpcc : liste de complétion, infobulle et aide aux paramètres, ainsi que les marques d'espaces réservés dans l'éditeur. Ce que change chaque niveau est décrit sous [Apparence des fenêtres contextuelles](#apparence-des-fenêtres-contextuelles). Après OK, s'applique dès la prochaine ouverture d'une fenêtre. Une valeur inconnue dans le registre compte comme Subtle. Verrouillé tant que l'interrupteur principal est désactivé. |
+
+### Apparence des fenêtres contextuelles
+
+| Niveau | Effet |
+|---|---|
+| Intense (intense) | Les zones mises en évidence – la ligne sélectionnée de la liste, l'en-tête de l'infobulle et la surcharge sélectionnée de l'aide aux paramètres – ont l'aspect du niveau Subtle et reçoivent en plus une barre épaisse dans la couleur d'accentuation, placée tout en haut de la fenêtre de l'infobulle, à gauche de la ligne dans la liste et au bord gauche dans l'aide aux paramètres. En dehors de ces zones, la colonne du type d'entrée affiche une couleur par groupe, les marques à droite sont en couleur (y compris « + Unit » pour une unité manquante), les noms de types et de paramètres ont leur propre couleur et le paramètre actif repose sur un fond d'accentuation. |
+| Subtle (discret, par défaut) | Les mêmes éléments, atténués : fond d'accentuation léger pour la ligne sélectionnée et l'en-tête, noms de types et de paramètres dans une couleur atténuée. La colonne du type d'entrée est estompée ; seuls les avertissements et les erreurs sont en couleur. |
+| Plain (sobre) | Presque sans couleur : ligne sélectionnée et en-tête sur fond gris clair, noms de types et de paramètres dans la couleur du texte, mots-clés des signatures seulement en gras. Les erreurs restent en rouge. |
+
+Les lignes d'erreur gardent la couleur d'erreur aux trois niveaux. Les fenêtres propres à l'IDE ne sont pas
+concernées : l'infobulle Symbol Insight de l'IDE (lorsque l'infobulle propre est désactivée), la liste Code Insight de
+l'IDE et la fenêtre des messages. Là, c'est l'IDE qui décide des couleurs.
 
 ## Index
 
@@ -122,7 +135,7 @@ Ces options ne figurent plus sur la page. Elles ont une valeur fixe, leur ancien
   et est ignorée sans message ; dpcc n'écrit plus la clé.
 - Qui avait modifié l'une des options désormais [fixes](#valeurs-fixes) perd cette modification sans message. Les
   anciennes valeurs sous `HKCU\Software\dpcc\IdePlugin` restent en place et sont ignorées.
-- OK n'enregistre plus que les valeurs de la page : l'interrupteur principal et onze options dans le registre,
+- OK n'enregistre plus que les valeurs de la page : l'interrupteur principal et douze options dans le registre,
   `index.extraSourceFolders` dans `settings.json`. Auparavant, chaque OK écrivait environ 600 valeurs de registre
   (y compris des réglages masqués d'anciens onglets, des raccourcis, des interrupteurs de modules et des
   interrupteurs expérimentaux) ainsi que des clés du serveur dans `settings.json` : `slashCommands.enabled`,
@@ -141,7 +154,7 @@ Ces options ne figurent plus sur la page. Elles ont une valeur fixe, leur ancien
 
 | Emplacement | Contenu |
 |---|---|
-| `HKCU\Software\dpcc\IdePlugin` | toutes les options de la page sauf `index.extraSourceFolders`. Interrupteurs et nombres en DWORD (interrupteurs 0/1), choix en texte (`filter`, `all`, `rest`). En plus, les marqueurs pour les réglages de l'IDE (plus bas) et `PathOverrideBackup` de `Tools\IdePath.ps1`. Lu seulement, jamais écrit : l'interrupteur de support `LogNames` (voir [Dépannage](troubleshooting.md)). Les anciennes valeurs des options fixes et des options supprimées restent en place, mais sans effet ; dpcc ne les écrit plus. |
+| `HKCU\Software\dpcc\IdePlugin` | toutes les options de la page sauf `index.extraSourceFolders`. Interrupteurs et nombres en DWORD (interrupteurs 0/1), choix en texte (`CompletionListMode` : `filter`, `all`, `rest` ; `PopupLook` : `intense`, `subtle`, `plain`). En plus, les marqueurs pour les réglages de l'IDE (plus bas) et `PathOverrideBackup` de `Tools\IdePath.ps1`. Lu seulement, jamais écrit : l'interrupteur de support `LogNames` (voir [Dépannage](troubleshooting.md)). Les anciennes valeurs des options fixes et des options supprimées restent en place, mais sans effet ; dpcc ne les écrit plus. |
 | `%APPDATA%\dpcc\settings.json` | `index.extraSourceFolders` (depuis la page) et `hints.xmlDocMaxLines` (réglable uniquement dans le fichier). Le serveur dans le processus de l'IDE lit lui-même le fichier et le surveille. dpcc lit seulement `hints.xmlDocMaxLines` et n'écrit jamais la clé ; si elle manque dans le fichier, une valeur de registre `XmlDocMaxLines` d'une version antérieure s'applique, sinon 0. dpcc ne touche pas aux autres clés du fichier. Une ancienne valeur `hints.xmlDocExpand` ou `hints.xmlDocFull` reste sans effet. |
 | `%APPDATA%\dpcc\settings-history.json` | uniquement issu de versions antérieures : états antérieurs des réglages. dpcc n'écrit ni ne lit plus ce fichier ; il peut être supprimé. |
 | `%APPDATA%\dpcc\usage.json` | historique de la pondération apprise |

@@ -21,6 +21,9 @@
 //                  „+ n weitere …“; dazu die Standard-Property.
 //   Chain:         Vererbungskette bzw. Zieltyp einer Klassenreferenz, mehr als fünf Glieder gekürzt.
 // Leere Abschnitte entfallen.
+// Antworten ohne "dpcc" sind Markdown (TDpccHoverData.Markdown; Direktiven, Schlüsselwörter, fremde Server): Die
+// Kopfzeile verliert **, ` und [Text](URL) (nur Text); in der Doku entfallen Trennlinien (---), **fett**, `Code` und
+// [Text](URL) werden Läufe (fett, Editorschrift, Link) statt Zeichen im Klartext (LOOK4).
 
 interface
 
@@ -28,6 +31,7 @@ uses
   dpcc.Core.Hover.Contract,
   dpcc.Core.Hover.DebugValue,
   dpcc.Core.Hover.Texts,
+  dpcc.Core.Style.Look,
   dpcc.Core.Documentation.Contract,
   dpcc.Core.Documentation.Typeset;
 
@@ -114,6 +118,10 @@ type
     Chain: string;
     /// <summary>Zeile 1: Art, zwei Leerzeichen, Signatur (ohne Art nur die Signatur).</summary>
     function Headline: string;
+    /// <summary>Gruppe der Art für die Farbe der Art in der Kopfzeile (LOOK2, TDpccLook.Kind): „class function“
+    /// wie „function“, operator als Routine, program/library/package wie unit, resourcestring als Konstante,
+    /// threadvar als Variable; None ohne Art.</summary>
+    function KindGroup: TDpccKindGroup;
     /// <summary>Art in Worten · Bibliothek · Unit.Typ, leere Teile entfallen.</summary>
     function OriginLine: string;
     /// <summary>Wert ("= 48"); '' ohne.</summary>
@@ -177,11 +185,186 @@ begin
   end;
 end;
 
-/// <summary>Markdown-Auszeichnung im Fließtext entfernen (**fett**, `Code`).</summary>
-function WithoutMarks(const AText: string): string;
+/// <summary>Zeile nur aus ---, *** bzw. ___ (Trennlinie im Markdown, Leerzeichen dazwischen erlaubt).</summary>
+function IsRule(const ALine: string): Boolean;
+var
+  mLine: string;
+  mChar: Char;
 begin
-  Result := StringReplace(AText, '**', '', [rfReplaceAll]);
-  Result := StringReplace(Result, '`', '', [rfReplaceAll]);
+  mLine := StringReplace(Trim(ALine), ' ', '', [rfReplaceAll]);
+  Result := (Length(mLine) >= 3) and CharInSet(mLine[1], ['-', '*', '_']);
+  if not Result then
+  begin
+    Exit;
+  end;
+  for mChar in mLine do
+  begin
+    if mChar <> mLine[1] then
+    begin
+      Exit(False);
+    end;
+  end;
+end;
+
+/// <summary>Trennlinien (---) des Markdowns entfernen; an ihrer Stelle bleibt eine Leerzeile (Absatz).</summary>
+function WithoutRules(const AText: string): string;
+var
+  mLine: string;
+  mLines: TArray<string>;
+begin
+  mLines := nil;
+  for mLine in StringReplace(AText, #13#10, #10, [rfReplaceAll]).Split([#10]) do
+  begin
+    if IsRule(mLine) then
+    begin
+      mLines := mLines + [''];
+    end
+    else
+    begin
+      mLines := mLines + [mLine];
+    end;
+  end;
+  Result := Trim(string.Join(string(#10), mLines));
+end;
+
+/// <summary>Link [Text](URL) ab AStart ('['): Text, Ziel und Stelle hinter der schließenden Klammer. Klammern im
+/// Ziel zählen paarweise (…/IFNDEF_directive_(Delphi)). False, wenn dort kein Link steht.</summary>
+function TryLink(const AText: string; AStart: Integer; out ALabel, ATarget: string; out ANext: Integer): Boolean;
+var
+  mClose, mIndex, mDepth: Integer;
+begin
+  Result := False;
+  ALabel := '';
+  ATarget := '';
+  ANext := AStart;
+  mClose := PosEx(']', AText, AStart + 1);
+  if (mClose = 0) or (mClose >= Length(AText)) or (AText[mClose + 1] <> '(') then
+  begin
+    Exit;
+  end;
+  mDepth := 0;
+  for mIndex := mClose + 1 to Length(AText) do
+  begin
+    if AText[mIndex] = '(' then
+    begin
+      Inc(mDepth);
+    end
+    else if AText[mIndex] = ')' then
+    begin
+      Dec(mDepth);
+      if mDepth = 0 then
+      begin
+        ALabel := Copy(AText, AStart + 1, mClose - AStart - 1);
+        ATarget := Copy(AText, mClose + 2, mIndex - mClose - 2);
+        ANext := mIndex + 1;
+        Exit(ALabel <> '');
+      end;
+    end;
+  end;
+end;
+
+/// <summary>Läufe eines Texts mit Markdown-Auszeichnung: **fett** als fetter Text, `Code` in der Editorschrift,
+/// [Text](URL) als Link mit dem Text; Zeichen ohne Gegenstück bleiben stehen.</summary>
+function InlineRuns(const AText: string): TDpccDocRuns;
+var
+  mRuns: TDpccDocRuns;
+  mRun: TDpccDocRun;
+  mPlain, mLabel, mTarget: string;
+  mIndex, mClose, mNext: Integer;
+
+  procedure Flush;
+  begin
+    if mPlain <> '' then
+    begin
+      mRuns := mRuns + [TDpccDocRun.Create(TDpccDocRunKind.Text, mPlain)];
+      mPlain := '';
+    end;
+  end;
+
+begin
+  mRuns := nil;
+  mPlain := '';
+  mIndex := 1;
+  while mIndex <= Length(AText) do
+  begin
+    if Copy(AText, mIndex, 2) = '**' then
+    begin
+      mClose := PosEx('**', AText, mIndex + 2);
+      if mClose > mIndex + 2 then
+      begin
+        Flush;
+        mRun := TDpccDocRun.Create(TDpccDocRunKind.Text,
+          StringReplace(Copy(AText, mIndex + 2, mClose - mIndex - 2), '`', '', [rfReplaceAll]));
+        mRun.Bold := True;
+        mRuns := mRuns + [mRun];
+        mIndex := mClose + 2;
+        Continue;
+      end;
+    end
+    else if AText[mIndex] = '`' then
+    begin
+      mClose := PosEx('`', AText, mIndex + 1);
+      if mClose > mIndex + 1 then
+      begin
+        Flush;
+        mRuns := mRuns + [TDpccDocRun.Create(TDpccDocRunKind.Code, Copy(AText, mIndex + 1, mClose - mIndex - 1))];
+        mIndex := mClose + 1;
+        Continue;
+      end;
+    end
+    else if (AText[mIndex] = '[') and TryLink(AText, mIndex, mLabel, mTarget, mNext) then
+    begin
+      Flush;
+      mLabel := StringReplace(StringReplace(mLabel, '**', '', [rfReplaceAll]), '`', '', [rfReplaceAll]);
+      mRuns := mRuns + [TDpccDocRun.Create(TDpccDocRunKind.Link, mLabel, mTarget)];
+      mIndex := mNext;
+      Continue;
+    end;
+    mPlain := mPlain + AText[mIndex];
+    Inc(mIndex);
+  end;
+  Flush;
+  Result := mRuns;
+end;
+
+/// <summary>Markdown-Auszeichnung im Fließtext entfernen: **fett**, `Code`, [Text](URL) wird Text.</summary>
+function WithoutMarks(const AText: string): string;
+var
+  mRun: TDpccDocRun;
+begin
+  Result := '';
+  for mRun in InlineRuns(AText) do
+  begin
+    Result := Result + mRun.Text;
+  end;
+end;
+
+/// <summary>Doku aus Markdown (Direktiven, Schlüsselwörter, fremde Server; LOOK4): Absätze und eingerückter Code
+/// wie TDpccDoc.FromText; Trennlinien (---) entfallen (die Doku steht schon unter einer Trennlinie); **fett**,
+/// `Code` und [Text](URL) werden Läufe (fett, Editorschrift, Link mit URL als Ziel).</summary>
+function MarkdownDoc(const AText: string): TDpccDoc;
+var
+  mSection: Integer;
+  mRuns: TDpccDocRuns;
+  mRun: TDpccDocRun;
+begin
+  Result := TDpccDoc.FromText(WithoutRules(AText));
+  for mSection := 0 to High(Result.Sections) do
+  begin
+    mRuns := nil;
+    for mRun in Result.Sections[mSection].Runs do
+    begin
+      if mRun.Kind = TDpccDocRunKind.Text then
+      begin
+        mRuns := mRuns + InlineRuns(mRun.Text);
+      end
+      else
+      begin
+        mRuns := mRuns + [mRun];
+      end;
+    end;
+    Result.Sections[mSection].Runs := mRuns;
+  end;
 end;
 
 /// <summary>Teile mit ASeparator verbinden; leere entfallen.</summary>
@@ -305,7 +488,8 @@ begin
   end;
   if (Trim(Result) = '') and AData.Doc.IsEmpty then
   begin
-    mText := Trim(StringReplace(AData.Documentation, #13#10, #10, [rfReplaceAll]));
+    // Ohne Trennlinien (---), sonst wäre sie der erste Absatz.
+    mText := WithoutRules(AData.Documentation);
     mSplit := Pos(#10#10, mText);
     if mSplit > 0 then
     begin
@@ -435,6 +619,37 @@ begin
   end;
 end;
 
+function TDpccPlainHover.KindGroup: TDpccKindGroup;
+var
+  mWord: string;
+begin
+  mWord := Trim(Kind);
+  if StartsText('class ', mWord) then
+  begin
+    mWord := Trim(Copy(mWord, Length('class ') + 1, MaxInt));
+  end;
+  if SameText(mWord, 'operator') then
+  begin
+    Result := TDpccKindGroup.Routine;
+  end
+  else if MatchText(mWord, ['program', 'library', 'package']) then
+  begin
+    Result := TDpccKindGroup.TypeName;
+  end
+  else if SameText(mWord, 'resourcestring') then
+  begin
+    Result := TDpccKindGroup.Constant;
+  end
+  else if SameText(mWord, 'threadvar') then
+  begin
+    Result := TDpccKindGroup.Variable;
+  end
+  else
+  begin
+    Result := TDpccLook.KindGroupOf(mWord);
+  end;
+end;
+
 function TDpccPlainHover.OriginLine: string;
 begin
   Result := Joined([KindCaption, Framework, Origin], ' · ');
@@ -553,6 +768,13 @@ begin
     Result.Kind := KindWord(AData.Kind);
     Result.Signature := mDeclaration;
   end;
+  // Markdown ohne "dpcc" (Direktive, Schlüsselwort, fremder Server): Auszeichnung erst nach der Art auflösen, damit
+  // „**function** (Schlüsselwort)“ keine Art-Spalte bekommt. „**AUTOREFCOUNT**: nicht definiert …“ wird
+  // „AUTOREFCOUNT: …“; den Namen am Anfang zeigt die Kopfzeile ohnehin fett (NameLength).
+  if AData.Markdown then
+  begin
+    Result.Signature := WithoutMarks(Result.Signature);
+  end;
   Result.KindCaption := ATexts.KindCaption;
   Result.Framework := AData.Origin;
   mUnit := AData.UnitName;
@@ -576,7 +798,15 @@ begin
   Result.Doc := AData.Doc;
   if Result.Doc.IsEmpty and (Trim(AData.Documentation) <> '') then
   begin
-    Result.Doc := TDpccDoc.FromText(AData.Documentation);
+    if AData.Markdown then
+    begin
+      // Ohne „---“ und Sterne; [DocWiki](URL) als Link (LOOK4).
+      Result.Doc := MarkdownDoc(AData.Documentation);
+    end
+    else
+    begin
+      Result.Doc := TDpccDoc.FromText(AData.Documentation);
+    end;
   end;
   Result.Display := AData.Display;
   // published-Mitglieder (#110).

@@ -10,13 +10,20 @@
 // Schnell: Stücke ohne Array-Verkettung und ohne Sortieren je Token; der Umbruch
 // misst den Text einmal (Präfixsummen) und rechnet dann nur noch Differenzen
 // (TDpccWrap).
+// Stufen der Darstellung (LOOK1): Typnamen sind ein eigenes Stück (TDpccSyntax.SignatureTokens). Ein Ziel aus
+// TDpccLook (Create mit ALook) färbt Schlüsselwort, String, Kommentar, Zahl und Typ in den Syn*-Farben der Stufe und
+// legt den aktiven Parameter auf ParamBack (wenn ParamBackUsed). Markierte Flächen (Kopfzeile des Hovers, gewählte
+// Überladung) zeichnen ihre Aufrufer mit dem Ziel aus TDpccLook.Marked (Intensiv wie Dezent). Ein Ziel aus
+// TDpccColors färbt wie vor LOOK1 (Zahlen und Typen in Textfarbe).
 
 interface
 
 uses
   System.Types,
   Vcl.Graphics,
+  dpcc.Core.Style.Color,
   dpcc.Core.Style.Palette,
+  dpcc.Core.Style.Look,
   dpcc.Core.Style.Syntax;
 
 type
@@ -24,7 +31,20 @@ type
   TDpccStyledTarget = record
     Canvas: TCanvas;
     Colors: TDpccColors;
-    class function Create(ACanvas: TCanvas; const AColors: TDpccColors): TDpccStyledTarget; static;
+    /// <summary>Farben der Stufe; nur mit UseLook (Create mit ALook).</summary>
+    Look: TDpccLook;
+    /// <summary>True: Syntax in den Syn*-Farben von Look; False: wie vor LOOK1 aus Colors.</summary>
+    UseLook: Boolean;
+    /// <summary>True: Fläche ActiveBack unter dem aktiven Bereich (aktiver Parameter).</summary>
+    ActiveBackUsed: Boolean;
+    ActiveBack: TDpccColor;
+    /// <summary>Farben wie vor LOOK1: Schlüsselwort, String, Kommentar aus AColors, alles andere in Textfarbe.
+    /// </summary>
+    class function Create(ACanvas: TCanvas; const AColors: TDpccColors): TDpccStyledTarget; overload; static;
+    /// <summary>Farben der Stufe ALook: SynKeyword, SynString, SynComment, SynNumber, SynType, Rest in Textfarbe;
+    /// aktiver Parameter auf ParamBack, wenn ParamBackUsed. Für markierte Flächen ALook.Marked übergeben; deren
+    /// Fläche füllt der Aufrufer.</summary>
+    class function Create(ACanvas: TCanvas; const ALook: TDpccLook): TDpccStyledTarget; overload; static;
   end;
 
   TDpccStyledText = record
@@ -71,9 +91,9 @@ type
 implementation
 
 uses
-  dpcc.Core.Style.Color,
   Winapi.Windows,
   System.Math,
+  System.UITypes,
   dpcc.Core.Style.Wrap;
 
 /// <summary>ACuts[0..ACount) aufsteigend: Einfügesortierung, die Liste ist winzig.</summary>
@@ -94,23 +114,37 @@ begin
   end;
 end;
 
-/// <summary>Farbe eines Stücks: aktiv in Textfarbe, gedämpft, sonst nach der Art des Tokens.</summary>
-function PieceColor(const AColors: TDpccColors; AKind: TDpccTokenKind; AActive, AMuted: Boolean): TDpccColor;
+/// <summary>Farbe eines Stücks: aktiv in Textfarbe, gedämpft, sonst nach der Art des Tokens (mit Look in den
+/// Syn*-Farben der Stufe).</summary>
+function PieceColor(const ATarget: TDpccStyledTarget; AKind: TDpccTokenKind; AActive, AMuted: Boolean): TDpccColor;
 begin
   if AActive then
   begin
-    Exit(AColors.Text);
+    Exit(ATarget.Colors.Text);
   end;
   if AMuted then
   begin
-    Exit(AColors.Muted);
+    Exit(ATarget.Colors.Muted);
+  end;
+  if ATarget.UseLook then
+  begin
+    case AKind of
+      TDpccTokenKind.Keyword: Result := ATarget.Look.SynKeyword;
+      TDpccTokenKind.StringLiteral: Result := ATarget.Look.SynString;
+      TDpccTokenKind.Comment: Result := ATarget.Look.SynComment;
+      TDpccTokenKind.Number: Result := ATarget.Look.SynNumber;
+      TDpccTokenKind.TypeName: Result := ATarget.Look.SynType;
+    else
+      Result := ATarget.Colors.Text;
+    end;
+    Exit;
   end;
   case AKind of
-    TDpccTokenKind.Keyword: Result := AColors.Keyword;
-    TDpccTokenKind.StringLiteral: Result := AColors.StringLiteral;
-    TDpccTokenKind.Comment: Result := AColors.Comment;
+    TDpccTokenKind.Keyword: Result := ATarget.Colors.Keyword;
+    TDpccTokenKind.StringLiteral: Result := ATarget.Colors.StringLiteral;
+    TDpccTokenKind.Comment: Result := ATarget.Colors.Comment;
   else
-    Result := AColors.Text;
+    Result := ATarget.Colors.Text;
   end;
 end;
 
@@ -118,8 +152,20 @@ end;
 
 class function TDpccStyledTarget.Create(ACanvas: TCanvas; const AColors: TDpccColors): TDpccStyledTarget;
 begin
+  Result := Default(TDpccStyledTarget);
   Result.Canvas := ACanvas;
   Result.Colors := AColors;
+end;
+
+class function TDpccStyledTarget.Create(ACanvas: TCanvas; const ALook: TDpccLook): TDpccStyledTarget;
+begin
+  Result := Default(TDpccStyledTarget);
+  Result.Canvas := ACanvas;
+  Result.Colors := ALook.Colors;
+  Result.Look := ALook;
+  Result.UseLook := True;
+  Result.ActiveBackUsed := ALook.ParamBackUsed;
+  Result.ActiveBack := ALook.ParamBack;
 end;
 
 { TDpccStyledText }
@@ -127,7 +173,8 @@ end;
 class function TDpccStyledText.Create(const AText: string): TDpccStyledText;
 begin
   Result.Text := AText;
-  Result.Tokens := TDpccSyntax.Tokens(AText);
+  // Mit Typnamen (LOOK1); ein Ziel aus TDpccColors zeichnet sie wie bisher in Textfarbe.
+  Result.Tokens := TDpccSyntax.SignatureTokens(AText);
   Result.ActiveStart := -1;
   Result.ActiveStop := -1;
   Result.ActiveUnderline := True;
@@ -290,7 +337,15 @@ begin
     begin
       mCanvas.Font.Style := mCanvas.Font.Style + [fsUnderline];
     end;
-    mCanvas.Font.Color := TColor(PieceColor(ATarget.Colors, mPieces[mIndex].Kind,
+    // Fläche unter dem aktiven Parameter (Stufe Intensiv); die Stücke sind an seinen Grenzen geschnitten.
+    if mPieces[mIndex].Active and ATarget.ActiveBackUsed and not ADimmed then
+    begin
+      mCanvas.Brush.Style := bsSolid;
+      mCanvas.Brush.Color := TColor(ATarget.ActiveBack);
+      mCanvas.FillRect(Rect(AX, ARow.Top, Min(AX + mWidths[mIndex], ARow.Right), ARow.Bottom));
+      mCanvas.Brush.Style := bsClear;
+    end;
+    mCanvas.Font.Color := TColor(PieceColor(ATarget, mPieces[mIndex].Kind,
       mPieces[mIndex].Active and not ADimmed, ADimmed or mPieces[mIndex].Muted));
     mText := PieceText(mPieces[mIndex]);
     mPart := Rect(AX, ARow.Top, ARow.Right, ARow.Bottom);

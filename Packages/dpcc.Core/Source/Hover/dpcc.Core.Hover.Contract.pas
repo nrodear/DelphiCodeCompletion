@@ -91,6 +91,10 @@ type
     /// <summary>Standard-Property (Array-Property mit default), z. B. "Strings[Index: Integer]: string"; '' ohne.
     /// </summary>
     DefaultProperty: string;
+    /// <summary>Ohne "dpcc" aus dem Markdown der Antwort geteilt (Direktiven, Schlüsselwörter, fremde Server):
+    /// Deklaration und Doku enthalten noch Auszeichnung (**fett**, `Code`, [Text](URL), ---), die
+    /// TDpccPlainHover beim Zerlegen auflöst.</summary>
+    Markdown: Boolean;
     function Found: Boolean;
     /// <summary>Zahl der published-Properties bzw. -Ereignisse (#110).</summary>
     function MemberCount(AEvents: Boolean): Integer;
@@ -334,6 +338,8 @@ begin
   mText := StringReplace(PlainText(AHover), #13#10, #10, [rfReplaceAll]);
   mText := StringReplace(mText, '```pascal', '', [rfReplaceAll]);
   mText := Trim(StringReplace(mText, '```', '', [rfReplaceAll]));
+  // Die übrige Auszeichnung löst TDpccPlainHover beim Zerlegen auf.
+  AData.Markdown := mText <> '';
   mSplit := Pos(#10#10, mText);
   if mSplit = 0 then
   begin

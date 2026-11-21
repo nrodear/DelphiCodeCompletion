@@ -11,6 +11,8 @@
 // schreibt Registry und settings.json (index.extraSourceFolders). Die Seite kennt den Server nicht und startet ihn
 // nicht: „Index neu aufbauen“ führt die IDE-Schicht aus (OnRebuildIndex), „Verlauf zurücksetzen“ ebenso
 // (OnResetHistory), die Statuszeilen des Abschnitts IDE ebenso (OnIdeStatus, nur gelesen).
+// Seit LOOK1 steht zuletzt im Abschnitt Parameter-Hint und Tooltip die Auswahl „Darstellung der Popups“ (Intensiv,
+// Dezent, Unscheinbar; TDpccPluginSettings.PopupLook); sie ändert nur, wie die Fenster von dpcc zeichnen.
 // Sperren: Hauptschalter aus → alle Optionen und „Verlauf zurücksetzen“ grau; „Werte beim Debuggen“ zusätzlich grau,
 // wenn „Eigener Tooltip“ aus ist. „Index neu aufbauen“ und „Jetzt prüfen“ hängen nicht am Hauptschalter.
 // „Index neu aufbauen“ läuft im Hintergrund: OnRebuildIndex kehrt sofort zurück. Den Zustand (läuft → Knopf grau,
@@ -98,6 +100,8 @@ type
     FParameterHints: TCheckBox;
     FHoverTooltip: TCheckBox;
     FDebugHoverValues: TCheckBox;
+    /// <summary>„Darstellung der Popups“ (LOOK1), Einträge in der Reihenfolge von TDpccLookLevel.</summary>
+    FPopupLook: TDpccChoiceBox;
     FExtraSourceFolders: TEdit;
     FRebuild: TButton;
     FRebuildInfo: TLabel;
@@ -175,6 +179,7 @@ type
     property VisibleRowsChoice: TDpccChoiceBox read FVisibleRows;
     property HoverTooltip: TCheckBox read FHoverTooltip;
     property DebugHoverValues: TCheckBox read FDebugHoverValues;
+    property PopupLookChoice: TDpccChoiceBox read FPopupLook;
     property ResetHistory: TButton read FResetHistory;
     property Rebuild: TButton read FRebuild;
     property RebuildInfo: TLabel read FRebuildInfo;
@@ -207,7 +212,8 @@ uses
   // dpcc.UI.Foundation.Module (Anmeldung bei TDpccPluginModules, S7b) steht im Package und läuft mit ihm an; die
   // Seite bindet es nicht ein, damit die Test-Exe sie ohne das Package bauen kann.
   dpcc.UI.Settings.Strings,
-  dpcc.Core.Completion.Ranking;
+  dpcc.Core.Completion.Ranking,
+  dpcc.Core.Style.Look;
 
 const
   /// <summary>Einrückung der Optionen unter einer Überschrift bzw. unter „Eigener Tooltip“ (bei 96 dpi).</summary>
@@ -404,6 +410,15 @@ begin
     FDebugHoverValues := AddCheckRow(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsDebugHoverValues),
       cSubIndent);
     AddEntry(AItem, FDebugHoverValues, nil);
+  end
+  else if AItem.Name = 'PopupLook' then
+  begin
+    // LOOK1: in der Reihenfolge von TDpccLookLevel; gilt für alle Fenster von dpcc (Liste, Hover, Parameter-Hint).
+    FPopupLook := AddChoiceRow(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsPopupLook),
+      [TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsPopupLookIntense),
+      TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsPopupLookSubtle),
+      TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsPopupLookPlain)], mCaption);
+    AddEntry(AItem, FPopupLook, mCaption);
   end
   else if AItem.Name = 'IndexExtraSourceFolders' then
   begin
@@ -619,6 +634,10 @@ begin
     [TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsListModeFilter),
     TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsListModeAll),
     TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsListModeRest)]), FListMode.Height);
+  FPopupLook.SetBounds(mFieldLeft, FPopupLook.Top, ChoiceWidth(Self, FPopupLook,
+    [TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsPopupLookIntense),
+    TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsPopupLookSubtle),
+    TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsPopupLookPlain)]), FPopupLook.Height);
   // Kontrollkästchen so breit wie ihr Text.
   for mEntry in FEntries do
   begin
@@ -747,6 +766,7 @@ begin
   FParameterHints.Checked := ASettings.ParameterHints;
   FHoverTooltip.Checked := ASettings.HoverTooltip;
   FDebugHoverValues.Checked := ASettings.DebugHoverValues;
+  FPopupLook.Choice := Ord(ASettings.PopupLook);
   FExtraSourceFolders.Text := ASettings.IndexExtraSourceFolders;
   UpdateLocks;
 end;
@@ -786,6 +806,10 @@ begin
   ASettings.ParameterHints := FParameterHints.Checked;
   ASettings.HoverTooltip := FHoverTooltip.Checked;
   ASettings.DebugHoverValues := FDebugHoverValues.Checked;
+  if (FPopupLook.Choice >= Ord(Low(TDpccLookLevel))) and (FPopupLook.Choice <= Ord(High(TDpccLookLevel))) then
+  begin
+    ASettings.PopupLook := TDpccLookLevel(FPopupLook.Choice);
+  end;
   ASettings.IndexExtraSourceFolders := Trim(FExtraSourceFolders.Text);
   ASettings.Normalize;
 end;

@@ -336,8 +336,10 @@ begin
   AContext.Offset := mToken.Offset + Length(mToken.Text);
   if ComparePositions(APosition, mToken.EndPos) < 0 then
   begin
-    // Cursor mitten in einem Token: in Kommentaren, Strings und Zahlen nichts anbieten.
-    if DiamondContext(ATree, ALast, APosition, AContext) or (mToken.Kind <> TPascalTokenKind.Identifier) then
+    // Cursor mitten in einem Token: in Kommentaren, Strings und Zahlen nichts anbieten. Mitten in einem
+    // Schlüsselwort gilt wie bei Bezeichnern der Teil links als Präfix ("str|ing" nach ":" bietet string an).
+    if DiamondContext(ATree, ALast, APosition, AContext) or
+      not (mToken.Kind in [TPascalTokenKind.Identifier, TPascalTokenKind.Keyword]) then
     begin
       Exit(False);
     end;
@@ -347,6 +349,11 @@ begin
     (ComparePositions(APosition, mToken.EndPos) <= 0) then
   begin
     AContext.Prefix := PrefixOf(mToken, APosition);
+    // Look-ahead: Mitten im Wort zählt das ganze Wort; am Wortende bleibt es leer.
+    if ComparePositions(APosition, mToken.EndPos) < 0 then
+    begin
+      AContext.WholeWord := PrefixOf(mToken, mToken.EndPos);
+    end;
     AContext.Offset := mToken.Offset;
     ALast := PreviousIndex(ATree.Tokens, ALast);
   end

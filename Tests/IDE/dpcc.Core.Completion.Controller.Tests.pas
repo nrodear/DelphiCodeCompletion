@@ -67,6 +67,29 @@ type
     /// <summary>Eine Zeile je Teil mit Dubletten ins Diagnoselog; Namen nur mit LogNames.</summary>
     [Test]
     procedure RemovedDuplicatesAreLogged;
+    /// <summary>Look-ahead ("str|ing"): Präfix + Rest ist vorgewählt, ohne Groß-/Kleinschreibung; ohne passenden
+    /// Eintrag oder ohne Rest die gewöhnliche Vorauswahl; Reihenfolge unverändert.</summary>
+    [Test]
+    procedure LookAheadPreselectsWholeWord;
+    /// <summary>Look-ahead: Kommt der Eintrag erst in einem späteren Teilergebnis (#616), wird er dann gewählt.
+    /// </summary>
+    [Test]
+    procedure LookAheadFollowsLaterParts;
+    /// <summary>Look-ahead beim Weitertippen: eigene Wahl bleibt bis zur nächsten Änderung des Präfixes, dann gilt
+    /// wieder Präfix + Rest; Entf ändert den Rest.</summary>
+    [Test]
+    procedure LookAheadFollowsTypingAndKeepsOwnChoice;
+    /// <summary>Die automatische Vorauswahl klebt nicht: Ein späteres Teilergebnis (#616) sortiert string vor den
+    /// bisher gewählten Eintrag, danach ist string gewählt ("test : strin" in einem var-Block).</summary>
+    [Test]
+    procedure AutoSelectionFollowsLaterParts;
+    /// <summary>Eine eigene Wahl mit der Pfeiltaste bleibt nach einem späteren Teilergebnis.</summary>
+    [Test]
+    procedure OwnChoiceSurvivesLaterParts;
+    /// <summary>Requery ersetzt die Liste: ohne eigene Wahl die Vorauswahl der neuen Liste, mit eigener Wahl
+    /// derselbe Eintrag.</summary>
+    [Test]
+    procedure RequeryKeepsOnlyOwnChoice;
   end;
 
   /// <summary>Diagnosemodus (#479) über den ganzen Ablauf: Quellen, Filtern, erste Liste.</summary>
@@ -250,6 +273,24 @@ procedure TStagedProvider.Cancel;
 begin
 end;
 
+type
+  /// <summary>Merkt sich die Senke der letzten Abfrage; der Test liefert Teile und Complete selbst.</summary>
+  TManualProvider = class(TInterfacedObject, IDpccCompletionProvider)
+  public
+    Sink: IDpccCompletionSink;
+    procedure Query(const AContext: TDpccContext; const ASink: IDpccCompletionSink);
+    procedure Cancel;
+  end;
+
+procedure TManualProvider.Query(const AContext: TDpccContext; const ASink: IDpccCompletionSink);
+begin
+  Sink := ASink;
+end;
+
+procedure TManualProvider.Cancel;
+begin
+end;
+
 function Item(const AName: string; ARank: Integer = 0): TDpccCompletionItem;
 begin
   Result := Default(TDpccCompletionItem);
@@ -289,6 +330,25 @@ begin
   Result.Prefix := APrefix;
 end;
 
+/// <summary>Kontext mitten im Wort (Look-ahead): APrefix links, ARest rechts des Cursors.</summary>
+function WordContext(const APrefix, ARest: string): TDpccContext;
+begin
+  Result := Context(APrefix);
+  Result.Rest := ARest;
+end;
+
+/// <summary>Name des gewählten Eintrags; '' ohne Auswahl.</summary>
+function SelectedName(AController: TDpccCompletionController): string;
+var
+  mItem: TDpccCompletionItem;
+begin
+  Result := '';
+  if AController.SelectedItem(mItem) then
+  begin
+    Result := mItem.Name;
+  end;
+end;
+
 /// <summary>Arbeitet eingereihte Aufrufe ab, bis ACondition gilt oder die Zeit um ist.</summary>
 function WaitFor(const ACondition: TFunc<Boolean>; ATimeoutMs: Cardinal = 3000): Boolean;
 var
@@ -303,6 +363,17 @@ begin
     end;
   until TThread.GetTickCount64 - Start > ATimeoutMs;
   Result := False;
+end;
+
+/// <summary>Start an AContext und warten, bis die Abfrage fertig ist; False bei Zeitüberschreitung.</summary>
+function StartAndWait(AController: TDpccCompletionController; const AContext: TDpccContext): Boolean;
+begin
+  AController.Start(AContext);
+  Result := WaitFor(
+    function: Boolean
+    begin
+      Result := not AController.Loading;
+    end);
 end;
 
 { TDpccCompletionMatcherTests }
@@ -1043,6 +1114,239 @@ begin
   finally
     Controller.Free;
     Lines.Free;
+  end;
+end;
+
+procedure TDpccCompletionControllerTests.LookAheadPreselectsWholeWord;
+var
+  View: TFakeView;
+  ViewRef: IDpccCompletionView;
+  Controller: TDpccCompletionController;
+begin
+  View := TFakeView.Create;
+  ViewRef := View;
+  Controller := TDpccCompletionController.Create(
+    TDpccFixedCompletionProvider.Create([Item('StrToInt', 0), Item('Stream', 1), Item('string', 2)])
+      as IDpccCompletionProvider, ViewRef);
+  try
+    // "Str|ing": string steht nach der Rangfolge hinten (andere Schreibweise), ist aber gewählt.
+    Assert.IsTrue(StartAndWait(Controller, WordContext('Str', 'ing')));
+    Assert.AreEqual('StrToInt,Stream,string', View.Names, 'Reihenfolge wie ohne Look-ahead');
+    Assert.AreEqual(2, View.Selected);
+    Assert.AreEqual('string', SelectedName(Controller));
+    // "str|ing" wie in System.pas.
+    Assert.IsTrue(StartAndWait(Controller, WordContext('str', 'ing')));
+    Assert.AreEqual('string', SelectedName(Controller));
+    // Groß- und Kleinschreibung egal.
+    Assert.IsTrue(StartAndWait(Controller, WordContext('STR', 'ING')));
+    Assert.AreEqual('string', SelectedName(Controller));
+    // Kein Eintrag Präfix + Rest: gewöhnliche Vorauswahl.
+    Assert.IsTrue(StartAndWait(Controller, WordContext('Str', 'xyz')));
+    Assert.AreEqual('StrToInt,Stream,string', View.Names);
+    Assert.AreEqual(0, View.Selected);
+    // Ohne Rest wie bisher.
+    Assert.IsTrue(StartAndWait(Controller, WordContext('Str', '')));
+    Assert.AreEqual(0, View.Selected);
+    Assert.AreEqual('StrToInt', SelectedName(Controller));
+  finally
+    Controller.Free;
+  end;
+end;
+
+procedure TDpccCompletionControllerTests.LookAheadFollowsLaterParts;
+var
+  View: TFakeView;
+  ViewRef: IDpccCompletionView;
+  Provider: TStagedProvider;
+  ProviderRef: IDpccCompletionProvider;
+  Controller: TDpccCompletionController;
+begin
+  View := TFakeView.Create;
+  ViewRef := View;
+  Provider := TStagedProvider.Create;
+  ProviderRef := Provider;
+  // Eigener Bereich ohne string, string erst mit den Schlüsselwörtern im letzten Teil.
+  Provider.Add([Item('StrToInt', 0), Item('Stream', 1)]);
+  Provider.Add([Item('string', 2)]);
+  Controller := TDpccCompletionController.Create(ProviderRef, ViewRef);
+  try
+    Controller.Start(WordContext('Str', 'ing'));
+    Assert.IsTrue(WaitFor(
+      function: Boolean
+      begin
+        Result := not Controller.Loading;
+      end));
+    Assert.AreEqual('StrToInt,Stream,string', View.Names);
+    Assert.AreEqual('string', SelectedName(Controller));
+  finally
+    Controller.Free;
+  end;
+end;
+
+procedure TDpccCompletionControllerTests.LookAheadFollowsTypingAndKeepsOwnChoice;
+var
+  View: TFakeView;
+  ViewRef: IDpccCompletionView;
+  Controller: TDpccCompletionController;
+begin
+  View := TFakeView.Create;
+  ViewRef := View;
+  Controller := TDpccCompletionController.Create(
+    TDpccFixedCompletionProvider.Create([Item('StrToInt', 0), Item('Stream', 1), Item('string', 2)])
+      as IDpccCompletionProvider, ViewRef);
+  try
+    Controller.Start(WordContext('Str', 'ing'));
+    Assert.IsTrue(WaitFor(
+      function: Boolean
+      begin
+        Result := not Controller.Loading;
+      end));
+    Assert.AreEqual('string', SelectedName(Controller));
+    // Eigene Wahl mit der Pfeiltaste bleibt, auch wenn Entf den Rest ändert.
+    Controller.HandleKey(TDpccNavigationKey.Up);
+    Assert.AreEqual('Stream', SelectedName(Controller));
+    Controller.UpdatePrefix('Str', 'ing');
+    Assert.AreEqual('Stream', SelectedName(Controller), 'nichts geändert');
+    Controller.UpdatePrefix('Str', 'in');
+    Assert.AreEqual('Stream', SelectedName(Controller), 'nur der Rest geändert');
+    // Weitertippen mitten im Wort: "Stri|in" passt zu keinem Eintrag, gewöhnliche Vorauswahl.
+    Controller.UpdatePrefix('Stri', 'in');
+    Assert.AreEqual(0, View.Selected);
+    // Rücktaste und Rest "ing": wieder string, die eigene Wahl galt nur bis zur Änderung des Präfixes.
+    Controller.UpdatePrefix('Str', 'ing');
+    Assert.AreEqual('StrToInt,Stream,string', View.Names);
+    Assert.AreEqual('string', SelectedName(Controller));
+    // Entf löscht den Rest: ohne Rest wie bisher.
+    Controller.UpdatePrefix('Str', '');
+    Assert.AreEqual('StrToInt', SelectedName(Controller));
+    // UpdatePrefix ohne Rest behält den bisherigen Rest.
+    Controller.UpdatePrefix('Str', 'ing');
+    Controller.UpdatePrefix('St');
+    Assert.AreEqual('ing', Controller.WordRest);
+  finally
+    Controller.Free;
+  end;
+end;
+
+procedure TDpccCompletionControllerTests.AutoSelectionFollowsLaterParts;
+var
+  View: TFakeView;
+  ViewRef: IDpccCompletionView;
+  Provider: TManualProvider;
+  ProviderRef: IDpccCompletionProvider;
+  Controller: TDpccCompletionController;
+begin
+  View := TFakeView.Create;
+  ViewRef := View;
+  Provider := TManualProvider.Create;
+  ProviderRef := Provider;
+  Controller := TDpccCompletionController.Create(ProviderRef, ViewRef);
+  try
+    Controller.Start(Context('strin'));
+    Provider.Sink.AddItems([Item('TStringField', 0), Item('EStringListError', 1)]);
+    Assert.IsTrue(WaitFor(
+      function: Boolean
+      begin
+        Result := Length(Controller.Items) = 2;
+      end));
+    Assert.AreEqual('TStringField', SelectedName(Controller), 'Vorauswahl des ersten Teils');
+    // Das Schlüsselwort kommt später und steht oben: Die Vorauswahl folgt ihm.
+    Provider.Sink.AddItems([Item('string', 2), Item('IStringsAdapter', 3)]);
+    Provider.Sink.Complete;
+    Assert.IsTrue(WaitFor(
+      function: Boolean
+      begin
+        Result := not Controller.Loading;
+      end));
+    Assert.AreEqual(4, Integer(Length(Controller.Items)));
+    Assert.AreEqual('string', SelectedName(Controller));
+    Assert.AreEqual(0, View.Selected);
+  finally
+    Controller.Free;
+  end;
+end;
+
+procedure TDpccCompletionControllerTests.OwnChoiceSurvivesLaterParts;
+var
+  View: TFakeView;
+  ViewRef: IDpccCompletionView;
+  Provider: TManualProvider;
+  ProviderRef: IDpccCompletionProvider;
+  Controller: TDpccCompletionController;
+begin
+  View := TFakeView.Create;
+  ViewRef := View;
+  Provider := TManualProvider.Create;
+  ProviderRef := Provider;
+  Controller := TDpccCompletionController.Create(ProviderRef, ViewRef);
+  try
+    Controller.Start(Context('strin'));
+    Provider.Sink.AddItems([Item('TStringField', 0), Item('EStringListError', 1)]);
+    Assert.IsTrue(WaitFor(
+      function: Boolean
+      begin
+        Result := Length(Controller.Items) = 2;
+      end));
+    Assert.IsTrue(Controller.HandleKey(TDpccNavigationKey.Down));
+    Assert.AreEqual('EStringListError', SelectedName(Controller));
+    Provider.Sink.AddItems([Item('string', 2), Item('IStringsAdapter', 3)]);
+    Provider.Sink.Complete;
+    Assert.IsTrue(WaitFor(
+      function: Boolean
+      begin
+        Result := not Controller.Loading;
+      end));
+    Assert.AreEqual(4, Integer(Length(Controller.Items)));
+    Assert.AreEqual('EStringListError', SelectedName(Controller), 'eigene Wahl bleibt');
+  finally
+    Controller.Free;
+  end;
+end;
+
+procedure TDpccCompletionControllerTests.RequeryKeepsOnlyOwnChoice;
+var
+  View: TFakeView;
+  ViewRef: IDpccCompletionView;
+  Provider: TStagedProvider;
+  ProviderRef: IDpccCompletionProvider;
+  Controller: TDpccCompletionController;
+begin
+  View := TFakeView.Create;
+  ViewRef := View;
+  Provider := TStagedProvider.Create;
+  ProviderRef := Provider;
+  Controller := TDpccCompletionController.Create(ProviderRef, ViewRef);
+  try
+    // Ohne eigene Wahl: Die neue Liste bringt string, das vor TStringField steht.
+    Provider.Add([Item('TStringField', 0), Item('EStringListError', 1)]);
+    Assert.IsTrue(StartAndWait(Controller, Context('strin')));
+    Assert.AreEqual('TStringField', SelectedName(Controller));
+    Provider.Stages := nil;
+    Provider.Add([Item('TStringField', 0), Item('EStringListError', 1), Item('string', 2)]);
+    Controller.Requery(Context('strin'));
+    Assert.IsTrue(WaitFor(
+      function: Boolean
+      begin
+        Result := not Controller.Loading;
+      end));
+    Assert.AreEqual('string', SelectedName(Controller), 'Vorauswahl der neuen Liste');
+    // Mit eigener Wahl: derselbe Eintrag nach dem Ersetzen.
+    Provider.Stages := nil;
+    Provider.Add([Item('TStringField', 0), Item('EStringListError', 1)]);
+    Assert.IsTrue(StartAndWait(Controller, Context('strin')));
+    Assert.IsTrue(Controller.HandleKey(TDpccNavigationKey.Down));
+    Assert.AreEqual('EStringListError', SelectedName(Controller));
+    Provider.Stages := nil;
+    Provider.Add([Item('TStringField', 0), Item('EStringListError', 1), Item('string', 2)]);
+    Controller.Requery(Context('strin'));
+    Assert.IsTrue(WaitFor(
+      function: Boolean
+      begin
+        Result := not Controller.Loading;
+      end));
+    Assert.AreEqual('EStringListError', SelectedName(Controller), 'eigene Wahl bleibt');
+  finally
+    Controller.Free;
   end;
 end;
 

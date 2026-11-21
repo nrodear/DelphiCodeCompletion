@@ -93,6 +93,8 @@ type
     cKindSample = 'constructor';
     cKindGap = 24;
     cGap = 12;
+    /// <summary>Zwischen den Marken rechts in der Zeile (Trailer); jede Marke steht in der Farbe ihrer Art.</summary>
+    cTagSeparator = '   ';
   protected
     FItems: TDpccCompletionItems;
     FOrder: TArray<Integer>;

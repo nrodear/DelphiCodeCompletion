@@ -2445,31 +2445,44 @@ begin
   end;
 end;
 
+/// <summary>Look-ahead: Name von AItem ist das ganze Wort unter dem Cursor (AWholeWord, nicht leer).</summary>
+function IsWholeWord(const AItem: TCompletionItem; const AWholeWord: string): Boolean;
+begin
+  Result := (AWholeWord <> '') and SameText(AItem.Name, AWholeWord);
+end;
+
 /// <summary>Kürzt AList auf ARoom Einträge. Nahe Einträge (lokal, Parameter, eigene Mitglieder ohne geerbte,
 /// eigene Unit) nie abschneiden: Bei Formularen mit Hunderten geerbten Mitgliedern verdrängten kurze geerbte
 /// Namen sonst die eigenen Methoden mit längerem Namen (Rückmeldung 15.10.2026). Die Reihenfolge bleibt.
-/// </summary>
-procedure KeepRoom(AList: TList<TScoredItem>; ARoom: Integer);
+/// Look-ahead: Einträge mit dem Namen AWholeWord (ganzes Wort unter dem Cursor) bleiben immer, auch über ARoom
+/// hinaus; '' ohne.</summary>
+procedure KeepRoom(AList: TList<TScoredItem>; ARoom: Integer; const AWholeWord: string);
 var
-  mNear, mOthersLeft, mKept, mIndex: Integer;
+  mNear, mOthersLeft, mKept, mWhole, mIndex: Integer;
   mScored: TScoredItem;
 begin
   mNear := 0;
   for mIndex := 0 to AList.Count - 1 do
   begin
-    if IsNearItem(AList[mIndex].Item) then
+    if IsNearItem(AList[mIndex].Item) and not IsWholeWord(AList[mIndex].Item, AWholeWord) then
     begin
       Inc(mNear);
     end;
   end;
   mOthersLeft := Max(0, ARoom - mNear);
   mKept := 0;
+  mWhole := 0;
   for mIndex := 0 to AList.Count - 1 do
   begin
     mScored := AList[mIndex];
-    if IsNearItem(mScored.Item) then
+    if IsWholeWord(mScored.Item, AWholeWord) then
     begin
-      if mKept >= ARoom then
+      // Zählt nicht gegen ARoom.
+      Inc(mWhole);
+    end
+    else if IsNearItem(mScored.Item) then
+    begin
+      if mKept - mWhole >= ARoom then
       begin
         Continue;
       end;
@@ -2509,7 +2522,7 @@ begin
   if FList.Count > mRoom then
   begin
     FTruncated := True;
-    KeepRoom(FList, mRoom);
+    KeepRoom(FList, mRoom, FContext.WholeWord);
   end;
   Result := nil;
   SetLength(Result, FList.Count);

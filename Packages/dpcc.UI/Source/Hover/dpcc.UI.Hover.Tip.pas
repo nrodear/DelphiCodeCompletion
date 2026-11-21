@@ -1,15 +1,15 @@
 ﻿unit dpcc.UI.Hover.Tip;
 
 // Hover-Tooltip (#442), schlicht wie die Code-Insight-Liste der IDE (Strg+Leertaste; S3, S3b voller Inhalt, S3c
-// Aussehen der Liste): TDpccPopupWindow (flach, eckig, 1 px Rand in Colors.Line), Farben von
+// Aussehen der Liste): TDpccPopupWindow (flach, eckig, 1 px Rand in Look.HoverFrame), Farben von
 // TDpccIdeStyle.ListColors (setzt dpcc.IDE.Hover.Editor; Fläche, Namen, Art aus dem Farbschema des Editors wie die
 // Liste), alles in der UI-Schrift, Code in der Editorschrift auf UI-Größe (FCodeFont), knappe Ränder (cPadX,
 // cPadTop), zwischen Abschnitten nur eine dünne Trennlinie (TDpccDraw.Separator). Den Inhalt stellt
 // dpcc.Core.Hover.Plain zusammen; hier werden seine Abschnitte nur der Reihe nach gezeichnet:
 //   Wert im Debugger   Ausdruck in der Editorschrift, darunter Wert bzw. „wird ausgewertet …“, Trennlinie
-//   Kopfzeile          wie eine Zeile der Liste (Höhe, Art-Spalte nach „constructor“, Art klein und gedämpft
-//                      (Colors.KindLabel, S8), Name fett, Rest eingefärbt mit TDpccStyledText), an Leerzeichen
-//                      umbrochen
+//   Kopfzeile          wie eine Zeile der Liste (Art-Spalte nach „constructor“, Art in der Farbe ihrer
+//                      Gruppe (Dezent gedämpft wie Colors.KindLabel, S8), Name fett, Rest eingefärbt mit
+//                      TDpccStyledText), an Leerzeichen umbrochen
 //   Herkunft, Fundort  gedämpft in der UI-Schrift
 //   Trennlinie, Wert und Veraltung, XMLDoc mit demselben Satz und Zeichner wie im Detailpanel (TDpccDocView, ganz
 //   aufgeklappt, ohne „Mehr anzeigen“); ist der Tooltip höher als der Platz bzw. hints.xmlDocMaxLines, scrollt
@@ -18,6 +18,21 @@
 //   Trennlinie, VERERBUNG bzw. ZIELTYP mit der Kette
 // Ohne Fokus, ohne Klickflächen, Links, Kacheln, Badges oder Kopfleisten; den Tooltip schließt
 // dpcc.IDE.Hover.Editor.
+// Stufen (LOOK2, Entwurf dpcc-popups.html, Szene 4): Farben aus Look (TDpccLook der Stufe LookLevel).
+//   Rand               Look.HoverFrame
+//   Kopfzeile          markierte Fläche auf Look.HeadBack von Innenrand zu Innenrand (als erstes Element ab dem
+//                      oberen Rand, vor einer Trennlinie bis an diese); Farben aus Look.Marked (Intensiv wie Dezent):
+//                      Art in Kind[Gruppe], Name fett in Textfarbe, Rest in den Syn*-Farben; ohne eigenen Balken
+//   Balken             mit Look.MarkBarUsed (Intensiv) immer ganz oben am Fenster, von Innenrand zu Innenrand direkt
+//                      unter dem Rand, cDpccLookMarkBar hoch in Look.MarkBar, über allem Inhalt (auch über dem Wert
+//                      im Debugger); er liegt im oberen Abstand, die Maße ändern sich nicht
+//   Veraltung          in Look.Warn, bei WarnBackUsed auf Look.WarnBack zwischen den Trennlinien; nach ihr steht vor
+//                      der Doku eine Trennlinie
+//   Doku               TDpccDocView.Paint mit dem Look des Fensters; beginnt sie direkt unter der Trennlinie mit einer
+//                      Überschrift samt Linie (PARAMETER …), entfällt der Strich der Trennlinie, nicht ihr Abstand
+//                      (LOOK6, DocSeparatorShown)
+//   Überschriften      (PROPERTIES, EREIGNISSE, VERERBUNG …) in Look.DocHeading
+// Herkunft, Fundort, Wert („= 48“), Tabellen, Kette und Wert im Debugger bleiben wie bisher.
 
 interface
 
@@ -25,9 +40,11 @@ uses
   System.Classes,
   System.Types,
   Vcl.Graphics,
+  dpcc.Core.Style.Color,
   dpcc.Core.Hover.Contract,
   dpcc.Core.Hover.DebugValue,
   dpcc.Core.Hover.Plain,
+  dpcc.Core.Documentation.Layout,
   dpcc.UI.Documentation.View,
   dpcc.UI.Popup.Styled,
   dpcc.UI.Popup.Window;
@@ -63,6 +80,12 @@ type
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
+    /// <summary>Rand des Hovers: Look.HoverFrame (Intensiv im Akzent, sonst Linienfarbe).</summary>
+    function FrameColor: TDpccColor; override;
+    /// <summary>Strich der Trennlinie über der Doku zeichnen (LOOK6)? Nein, wenn die Doku ALayout mit einer
+    /// Überschrift samt eigener Linie beginnt (PARAMETER, RÜCKGABE …) und nicht gescrollt ist (AScroll = 0); sonst
+    /// ja. Der Abstand der Trennlinie bleibt in jedem Fall, es entfällt nur der Strich.</summary>
+    class function DocSeparatorShown(const ALayout: TDpccDocLayout; AScroll: Integer): Boolean; static;
     /// <summary>Zeigt den Inhalt zu AData und dem Wert im Debugger ADebug unter (bzw. über) dem Wort AWord
     /// (Bildschirmkoordinaten); ACurrentUnit gilt, wenn der Server keine Unit nennt.</summary>
     procedure ShowHover(const AData: TDpccHoverData; const ADebug: TDpccDebugValue; const ACurrentUnit: string;
@@ -77,8 +100,8 @@ uses
   Winapi.Windows,
   System.SysUtils,
   System.Math,
-  dpcc.Core.Style.Color,
   dpcc.Core.Style.Palette,
+  dpcc.Core.Style.Look,
   dpcc.Core.Hover.Texts,
   dpcc.Core.Diagnostics.Guard,
   dpcc.UI.Strings,
@@ -87,13 +110,18 @@ uses
   dpcc.UI.Hover.Strings;
 
 const
-  // Abstände wie in der Code-Insight-Liste der IDE (logische Pixel, S3c): Rand links 8, oben 5; Zeile 1 so hoch
-  // wie eine Zeile der Liste (Schrifthöhe + cRowPad); zwischen Blöcken cBlockGap, zwischen Abschnitten nur die
-  // Trennlinie mit cSeparatorGap (weniger als eine halbe Zeile).
+  // Abstände wie in der Code-Insight-Liste der IDE (logische Pixel, S3c): Rand links 8, oben 5; zwischen Blöcken
+  // cBlockGap, zwischen Abschnitten nur die Trennlinie mit cSeparatorGap (weniger als eine halbe Zeile).
   cPadX = 8;
   cPadTop = 5;
   cPadBottom = 5;
-  cRowPad = 9;
+  // Kopfzeile (LOOK4, Entwurf .hrow): Text ab cHeadTop unter der inneren Oberkante (als erstes Element) bzw. ab
+  // cHeadTopInner unter der Trennlinie (Debug-Fall); je Zeile genau die Schrifthöhe, einzeilig mindestens
+  // Schrifthöhe + cHeadMinExtra; darunter cHeadBottom. Fläche = Abstand oben + max(TH + 5, n·TH) + 3.
+  cHeadTop = 7;
+  cHeadTopInner = 2;
+  cHeadMinExtra = 5;
+  cHeadBottom = 3;
   cIndent = 16;
   cBlockGap = 1;
   cSeparatorGap = 7;
@@ -157,24 +185,38 @@ type
     Tip: TDpccHoverTip;
     Canvas: TCanvas;
     Colors: TDpccColors;
+    /// <summary>Farben der Stufe (LOOK2), Look des Fensters.</summary>
+    Look: TDpccLook;
     Draw: Boolean;
+    /// <summary>Breite des Fensters: Flächen reichen von Innenrand (1) zu Innenrand (Width - 1).</summary>
+    Width: Integer;
     Left: Integer;
     Right: Integer;
     Y: Integer;
     /// <summary>Schon etwas gezeichnet: Vor dem nächsten Abschnitt steht eine Trennlinie.</summary>
     Started: Boolean;
+    /// <summary>Höhe der zuletzt gezeichneten Trennlinie.</summary>
+    SeparatorY: Integer;
     function Scale(AValue: Integer): Integer;
+    /// <summary>Fläche AColor von Innenrand zu Innenrand, senkrecht von ATop bis vor ABottom.</summary>
+    procedure Band(ATop, ABottom: Integer; AColor: TDpccColor);
     /// <summary>Text in der UI-Schrift umbrechend ab Y, höchstens AMaxLines Zeilen (0 = alle).</summary>
     procedure Block(const AText: string; AColor: TDpccColor; AStyle: TFontStyles; AMaxLines: Integer = 0);
     /// <summary>Text in der Editorschrift umbrechend ab Y.</summary>
     procedure Mono(const AText: string; AColor: TDpccColor);
-    /// <summary>Überschrift eines Abschnitts in Großbuchstaben, gedämpft und fett (wie im Detailpanel).</summary>
+    /// <summary>Überschrift eines Abschnitts in Großbuchstaben, fett, in Look.DocHeading (wie die Überschriften der
+    /// Doku).</summary>
     procedure Heading(const AText: string);
-    procedure Separator;
+    /// <summary>Trennlinie mit ihrem Abstand; ohne AStroke nur der Abstand (Maße gleich).</summary>
+    procedure Separator(AStroke: Boolean = True);
     /// <summary>Trennlinie vor einem neuen Abschnitt (nicht vor dem ersten).</summary>
     procedure Section;
     procedure DebugValue;
-    procedure Headline;
+    /// <summary>Kopfzeile auf Look.HeadBack; AFollowed: danach kommt ein Abschnitt mit Trennlinie (ohne Herkunft
+    /// und Fundort reicht die Fläche dann bis an diese).</summary>
+    procedure Headline(AFollowed: Boolean);
+    /// <summary>Wert und Veraltung; die Veraltung auf Look.WarnBack (bei WarnBackUsed) bis an die folgende
+    /// Trennlinie.</summary>
     procedure Notes;
     procedure Documentation;
     procedure Table(const ATable: TDpccPlainHoverTable; AHeader: Boolean);
@@ -185,6 +227,19 @@ type
 function THoverRender.Scale(AValue: Integer): Integer;
 begin
   Result := MulDiv(AValue, Tip.PPI, 96);
+end;
+
+procedure THoverRender.Band(ATop, ABottom: Integer; AColor: TDpccColor);
+begin
+  // Über den seitlichen Innenabstand hinaus bis an den Rand; den Rand zeichnet PaintBorder danach.
+  if not Draw or (ABottom <= ATop) then
+  begin
+    Exit;
+  end;
+  Canvas.Brush.Style := bsSolid;
+  Canvas.Brush.Color := ToColor(AColor);
+  Canvas.FillRect(Rect(1, ATop, Width - 1, ABottom));
+  Canvas.Brush.Style := bsClear;
 end;
 
 procedure THoverRender.Block(const AText: string; AColor: TDpccColor; AStyle: TFontStyles; AMaxLines: Integer);
@@ -237,14 +292,16 @@ end;
 
 procedure THoverRender.Heading(const AText: string);
 begin
-  Block(AnsiUpperCase(AText), Colors.Muted, [fsBold]);
+  // Dieselbe Farbe wie die Überschriften der Doku (PARAMETER, RÜCKGABE …).
+  Block(AnsiUpperCase(AText), Look.DocHeading, [fsBold]);
 end;
 
-procedure THoverRender.Separator;
+procedure THoverRender.Separator(AStroke: Boolean);
 begin
-  if Draw then
+  SeparatorY := Y + Scale(cSeparatorGap div 2);
+  if Draw and AStroke then
   begin
-    TDpccDraw.Separator(Canvas, Left, Right, Y + Scale(cSeparatorGap div 2), Colors.Line);
+    TDpccDraw.Separator(Canvas, Left, Right, SeparatorY, Colors.Line);
   end;
   Inc(Y, Scale(cSeparatorGap));
 end;
@@ -276,33 +333,30 @@ begin
   end;
 end;
 
-procedure THoverRender.Headline;
+procedure THoverRender.Headline(AFollowed: Boolean);
 var
   mHover: TDpccPlainHover;
-  mLineHeight, mRowHeight, mLine, mX, mSignatureLeft, mNameEnd, mNormal, mBold: Integer;
+  mTextHeight, mRowHeight, mLine, mX, mSignatureLeft, mNameEnd, mNormal, mBold: Integer;
+  mFirst: Boolean;
+  mTop, mTextTop, mBottom: Integer;
+  mMarked: TDpccLook;
   mLines: TArray<TPoint>;
   mRow: TRect;
   mRange: TPoint;
   mNameText: string;
 begin
-  // Wie eine Zeile der Code-Insight-Liste: UI-Schrift, Art in der Art-Spalte (gedämpft wie in der Liste, Breite
-  // nach „constructor“ wie die Spalte der Liste), Name fett, Rest der Signatur eingefärbt; Zeile 1 so hoch wie eine
-  // Zeile der Liste, Folgezeilen eingerückt.
+  // UI-Schrift, Art in der Art-Spalte (Farbe der Artgruppe, Breite nach „constructor“ wie die Spalte der Liste),
+  // Name fett, Rest der Signatur eingefärbt, Folgezeilen eingerückt; alles auf der Kopffläche (LOOK2). Maße wie im
+  // Entwurf (.hrow, LOOK4): je Zeile genau die Schrifthöhe, einzeilig mindestens Schrifthöhe + cHeadMinExtra;
+  // Messen (FitHeight) und Zeichnen gehen durch denselben Code.
   mHover := Tip.FHover;
+  mFirst := not Started;
   Section;
   Canvas.Font := Tip.UIFont;
-  mLineHeight := Canvas.TextHeight('Wg') + Scale(2);
-  mRowHeight := Canvas.TextHeight('Wg') + Scale(cRowPad);
+  mTextHeight := Canvas.TextHeight('Wg');
   mSignatureLeft := Left;
   if mHover.Kind <> '' then
   begin
-    mRow := Rect(Left, Y, Right, Y + mRowHeight);
-    if Draw then
-    begin
-      Canvas.Font.Color := ToColor(Colors.KindLabel);
-      Canvas.Brush.Style := bsClear;
-      DrawText(Canvas.Handle, PChar(mHover.Kind), -1, mRow, DT_LEFT or DT_VCENTER or DT_SINGLELINE or DT_NOPREFIX);
-    end;
     mSignatureLeft := Left + Max(Canvas.TextWidth(cKindColumnSample), Canvas.TextWidth(mHover.Kind)) +
       Scale(cKindGap);
   end;
@@ -315,17 +369,46 @@ begin
   Canvas.Font.Style := [];
   mLines := Tip.FSignature.WrapAtSpaces(Canvas, Max(Scale(40), Right - mSignatureLeft - (mBold - mNormal)),
     Scale(cIndent));
+  // Kopffläche über alle Zeilen der Kopfzeile, seitlich bis an den Rand; als erstes Element ab der inneren
+  // Oberkante, Text cHeadTop darunter; sonst (z. B. unter dem Wert im Debugger) ab der Trennlinie darüber, Text
+  // cHeadTopInner darunter. Höhe des Textbereichs max(TH + cHeadMinExtra, n·TH), darunter cHeadBottom.
+  if mFirst then
+  begin
+    mTop := 1;
+    mTextTop := 1 + Scale(cHeadTop);
+  end
+  else
+  begin
+    mTop := Y;
+    mTextTop := Y + Scale(cHeadTopInner);
+  end;
+  if Length(mLines) > 1 then
+  begin
+    mRowHeight := mTextHeight;
+  end
+  else
+  begin
+    // Einzeilig (auch nur die Art): Art und Name senkrecht mittig wie bisher, auf einer Grundlinie.
+    mRowHeight := mTextHeight + Scale(cHeadMinExtra);
+  end;
+  mBottom := mTextTop + Max(mTextHeight + Scale(cHeadMinExtra), Length(mLines) * mTextHeight) +
+    Scale(cHeadBottom);
+  Band(mTop, mBottom, Look.HeadBack);
+  Y := mTextTop;
+  // Markierte Fläche: Inhalte in den Farben von Marked (Intensiv wie Dezent), Art in der Farbe ihrer Gruppe, Name in
+  // Textfarbe. Den Balken oben am Fenster zeichnet Paint.
+  mMarked := Look.Marked;
+  if (mHover.Kind <> '') and Draw then
+  begin
+    mRow := Rect(Left, Y, Right, Y + mRowHeight);
+    Canvas.Font.Color := ToColor(mMarked.Kind[mHover.KindGroup]);
+    Canvas.Brush.Style := bsClear;
+    DrawText(Canvas.Handle, PChar(mHover.Kind), -1, mRow, DT_LEFT or DT_VCENTER or DT_SINGLELINE or DT_NOPREFIX);
+  end;
   for mLine := 0 to High(mLines) do
   begin
     mX := mSignatureLeft + IfThen(mLine > 0, Scale(cIndent));
-    if mLine = 0 then
-    begin
-      mRow := Rect(mX, Y, Right, Y + mRowHeight);
-    end
-    else
-    begin
-      mRow := Rect(mX, Y, Right, Y + mLineHeight);
-    end;
+    mRow := Rect(mX, Y, Right, Y + mRowHeight);
     mRange := mLines[mLine];
     if Draw and (mLine = 0) and (mRange.X = 0) and (mNameEnd > 0) then
     begin
@@ -339,14 +422,18 @@ begin
     end;
     if Draw then
     begin
-      Tip.FSignature.Draw(TDpccStyledTarget.Create(Canvas, Colors), mRange, mX,
+      // Rest der Signatur in den Syn*-Farben von Marked (Intensiv wie Dezent: Typ abgeschwächt, Zahl in Textfarbe).
+      Tip.FSignature.Draw(TDpccStyledTarget.Create(Canvas, mMarked), mRange, mX,
         Rect(mX, mRow.Top, Right, mRow.Bottom), False);
     end;
     Inc(Y, mRow.Height);
   end;
-  if Length(mLines) = 0 then
+  // Weiter unter der Fläche. Folgt ohne Herkunft und Fundort direkt eine Trennlinie, liegt sie unmittelbar unter
+  // der Fläche (wie im Entwurf: Fläche bis an die Linie).
+  Y := mBottom;
+  if AFollowed and (mHover.OriginLine = '') and (mHover.Location = '') then
   begin
-    Inc(Y, mRowHeight);
+    Dec(Y, Scale(cSeparatorGap div 2));
   end;
   // Herkunft und Fundort gedämpft (wie die Kopfzeile eines Menüs der IDE).
   Block(mHover.OriginLine, Colors.Muted, []);
@@ -356,19 +443,43 @@ end;
 procedure THoverRender.Notes;
 var
   mHover: TDpccPlainHover;
+  mTop, mStart: Integer;
+  mDraw: Boolean;
 begin
+  // Wert („= 48“) gedämpft wie bisher; Veraltung in Warnfarbe, bei WarnBackUsed auf der Warnfläche von Innenrand zu
+  // Innenrand, senkrecht von der Trennlinie darüber (bzw. unter dem Wert) bis an die folgende Trennlinie.
   mHover := Tip.FHover;
   Mono(mHover.ValueLine, Colors.Muted);
-  Block(mHover.Deprecation, Colors.Warn, []);
+  if mHover.Deprecation = '' then
+  begin
+    Exit;
+  end;
+  if Look.WarnBackUsed and Draw then
+  begin
+    mTop := Y;
+    if mHover.ValueLine = '' then
+    begin
+      mTop := SeparatorY + 1;
+    end;
+    // Erst messen, dann die Fläche, dann den Text darüber.
+    mStart := Y;
+    mDraw := Draw;
+    Draw := False;
+    Block(mHover.Deprecation, Look.Warn, []);
+    Draw := mDraw;
+    Band(mTop, Y + Scale(cSeparatorGap div 2), Look.WarnBack);
+    Y := mStart;
+  end;
+  Block(mHover.Deprecation, Look.Warn, []);
 end;
 
 procedure THoverRender.Documentation;
 begin
-  // Derselbe Satz und Zeichner wie im Detailpanel der Vervollständigung.
+  // Derselbe Satz und Zeichner wie im Detailpanel der Vervollständigung, in den Farben der Stufe.
   Tip.FDocTop := Y;
   if Draw then
   begin
-    Tip.FDoc.Paint(Canvas, Colors, Left, Y);
+    Tip.FDoc.Paint(Canvas, Look, Left, Y);
   end;
   Inc(Y, Tip.FDoc.Height + Scale(cBlockGap));
 end;
@@ -481,6 +592,18 @@ begin
   inherited Destroy;
 end;
 
+function TDpccHoverTip.FrameColor: TDpccColor;
+begin
+  Result := Look.HoverFrame;
+end;
+
+class function TDpccHoverTip.DocSeparatorShown(const ALayout: TDpccDocLayout; AScroll: Integer): Boolean;
+begin
+  // Zwei Linien dicht untereinander vermeiden: Die erste Zeile der Doku ist eine Überschrift mit Linie bis zum Rand.
+  // Gescrollt ist die Überschrift weggerollt, dann trennt wieder der Strich.
+  Result := (AScroll > 0) or (Length(ALayout.Lines) = 0) or not ALayout.Lines[0].Rule;
+end;
+
 procedure TDpccHoverTip.PrepareFonts;
 begin
   // Code (Ausdruck, Wert, Kette, Mitglieder, Typen und Beispiele der Doku) in der Editorschrift, aber so groß wie
@@ -494,30 +617,39 @@ function TDpccHoverTip.Render(AWidth: Integer; ADraw: Boolean): Integer;
 var
   mRender: THoverRender;
   mSection: TDpccPlainHoverSection;
-  mAfterHeadline: Boolean;
+  mAfterHeadline, mFollowed: Boolean;
 begin
   mRender := Default(THoverRender);
   mRender.Tip := Self;
   mRender.Canvas := Canvas;
   mRender.Colors := Colors;
+  mRender.Look := Look;
   mRender.Draw := ADraw;
+  mRender.Width := AWidth;
   mRender.Left := Scale(cPadX);
   mRender.Right := AWidth - Scale(cPadX);
   mRender.Y := Scale(cPadTop);
   mAfterHeadline := False;
+  // Nach der Kopfzeile beginnt jeder weitere Abschnitt mit einer Trennlinie.
+  mFollowed := FHover.Has(TDpccPlainHoverSection.Notes) or FHover.Has(TDpccPlainHoverSection.Documentation) or
+    FHover.Has(TDpccPlainHoverSection.Members) or FHover.Has(TDpccPlainHoverSection.Chain);
   for mSection in FHover.Sections do
   begin
     case mSection of
       TDpccPlainHoverSection.DebugValue:
         mRender.DebugValue;
       TDpccPlainHoverSection.Headline:
-        mRender.Headline;
+        mRender.Headline(mFollowed);
       TDpccPlainHoverSection.Notes, TDpccPlainHoverSection.Documentation:
         begin
-          // Wert, Veraltung und Doku bilden einen Block unter einer Trennlinie (wie im Detailpanel).
+          // Wert, Veraltung und Doku bilden einen Block unter einer Trennlinie (wie im Detailpanel); nach einer
+          // Veraltung trennt eine weitere Trennlinie die Doku ab (Entwurf LOOK2: Veraltung zwischen zwei Linien).
+          // Beginnt der Block gleich mit der Doku und diese mit einer Überschrift samt eigener Linie (PARAMETER …),
+          // entfällt nur der Strich, der Abstand bleibt (LOOK6). Die Linien um die Veraltung bleiben immer.
           if not mAfterHeadline then
           begin
-            mRender.Separator;
+            mRender.Separator((mSection <> TDpccPlainHoverSection.Documentation) or
+              DocSeparatorShown(FDoc.Layout, FDoc.Scroll));
             mAfterHeadline := True;
           end;
           if mSection = TDpccPlainHoverSection.Notes then
@@ -526,6 +658,10 @@ begin
           end
           else
           begin
+            if FHover.Has(TDpccPlainHoverSection.Notes) and (FHover.Deprecation <> '') then
+            begin
+              mRender.Separator;
+            end;
             mRender.Documentation;
           end;
         end;
@@ -652,6 +788,12 @@ begin
   Canvas.Brush.Color := ToColor(Colors.Surface);
   Canvas.FillRect(ClientRect);
   Render(ClientWidth, True);
+  // Intensiv: Balken der markierten Fläche immer ganz oben am Fenster, nach dem Inhalt über allem, von Innenrand zu
+  // Innenrand direkt unter dem Rand (y = 1); der Rand kommt danach und bleibt ganz sichtbar.
+  if Look.MarkBarUsed then
+  begin
+    FillBox(Rect(1, 1, ClientWidth - 1, 1 + Scale(cDpccLookMarkBar)), Look.MarkBar);
+  end;
   PaintBorder;
 end;
 

@@ -13,6 +13,8 @@
 // der IDE – eckig (unter Windows 11 die Rundung des Fenstermanagers ausgeschaltet), dünner Rand in der
 // Linienfarbe (Colors.Line). Den früheren runden Weg mit Akzentrahmen gibt es nicht mehr. Code (Namen, Signaturen)
 // steht in der Editorschrift (Font), Beschriftungen in der UI-Schrift (UIFont).
+// Stufen (LOOK1): Look ist immer aus Colors und LookLevel abgeleitet (TDpccLook.From) und wird beim Setzen von
+// beiden neu berechnet. Der Rand nimmt FrameColor (Look.Frame; in Dezent und Unscheinbar wie bisher Colors.Line).
 // Maße (#412, #445): alle in logischen Pixeln (96 dpi), umgerechnet mit PPI =
 // DPI des Monitors am Caret mal Zoom des Editors (SetScaling). So wachsen Schrift,
 // Zeilen und Abstände gemeinsam.
@@ -33,6 +35,7 @@ uses
   Vcl.Controls,
   dpcc.Core.Style.Color,
   dpcc.Core.Style.Palette,
+  dpcc.Core.Style.Look,
   dpcc.UI.Popup.Accessibility,
   dpcc.Core.Diagnostics.Guard;
 
@@ -51,6 +54,8 @@ type
     end;
   private
     FColors: TDpccColors;
+    FLookLevel: TDpccLookLevel;
+    FLook: TDpccLook;
     FUIFont: TFont;
     FPPI: Integer;
     FAccess: TAccess;
@@ -62,6 +67,7 @@ type
     function HandleOwnMessage(var AMessage: TMessage): Boolean;
     procedure CMFontChanged(var Message: TMessage); message CM_FONTCHANGED;
     procedure SetColors(const AValue: TDpccColors);
+    procedure SetLookLevel(AValue: TDpccLookLevel);
     /// <summary>Eckig und ohne Rahmen des Fenstermanagers (Windows 11); den Rand zeichnet PaintBorder.</summary>
     procedure SquareCorners;
   protected
@@ -70,7 +76,7 @@ type
     procedure WndProc(var Message: TMessage); override;
     procedure CreateWnd; override;
     procedure DestroyWnd; override;
-    /// <summary>Dünner, eckiger Rand in Colors.Line.</summary>
+    /// <summary>Dünner, eckiger Rand in FrameColor.</summary>
     procedure PaintBorder;
     /// <summary>Logische Pixel (96 dpi) auf den Monitor des Fensters umrechnen.</summary>
     function Scale(AValue: Integer): Integer;
@@ -102,6 +108,13 @@ type
     /// <summary>Arbeitsbereich des Monitors, auf dem APoint liegt.</summary>
     class function WorkAreaAt(const APoint: TPoint): TRect; static;
     property Colors: TDpccColors read FColors write SetColors;
+    /// <summary>Darstellung der Popups (LOOK1); Vorgabe cDpccLookLevelDefault. Setzen berechnet Look neu.</summary>
+    property LookLevel: TDpccLookLevel read FLookLevel write SetLookLevel;
+    /// <summary>Alle Farben der Stufe: TDpccLook.From(Colors, LookLevel), neu bei jedem Setzen von Colors oder
+    /// LookLevel.</summary>
+    property Look: TDpccLook read FLook;
+    /// <summary>Farbe des Rands (PaintBorder): Look.Frame; der Hover-Tooltip nimmt Look.HoverFrame.</summary>
+    function FrameColor: TDpccColor; virtual;
     /// <summary>Wirksame Pixel je Zoll: Monitor-DPI mal Zoom; Schriften in AFontName/AFontSize (Punkt).</summary>
     procedure SetScaling(AMonitorPPI: Integer; AZoom: Double; const AFontName: string; AFontSize: Integer);
     /// <summary>Pixel je Zoll des Monitors, auf dem APoint liegt.</summary>
@@ -158,6 +171,8 @@ begin
   FUIFont := TFont.Create;
   FPPI := Screen.PixelsPerInch;
   FColors := StyleColors;
+  FLookLevel := cDpccLookLevelDefault;
+  FLook := TDpccLook.From(FColors, FLookLevel);
   Perform(CM_FONTCHANGED, 0, 0);
 end;
 
@@ -313,7 +328,20 @@ end;
 procedure TDpccPopupWindow.SetColors(const AValue: TDpccColors);
 begin
   FColors := AValue;
+  FLook := TDpccLook.From(FColors, FLookLevel);
   Invalidate;
+end;
+
+procedure TDpccPopupWindow.SetLookLevel(AValue: TDpccLookLevel);
+begin
+  FLookLevel := AValue;
+  FLook := TDpccLook.From(FColors, FLookLevel);
+  Invalidate;
+end;
+
+function TDpccPopupWindow.FrameColor: TDpccColor;
+begin
+  Result := FLook.Frame;
 end;
 
 procedure TDpccPopupWindow.FillBox(const ARect: TRect; AColor: TDpccColor);
@@ -332,7 +360,7 @@ end;
 
 procedure TDpccPopupWindow.PaintBorder;
 begin
-  FrameBox(ClientRect, FColors.Line);
+  FrameBox(ClientRect, FrameColor);
 end;
 
 procedure TDpccPopupWindow.ShowAt(const ABounds: TRect);

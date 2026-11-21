@@ -134,6 +134,7 @@ uses
   dpcc.Core.Diagnostics.Guard,
   dpcc.Core.Completion.Parentheses,
   dpcc.Core.Completion.Favorites,
+  dpcc.Core.Completion.Word,
   dpcc.IDE.Foundation.KeyHook,
   dpcc.IDE.Foundation.Settings,
   dpcc.IDE.Foundation.EditorBuffer,
@@ -652,9 +653,11 @@ end;
 
 procedure TDpccEditorCompletion.Refilter(const ALineText: string; ALine, ACharacter: Integer);
 var
-  mPrefix: string;
+  mPrefix, mRest: string;
 begin
   mPrefix := Copy(ALineText, FOpen.WordStart + 1, ACharacter - FOpen.WordStart);
+  // Look-ahead: Rest neu bestimmen, Entf hinter dem Cursor ändert ihn bei gleichem Präfix.
+  mRest := Copy(ALineText, ACharacter + 1, TDpccWord.EndAfter(ALineText, ACharacter) - ACharacter);
   // Gekürzte Liste (#431) oder Wort nicht mehr Fortsetzung der Anfrage (Rücktaste, #616): lokal weiterfiltern
   // und im Hintergrund neu fragen. Sonst nur lokal; der Server wird beim Tippen nicht mehr gefragt.
   if (mPrefix <> FController.Prefix) and FController.NeedsQuery(mPrefix) then
@@ -663,7 +666,7 @@ begin
   end
   else
   begin
-    FController.UpdatePrefix(mPrefix);
+    FController.UpdatePrefix(mPrefix, mRest);
   end;
 end;
 

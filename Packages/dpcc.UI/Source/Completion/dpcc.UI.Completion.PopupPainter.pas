@@ -2,12 +2,19 @@
 
 // Vervollständigungs-Popup (#410), Stufe Zeichnen: Warnleiste, Überschriften, Zeilen, Scrollleiste, Fußzeile und
 // leerer Zustand; dazu der Tooltip für gekürzte Zeilen (#420). Kette und Aussehen: dpcc.UI.Completion.Popup.
-// Schlicht (S6): Zeilen wie die Code-Insight-Liste der IDE und der Hover-Tooltip (DrawRow): Art als Wort gedämpft
-// (Colors.KindLabel, S8), Name fett (getippte Zeichen unterstrichen), Rest der Signatur direkt dahinter bzw.
-// das Detail gedämpft, rechts gedämpft „+ Unit“ und Warnungen als Text; Auswahl flach über die ganze Zeile.
+// Schlicht (S6): Zeilen wie die Code-Insight-Liste der IDE und der Hover-Tooltip (DrawRow): Art als Wort in eigener
+// Spalte, Name fett (getippte Zeichen unterstrichen), Rest der Signatur direkt dahinter bzw. das Detail gedämpft,
+// rechts „+ Unit“ und Warnungen als Text; Auswahl flach über die ganze Zeile.
 // Fußzeile auf der Fläche mit Trennlinie, nur Tasten bzw. Hinweise. Badges, Tags als Flächen, Sterne, Chips,
 // Auswahlmarke, Griff und Detailpanel gibt es seit S7a nicht mehr. Seit S8 sind auch Warnleiste (Text in
 // Warnfarbe über einer Trennlinie) und Kästchen im Mengenmodus (1 px, eckig) flach.
+// Stufen (LOOK1): Alle Farben kommen aus Look (TDpccPopupWindow.Look), die der Zeilen aus
+// TDpccCompletionRowColors (dpcc.UI.Completion.RowColors): Art je Artgruppe, Aktionen in Look.Action, getippte
+// Zeichen mit MatchUsed in Look.Match, Marken nach ihrer Art. Warnleiste in Look.Warn, mit WarnBackUsed auf
+// Look.WarnBack. Markierte Flächen: die gewählte Zeile auf Look.SelectionBack und die Zeile „Keine Treffer …“ der
+// leeren Liste auf Look.HeadBack, ihre Texte in den Farben von Look.Marked (Intensiv wie Dezent); mit
+// Look.MarkBarUsed (Intensiv) steht links davor im Innenabstand ein Balken in Look.MarkBar (DrawMarkBar).
+// Überschriften, Fußzeile und Scroll-Daumen bleiben in allen Stufen gleich.
 
 interface
 
@@ -18,24 +25,29 @@ uses
   System.Types,
   dpcc.Core.Style.Color,
   dpcc.Core.Completion.Contract,
+  dpcc.UI.Completion.RowColors,
   dpcc.UI.Completion.PopupState,
   dpcc.UI.Completion.PopupLayout;
 
 type
   TDpccCompletionPopupPainter = class(TDpccCompletionPopupLayout)
   protected
-    function Dim(AColor: TDpccColor): TDpccColor;
     procedure DrawSyntax;
     procedure DrawHeader(ARow, APosition: Integer);
-    procedure DrawCheck(const ARow: TRect; AChecked: Boolean);
+    procedure DrawCheck(const ARow: TRect; AChecked: Boolean; const AColors: TDpccRowColors);
+    /// <summary>Mit Look.MarkBarUsed (Intensiv): Balken in Look.MarkBar links vor der markierten Zeile ARow, im
+    /// Innenabstand direkt an ihre Fläche anschließend (x von ARow.Left - cDpccLookMarkBar bis ARow.Left), über
+    /// ihre ganze Höhe.</summary>
+    procedure DrawMarkBar(const ARow: TRect);
     /// <summary>Zeile der Liste.</summary>
     procedure DrawRow(ARow, APosition: Integer);
-    /// <summary>Name fett ab ALeft bis höchstens ARight, getippte Zeichen unterstrichen; liefert das Ende des
-    /// Namens. ATruncated, wenn er nicht ganz passt.</summary>
-    function DrawName(const AName: string; ALeft, ARight: Integer; const ARow: TRect; AColor: TDpccColor;
-      out ATruncated: Boolean): Integer;
-    /// <summary>Textfarbe auf der gewählten Zeile.</summary>
-    function SelectionText: TDpccColor;
+    /// <summary>Name fett ab ALeft bis höchstens ARight in AColor, getippte Zeichen unterstrichen in AMatchColor;
+    /// liefert das Ende des Namens. ATruncated, wenn er nicht ganz passt.</summary>
+    function DrawName(const AName: string; ALeft, ARight: Integer; const ARow: TRect; AColor,
+      AMatchColor: TDpccColor; out ATruncated: Boolean): Integer;
+    /// <summary>Marken rechts (TrailerTags) ab ALeft, jede in der Farbe ihrer Art.</summary>
+    procedure DrawTrailer(const AItem: TDpccCompletionItem; ALeft: Integer; const ARow: TRect;
+      const AColors: TDpccRowColors);
     /// <summary>Merkt für den Tooltip (#420), ob die sichtbare Zeile ARow gekürzt ist.</summary>
     procedure MarkTruncated(ARow: Integer; ATruncated: Boolean);
     procedure DrawScrollBar;
@@ -66,6 +78,7 @@ uses
   Winapi.Windows,
   System.Math,
   Vcl.Graphics,
+  dpcc.Core.Style.Look,
   dpcc.Core.Completion.Ranking,
   dpcc.Core.Completion.Presentation,
   dpcc.Core.Diagnostics.Timing,
@@ -84,18 +97,6 @@ begin
   FTipTimer.OnTimer := TipTimer;
 end;
 
-function TDpccCompletionPopupPainter.Dim(AColor: TDpccColor): TDpccColor;
-begin
-  if FDimRow then
-  begin
-    Result := TDpccColorMath.Mix(AColor, Colors.Surface, 0.62);
-  end
-  else
-  begin
-    Result := AColor;
-  end;
-end;
-
 procedure TDpccCompletionPopupPainter.DrawSyntax;
 var
   mBar, mText: TRect;
@@ -107,13 +108,19 @@ begin
   begin
     Exit;
   end;
-  // Flach wie der Hover-Tooltip: nur Text in Warnfarbe, darunter eine dünne Trennlinie.
+  // Flach wie der Hover-Tooltip: Text in Look.Warn, darunter eine dünne Trennlinie über die ganze Breite (wie die
+  // Fußzeile). Intensiv und Dezent füllen die Leiste bis zum Rand mit Look.WarnBack; den Rand zeichnet PaintBorder
+  // danach darüber.
+  if Look.WarnBackUsed then
+  begin
+    FillBox(Rect(0, 0, ListWidth, Pad + SyntaxHeight - 1), Look.WarnBack);
+  end;
   mBar := Rect(Pad + Scale(4), Pad + Scale(2), ListWidth - Pad - Scale(4), Pad + SyntaxHeight - Scale(2));
-  TDpccDraw.Separator(Canvas, Pad, ListWidth - Pad, Pad + SyntaxHeight - 1, Colors.Line);
+  TDpccDraw.Separator(Canvas, 0, ListWidth, Pad + SyntaxHeight - 1, Colors.Line);
   mLead := TDpccCompletionTexts.SyntaxLead(FSyntax.Trust);
   mLineText := TDpccCompletionTexts.SyntaxLineText(FSyntax.Line);
   Canvas.Font := UIFont;
-  Canvas.Font.Color := ToColor(Colors.Warn);
+  Canvas.Font.Color := ToColor(Look.Warn);
   Canvas.Brush.Style := bsClear;
   mText := Rect(mBar.Left + Scale(8), mBar.Top, mBar.Right - Scale(8), mBar.Bottom);
   DrawText(Canvas.Handle, PChar(mLead), -1, mText, cTextFlags or DT_END_ELLIPSIS);
@@ -190,13 +197,19 @@ var
 
 begin
   DrawSyntax;
+  // Erste Zeile wie eine Kopfzeile (LOOK1): Fläche Look.HeadBack über die ganze Zeile innerhalb des Innenabstands;
+  // als markierte Fläche Intensiv mit dem Balken davor.
+  FillBox(Rect(Pad, ListTop, ListWidth - Pad, ListTop + RowHeight), Look.HeadBack);
+  DrawMarkBar(Rect(Pad, ListTop, ListWidth - Pad, ListTop + RowHeight));
   if FEmpty.Prefix <> '' then
   begin
-    DrawLine(0, TDpccCompletionStrings.Fmt(TDpccCompletionTextId.NoMatchesFor, [FEmpty.Prefix]), Colors.Text);
+    DrawLine(0, TDpccCompletionStrings.Fmt(TDpccCompletionTextId.NoMatchesFor, [FEmpty.Prefix]),
+      TDpccCompletionRowColors.EmptyHeadText(Look));
   end
   else
   begin
-    DrawLine(0, TDpccCompletionStrings.Text(TDpccCompletionTextId.NoSuggestions), Colors.Text);
+    DrawLine(0, TDpccCompletionStrings.Text(TDpccCompletionTextId.NoSuggestions),
+      TDpccCompletionRowColors.EmptyHeadText(Look));
   end;
   // Unvollständiger Code (#457): statt des Tipps zur Rücktaste der Fehler.
   if (FSyntax.Trust <> TDpccSyntaxTrust.Sure) and (FSyntax.Message <> '') then
@@ -245,7 +258,8 @@ begin
   end;
 end;
 
-procedure TDpccCompletionPopupPainter.DrawCheck(const ARow: TRect; AChecked: Boolean);
+procedure TDpccCompletionPopupPainter.DrawCheck(const ARow: TRect; AChecked: Boolean;
+  const AColors: TDpccRowColors);
 var
   mBox: TRect;
   mSize, mTop: Integer;
@@ -257,36 +271,61 @@ begin
   // Eckig und flach (S8): leer nur der Rand, gewählt gefüllt mit Haken.
   if not AChecked then
   begin
-    FrameBox(mBox, Colors.Muted);
+    FrameBox(mBox, AColors.CheckFrame);
     Exit;
   end;
-  FillBox(mBox, Colors.Accent);
-  // Haken in der Flächenfarbe.
+  FillBox(mBox, AColors.CheckFill);
+  // Haken in der Flächenfarbe, auch auf der gewählten Zeile.
   mPoints[0] := Point(mBox.Left + MulDiv(mSize, 3, 13), mBox.Top + MulDiv(mSize, 7, 13));
   mPoints[1] := Point(mBox.Left + MulDiv(mSize, 5, 13), mBox.Top + MulDiv(mSize, 10, 13));
   mPoints[2] := Point(mBox.Left + MulDiv(mSize, 10, 13), mBox.Top + MulDiv(mSize, 3, 13));
-  Canvas.Pen.Color := ToColor(Colors.Surface);
+  Canvas.Pen.Color := ToColor(AColors.CheckMark);
   Canvas.Pen.Width := Max(1, Scale(2));
   Canvas.Polyline(mPoints);
   Canvas.Pen.Width := 1;
 end;
 
-function TDpccCompletionPopupPainter.SelectionText: TDpccColor;
+procedure TDpccCompletionPopupPainter.DrawMarkBar(const ARow: TRect);
 begin
-  // Wie in der Liste der IDE: Hebt sich die Auswahl kräftig ab (hell auf dunkler Fläche bzw. umgekehrt), steht
-  // der Text in der Farbe der Fläche, sonst in der Textfarbe.
-  if TDpccColorMath.IsDark(Colors.Selection) = TDpccColorMath.IsDark(Colors.Surface) then
+  // Wie im Entwurf (box-shadow -3px 0 0): außerhalb der Zeilenfläche im Innenabstand des Fensters; den Rand zeichnet
+  // PaintBorder danach darüber.
+  if Look.MarkBarUsed then
   begin
-    Result := Colors.Text;
-  end
-  else
+    FillBox(Rect(ARow.Left - Scale(cDpccLookMarkBar), ARow.Top, ARow.Left, ARow.Bottom), Look.MarkBar);
+  end;
+end;
+
+procedure TDpccCompletionPopupPainter.DrawTrailer(const AItem: TDpccCompletionItem; ALeft: Integer;
+  const ARow: TRect; const AColors: TDpccRowColors);
+var
+  mTag: TDpccTag;
+  mText: string;
+  mX: Integer;
+  mPart: TRect;
+  mFirst: Boolean;
+begin
+  // Dieselben Texte und Abstände wie Trailer (Breite gemessen über den ganzen Text), je Marke ihre Farbe.
+  Canvas.Font := UIFont;
+  Canvas.Brush.Style := bsClear;
+  mX := ALeft;
+  mFirst := True;
+  for mTag in TrailerTags(AItem) do
   begin
-    Result := Colors.Surface;
+    if not mFirst then
+    begin
+      Inc(mX, Canvas.TextWidth(cTagSeparator));
+    end;
+    mFirst := False;
+    mText := TDpccCompletionTexts.TagText(mTag);
+    Canvas.Font.Color := ToColor(AColors.Tags[mTag.Kind]);
+    mPart := Rect(mX, ARow.Top, ARow.Right, ARow.Bottom);
+    DrawText(Canvas.Handle, PChar(mText), -1, mPart, cTextFlags);
+    Inc(mX, Canvas.TextWidth(mText));
   end;
 end;
 
 function TDpccCompletionPopupPainter.DrawName(const AName: string; ALeft, ARight: Integer; const ARow: TRect;
-  AColor: TDpccColor; out ATruncated: Boolean): Integer;
+  AColor, AMatchColor: TDpccColor; out ATruncated: Boolean): Integer;
 var
   mMarks: TArray<Boolean>;
   mIndex, mRun, mX, mWidth: Integer;
@@ -307,7 +346,8 @@ begin
     Canvas.Font.Style := [];
     Exit(Min(ALeft + mWidth, Max(ALeft, ARight)));
   end;
-  // Getippte Zeichen unterstrichen wie in der Code-Insight-Liste der IDE; Läufe gleicher Markierung nacheinander.
+  // Getippte Zeichen unterstrichen wie in der Code-Insight-Liste der IDE (Intensiv außerhalb der gewählten Zeile
+  // zusätzlich in Look.Match); Läufe gleicher Markierung nacheinander.
   mMarks := NameMarks(FPattern, AName);
   mX := ALeft;
   mIndex := 1;
@@ -318,10 +358,12 @@ begin
     if mMarks[mIndex] then
     begin
       Canvas.Font.Style := [fsBold, fsUnderline];
+      Canvas.Font.Color := ToColor(AMatchColor);
     end
     else
     begin
       Canvas.Font.Style := [fsBold];
+      Canvas.Font.Color := ToColor(AColor);
     end;
     mPart := Rect(mX, ARow.Top, ARight, ARow.Bottom);
     DrawText(Canvas.Handle, PChar(mText), -1, mPart, cTextFlags);
@@ -339,49 +381,34 @@ var
   mRow, mPart: TRect;
   mSelected, mTruncated, mNameCut: Boolean;
   mLeft, mRight, mX, mWidth: Integer;
-  mTextColor, mKindColor, mMutedColor, mNameColor, mTailColor: TDpccColor;
+  mColors: TDpccRowColors;
+  mTailColor: TDpccColor;
   mTail: string;
 begin
   mItem := FItems[FOrder[APosition]];
   mRow := RowRect(ARow);
   mSelected := APosition = FSelected;
+  mPlain := RowOf(mItem);
   // Geerbt (#419), in der aktiven Konfiguration nicht vorhanden (#476) bzw. Rest ohne Treffer (#497): gedämpft;
   // die gewählte Zeile bleibt voll lesbar.
   FDimRow := ((FOptions.DimInherited and (mItem.Depth > 0)) or mItem.Unavailable or ((FRestFrom >= 0) and
     (APosition > FRestFrom))) and not mSelected;
+  // Farben nach der Stufe (LOOK1), die gewählte Zeile in denen von Look.Marked; Aktionen (#444, #471) und Hinweise
+  // (#466) in Look.Action.
+  mColors := TDpccCompletionRowColors.Row(Look, mPlain.Kind, mItem.IsAction or mItem.Hint, mSelected, FDimRow);
   if mSelected then
   begin
-    // Auswahl flach über die ganze Zeile wie in der Liste der IDE: ohne Rundung, Rahmen und Marke.
-    Canvas.Brush.Style := bsSolid;
-    Canvas.Brush.Color := ToColor(Colors.Selection);
-    Canvas.FillRect(mRow);
-    mTextColor := SelectionText;
-    mKindColor := mTextColor;
-    mMutedColor := mTextColor;
-    mNameColor := mTextColor;
-  end
-  else
-  begin
-    mTextColor := Dim(Colors.Text);
-    mKindColor := Dim(Colors.KindLabel);
-    mMutedColor := Dim(Colors.Muted);
-    // Aktionen (#444, #471) und Hinweise (#466) in Akzentfarbe.
-    if mItem.IsAction or mItem.Hint then
-    begin
-      mNameColor := Dim(Colors.Accent);
-    end
-    else
-    begin
-      mNameColor := mTextColor;
-    end;
+    // Auswahl flach über die ganze Zeile wie in der Liste der IDE: ohne Rundung und Rahmen; Intensiv mit dem Balken
+    // links davor (auch im Mengenmodus).
+    FillBox(mRow, Look.SelectionBack);
+    DrawMarkBar(mRow);
   end;
   // Mengenmodus (#448): Kontrollkästchen vor der Art.
   if mItem.SetOf <> '' then
   begin
-    DrawCheck(mRow, mItem.Checked);
+    DrawCheck(mRow, mItem.Checked, mColors);
     Inc(mRow.Left, Scale(cCheckWidth));
   end;
-  mPlain := RowOf(mItem);
   mLeft := mRow.Left + Scale(cInset);
   mRight := mRow.Right - Scale(cInset);
   // Art als Wort in eigener Spalte (Breite nach „constructor“ wie im Hover-Tooltip).
@@ -389,23 +416,20 @@ begin
   begin
     mPart := Rect(mLeft, mRow.Top, Max(mLeft, Min(mRight, mLeft + KindWidth - Scale(cInset))), mRow.Bottom);
     Canvas.Font := UIFont;
-    Canvas.Font.Color := ToColor(mKindColor);
+    Canvas.Font.Color := ToColor(mColors.Kind);
     Canvas.Brush.Style := bsClear;
     DrawText(Canvas.Handle, PChar(mPlain.Kind), -1, mPart, cTextFlags or DT_END_ELLIPSIS);
   end;
   Inc(mLeft, KindWidth);
   mTruncated := False;
-  // Rechts gedämpft „+ Unit“ und Warnungen, solange dem Namen genug Platz bleibt.
+  // Rechts „+ Unit“ und Warnungen, jede Marke in der Farbe ihrer Art, solange dem Namen genug Platz bleibt.
   if mPlain.Trailer <> '' then
   begin
     Canvas.Font := UIFont;
     mWidth := Canvas.TextWidth(mPlain.Trailer);
     if mRight - mWidth - Scale(cGap) >= mLeft + Scale(60) then
     begin
-      Canvas.Font.Color := ToColor(mMutedColor);
-      Canvas.Brush.Style := bsClear;
-      mPart := Rect(mRight - mWidth, mRow.Top, mRight, mRow.Bottom);
-      DrawText(Canvas.Handle, PChar(mPlain.Trailer), -1, mPart, cTextFlags);
+      DrawTrailer(mItem, mRight - mWidth, Rect(mRight - mWidth, mRow.Top, mRight, mRow.Bottom), mColors);
       Dec(mRight, mWidth + Scale(cGap));
     end
     else
@@ -413,11 +437,11 @@ begin
       mTruncated := True;
     end;
   end;
-  mX := DrawName(mItem.Name, mLeft, mRight, mRow, mNameColor, mNameCut);
+  mX := DrawName(mItem.Name, mLeft, mRight, mRow, mColors.Name, mColors.Match, mNameCut);
   mTruncated := mTruncated or mNameCut;
   // Rest der Signatur direkt hinter dem Namen, sonst das Detail abgesetzt und gedämpft; zu lang: mit „…“.
   mTail := '';
-  mTailColor := mTextColor;
+  mTailColor := mColors.Text;
   if mPlain.Params <> '' then
   begin
     mTail := mPlain.Params;
@@ -425,7 +449,7 @@ begin
   else if mPlain.Detail <> '' then
   begin
     mTail := mPlain.Detail;
-    mTailColor := mMutedColor;
+    mTailColor := mColors.Muted;
     Inc(mX, Scale(cGap));
   end;
   if (mTail <> '') and not mNameCut then
@@ -568,7 +592,9 @@ begin
     Exit;
   end;
   mItem := FItems[FOrder[FHoverPosition]];
+  // Text auf der Fläche wie bisher; dieselbe Stufe wie die Liste, damit der Rand passt (LOOK1).
   FTip.Colors := Colors;
+  FTip.LookLevel := LookLevel;
   FTip.SetScaling(PPI, 1, Font.Name, Font.Size);
   mArea := RowRect(mRow);
   FTip.ShowText(TDpccCompletionTexts.TipText(mItem, ItemTags(mItem)),

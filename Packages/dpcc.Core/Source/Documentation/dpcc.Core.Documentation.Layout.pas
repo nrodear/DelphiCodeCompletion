@@ -33,6 +33,8 @@
 //     Text.
 //   - TDpccDocExpandState hält „wie zuletzt“ (hints.xmlDocExpand = last) je
 //     Fläche (Tooltip, Detailpanel) für die Sitzung.
+// Stufen (LOOK2): Die Stücke tragen eine Rolle (TDpccDocColor), keine feste Farbe; Überschriften, Parameternamen,
+// Rückgabetyp und Verweise färbt der Zeichner über TDpccDocTypeset.ColorOf in den Doc*-Farben der Stufe.
 
 interface
 
@@ -46,7 +48,11 @@ uses
 type
   TDpccDocFont = (UI, Mono);
 
-  TDpccDocColor = (Text, Muted, Accent, Error, Keyword, StringLiteral, Comment, Number, Warn);
+  /// <summary>Rolle eines Stücks; die Farbe dazu liefert TDpccDocTypeset.ColorOf aus der Stufe (LOOK2): Heading
+  /// (Überschriften), Param (Parameternamen), TypeName (Rückgabe- und Werttyp), Link (Verweise und Links).
+  /// </summary>
+  TDpccDocColor = (Text, Muted, Accent, Error, Keyword, StringLiteral, Comment, Number, Warn, Heading, Param,
+    TypeName, Link);
 
   TDpccDocFace = record
     Font: TDpccDocFont;

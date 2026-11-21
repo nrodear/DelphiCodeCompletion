@@ -4,9 +4,10 @@
 // einen Speicher. Die IDE-Schicht speichert in HKCU\Software\dpcc\IdePlugin, Tests im Arbeitsspeicher
 // (TDpccMemorySettingsStore). Breiten in logischen Pixeln (96 dpi, #412).
 // Seit OPT2 steht hier nur noch, was wirkt:
-// - Gespeichert (OK auf der Seite „dpcc“, gezogene Breite der Liste): der Hauptschalter und die zwölf Optionen der
+// - Gespeichert (OK auf der Seite „dpcc“, gezogene Breite der Liste): der Hauptschalter und die dreizehn Optionen der
 //   Seite (cPageItems in dpcc.Core.Settings.CompletionView). index.extraSourceFolders liegt in
 //   %APPDATA%\dpcc\settings.json (TDpccRoutedSettingsStore, dpcc.Core.Settings.Scopes), alle übrigen in der Registry.
+//   Seit LOOK1 auch die Darstellung der Popups (PopupLook, Text 'intense' | 'subtle' | 'plain', dpcc.Core.Style.Look).
 // - Nur gelesen, nie geschrieben: hints.xmlDocMaxLines (settings.json; der Server liest dieselbe Datei) und der
 //   Support-Schalter LogNames (diagnostics.log.names, Registry-DWORD).
 // - Fest verdrahtet und deshalb kein Feld mehr: Verzögerung bis zum Öffnen, Favoriten, geerbte Member gruppieren,
@@ -20,7 +21,8 @@ interface
 
 uses
   System.Generics.Collections,
-  dpcc.Core.Settings.Plugin.Store;
+  dpcc.Core.Settings.Plugin.Store,
+  dpcc.Core.Style.Look;
 
 const
   /// <summary>Wie TDpccListModes.cModeNames (#497); Settings darf Completion nicht einbinden, der Test prüft
@@ -75,6 +77,10 @@ type
     /// <summary>Werte im Tooltip beim Debuggen (#891, debug.hoverValues); hängt nur an dieser Option (und auf der
     /// Seite am eigenen Tooltip), an keinem Modul-Schalter.</summary>
     DebugHoverValues: Boolean;
+    /// <summary>Darstellung der Popups (LOOK1, editor.popupLook): intensiv, dezent (Vorgabe) oder unscheinbar. In der
+    /// Registry als Text 'intense' | 'subtle' | 'plain' (DpccLookLevelToId); Unbekanntes oder Fehlendes ergibt die
+    /// Vorgabe. Gilt für die Fenster von dpcc, nicht für die der IDE.</summary>
+    PopupLook: TDpccLookLevel;
     /// <summary>index.extraSourceFolders (L2): zusätzliche Quellordner, durch ";" getrennt; Vorgabe leer. Liegt in
     /// settings.json.</summary>
     IndexExtraSourceFolders: string;
@@ -150,6 +156,7 @@ begin
   Result.ParameterHints := True;
   Result.HoverTooltip := True;
   Result.DebugHoverValues := True;
+  Result.PopupLook := cDpccLookLevelDefault;
   Result.IndexExtraSourceFolders := '';
   Result.XmlDocMaxLines := 0;
   Result.LogNames := False;
@@ -165,9 +172,16 @@ begin
     ListWidth := EnsureRange(ListWidth, cMinListWidth, cMaxListWidth);
   end;
   XmlDocMaxLines := EnsureRange(XmlDocMaxLines, 0, cMaxXmlDocLines);
+  // Nur über eine Typumwandlung außerhalb der Aufzählung möglich: dann die Vorgabe.
+  if not InRange(Integer(Ord(PopupLook)), Ord(Low(TDpccLookLevel)), Ord(High(TDpccLookLevel))) then
+  begin
+    PopupLook := cDpccLookLevelDefault;
+  end;
 end;
 
 procedure TDpccPluginSettings.Exchange(const AIo: TDpccSettingsExchange);
+var
+  mPopupLook: string;
 begin
   AIo.Flag('Enabled', Enabled); // completion.enabled
   AIo.Number('AutoMinChars', AutoMinChars); // completion.autoMinChars
@@ -181,6 +195,11 @@ begin
   AIo.Flag('ParameterHints', ParameterHints); // completion.parameterHints
   AIo.Flag('HoverTooltip', HoverTooltip); // editor.hoverTooltip
   AIo.Flag('DebugHoverValues', DebugHoverValues); // debug.hoverValues
+  // Als Text: Schreiben legt die Kennung ab, Lesen wandelt zurück (Unbekanntes = Vorgabe; fehlt der Wert, bleibt die
+  // bisherige Kennung, beim Laden also die Vorgabe).
+  mPopupLook := DpccLookLevelToId(PopupLook);
+  AIo.Text('PopupLook', mPopupLook); // editor.popupLook
+  PopupLook := DpccLookLevelFromId(mPopupLook, cDpccLookLevelDefault);
   AIo.Text('IndexExtraSourceFolders', IndexExtraSourceFolders); // index.extraSourceFolders (settings.json)
 end;
 

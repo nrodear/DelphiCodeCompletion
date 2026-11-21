@@ -9,6 +9,9 @@
 // Registry-Werte (feste Optionen, Modul-Schalter, Tasten, entfernte Reiter) und alte Schlüssel in settings.json
 // bleiben liegen, wirken nicht und lösen keine Meldung aus; „Werte beim Debuggen“ hängt an keinem Modul-Schalter.
 // Katalog, Suche, Gruppen und Schnellschalter, die die früheren Tests hier prüften, gibt es seit OPT2 nicht mehr.
+// Seit LOOK1 dreizehn Optionen: zuletzt im Abschnitt Parameter-Hint und Tooltip „Darstellung der Popups“ (PopupLook,
+// in der Registry als Text 'intense' | 'subtle' | 'plain', Vorgabe Dezent); OK schreibt damit dreizehn Werte in die
+// Registry.
 
 interface
 
@@ -19,14 +22,19 @@ type
   [TestFixture]
   TDpccCompletionViewTests = class
   public
-    /// <summary>OPT1: Die Seite zeigt genau den Hauptschalter und zwölf Optionen in vier Abschnitten, dazu zwei
-    /// Knöpfe; gespeichert werden genau diese Optionen (OPT2).</summary>
+    /// <summary>OPT1: Die Seite zeigt genau den Hauptschalter und (seit LOOK1) dreizehn Optionen in vier Abschnitten,
+    /// dazu zwei Knöpfe; gespeichert werden genau diese Optionen (OPT2).</summary>
     [Test]
-    procedure PageShowsExactlyTwelveOptions;
-    /// <summary>OPT2: OK schreibt nur die Werte der Seite: zwölf in die Registry, index.extraSourceFolders nach
+    procedure PageShowsExactlyThirteenOptions;
+    /// <summary>OPT2: OK schreibt nur die Werte der Seite: dreizehn in die Registry, index.extraSourceFolders nach
     /// settings.json; keine weiteren Namen und keine weiteren Schlüssel der Datei.</summary>
     [Test]
     procedure SaveWritesOnlyPageValues;
+    /// <summary>LOOK1: Darstellung der Popups: Vorgabe Dezent; alle drei Stufen als Text gespeichert und wieder
+    /// gelesen; ungültiger, leerer oder fehlender Text ergibt die Vorgabe; gespeichert nach „Werte beim Debuggen“.
+    /// </summary>
+    [Test]
+    procedure PopupLookStoredAsText;
     /// <summary>OPT2: Alte Registry-Werte (feste Optionen, Modul-Schalter, Tasten, entfernte Reiter, Einstellungsverlauf)
     /// werden weder gelesen noch überschrieben noch entfernt.</summary>
     [Test]
@@ -73,6 +81,7 @@ uses
   dpcc.Core.Settings.JsonText,
   dpcc.Core.Settings.CompletionView,
   dpcc.Core.Completion.Ranking,
+  dpcc.Core.Style.Look,
   dpcc.Common.Configuration.Contract,
   dpcc.Common.Configuration.Parser;
 
@@ -121,15 +130,17 @@ end;
 
 { TDpccCompletionViewTests }
 
-procedure TDpccCompletionViewTests.PageShowsExactlyTwelveOptions;
+procedure TDpccCompletionViewTests.PageShowsExactlyThirteenOptions;
 const
   // Erwarteter Aufbau der Seite (Auftrag OPT1): Abschnitt und Element; Knöpfe mit ihrer Kennung.
-  // Seit IDECHECK zuletzt der Abschnitt IDE mit „Jetzt prüfen“ (keine Einstellung).
-  cSections: array[0..15] of TDpccPageSection = (psMaster, psCompletion, psCompletion, psCompletion, psCompletion,
-    psCompletion, psCompletion, psCommit, psCommit, psCommit, psHints, psHints, psHints, psIndex, psIndex, psIde);
-  cNames: array[0..15] of string = ('Enabled', 'AutoMinChars', 'CompletionListMode', 'VisibleRows', 'ListWidth',
+  // Seit IDECHECK zuletzt der Abschnitt IDE mit „Jetzt prüfen“ (keine Einstellung); seit LOOK1 „Darstellung der
+  // Popups“ zuletzt im Abschnitt Parameter-Hint und Tooltip.
+  cSections: array[0..16] of TDpccPageSection = (psMaster, psCompletion, psCompletion, psCompletion, psCompletion,
+    psCompletion, psCompletion, psCommit, psCommit, psCommit, psHints, psHints, psHints, psHints, psIndex, psIndex,
+    psIde);
+  cNames: array[0..16] of string = ('Enabled', 'AutoMinChars', 'CompletionListMode', 'VisibleRows', 'ListWidth',
     'Learning', 'ResetHistory', 'AutoParentheses', 'CommitCharacters', 'AutoUses', 'ParameterHints', 'HoverTooltip',
-    'DebugHoverValues', 'IndexExtraSourceFolders', 'RebuildIndex', 'CheckIde');
+    'DebugHoverValues', 'PopupLook', 'IndexExtraSourceFolders', 'RebuildIndex', 'CheckIde');
 var
   mIndex, mOptions, mButtons: Integer;
   mName: string;
@@ -151,15 +162,20 @@ begin
       Inc(mOptions);
     end;
   end;
-  Assert.AreEqual(12, mOptions, 'Optionen unter dem Hauptschalter');
+  Assert.AreEqual(13, mOptions, 'Optionen unter dem Hauptschalter');
   Assert.AreEqual(3, mButtons, 'Knöpfe');
   Assert.AreEqual(cPageResetHistory, cPageItems[6].Name);
-  Assert.AreEqual(cPageRebuildIndex, cPageItems[14].Name);
-  Assert.AreEqual(cPageCheckIde, cPageItems[15].Name);
-  Assert.AreEqual(13, Integer(Length(TDpccCompletionView.SettingNames)), 'Einstellungen samt Hauptschalter');
+  Assert.AreEqual(cPageRebuildIndex, cPageItems[15].Name);
+  Assert.AreEqual(cPageCheckIde, cPageItems[16].Name);
+  // LOOK1: letzte Option im Abschnitt Parameter-Hint und Tooltip, direkt vor dem Abschnitt Index.
+  Assert.AreEqual('PopupLook', cPageItems[13].Name, 'Darstellung der Popups');
+  Assert.AreEqual(Ord(psHints), Ord(cPageItems[13].Section), 'PopupLook: Abschnitt');
+  Assert.AreEqual(Ord(pkSetting), Ord(cPageItems[13].Kind), 'PopupLook: Einstellung');
+  Assert.AreEqual(Ord(psIndex), Ord(cPageItems[14].Section), 'danach der Abschnitt Index');
+  Assert.AreEqual(14, Integer(Length(TDpccCompletionView.SettingNames)), 'Einstellungen samt Hauptschalter');
   // Gespeichert werden genau die Einstellungen der Seite, jede einmal.
   mStored := TDpccPluginSettings.StoredNames;
-  Assert.AreEqual(13, Integer(Length(mStored)), 'gespeicherte Namen: ' + string.Join(', ', mStored));
+  Assert.AreEqual(14, Integer(Length(mStored)), 'gespeicherte Namen: ' + string.Join(', ', mStored));
   for mName in TDpccCompletionView.SettingNames do
   begin
     Assert.IsTrue(MatchText(mName, mStored), mName + ' gespeichert');
@@ -196,8 +212,9 @@ begin
   mRouted := TDpccRoutedSettingsStore.Create(mRegistry, cBefore);
   mStore := mRouted;
   mSettings.Save(mStore);
-  // Registry: genau die zwölf Werte der Seite (Hauptschalter und elf Optionen; die Quellordner liegen in der Datei).
-  Assert.AreEqual(12, Integer(Length(mRegistry.Names)), 'Registry: ' + string.Join(', ', mRegistry.Names));
+  // Registry: genau die dreizehn Werte der Seite (Hauptschalter und zwölf Optionen samt PopupLook seit LOOK1; die
+  // Quellordner liegen in der Datei).
+  Assert.AreEqual(13, Integer(Length(mRegistry.Names)), 'Registry: ' + string.Join(', ', mRegistry.Names));
   for mName in RegistryPageNames do
   begin
     Assert.IsTrue(MatchText(mName, mRegistry.Names), mName + ' in der Registry');
@@ -221,6 +238,71 @@ begin
   finally
     mRoot.Free;
   end;
+end;
+
+procedure TDpccCompletionViewTests.PopupLookStoredAsText;
+const
+  // Kennungen in der Registry (Auftrag LOOK1), in der Reihenfolge von TDpccLookLevel.
+  cIds: array[TDpccLookLevel] of string = ('intense', 'subtle', 'plain');
+var
+  mLevel: TDpccLookLevel;
+  mSettings, mLoaded: TDpccPluginSettings;
+  mStore: IDpccMemorySettingsStore;
+  mStored: TArray<string>;
+  mIndex: Integer;
+  mText: string;
+begin
+  // Vorgabe: Dezent, auch beim Laden aus einem leeren Speicher.
+  Assert.AreEqual(Ord(TDpccLookLevel.Subtle), Ord(cDpccLookLevelDefault), 'Vorgabe der Stufen');
+  Assert.AreEqual(Ord(TDpccLookLevel.Subtle), Ord(TDpccPluginSettings.Defaults.PopupLook), 'Vorgabe');
+  mStore := TDpccMemorySettingsStore.Create;
+  mLoaded := TDpccPluginSettings.Defaults;
+  mLoaded.PopupLook := TDpccLookLevel.Plain;
+  mLoaded.Load(mStore);
+  Assert.AreEqual(Ord(TDpccLookLevel.Subtle), Ord(mLoaded.PopupLook), 'fehlender Wert');
+  // Jede Stufe als Text unter PopupLook (kein DWORD) gespeichert und als dieselbe Stufe zurückgelesen.
+  for mLevel := Low(TDpccLookLevel) to High(TDpccLookLevel) do
+  begin
+    Assert.AreEqual(cIds[mLevel], DpccLookLevelToId(mLevel), 'Kennung ' + cIds[mLevel]);
+    mSettings := TDpccPluginSettings.Defaults;
+    mSettings.PopupLook := mLevel;
+    mStore := TDpccMemorySettingsStore.FromSettings(mSettings);
+    Assert.AreEqual(cIds[mLevel], mStore.Text('PopupLook'), 'gespeichert ' + cIds[mLevel]);
+    Assert.IsFalse(mStore.HasInteger('PopupLook'), cIds[mLevel] + ': kein DWORD');
+    mLoaded := TDpccPluginSettings.Defaults;
+    mLoaded.Load(mStore);
+    Assert.AreEqual(Ord(mLevel), Ord(mLoaded.PopupLook), 'gelesen ' + cIds[mLevel]);
+    // Von Hand in die Registry geschrieben: gilt ebenso.
+    mStore := TDpccMemorySettingsStore.Create;
+    mStore.WriteString('PopupLook', cIds[mLevel]);
+    mLoaded.Load(mStore);
+    Assert.AreEqual(Ord(mLevel), Ord(mLoaded.PopupLook), 'von Hand ' + cIds[mLevel]);
+  end;
+  // Ungültiger oder leerer Text: die Vorgabe; die übrigen Werte gelten, und Speichern schreibt die Vorgabe zurück.
+  for mText in ['bunt', '', 'dezent', '2'] do
+  begin
+    mStore := TDpccMemorySettingsStore.Create;
+    mStore.WriteString('PopupLook', mText);
+    mStore.WriteInteger('VisibleRows', 12);
+    mLoaded := TDpccPluginSettings.Defaults;
+    mLoaded.PopupLook := TDpccLookLevel.Intense;
+    mLoaded.Load(mStore);
+    Assert.AreEqual(Ord(cDpccLookLevelDefault), Ord(mLoaded.PopupLook), 'ungültig: "' + mText + '"');
+    Assert.AreEqual(12, mLoaded.VisibleRows, 'übrige Werte gelten bei "' + mText + '"');
+    mLoaded.Save(mStore);
+    Assert.AreEqual('subtle', mStore.Text('PopupLook'), 'zurückgeschrieben bei "' + mText + '"');
+  end;
+  // Ein DWORD unter dem Namen ist kein Text: wie fehlend.
+  mStore := TDpccMemorySettingsStore.Create;
+  mStore.WriteInteger('PopupLook', 0);
+  mLoaded.Load(mStore);
+  Assert.AreEqual(Ord(cDpccLookLevelDefault), Ord(mLoaded.PopupLook), 'DWORD');
+  // Gespeichert in der Reihenfolge der Seite: direkt nach „Werte beim Debuggen“, vor den Quellordnern.
+  mStored := TDpccPluginSettings.StoredNames;
+  mIndex := IndexText('PopupLook', mStored);
+  Assert.IsTrue((mIndex > 0) and (mIndex < High(mStored)), 'PopupLook gespeichert: ' + string.Join(', ', mStored));
+  Assert.AreEqual('DebugHoverValues', mStored[mIndex - 1], 'davor');
+  Assert.AreEqual('IndexExtraSourceFolders', mStored[mIndex + 1], 'danach');
 end;
 
 procedure TDpccCompletionViewTests.OldRegistryValuesAreIgnored;
@@ -266,7 +348,7 @@ begin
   begin
     Assert.AreEqual('alt', mStore.Text(mName), mName + ' bleibt liegen');
   end;
-  Assert.AreEqual(Integer(Length(cOldIntegers) + Length(cOldStrings) + 13), Integer(Length(mStore.Names)),
+  Assert.AreEqual(Integer(Length(cOldIntegers) + Length(cOldStrings) + 14), Integer(Length(mStore.Names)),
     'nur die Seite dazu');
   // In einen leeren Speicher: keiner der alten Namen.
   mSaved := TDpccMemorySettingsStore.FromSettings(mSettings);

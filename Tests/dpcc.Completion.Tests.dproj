@@ -137,6 +137,7 @@
         <DCCReference Include="..\Packages\dpcc.Core\Source\Hover\dpcc.Core.Hover.Texts.pas"/>
         <DCCReference Include="IDE\dpcc.Core.Hover.Contract.Tests.pas"/>
         <DCCReference Include="IDE\dpcc.Core.Style.Look.Tests.pas"/>
+        <DCCReference Include="IDE\dpcc.Core.Hover.Look.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Documentation\dpcc.Core.Documentation.Typeset.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Style\dpcc.Core.Style.Syntax.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Editor\dpcc.Core.Editor.CloseRules.pas"/>
@@ -150,6 +151,9 @@
         <DCCReference Include="..\Packages\dpcc.Core\Source\Signature\dpcc.Core.Signature.Format.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Style\dpcc.Core.Style.Color.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Style\dpcc.Core.Style.Palette.pas"/>
+        <DCCReference Include="..\Packages\dpcc.Core\Source\Style\dpcc.Core.Style.Look.pas"/>
+        <DCCReference Include="IDE\dpcc.Core.Style.Look.Levels.Tests.pas"/>
+        <DCCReference Include="IDE\dpcc.Core.Style.Syntax.Types.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Completion\dpcc.Core.Completion.Presentation.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Completion\dpcc.Core.Completion.Word.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Settings\dpcc.Core.Settings.Plugin.pas"/>
@@ -198,6 +202,8 @@
         <DCCReference Include="IDE\dpcc.UI.Strings.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.UI\Source\Completion\dpcc.UI.Completion.Strings.pas"/>
         <DCCReference Include="IDE\dpcc.UI.Completion.Strings.Tests.pas"/>
+        <DCCReference Include="..\Packages\dpcc.UI\Source\Completion\dpcc.UI.Completion.RowColors.pas"/>
+        <DCCReference Include="IDE\dpcc.UI.Completion.RowColors.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.UI\Source\Settings\dpcc.UI.Settings.ChoiceBox.pas"/>
         <DCCReference Include="..\Packages\dpcc.UI\Source\Settings\dpcc.UI.Settings.Strings.pas"/>
         <DCCReference Include="..\Packages\dpcc.UI\Source\Settings\dpcc.UI.Settings.Page.pas">
@@ -206,6 +212,23 @@
             <DesignClass>TFrame</DesignClass>
         </DCCReference>
         <DCCReference Include="IDE\dpcc.UI.Settings.Page.Tests.pas"/>
+        <DCCReference Include="..\Packages\dpcc.Core\Source\Signature\dpcc.Core.Signature.Controller.pas"/>
+        <DCCReference Include="..\Packages\dpcc.UI\Source\Foundation\dpcc.UI.Foundation.Module.pas"/>
+        <DCCReference Include="..\Packages\dpcc.UI\Source\Popup\dpcc.UI.Popup.Accessibility.pas"/>
+        <DCCReference Include="..\Packages\dpcc.UI\Source\Popup\dpcc.UI.Popup.Draw.pas"/>
+        <DCCReference Include="..\Packages\dpcc.UI\Source\Popup\dpcc.UI.Popup.Window.pas"/>
+        <DCCReference Include="..\Packages\dpcc.UI\Source\Popup\dpcc.UI.Popup.Tip.pas"/>
+        <DCCReference Include="..\Packages\dpcc.UI\Source\Popup\dpcc.UI.Popup.Styled.pas"/>
+        <DCCReference Include="..\Packages\dpcc.UI\Source\Completion\dpcc.UI.Completion.PopupTexts.pas"/>
+        <DCCReference Include="..\Packages\dpcc.UI\Source\Completion\dpcc.UI.Completion.PopupState.pas"/>
+        <DCCReference Include="..\Packages\dpcc.UI\Source\Completion\dpcc.UI.Completion.PopupLayout.pas"/>
+        <DCCReference Include="..\Packages\dpcc.UI\Source\Completion\dpcc.UI.Completion.PopupPainter.pas"/>
+        <DCCReference Include="..\Packages\dpcc.UI\Source\Completion\dpcc.UI.Completion.Popup.pas"/>
+        <DCCReference Include="..\Packages\dpcc.UI\Source\Documentation\dpcc.UI.Documentation.View.pas"/>
+        <DCCReference Include="..\Packages\dpcc.UI\Source\Hover\dpcc.UI.Hover.Strings.pas"/>
+        <DCCReference Include="..\Packages\dpcc.UI\Source\Hover\dpcc.UI.Hover.Tip.pas"/>
+        <DCCReference Include="..\Packages\dpcc.UI\Source\Signature\dpcc.UI.Signature.Hint.pas"/>
+        <DCCReference Include="IDE\dpcc.UI.Popup.Render.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Completion\Providers\dpcc.Core.Completion.Providers.XmlDoc.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Completion\dpcc.Core.Completion.Placeholders.pas"/>
         <DCCReference Include="IDE\dpcc.Core.Completion.Placeholders.Tests.pas"/>

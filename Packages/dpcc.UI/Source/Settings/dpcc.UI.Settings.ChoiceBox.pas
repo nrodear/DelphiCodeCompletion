@@ -26,6 +26,8 @@ type
     procedure SetChoices(const AItems: array of string);
     /// <summary>Gewählter Eintrag, -1 = keiner; gilt auch ohne Fenster.</summary>
     property Choice: Integer read GetChoice write SetChoice;
+    /// <summary>Einträge in der Reihenfolge von SetChoices; auch ohne Fenster (Tests).</summary>
+    property Choices: TArray<string> read FChoices;
   end;
 
 implementation

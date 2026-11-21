@@ -3,15 +3,16 @@
 // Parameter-Hint (#436, #437, #439, #440): Fenster ohne Fokus mit allen
 // Überladungen des Aufrufs untereinander (Wunsch aus dem Test in der IDE, statt "‹ 1 / 3 ›").
 //   - Signaturen in der Editorschrift, eingefärbt wie im Entwurf (#411).
-//   - Aussehen seit S8 wie der Hover-Tooltip: flach und eckig, 1 px Rand in Colors.Line,
-//     Farben des Editors (ListColors, setzt TDpccIdeStyle.Apply), keine Flächen, Bänder,
-//     Balken oder Pillen.
+//   - Aussehen seit S8 wie der Hover-Tooltip: flach und eckig, 1 px Rand (FrameColor),
+//     Farben des Editors (ListColors, setzt TDpccIdeStyle.Apply), keine Bänder
+//     oder Pillen; einen Balken gibt es nur in der Stufe Intensiv an der gewählten
+//     Überladung (siehe unten).
 //   - Bei mehreren Überladungen liegt die gewählte auf einer flachen Auswahlfläche
-//     (Colors.Selection); ihr aktiver Parameter ist fett und unterstrichen.
+//     (Look.SelectionBack); ihr aktiver Parameter ist fett und unterstrichen.
 //   - In den übrigen passenden Überladungen ist der aktive Parameter fett;
 //     Überladungen mit zu wenigen Parametern sind gedämpft.
 //   - Darunter nach einer Trennlinie (#770) unter der Überschrift PARAMETER (wie im
-//     Hover: Großbuchstaben, fett, gedämpft, Linie bis zum Rand) Name (fett) und
+//     Hover: Großbuchstaben, fett, Linie bis zum Rand) Name (fett) und
 //     Beschreibung des aktiven Parameters, ohne <param> „nicht dokumentiert“
 //     (kursiv, gedämpft), dann gedämpft die Beschreibung der Methode; Standardwerte
 //     (#441) gedämpft, die Unterstreichung endet davor, dahinter "optional, Standard 1".
@@ -23,12 +24,23 @@
 //   - Klick auf eine Überladung wählt sie; Strg+Alt+↑/↓ über die Tastatur (dpcc.IDE, TDpccOverloadKeys; Alt+↑
 //     gehört der IDE, „Deklaration suchen“).
 //   - Formatroutinen (#451): Oben im Doku-Bereich eine Zeile zum Platzhalter des
-//     Arguments am Cursor („Platzhalter 2 von 2 erwartet ganzzahlig“) in Akzentfarbe,
+//     Arguments am Cursor („Platzhalter 2 von 2 erwartet ganzzahlig“) in Look.FormatLine,
 //     ein Problem (überzähliges Argument, Typkonflikt, ungültiger Platzhalter) in
 //     Fehlerfarbe. Abschaltbar mit completion.formatPlaceholders (FormatPlaceholders).
 // Platz: unter der Zeile an der öffnenden Klammer; über der Zeile, wenn unten
 // kein Platz ist oder das Vervollständigungs-Popup offen ist. Breite höchstens
 // 520 px (logisch); lange Signaturen brechen nach "; " um, Folgezeilen eingerückt.
+// Stufen der Darstellung (LOOK2, Entwurf dpcc-popups.html, Szene 5): Farben aus Look (TDpccIdeStyle.Apply setzt
+// Colors und LookLevel), Rand aus der Basis (Look.Frame).
+//   - Überladungen mit dem Ziel aus Look (Syn*-Farben, bei ParamBackUsed Fläche unter dem aktiven Parameter); die
+//     gewählte (nur bei mehreren) ist eine markierte Fläche auf Look.SelectionBack, gezeichnet mit dem Ziel aus
+//     Look.Marked (Intensiv wie Dezent: Syntaxfarben von Dezent, aktiver Parameter fett und unterstrichen ohne
+//     Fläche); mit Look.MarkBarUsed (Intensiv) liegt am linken Innenrand ein Balken von cDpccLookMarkBar in
+//     Look.MarkBar über die Höhe der gewählten Überladung (auch umbrochen).
+//   - Platzhalterzeile in Look.FormatLine, ein Problem in Look.Error; „Keine Überladung …“ in Look.Error.
+//   - Überschrift PARAMETER in Look.DocHeading, ihre Linie in Look.DocHeadingLine, Parametername in
+//     Look.DocParam; „optional, Standard …“ gedämpft hinter der Beschreibung (wie im Entwurf).
+//   - Pfadzeile, Trennlinien, Gedämpftes und Fläche des Fensters wie vorher.
 
 interface
 
@@ -92,7 +104,7 @@ type
     procedure Place;
     /// <summary>Überschrift PARAMETER, Name und Beschreibung des aktiven Parameters und die Beschreibung der
     /// Methode ab APart; APart steht danach auf der letzten gezeichneten Zeile.</summary>
-    procedure PaintParameterDoc(var APart: TRect; ARow: Integer; AFore: TDpccColor);
+    procedure PaintParameterDoc(var APart: TRect; ARow: Integer);
     procedure PaintDocLine(ATop: Integer);
   protected
     procedure Paint; override;
@@ -122,6 +134,7 @@ implementation
 
 uses
   dpcc.Core.Diagnostics.Guard,
+  dpcc.Core.Style.Look,
   System.Math,
   dpcc.UI.Strings,
   dpcc.UI.Popup.Draw,
@@ -170,9 +183,11 @@ begin
   end;
 end;
 
-/// <summary>Beschreibung eines Parameters mit „optional, Standard …“; ADocumented = False ohne &lt;param&gt;
-/// (der Text ist dann „nicht dokumentiert“).</summary>
-function ParameterTextOf(const ADocumentation, ADefault: string; out ADocumented: Boolean): string;
+/// <summary>Beschreibung eines Parameters; ADocumented = False ohne &lt;param&gt; (der Text ist dann „nicht
+/// dokumentiert“). ASuffix: „ · optional, Standard …“ mit Standardwert, sonst ''; steht gedämpft dahinter.
+/// </summary>
+function ParameterTextOf(const ADocumentation, ADefault: string; out ADocumented: Boolean;
+  out ASuffix: string): string;
 begin
   Result := Trim(StringReplace(StringReplace(ADocumentation, #13, '', [rfReplaceAll]), #10, ' ', [rfReplaceAll]));
   ADocumented := Result <> '';
@@ -180,22 +195,24 @@ begin
   begin
     Result := TDpccStrings.Text(TDpccTextId.DocUndocumented);
   end;
+  ASuffix := '';
   if ADefault <> '' then
   begin
-    Result := Result + ' · ' + TDpccStrings.Fmt(TDpccTextId.OptionalDefault, [ADefault]);
+    ASuffix := ' · ' + TDpccStrings.Fmt(TDpccTextId.OptionalDefault, [ADefault]);
   end;
 end;
 
-/// <summary>Name und Beschreibung des aktiven Parameters AParameter der Überladung ASignature; False ohne
-/// aktiven Parameter.</summary>
+/// <summary>Name, Beschreibung und Zusatz „optional, Standard …“ (ASuffix, '' ohne Standardwert) des aktiven
+/// Parameters AParameter der Überladung ASignature; False ohne aktiven Parameter.</summary>
 function ParameterDocOf(const AHelp: TDpccSignatureHelp; ASignature, AParameter: Integer;
-  out AName, AText: string; out ADocumented: Boolean): Boolean;
+  out AName, AText, ASuffix: string; out ADocumented: Boolean): Boolean;
 var
   mSignature: TDpccSignature;
   mText: string;
 begin
   AName := '';
   AText := '';
+  ASuffix := '';
   ADocumented := False;
   Result := (ASignature >= 0) and (ASignature <= High(AHelp.Signatures));
   if not Result then
@@ -210,7 +227,8 @@ begin
   end;
   mText := mSignature.Parameters[AParameter].Text(mSignature.Label_);
   AName := ParameterNameOf(mText);
-  AText := ParameterTextOf(mSignature.Parameters[AParameter].Documentation, DefaultValueOf(mText), ADocumented);
+  AText := ParameterTextOf(mSignature.Parameters[AParameter].Documentation, DefaultValueOf(mText), ADocumented,
+    ASuffix);
 end;
 
 /// <summary>Beschreibung der Überladung ASignature in einer Zeile (nur der erste Absatz); '' ohne.</summary>
@@ -315,10 +333,10 @@ end;
 
 function TDpccSignatureHint.HasDocLine: Boolean;
 var
-  mName, mText: string;
+  mName, mText, mSuffix: string;
   mDocumented: Boolean;
 begin
-  Result := TooMany or ParameterDocOf(FHelp, FSignature, FParameter, mName, mText, mDocumented) or
+  Result := TooMany or ParameterDocOf(FHelp, FSignature, FParameter, mName, mText, mSuffix, mDocumented) or
     (FormatText <> '');
 end;
 
@@ -332,7 +350,7 @@ end;
 function TDpccSignatureHint.DocHeight: Integer;
 var
   mRows: Integer;
-  mName, mText: string;
+  mName, mText, mSuffix: string;
   mDocumented: Boolean;
 begin
   // Fehlerzeile allein; sonst Überschrift, Parameter und ggf. die Beschreibung der Methode.
@@ -349,7 +367,7 @@ begin
   if FormatText <> '' then
   begin
     Inc(mRows);
-    if not TooMany and not ParameterDocOf(FHelp, FSignature, FParameter, mName, mText, mDocumented) then
+    if not TooMany and not ParameterDocOf(FHelp, FSignature, FParameter, mName, mText, mSuffix, mDocumented) then
     begin
       mRows := 1;
     end;
@@ -456,7 +474,7 @@ end;
 function TDpccSignatureHint.ContentWidth(AAvailable: Integer): Integer;
 var
   mIndex, mLine, mRow, mNameWidth: Integer;
-  mName, mText: string;
+  mName, mText, mSuffix: string;
   mDocumented: Boolean;
 begin
   Canvas.Font := Font;
@@ -474,13 +492,13 @@ begin
     Inc(mRow, Length(FLayouts[mIndex]));
   end;
   // Die Doku-Zeile verbreitert den Hint höchstens bis zur Maximalbreite.
-  if ParameterDocOf(FHelp, FSignature, FParameter, mName, mText, mDocumented) then
+  if ParameterDocOf(FHelp, FSignature, FParameter, mName, mText, mSuffix, mDocumented) then
   begin
     Canvas.Font := Font;
     Canvas.Font.Style := [fsBold];
     mNameWidth := Canvas.TextWidth(mName) + Scale(8);
     Canvas.Font := UIFont;
-    Result := Max(Result, Min(mNameWidth + Canvas.TextWidth(mText), AAvailable));
+    Result := Max(Result, Min(mNameWidth + Canvas.TextWidth(mText + mSuffix), AAvailable));
     Result := Max(Result, Min(Canvas.TextWidth(SummaryOf(FHelp, FSignature)), AAvailable));
   end;
   if CrumbHeight > 0 then
@@ -625,32 +643,33 @@ begin
   FFormatLine := Default(TDpccFormatLine);
 end;
 
-procedure TDpccSignatureHint.PaintParameterDoc(var APart: TRect; ARow: Integer; AFore: TDpccColor);
+procedure TDpccSignatureHint.PaintParameterDoc(var APart: TRect; ARow: Integer);
 var
-  mName, mText, mSummary, mHeading: string;
+  mName, mText, mSuffix, mSummary, mHeading: string;
   mLeft, mRuleY: Integer;
   mDocumented: Boolean;
+  mRest: TRect;
 begin
-  if not ParameterDocOf(FHelp, FSignature, FParameter, mName, mText, mDocumented) then
+  if not ParameterDocOf(FHelp, FSignature, FParameter, mName, mText, mSuffix, mDocumented) then
   begin
     Exit;
   end;
   mLeft := APart.Left;
-  // Überschrift wie im Hover-Tooltip: Großbuchstaben, fett, gedämpft, Linie bis zum Rand.
+  // Überschrift wie im Hover-Tooltip: Großbuchstaben, fett, Linie bis zum Rand; Farben der Stufe (LOOK2).
   mHeading := AnsiUpperCase(TDpccStrings.Text(TDpccTextId.DocParams));
   Canvas.Font := UIFont;
   Canvas.Font.Height := MulDiv(UIFont.Height, 85, 100);
   Canvas.Font.Style := [fsBold];
-  Canvas.Font.Color := ToColor(Colors.Muted);
+  Canvas.Font.Color := ToColor(Look.DocHeading);
   DrawText(Canvas.Handle, PChar(mHeading), -1, APart, cTextFlags or DT_END_ELLIPSIS);
   mRuleY := (APart.Top + APart.Bottom) div 2;
-  Canvas.Pen.Color := ToColor(Colors.Line);
+  Canvas.Pen.Color := ToColor(Look.DocHeadingLine);
   Canvas.MoveTo(APart.Left + Canvas.TextWidth(mHeading) + Scale(8), mRuleY);
   Canvas.LineTo(APart.Right, mRuleY);
   OffsetRect(APart, 0, ARow);
   Canvas.Font := Font;
   Canvas.Font.Style := [fsBold];
-  Canvas.Font.Color := ToColor(Colors.Text);
+  Canvas.Font.Color := ToColor(Look.DocParam);
   DrawText(Canvas.Handle, PChar(mName), -1, APart, cTextFlags or DT_END_ELLIPSIS);
   APart.Left := APart.Left + Canvas.TextWidth(mName) + Scale(8);
   Canvas.Font := UIFont;
@@ -664,13 +683,25 @@ begin
     Canvas.Font.Color := ToColor(Colors.Muted);
   end;
   DrawText(Canvas.Handle, PChar(mText), -1, APart, cTextFlags or DT_END_ELLIPSIS);
+  // „ · optional, Standard …“ gedämpft und gerade dahinter, solange Platz ist.
+  if mSuffix <> '' then
+  begin
+    mRest := APart;
+    mRest.Left := APart.Left + Canvas.TextWidth(mText);
+    if mRest.Left < mRest.Right then
+    begin
+      Canvas.Font.Style := [];
+      Canvas.Font.Color := ToColor(Colors.Muted);
+      DrawText(Canvas.Handle, PChar(mSuffix), -1, mRest, cTextFlags or DT_END_ELLIPSIS);
+    end;
+  end;
   mSummary := SummaryOf(FHelp, FSignature);
   if mSummary <> '' then
   begin
     APart.Left := mLeft;
     OffsetRect(APart, 0, ARow);
     Canvas.Font := UIFont;
-    Canvas.Font.Color := ToColor(AFore);
+    Canvas.Font.Color := ToColor(Colors.Muted);
     DrawText(Canvas.Handle, PChar(mSummary), -1, APart, cTextFlags or DT_END_ELLIPSIS);
   end;
 end;
@@ -679,34 +710,26 @@ procedure TDpccSignatureHint.PaintDocLine(ATop: Integer);
 var
   mPart: TRect;
   X, mRow: Integer;
-  mFore: TDpccColor;
 begin
   // Ohne abgesetzte Fläche (S8): nur eine Trennlinie wie zwischen den Abschnitten des Hovers; ein Fehler steht
-  // als Text in Fehlerfarbe.
-  if TooMany then
-  begin
-    mFore := Colors.Error;
-  end
-  else
-  begin
-    mFore := Colors.Muted;
-  end;
+  // als Text in Look.Error (in allen Stufen die Fehlerfarbe).
   TDpccDraw.Separator(Canvas, Scale(cGap), ClientWidth - Scale(cGap), ATop, Colors.Line);
   Canvas.Brush.Style := bsClear;
   X := Scale(cGap);
   mRow := DocRowHeight;
   mPart := Rect(X, ATop + Scale(4), ClientWidth - Scale(cGap), ATop + Scale(4) + mRow);
-  // Platzhalter (#451) zuerst: Problem in Fehlerfarbe, sonst Akzent.
+  // Platzhalter (#451) zuerst: Problem in Look.Error, sonst Look.FormatLine (Intensiv und Dezent Akzent,
+  // Unscheinbar gedämpft).
   if FormatText <> '' then
   begin
     Canvas.Font := UIFont;
     if FFormatLine.IsError then
     begin
-      Canvas.Font.Color := ToColor(Colors.Error);
+      Canvas.Font.Color := ToColor(Look.Error);
     end
     else
     begin
-      Canvas.Font.Color := ToColor(Colors.Accent);
+      Canvas.Font.Color := ToColor(Look.FormatLine);
     end;
     DrawText(Canvas.Handle, PChar(FormatText), -1, mPart, cTextFlags or DT_END_ELLIPSIS);
     OffsetRect(mPart, 0, mRow);
@@ -714,13 +737,13 @@ begin
   if TooMany then
   begin
     Canvas.Font := UIFont;
-    Canvas.Font.Color := ToColor(mFore);
+    Canvas.Font.Color := ToColor(Look.Error);
     DrawText(Canvas.Handle, PChar(TDpccStrings.Fmt(TDpccTextId.NoOverloadWith, [FParameter + 1])), -1, mPart,
       cTextFlags or DT_END_ELLIPSIS);
   end
   else
   begin
-    PaintParameterDoc(mPart, mRow, mFore);
+    PaintParameterDoc(mPart, mRow);
   end;
   Canvas.Brush.Style := bsSolid;
   Canvas.Font := Font;
@@ -730,6 +753,8 @@ procedure TDpccSignatureHint.Paint;
 var
   mRow, mPart: TRect;
   mHeight, mIndex, mLine, mRowIndex, mLeft, mRight, X, mTop: Integer;
+  mSelected: Boolean;
+  mTarget: TDpccStyledTarget;
 begin
   Canvas.Font := Font;
   Canvas.Brush.Style := bsSolid;
@@ -748,11 +773,24 @@ begin
   mTop := CrumbHeight + Scale(cPad);
   for mIndex := 0 to High(FLayouts) do
   begin
-    // Bei mehreren Überladungen liegt die gewählte flach auf der Auswahlfläche (wie eine Zeile der Liste).
-    if (mIndex = FSignature) and (Length(FLayouts) > 1) then
+    // Bei mehreren Überladungen liegt die gewählte flach auf der Auswahlfläche (wie eine Zeile der Liste) und wird
+    // mit dem Ziel aus Look.Marked gezeichnet; Intensiv mit dem Balken in den ersten cDpccLookMarkBar Pixeln der
+    // Fläche am linken Innenrand. Bei nur einer gibt es weder Fläche noch Balken.
+    mSelected := (mIndex = FSignature) and (Length(FLayouts) > 1);
+    if mSelected then
     begin
       FillBox(Rect(1, mTop + mRowIndex * mHeight, ClientWidth - 1,
-        mTop + (mRowIndex + Length(FLayouts[mIndex])) * mHeight), Colors.Selection);
+        mTop + (mRowIndex + Length(FLayouts[mIndex])) * mHeight), Look.SelectionBack);
+      if Look.MarkBarUsed then
+      begin
+        FillBox(Rect(1, mTop + mRowIndex * mHeight, 1 + Scale(cDpccLookMarkBar),
+          mTop + (mRowIndex + Length(FLayouts[mIndex])) * mHeight), Look.MarkBar);
+      end;
+      mTarget := TDpccStyledTarget.Create(Canvas, Look.Marked);
+    end
+    else
+    begin
+      mTarget := TDpccStyledTarget.Create(Canvas, Look);
     end;
     for mLine := 0 to High(FLayouts[mIndex]) do
     begin
@@ -763,7 +801,7 @@ begin
       end;
       X := mRow.Left;
       Canvas.Font := Font;
-      FStyled[mIndex].Draw(TDpccStyledTarget.Create(Canvas, Colors), FLayouts[mIndex][mLine], X,
+      FStyled[mIndex].Draw(mTarget, FLayouts[mIndex][mLine], X,
         Rect(mRow.Left, mRow.Top + Scale(2), mRow.Right, mRow.Bottom - Scale(2)), not Fits(mIndex));
       Inc(mRowIndex);
     end;

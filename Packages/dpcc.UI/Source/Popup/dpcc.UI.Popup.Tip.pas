@@ -3,7 +3,9 @@
 // Kleiner Tooltip im dpcc-Stil (#420): zeigt den vollständigen Text eines
 // gekürzten Eintrags. Ohne Fokus wie alle dpcc-Fenster, eine Zeile in der
 // Editorschrift, höchstens so breit wie der Arbeitsbereich des Monitors.
-// Seit S8 flach wie der Hover-Tooltip: eckig, 1 px Rand in Colors.Line, Farben der Liste (ListColors).
+// Seit S8 flach wie der Hover-Tooltip: eckig, 1 px Rand, Farben der Liste (ListColors). Text auf der Fläche in
+// allen Stufen (LOOK1); nur der Rand folgt der Stufe (FrameColor). Wer Colors setzt, gibt auch LookLevel des
+// Elternfensters mit (die Liste in TipTimer).
 
 interface
 

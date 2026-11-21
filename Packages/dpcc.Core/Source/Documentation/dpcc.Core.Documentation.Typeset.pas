@@ -9,11 +9,16 @@
 //
 // Mit offener Signatur (#1919, hover.signatureParams) stehen PARAMETER und RÜCKGABE aus der Deklaration auch
 // zugeklappt und ohne XMLDoc unter der Beschreibung, wie bei Help Insight; der Schalter verbirgt dann nur den Rest.
+//
+// Stufen (LOOK2): Der Satz vergibt Rollen statt Farben (Überschrift, Parametername, Rückgabe- und Werttyp, Verweis,
+// Fehler, Warnung, Syntax); ColorOf macht daraus die Farbe der Stufe (TDpccLook), so prüfbar ohne Zeichenfläche.
 
 interface
 
 uses
   System.SysUtils,
+  dpcc.Core.Style.Color,
+  dpcc.Core.Style.Look,
   dpcc.Core.Documentation.Contract,
   dpcc.Core.Documentation.Layout;
 
@@ -31,8 +36,9 @@ type
     /// <summary>Ganz aufgeklappt ohne Schalter „Mehr/Weniger anzeigen“ (Hover-Tooltip seit S3b, ohne Klicks).
     /// </summary>
     Fixed: Boolean;
-    /// <summary>Namen von Parametern und Typparametern in normaler Schrift und Textfarbe statt fett in Akzentfarbe
-    /// (Hover-Tooltip seit S3c, wie Bezeichner in der Code-Insight-Liste).</summary>
+    /// <summary>Namen von Parametern und Typparametern in normaler Schrift und Parameterfarbe der Stufe
+    /// (TDpccDocColor.Param, LOOK2) statt fett in Akzentfarbe (Hover-Tooltip seit S3c, wie Bezeichner in der
+    /// Code-Insight-Liste); Begründungen und Inhalt einer Unit dann in Textfarbe.</summary>
     PlainNames: Boolean;
     class function Create(const ADoc: TDpccDoc; const ASignature: TDpccDocSignature;
       AExpanded: Boolean): TDpccDocContent; static;
@@ -58,12 +64,17 @@ type
     /// <summary>Signatur des Inhalts ordnet die Parameter; Expanded = aufgeklappt.</summary>
     class function Build(const AContent: TDpccDocContent; AWidth: Integer; const AMetrics: TDpccDocMetrics;
       const AMeasure: TDpccDocMeasure; const ALabels: TDpccDocLabels): TDpccDocLayout; overload; static;
+    /// <summary>Farbe der Rolle AColor in der Stufe ALook (LOOK2): Überschrift DocHeading, Parametername DocParam,
+    /// Rückgabe- und Werttyp DocType, Verweis Link, Fehler Error, Warnung Warn, Syntax Syn*; Text, gedämpft und
+    /// Akzent aus der Grundpalette.</summary>
+    class function ColorOf(const ALook: TDpccLook; AColor: TDpccDocColor): TDpccColor; static;
   end;
 
 implementation
 
 uses
   System.Math,
+  dpcc.Core.Style.Palette,
   dpcc.Core.Style.Syntax;
 
 type
@@ -158,8 +169,12 @@ type
     FWidth: Integer;
     FMeasure: TDpccDocMeasure;
     FName: TDpccDocFace;
-    /// <summary>Farbe der Namen von Parametern und Typparametern (Akzent bzw. mit PlainNames Text).</summary>
+    /// <summary>Farbe der Marken von Begründungen und der Gruppen einer Unit (Akzent bzw. mit PlainNames Text).
+    /// </summary>
     FNameColor: TDpccDocColor;
+    /// <summary>Farbe der Namen von Parametern und Typparametern (Akzent bzw. mit PlainNames Param, LOOK2).
+    /// </summary>
+    FParamColor: TDpccDocColor;
     FMono: TDpccDocFace;
     FUI: TDpccDocFace;
     FNameWidth: Integer;
@@ -175,7 +190,7 @@ type
     procedure ParamRow(const AName, AType: string; const ARuns: TDpccDocRuns; ANameColor, ATextColor: TDpccDocColor);
     procedure MeasureParams;
     procedure KnownParams(const ASections: TArray<TDpccDocSection>);
-    procedure NamedRows(const ASections: TArray<TDpccDocSection>; ACount: Integer);
+    procedure NamedRows(const ASections: TArray<TDpccDocSection>; ACount: Integer; ANameColor: TDpccDocColor);
     procedure Params;
     procedure TypeParams;
     procedure ReturnsAndValue;
@@ -282,13 +297,13 @@ begin
   mFace := TDpccDocFace.Create(TDpccDocFont.Mono, ARun.Bold, ARun.Italic);
   if not ARun.Location.HasLocation then
   begin
-    ABuilder.AddWords(ARun.Text, mFace, TDpccDocColor.Accent);
+    ABuilder.AddWords(ARun.Text, mFace, TDpccDocColor.Link);
     Exit;
   end;
   mLink := Default(TDpccDocLink);
   mLink.Kind := TDpccDocLinkKind.Ref;
   mLink.Target := ARun.Location;
-  ABuilder.AddWords(ARun.Text, mFace, TDpccDocColor.Accent, True, ABuilder.AddLink(mLink));
+  ABuilder.AddWords(ARun.Text, mFace, TDpccDocColor.Link, True, ABuilder.AddLink(mLink));
 end;
 
 /// <summary>Link; Issue ohne Tracker (#1123) bleibt Text.</summary>
@@ -318,7 +333,7 @@ begin
     end;
     mLinkIndex := ABuilder.AddLink(mLink);
   end;
-  ABuilder.AddWords(ARun.Text, mFace, TDpccDocColor.Accent, mLinkIndex >= 0, mLinkIndex);
+  ABuilder.AddWords(ARun.Text, mFace, TDpccDocColor.Link, mLinkIndex >= 0, mLinkIndex);
 end;
 
 constructor TLayoutBuilder.Create(AWidth: Integer; const AMetrics: TDpccDocMetrics;
@@ -755,7 +770,7 @@ begin
   begin
     Exit;
   end;
-  // Marke mit Ziel (Kästchen einer Checkliste, #1273): anklickbar in Akzentfarbe, ohne Unterstrich.
+  // Marke mit Ziel (Kästchen einer Checkliste, #1273): anklickbar in Linkfarbe der Stufe, ohne Unterstrich.
   mLinkIndex := -1;
   mColor := TDpccDocColor.Muted;
   if ARun.Target <> '' then
@@ -764,7 +779,7 @@ begin
     mLink.Kind := TDpccDocLinkKind.Url;
     mLink.Url := ARun.Target;
     mLinkIndex := AddLink(mLink);
-    mColor := TDpccDocColor.Accent;
+    mColor := TDpccDocColor.Link;
   end;
   AddSpan(ARun.Text, TDpccDocFace.Create(TDpccDocFont.UI, ARun.Bold), mColor, False, mLinkIndex);
   // Fester Platz für die Marke, damit die Texte der Punkte bündig stehen.
@@ -837,7 +852,7 @@ procedure TLayoutBuilder.Heading(const AText: string);
 begin
   SetBase(0);
   Gap(FMetrics.SectionGap);
-  AddSpan(AText, TDpccDocFace.Heading, TDpccDocColor.Muted, False, -1);
+  AddSpan(AText, TDpccDocFace.Heading, TDpccDocColor.Heading, False, -1);
   FLines[High(FLines)].Rule := True;
   FLines[High(FLines)].RuleFrom := FX + FMetrics.ColumnGap;
   NewLine;
@@ -1119,10 +1134,12 @@ begin
   FMeasure := AMeasure;
   FName := TDpccDocFace.Create(TDpccDocFont.Mono, True);
   FNameColor := TDpccDocColor.Accent;
+  FParamColor := TDpccDocColor.Accent;
   if AContent.PlainNames then
   begin
     FName := TDpccDocFace.Create(TDpccDocFont.Mono);
     FNameColor := TDpccDocColor.Text;
+    FParamColor := TDpccDocColor.Param;
   end;
   FMono := TDpccDocFace.Create(TDpccDocFont.Mono);
   FUI := TDpccDocFace.Create(TDpccDocFont.UI);
@@ -1164,13 +1181,13 @@ begin
   mDocs := SectionsOf(FDoc, AKind);
   if (AType <> '') and (Length(mDocs) > 0) then
   begin
-    FBuilder.Columns([TDocCell.OfText(AType, FMono, TDpccDocColor.Keyword),
+    FBuilder.Columns([TDocCell.OfText(AType, FMono, TDpccDocColor.TypeName),
       TDocCell.OfRuns(mDocs[0].Runs, TDpccDocColor.Muted)],
       [Width(AType, FMono, TDpccDocLayout.cTypeColumnPercent)]);
   end
   else if AType <> '' then
   begin
-    FBuilder.Columns([TDocCell.OfText(AType, FMono, TDpccDocColor.Keyword)], nil);
+    FBuilder.Columns([TDocCell.OfText(AType, FMono, TDpccDocColor.TypeName)], nil);
   end
   else if Length(mDocs) > 0 then
   begin
@@ -1227,11 +1244,11 @@ begin
     mFound := SectionIndex(ASections, mParam.Name);
     if mFound >= 0 then
     begin
-      ParamRow(mParam.Name, mParam.TypeText, ASections[mFound].Runs, FNameColor, TDpccDocColor.Text);
+      ParamRow(mParam.Name, mParam.TypeText, ASections[mFound].Runs, FParamColor, TDpccDocColor.Text);
     end
     else
     begin
-      ParamRow(mParam.Name, mParam.TypeText, mUndocumented, FNameColor, TDpccDocColor.Muted);
+      ParamRow(mParam.Name, mParam.TypeText, mUndocumented, FParamColor, TDpccDocColor.Muted);
     end;
   end;
   for mSection in UnknownParams(FDoc, FSignature) do
@@ -1270,18 +1287,19 @@ begin
   end;
   for mSection in mSections do
   begin
-    ParamRow(mSection.Name, '', mSection.Runs, FNameColor, TDpccDocColor.Text);
+    ParamRow(mSection.Name, '', mSection.Runs, FParamColor, TDpccDocColor.Text);
   end;
 end;
 
-procedure TDocSections.NamedRows(const ASections: TArray<TDpccDocSection>; ACount: Integer);
+procedure TDocSections.NamedRows(const ASections: TArray<TDpccDocSection>; ACount: Integer;
+  ANameColor: TDpccDocColor);
 var
   mNameWidth, mIndex: Integer;
 begin
   mNameWidth := NameColumn(ASections, ACount, FName, TDpccDocLayout.cNameColumnPercent);
   for mIndex := 0 to Min(ACount, Length(ASections)) - 1 do
   begin
-    FBuilder.Columns([TDocCell.OfText(ASections[mIndex].Name, FName, FNameColor),
+    FBuilder.Columns([TDocCell.OfText(ASections[mIndex].Name, FName, ANameColor),
       TDocCell.OfRuns(ASections[mIndex].Runs, TDpccDocColor.Text)], [mNameWidth]);
   end;
 end;
@@ -1294,7 +1312,7 @@ begin
   if Length(mSections) > 0 then
   begin
     FBuilder.Heading(FLabels.TypeParams);
-    NamedRows(mSections, MaxInt);
+    NamedRows(mSections, MaxInt, FParamColor);
   end;
 end;
 
@@ -1371,7 +1389,7 @@ begin
   end;
   FBuilder.SetBase(0);
   FBuilder.Gap(AGap);
-  FBuilder.AddSpan(FLabels.SeeAlso, TDpccDocFace.Heading, TDpccDocColor.Muted, False, -1);
+  FBuilder.AddSpan(FLabels.SeeAlso, TDpccDocFace.Heading, TDpccDocColor.Heading, False, -1);
   FBuilder.AddSpan('  ', FUI, TDpccDocColor.Muted, False, -1);
   for mIndex := 0 to High(mSections) do
   begin
@@ -1429,7 +1447,7 @@ begin
   begin
     mShown := Min(mShown, TDpccDocLayout.cMaxRationale);
   end;
-  NamedRows(mSections, mShown);
+  NamedRows(mSections, mShown, FNameColor);
 end;
 
 procedure TDocSections.UnitContents;
@@ -1448,7 +1466,7 @@ begin
       Inc(mLast);
     end;
     FBuilder.Heading(mSections[mFirst].Heading);
-    NamedRows(Copy(mSections, mFirst, mLast - mFirst + 1), MaxInt);
+    NamedRows(Copy(mSections, mFirst, mLast - mFirst + 1), MaxInt, FNameColor);
     mFirst := mLast + 1;
   end;
 end;
@@ -1486,6 +1504,38 @@ begin
     FBuilder.AddWords(mParts[mIndex], FUI, mColors[mIndex]);
   end;
   FBuilder.NewLine;
+end;
+
+class function TDpccDocTypeset.ColorOf(const ALook: TDpccLook; AColor: TDpccDocColor): TDpccColor;
+begin
+  case AColor of
+    TDpccDocColor.Muted:
+      Result := ALook.Colors.Muted;
+    TDpccDocColor.Accent:
+      Result := ALook.Colors.Accent;
+    TDpccDocColor.Error:
+      Result := ALook.Error;
+    TDpccDocColor.Keyword:
+      Result := ALook.SynKeyword;
+    TDpccDocColor.StringLiteral:
+      Result := ALook.SynString;
+    TDpccDocColor.Comment:
+      Result := ALook.SynComment;
+    TDpccDocColor.Number:
+      Result := ALook.SynNumber;
+    TDpccDocColor.Warn:
+      Result := ALook.Warn;
+    TDpccDocColor.Heading:
+      Result := ALook.DocHeading;
+    TDpccDocColor.Param:
+      Result := ALook.DocParam;
+    TDpccDocColor.TypeName:
+      Result := ALook.DocType;
+    TDpccDocColor.Link:
+      Result := ALook.Link;
+  else
+    Result := ALook.Colors.Text;
+  end;
 end;
 
 { TDpccDocContent }

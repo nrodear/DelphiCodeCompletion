@@ -13,7 +13,10 @@
 //
 // Gekürzte Listen (#431, LSP isIncomplete): Beim Weitertippen filtert Requery
 // sofort lokal und fragt im Hintergrund neu; die neue Liste ersetzt die alte,
-// sobald sie eintrifft, und die Auswahl bleibt auf demselben Eintrag.
+// sobald sie eintrifft, und eine eigene Wahl bleibt auf demselben Eintrag.
+// Die automatische Vorauswahl klebt nicht: Nach jedem Teilergebnis und jedem Ersetzen gilt die Vorauswahl der
+// ganzen Liste (FirstSelection, dann Look-ahead), solange niemand mit Pfeiltasten oder Maus gewählt hat. Nur das
+// Anheften (ToggleFavorite) lässt die Auswahl auf dem Eintrag, auch auf einem automatisch gewählten.
 // Der Server liefert nur Namen, die zum Präfix der Anfrage passen (#616). Eine Liste gilt daher nur, solange
 // das getippte Wort mit diesem Präfix beginnt; kürzer oder anders (Rücktaste) heißt neu fragen (NeedsQuery).
 // Teilergebnisse (#616) kommen als mehrere AddItems: Das erste ersetzt bei Requery die Liste, die weiteren
@@ -56,6 +59,12 @@
 // (kein leerer Zustand, etwa in einem mehrzeiligen Kommentar). Ist das getippte Wort schon der Name des gewählten
 // Eintrags (etwa "begin"), ist nichts gewählt (wie #471): Enter gehört dem Editor, eine Pfeiltaste wählt. Mit
 // Strg+Leertaste geöffnete Listen bleiben wie bisher.
+//
+// Look-ahead (Cursor mitten im Wort, "str|ing"): TDpccContext.Rest ist der Wortrest rechts des Cursors. Ist
+// Präfix + Rest (ohne Groß-/Kleinschreibung) der Name eines Eintrags, ist er nach dem Aufbau der Liste gewählt;
+// gefiltert und sortiert wird weiter nur nach dem Präfix. Ohne solchen Eintrag oder ohne Rest bleibt die
+// gewöhnliche Vorauswahl. Eine Auswahl mit Pfeiltasten oder Maus überschreibt er nicht, bis sich das Präfix ändert
+// (dann setzt Refresh die Auswahl ohnehin zurück).
 //
 // Diagnosemodus (#479): Ist TDpccQueryTimings.Enabled, beginnt Start eine gemessene Abfrage (Kontext ab
 // AContext.Started, Art des Kontexts, nur der Dateiname), Refresh meldet die Dauer von Filtern und Sortieren
@@ -213,6 +222,12 @@ type
     FToggled: Boolean;
     /// <summary>Beim Tippen geöffnet (L5).</summary>
     FTyped: Boolean;
+    /// <summary>Look-ahead: Wortrest rechts des Cursors (TDpccContext.Rest).</summary>
+    FWordRest: string;
+    /// <summary>Look-ahead: Die Auswahl stammt von Pfeiltasten oder Maus; der Look-ahead lässt sie stehen.</summary>
+    FUserChose: Boolean;
+    /// <summary>Look-ahead: Das letzte Refresh hat den Eintrag Präfix + Rest gewählt.</summary>
+    FLookAhead: Boolean;
     function GetVisible: Boolean;
     procedure SelectByName(const AName: string);
   public
@@ -241,6 +256,8 @@ type
     /// <summary>Die offene Liste wurde beim Tippen geöffnet (L5, TDpccContext.Typed).</summary>
     property Typed: Boolean read FTyped;
     property Prefix: string read FPrefix;
+    /// <summary>Look-ahead: Wortrest rechts des Cursors der offenen Liste.</summary>
+    property WordRest: string read FWordRest;
     property Items: TDpccCompletionItems read FItems;
     property Order: TArray<Integer> read FOrder;
     property Selected: Integer read FSelected;
@@ -318,8 +335,10 @@ type
     procedure Start(const AContext: TDpccContext);
     /// <summary>Wurde die Liste im Wort von AContext mit Esc geschlossen (#414)?</summary>
     function Dismissed(const AContext: TDpccContext): Boolean;
-    /// <summary>Das Wort unter dem Cursor hat sich geändert: neu filtern.</summary>
-    procedure UpdatePrefix(const APrefix: string);
+    /// <summary>Das Wort unter dem Cursor hat sich geändert: neu filtern. Der Wortrest (Look-ahead) bleibt.</summary>
+    procedure UpdatePrefix(const APrefix: string); overload;
+    /// <summary>Wie oben mit dem aktuellen Wortrest rechts des Cursors (Look-ahead, TDpccContext.Rest).</summary>
+    procedure UpdatePrefix(const APrefix, ARest: string); overload;
     /// <summary>Wie UpdatePrefix, fragt aber zusätzlich neu an (gekürzte Liste, #431).</summary>
     procedure Requery(const AContext: TDpccContext);
     procedure Close;
@@ -473,6 +492,35 @@ function AlreadyTyped(const AItems: TDpccCompletionItems; const AOrder: TArray<I
 begin
   Result := (APrefix <> '') and (ASelected >= 0) and (ASelected <= High(AOrder)) and
     not TDpccRanking.IsHeader(AOrder[ASelected]) and SameText(AItems[AOrder[ASelected]].Name, APrefix);
+end;
+
+/// <summary>Look-ahead: Position des ersten Eintrags in AOrder, dessen Name ohne Groß-/Kleinschreibung APrefix +
+/// ARest ist; -1 ohne Rest oder ohne solchen Eintrag. Überschriften, Hinweise (#466), Deklarationen unbekannter
+/// Namen (#471) und der Rest ohne Treffer (#497, ab ARestStart) zählen nicht.</summary>
+function WholeWordPosition(const AItems: TDpccCompletionItems; const AOrder: TArray<Integer>;
+  const APrefix, ARest: string; ARestStart: Integer): Integer;
+var
+  mWord: string;
+  mPosition: Integer;
+begin
+  Result := -1;
+  if ARest = '' then
+  begin
+    Exit;
+  end;
+  mWord := APrefix + ARest;
+  for mPosition := 0 to High(AOrder) do
+  begin
+    if (ARestStart >= 0) and (mPosition >= ARestStart) then
+    begin
+      Exit;
+    end;
+    if not TDpccRanking.IsHeader(AOrder[mPosition]) and not IsPassiveItem(AItems[AOrder[mPosition]], -1, -1) and
+      SameText(AItems[AOrder[mPosition]].Name, mWord) then
+    begin
+      Exit(mPosition);
+    end;
+  end;
 end;
 
 /// <summary>Lernzuschlag (#418) für AItems; eigene Routine, damit die Methodenreferenz nur das Nötige hält.
@@ -829,6 +877,9 @@ begin
   FActive := True;
   FLoading := True;
   FPrefix := AContext.Prefix;
+  FWordRest := AContext.Rest;
+  FUserChose := False;
+  FLookAhead := False;
   FTrigger := AContext.Trigger;
   FTyped := AContext.Typed;
   FMembers := AContext.Kind = TDpccContextKind.MemberAccess;
@@ -865,7 +916,7 @@ begin
     Exit;
   end;
   // Sofort lokal filtern, damit das Popup ohne Warten folgt (#409) ...
-  UpdatePrefix(AContext.Prefix);
+  UpdatePrefix(AContext.Prefix, AContext.Rest);
   // ... und im Hintergrund die vollständigere Liste holen; ältere Antworten verfallen.
   Inc(FGeneration);
   FLoading := True;
@@ -924,6 +975,9 @@ begin
   FEmpty := False;
   FPassive := False;
   FRestStart := -1;
+  FWordRest := '';
+  FUserChose := False;
+  FLookAhead := False;
   FView.HideList;
 end;
 
@@ -939,9 +993,10 @@ begin
   end;
   if FReplace then
   begin
-    // Neue Liste nach Requery: ersetzen, die Auswahl bleibt auf demselben Eintrag.
+    // Neue Liste nach Requery: ersetzen. Eine eigene Wahl (Pfeiltasten, Maus) bleibt auf demselben Eintrag; die
+    // automatische Vorauswahl der alten Liste klebt nicht, es gilt die der neuen.
     mSelectedName := '';
-    if SelectedItem(mItem) then
+    if FUserChose and SelectedItem(mItem) then
     begin
       mSelectedName := mItem.Name;
     end;
@@ -966,7 +1021,9 @@ begin
   end;
   FItems := FItems + mItems;
   MarkItems(FItems, Length(FItems) - Length(mItems));
-  Refresh(True);
+  // Nur eine eigene Wahl bleibt; sonst gilt nach jedem Teil die Vorauswahl der ganzen Liste (ein späteres Teil
+  // kann einen besseren Treffer vor den bisher gewählten sortieren).
+  Refresh(FUserChose);
 end;
 
 function TDpccCompletionController.Deduplicated(const AItems: TDpccCompletionItems): TDpccCompletionItems;
@@ -1058,7 +1115,7 @@ end;
 
 procedure TDpccCompletionController.Refresh(AKeepSelection: Boolean);
 var
-  mKept: Integer;
+  mKept, mWhole: Integer;
   mTimings: TDpccQueryTimings;
   mStamp: Int64;
 begin
@@ -1078,6 +1135,17 @@ begin
   end;
   FSelected := FirstSelection(FItems, FOrder);
   FSelected := PositionOf(FOrder, mKept, FSelected);
+  // Look-ahead: den Eintrag Präfix + Rest wählen, solange niemand selbst gewählt hat; die Reihenfolge bleibt.
+  mWhole := -1;
+  if not FUserChose then
+  begin
+    mWhole := WholeWordPosition(FItems, FOrder, FPrefix, FWordRest, FRestStart);
+  end;
+  FLookAhead := mWhole >= 0;
+  if FLookAhead then
+  begin
+    FSelected := mWhole;
+  end;
   FEmpty := False;
   FPassive := IsPassive(FItems, FOrder, FSelected, FRestStart, mKept) or
     (FTyped and (mKept < 0) and AlreadyTyped(FItems, FOrder, FSelected, FPrefix));
@@ -1116,8 +1184,23 @@ end;
 
 procedure TDpccCompletionController.UpdatePrefix(const APrefix: string);
 begin
-  if not FActive or (APrefix = FPrefix) then
+  UpdatePrefix(APrefix, FWordRest);
+end;
+
+procedure TDpccCompletionController.UpdatePrefix(const APrefix, ARest: string);
+begin
+  if not FActive or ((APrefix = FPrefix) and (ARest = FWordRest)) then
   begin
+    Exit;
+  end;
+  if APrefix = FPrefix then
+  begin
+    // Nur der Rest hat sich geändert (Entf hinter dem Cursor): eine eigene Auswahl bleibt, sonst neu vorwählen.
+    FWordRest := ARest;
+    if not FUserChose then
+    begin
+      Refresh(False);
+    end;
     Exit;
   end;
   // Weitertippen verwirft das Angebot „Mit try…finally absichern“ (#489).
@@ -1127,6 +1210,9 @@ begin
     Exit;
   end;
   FPrefix := APrefix;
+  FWordRest := ARest;
+  // Refresh setzt die Auswahl zurück; der Look-ahead gilt wieder.
+  FUserChose := False;
   Refresh(False);
 end;
 
@@ -1141,6 +1227,7 @@ begin
   if FPassive then
   begin
     FPassive := False;
+    FUserChose := True;
     FView.ShowList(FItems, FOrder, FSelected, FPrefix);
     Exit;
   end;
@@ -1151,6 +1238,8 @@ begin
     Exit;
   end;
   FSelected := APosition;
+  // Eigene Wahl: Der Look-ahead überschreibt sie beim nächsten Refresh nicht.
+  FUserChose := True;
   FView.ShowList(FItems, FOrder, FSelected, FPrefix);
 end;
 
@@ -1292,6 +1381,7 @@ begin
     // Die Liste zeigt alle Felder, auch wenn hinter dem Punkt schon etwas getippt ist; späte Antworten der
     // alten Anfrage gehören nicht mehr dazu.
     FPrefix := '';
+    FWordRest := '';
       Inc(FGeneration);
     FLoading := False;
     Refresh(False);

@@ -85,6 +85,7 @@ contains
   dpcc.Core.Signature.Providers.Server in 'Source\Signature\dpcc.Core.Signature.Providers.Server.pas',
   dpcc.Core.Style.Color in 'Source\Style\dpcc.Core.Style.Color.pas',
   dpcc.Core.Style.Palette in 'Source\Style\dpcc.Core.Style.Palette.pas',
+  dpcc.Core.Style.Look in 'Source\Style\dpcc.Core.Style.Look.pas',
   dpcc.Core.Style.Syntax in 'Source\Style\dpcc.Core.Style.Syntax.pas',
   dpcc.Core.Style.Wrap in 'Source\Style\dpcc.Core.Style.Wrap.pas',
   dpcc.Core.Style.Scaling in 'Source\Style\dpcc.Core.Style.Scaling.pas',

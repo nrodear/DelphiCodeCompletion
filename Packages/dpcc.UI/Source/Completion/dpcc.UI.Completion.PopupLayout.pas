@@ -34,7 +34,9 @@ type
     function MeasureWidth: Integer;
     /// <summary>Breite der Art-Spalte: „constructor“ plus Abstand (wie im Hover-Tooltip).</summary>
     function KindWidth: Integer;
-    /// <summary>Text rechts in der Zeile: „+ Unit“ und Warnungen (PlainTags) in Worten.</summary>
+    /// <summary>Marken rechts in der Zeile: „+ Unit“ und Warnungen bzw. Fehler (PlainTags).</summary>
+    function TrailerTags(const AItem: TDpccCompletionItem): TDpccTags;
+    /// <summary>Text rechts in der Zeile: TrailerTags in Worten, getrennt durch cTagSeparator.</summary>
     function Trailer(const AItem: TDpccCompletionItem): string;
     /// <summary>Zeile zu AItem: Art, Signatur bzw. Detail, Text rechts.</summary>
     function RowOf(const AItem: TDpccCompletionItem): TDpccPlainRow;
@@ -184,16 +186,21 @@ begin
   Canvas.Font := Font;
 end;
 
+function TDpccCompletionPopupLayout.TrailerTags(const AItem: TDpccCompletionItem): TDpccTags;
+begin
+  Result := TDpccItemPresentation.PlainTags(ItemTags(AItem));
+end;
+
 function TDpccCompletionPopupLayout.Trailer(const AItem: TDpccCompletionItem): string;
 var
   mTag: TDpccTag;
 begin
   Result := '';
-  for mTag in TDpccItemPresentation.PlainTags(ItemTags(AItem)) do
+  for mTag in TrailerTags(AItem) do
   begin
     if Result <> '' then
     begin
-      Result := Result + '   ';
+      Result := Result + cTagSeparator;
     end;
     Result := Result + TDpccCompletionTexts.TagText(mTag);
   end;

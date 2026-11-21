@@ -24,6 +24,10 @@ type
     procedure ScopeListsLocalsMembersAndUsedUnits;
     [Test]
     procedure OwnMethodsSurviveTruncation;
+    /// <summary>Look-ahead: Steht der Cursor mitten im Wort, bleibt der Eintrag dieses Namens beim Kürzen auf
+    /// MaxItems in der Antwort.</summary>
+    [Test]
+    procedure WholeWordSurvivesTruncation;
     [Test]
     procedure PlainItemsHaveNoTextEdit;
     [Test]
@@ -160,6 +164,32 @@ begin
   Assert.IsTrue(Items.Incomplete);
   Assert.AreEqual<NativeInt>(TLspCompletion.cMaxItems, Length(Items.Items));
   Assert.IsTrue(Pos(' RechneSehrLangerName ', ' ' + Names(Items) + ' ') > 0, 'eigene Methode fehlt');
+end;
+procedure TLspCompletionTests.WholeWordSurvivesTruncation;
+var
+  Source, Text: string;
+  Index: Integer;
+  Items: TCompletionItems;
+begin
+  // Mehr als MaxItems Routinen mit "R" in einer eingebundenen Unit, der lange Name zuletzt.
+  Source := 'unit Gross;'#10'interface'#10;
+  for Index := 0 to TLspCompletion.cMaxItems + 199 do
+  begin
+    Source := Source + 'procedure R' + IntToStr(Index) + ';'#10;
+  end;
+  Source := Source + 'procedure RZielMitLangemNamen;'#10'implementation'#10'end.';
+  FIndex.AddUnit(TIndexExtractor.ExtractText(Source, 'C:\P\Gross.pas', nil));
+  // Vorbedingung: Am Wortende "R|" fällt er beim Kürzen heraus.
+  Text := StringReplace(WithCode('  R'), 'uses Werkzeug;', 'uses Werkzeug, Gross;', []);
+  Items := ItemsAt(Text, #10'  R');
+  Assert.IsTrue(Items.Incomplete);
+  Assert.IsFalse(Pos(' RZielMitLangemNamen ', ' ' + Names(Items) + ' ') > 0, 'Vorbedingung: gekürzt');
+  // Mitten im Wort "R|ZielMitLangemNamen": Der Eintrag des ganzen Worts bleibt, das Präfix ist weiter "R".
+  Text := StringReplace(WithCode('  RZielMitLangemNamen'), 'uses Werkzeug;', 'uses Werkzeug, Gross;', []);
+  Items := ItemsAt(Text, #10'  R');
+  Assert.IsTrue(Items.Incomplete);
+  Assert.IsTrue(Pos(' RZielMitLangemNamen ', ' ' + Names(Items) + ' ') > 0, 'Ganzwort-Treffer fehlt');
+  Assert.IsTrue(Pos(' R0 ', ' ' + Names(Items) + ' ') > 0, 'übrige Treffer wie am Wortende');
 end;
 procedure TLspCompletionTests.ScopeFiltersByPrefix;
 begin

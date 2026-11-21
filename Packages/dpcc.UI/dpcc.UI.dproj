@@ -99,6 +99,7 @@
         <DCCReference Include="Source\Completion\dpcc.UI.Completion.PopupLayout.pas"/>
         <DCCReference Include="Source\Completion\dpcc.UI.Completion.PopupPainter.pas"/>
         <DCCReference Include="Source\Completion\dpcc.UI.Completion.PopupTexts.pas"/>
+        <DCCReference Include="Source\Completion\dpcc.UI.Completion.RowColors.pas"/>
         <DCCReference Include="Source\Popup\dpcc.UI.Popup.Styled.pas"/>
         <DCCReference Include="Source\Popup\dpcc.UI.Popup.Tip.pas"/>
         <DCCReference Include="Source\Settings\dpcc.UI.Settings.Page.pas">

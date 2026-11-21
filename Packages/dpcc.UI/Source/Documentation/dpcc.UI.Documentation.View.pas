@@ -9,6 +9,9 @@
 // „Mehr/Weniger anzeigen“ setzt die Doku neu (Toggle).
 // Gemessen wird mit denselben Schriften, mit denen gezeichnet wird;
 // Unterstreichungen sind Linien, damit sie die Breite nicht ändern.
+// Stufen (LOOK2): Paint bekommt den Look des Fensters (TDpccLook); die Farbe je Stück liefert
+// TDpccDocTypeset.ColorOf aus der Rolle (Überschrift, Parametername, Typ, Verweis …), die Linie der
+// Überschriften DocHeadingLine. Rahmen der Codeblöcke, Markierung und Balken nehmen wie bisher die Grundpalette.
 
 interface
 
@@ -17,6 +20,7 @@ uses
   System.Types,
   Vcl.Graphics,
   dpcc.Core.Style.Palette,
+  dpcc.Core.Style.Look,
   dpcc.Core.Documentation.Contract,
   dpcc.Core.Documentation.Layout,
   dpcc.Core.Documentation.Typeset;
@@ -98,8 +102,9 @@ type
     /// <summary>Begrenzt den Ausschnitt auf höchstens AMaxLines Zeilen (0 = alle) und AMaxHeight Pixel
     /// (0 = unbegrenzt), mindestens aber drei Zeilen; liefert die Höhe.</summary>
     function FitHeight(AMaxLines, AMaxHeight: Integer): Integer;
-    /// <summary>Zeichnet den Ausschnitt mit linker oberer Ecke (ALeft, ATop).</summary>
-    procedure Paint(ACanvas: TCanvas; const AColors: TDpccColors; ALeft, ATop: Integer);
+    /// <summary>Zeichnet den Ausschnitt mit linker oberer Ecke (ALeft, ATop) in den Farben der Stufe ALook (der
+    /// Look des Fensters, LOOK2).</summary>
+    procedure Paint(ACanvas: TCanvas; const ALook: TDpccLook; ALeft, ATop: Integer);
     /// <summary>Link unter (AX, AY) relativ zur linken oberen Ecke; -1 ohne.</summary>
     function LinkAt(AX, AY: Integer): Integer;
     function Link(AIndex: Integer): TDpccDocLink;
@@ -476,33 +481,12 @@ begin
   end;
 end;
 
-function ColorOf(const AColors: TDpccColors; AColor: TDpccDocColor): TDpccColor;
-begin
-  case AColor of
-    TDpccDocColor.Muted:
-      Result := AColors.Muted;
-    TDpccDocColor.Accent:
-      Result := AColors.Accent;
-    TDpccDocColor.Error:
-      Result := AColors.Error;
-    TDpccDocColor.Keyword:
-      Result := AColors.Keyword;
-    TDpccDocColor.StringLiteral:
-      Result := AColors.StringLiteral;
-    TDpccDocColor.Comment:
-      Result := AColors.Comment;
-    TDpccDocColor.Warn:
-      Result := AColors.Warn;
-  else
-    Result := AColors.Text;
-  end;
-end;
-
 type
-  /// <summary>Zeichnen der Zeilen eines Ausschnitts: Zielfläche, Farben, Satz und Markierung.</summary>
+  /// <summary>Zeichnen der Zeilen eines Ausschnitts: Zielfläche, Farben der Stufe, Satz und Markierung.</summary>
   TDpccDocPainter = record
     Canvas: TCanvas;
-    Colors: TDpccColors;
+    /// <summary>Farben der Stufe (LOOK2); Look.Colors ist die Grundpalette.</summary>
+    Look: TDpccLook;
     Fonts: TDpccDocFontSet;
     Layout: TDpccDocLayout;
     Measure: TDpccDocMeasure;
@@ -517,11 +501,13 @@ type
     Selected: Boolean;
     From: Integer;
     Till: Integer;
-    /// <summary>Codebereich: 1 px eckiger Rahmen in Colors.Line über aufeinanderfolgende Codezeilen, ohne
+    /// <summary>Codebereich: 1 px eckiger Rahmen in Look.Colors.Line über aufeinanderfolgende Codezeilen, ohne
     /// Füllfläche.</summary>
     procedure Shade(AIndex, AY: Integer);
-    /// <summary>Überschrift: Linie von hinter dem Text bis zum rechten Rand.</summary>
+    /// <summary>Überschrift: Linie in Look.DocHeadingLine von hinter dem Text bis zum rechten Rand.</summary>
     procedure Rule(const ALine: TDpccDocLine; AY: Integer);
+    /// <summary>Farbe der Rolle AColor in der Stufe.</summary>
+    function ColorOf(AColor: TDpccDocColor): TDpccColor;
     procedure Underline(const ASpan: TDpccDocSpan; ASpanTop: Integer);
     procedure Span(const ASpan: TDpccDocSpan; const ALine: TDpccDocLine; AY: Integer);
     procedure Line(AIndex: Integer);
@@ -548,7 +534,7 @@ begin
   end;
   Canvas.Pen.Style := psSolid;
   Canvas.Pen.Width := 1;
-  Canvas.Pen.Color := ToColor(Colors.Line);
+  Canvas.Pen.Color := ToColor(Look.Colors.Line);
   Canvas.MoveTo(Left + mLine.ShadeLeft, mTop);
   Canvas.LineTo(Left + mLine.ShadeLeft, mBottom);
   Canvas.MoveTo(Left + Width - 1, mTop);
@@ -573,9 +559,14 @@ begin
   end;
   Canvas.Pen.Style := psSolid;
   Canvas.Pen.Width := 1;
-  Canvas.Pen.Color := ToColor(Colors.Line);
+  Canvas.Pen.Color := ToColor(Look.DocHeadingLine);
   Canvas.MoveTo(Left + ALine.RuleFrom, AY + ALine.Height div 2);
   Canvas.LineTo(Left + Width, AY + ALine.Height div 2);
+end;
+
+function TDpccDocPainter.ColorOf(AColor: TDpccDocColor): TDpccColor;
+begin
+  Result := TDpccDocTypeset.ColorOf(Look, AColor);
 end;
 
 procedure TDpccDocPainter.Underline(const ASpan: TDpccDocSpan; ASpanTop: Integer);
@@ -588,7 +579,7 @@ begin
     Exit;
   end;
   Canvas.Pen.Style := psSolid;
-  Canvas.Pen.Color := ToColor(ColorOf(Colors, ASpan.Color));
+  Canvas.Pen.Color := ToColor(ColorOf(ASpan.Color));
   Canvas.Pen.Width := 1;
   if mHot then
   begin
@@ -607,11 +598,11 @@ begin
   if Selected and Layout.SpanRange(ASpan, From, Till, Measure, mSelLeft, mSelRight) then
   begin
     Canvas.Brush.Style := bsSolid;
-    Canvas.Brush.Color := ToColor(Colors.Selection);
+    Canvas.Brush.Color := ToColor(Look.Colors.Selection);
     Canvas.FillRect(Rect(Left + mSelLeft, AY, Left + mSelRight, AY + ALine.Height));
   end;
   Canvas.Font := Fonts.FontOf(ASpan.Face);
-  Canvas.Font.Color := ToColor(ColorOf(Colors, ASpan.Color));
+  Canvas.Font.Color := ToColor(ColorOf(ASpan.Color));
   Canvas.Brush.Style := bsClear;
   Canvas.TextOut(Left + ASpan.Left, mSpanTop, ASpan.Text);
   Underline(ASpan, mSpanTop);
@@ -640,7 +631,7 @@ begin
   end;
 end;
 
-procedure TDpccDocView.Paint(ACanvas: TCanvas; const AColors: TDpccColors; ALeft, ATop: Integer);
+procedure TDpccDocView.Paint(ACanvas: TCanvas; const ALook: TDpccLook; ALeft, ATop: Integer);
 var
   mSaved, mIndex: Integer;
   mPainter: TDpccDocPainter;
@@ -651,7 +642,7 @@ begin
   end;
   mPainter := Default(TDpccDocPainter);
   mPainter.Canvas := ACanvas;
-  mPainter.Colors := AColors;
+  mPainter.Look := ALook;
   mPainter.Fonts := FFonts;
   mPainter.Layout := FLayout;
   mPainter.Measure := FFonts.MeasureOn(ACanvas);
@@ -677,7 +668,7 @@ begin
     // RestoreDC wählt die alten Objekte; TCanvas soll Schrift, Stift und Pinsel neu wählen.
     ACanvas.Refresh;
   end;
-  PaintThumb(ACanvas, AColors, ALeft, ATop);
+  PaintThumb(ACanvas, ALook.Colors, ALeft, ATop);
   ACanvas.Brush.Style := bsSolid;
 end;
 

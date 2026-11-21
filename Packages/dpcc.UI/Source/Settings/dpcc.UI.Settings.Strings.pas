@@ -3,7 +3,8 @@
 // Oberflächentexte des Features Einstellungen auf Deutsch und Englisch. Die Sprache bestimmt
 // `TDpccStrings.Language`; jeder Aufruf liest sie neu. Eigene Unit, damit ein neuer Text des Features nicht
 // `dpcc.UI.Strings` ändert, die fast der ganze Kern verwendet; dort bleiben gemeinsame Texte.
-// Seit OPT1 nur noch die Texte der einen Seite „dpcc“: Hauptschalter, vier Abschnitte, zwölf Optionen, zwei Knöpfe
+// Seit OPT1 nur noch die Texte der einen Seite „dpcc“: Hauptschalter, vier Abschnitte, dreizehn Optionen (seit LOOK1
+// mit „Darstellung der Popups“), zwei Knöpfe
 // und die Meldungen von „Index neu aufbauen“; seit IDECHECK der Abschnitt „IDE“ mit „Jetzt prüfen“. Texte der Reiter, des Baums, der Suche, des Filters, der
 // Geändert-Markierung, der experimentellen Funktionen, der Favoritenliste und der fest verdrahteten Optionen sind
 // entfallen.
@@ -21,8 +22,9 @@ type
     SettingsRows, SettingsAutoWidth, SettingsLearning, SettingsResetHistory,
     // Beim Übernehmen.
     SettingsParentheses, SettingsCommitChars, SettingsAutoUses,
-    // Parameter-Hint und Tooltip.
-    SettingsParameterHints, SettingsHover, SettingsDebugHoverValues,
+    // Parameter-Hint und Tooltip; seit LOOK1 die Darstellung der Popups (in der Reihenfolge von TDpccLookLevel).
+    SettingsParameterHints, SettingsHover, SettingsDebugHoverValues, SettingsPopupLook, SettingsPopupLookIntense,
+    SettingsPopupLookSubtle, SettingsPopupLookPlain,
     // Index: zusätzliche Quellordner (L2) und „Index neu aufbauen“ (S4).
     SettingsIndexExtraSourceFolders, SettingsIndexRebuild, SettingsIndexRebuildConfirm, SettingsIndexRebuildLater,
     SettingsIndexCacheFailed, SettingsIndexCacheCleared,
@@ -66,6 +68,10 @@ const
      'Parameter-Hint bei „(“ und „,“',
      'Eigener Tooltip beim Verweilen über Bezeichnern',
      'Werte beim Debuggen zeigen (schaltet den Wert-Tooltip der IDE ab)',
+     'Darstellung der Popups:',
+     'Intensiv',
+     'Dezent',
+     'Unscheinbar',
      'Zusätzliche Quellordner (mit „;“ getrennt, samt Unterordnern):',
      'Index neu aufbauen',
      'Alle Index-Caches löschen und den Index neu aufbauen? Der erste Aufbau kann einige Minuten dauern.',
@@ -96,6 +102,10 @@ const
      'Parameter hint on “(” and “,”',
      'Own tooltip when hovering identifiers',
      'Show values while debugging (turns off the IDE''s value tooltip)',
+     'Popup appearance:',
+     'Intense',
+     'Subtle',
+     'Plain',
      'Additional source folders (separated by “;”, including subfolders):',
      'Rebuild index',
      'Delete all index caches and rebuild the index? The first build can take a few minutes.',

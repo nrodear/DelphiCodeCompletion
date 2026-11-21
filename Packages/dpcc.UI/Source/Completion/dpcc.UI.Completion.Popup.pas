@@ -4,9 +4,12 @@
 // werden nur die sichtbaren Zeilen; Filtern liefert nur ein neues Index-Array
 // (AOrder), die Einträge selbst werden nicht kopiert.
 // Schlicht (S6): Aussehen wie die Code-Insight-Liste der IDE und der Hover-Tooltip, flacher Rahmen,
-// Farben aus TDpccIdeStyle.CompletionListColors (setzt dpcc.IDE.Completion.EditorOpen). Je Zeile die Art als Wort
-// (procedure, function, type, …), der Name fett, dahinter die Signatur bzw. gedämpft das Detail, rechts gedämpft
-// „+ Unit“ und Warnungen. Fußzeile nur mit Tasten bzw. Hinweisen. Zeichnen: dpcc.UI.Completion.PopupPainter.
+// Farben aus TDpccIdeStyle.ListColors und Stufe der Darstellung (LOOK1, PopupLook), beides gesetzt über
+// TDpccIdeStyle.Apply in dpcc.IDE.Completion.EditorOpen; gezeichnet wird mit Look. Je Zeile die Art als Wort
+// (procedure, function, type, …) in der Farbe ihrer Artgruppe, der Name fett, dahinter die Signatur bzw. gedämpft
+// das Detail, rechts „+ Unit“ und Warnungen in der Farbe ihrer Art. Die gewählte Zeile liegt auf
+// Look.SelectionBack, nicht mehr auf der Auswahlfarbe des IDE-Themas. Fußzeile nur mit Tasten bzw. Hinweisen.
+// Zeichnen: dpcc.UI.Completion.PopupPainter, Farben der Zeilen: dpcc.UI.Completion.RowColors.
 // Das frühere Aussehen (Badges, Tags als Flächen, Filter-Chips, Sternspalte, Auswahlmarke, Griff, Zählung „n von
 // m“, Detailpanel mit Überladungen und XMLDoc) ist seit S7a entfernt.
 //   - Gekürzte Zeilen zeigen nach 600 ms Verweilen mit der Maus den vollen Text (#420).
