@@ -53,7 +53,7 @@
         <GenDll>true</GenDll>
         <DesignOnlyPackage>true</DesignOnlyPackage>
         <DllSuffix>$(Auto)</DllSuffix>
-        <DCC_Description>dpcc (Code Insight-Manager)</DCC_Description>
+        <DCC_Description>dpcc - Delphi Pascal Code Completion</DCC_Description>
         <DCC_Namespace>System;Winapi;System.Win;Vcl;$(DCC_Namespace)</DCC_Namespace>
         <DCC_OutputNeverBuildDcps>true</DCC_OutputNeverBuildDcps>
         <DCC_UnitSearchPath>..\..\Output\$(Platform)\$(Config)\Dcp;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>

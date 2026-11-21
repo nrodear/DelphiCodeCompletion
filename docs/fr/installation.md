@@ -66,7 +66,7 @@ l'IDE de Delphi 12.
 
 1. Dans l'IDE, ouvrir **Component › Install Packages…**.
 2. Choisir **Add…** et ouvrir `Output\Win32\Debug\Bpl\dpcc.IDE.Base370.bpl`.
-3. L'IDE affiche le paquet avec la description « dpcc (Code Insight-Manager) ».
+3. L'IDE affiche le paquet avec la description « dpcc - Delphi Pascal Code Completion ».
 
 Seul `dpcc.IDE.Base370.bpl` est installé. Il a besoin à l'exécution de sept autres BPL (sous Delphi 12 avec le
 suffixe `290` au lieu de `370`) :
@@ -160,7 +160,7 @@ est remplacée après un avertissement : les deux ensemble feraient échouer le
 cours d'exécution, le programme s'arrête.
 
 Pour désinstaller, passer par **Applications** de Windows ou l'entrée du menu Démarrer
-**dpcc › Uninstall dpcc (IDE-Plugin)**. Auparavant, désactiver l'interrupteur principal comme sous
+**Delphi Pascal Code Completion › Uninstall dpcc**. Auparavant, désactiver l'interrupteur principal comme sous
 [Désinstallation](#désinstallation), étape 1 ; si dpcc est encore le fournisseur Code Insight, le programme de
 désinstallation demande confirmation. Il retire l'inscription, son segment de PATH et les fichiers ; réglages,
 données et cache restent. Détails (en allemand) : [installer/README_Installer.md](../../installer/README_Installer.md).
@@ -203,7 +203,7 @@ les supprimer.
 1. Pour que dpcc rende le fournisseur et les réglages de l'IDE : sous **Tools › Options › Third Party › dpcc**,
    désactiver l'interrupteur principal « Code Insight by dpcc » (Code Insight de dpcc), fermer avec **OK** et
    redémarrer Delphi une fois. dpcc rétablit alors le fournisseur (par défaut DelphiLSP) et annule ses réglages.
-2. Ouvrir **Component › Install Packages…**, choisir « dpcc (Code Insight-Manager) » puis **Remove**.
+2. Ouvrir **Component › Install Packages…**, choisir « dpcc - Delphi Pascal Code Completion » puis **Remove**.
 3. Fermer l'IDE.
 4. Retirer l'entrée du PATH : `powershell -NoProfile -File Tools\IdePath.ps1 -Action Remove` ou à la main sous
    **Tools › Options › IDE › Environment Variables**.

@@ -13,9 +13,9 @@ nur in Delphi 13. Die Tabelle entspricht der Übersicht auf der Seite „Bereit 
 | Delphi | BDS | IDE | BPLs | Registry-Zweig (HKCU) | Setup |
 |---|---|---|---|---|---|
 | ≤ 11 | ≤ 22.0 | 32-Bit | – | – | **nicht unterstützt** (keine Projektgruppe) |
-| 12 Athens | 23.0 | 32-Bit | acht BPLs `…290.bpl`, Ziel `{app}\bpl\d12` | `…\BDS\23.0\Known Packages` | **ja** |
-| 13 Florence | 37.0 | 32-Bit | acht BPLs `…370.bpl`, Ziel `{app}\bpl\d13` | `…\BDS\37.0\Known Packages` | **ja** |
-| 13 Florence | 37.0 | 64-Bit | – | – | **nicht in diesem Setup**: dpcc baut nur Win32, die 64-Bit-IDE lädt keine Win32-BPL |
+| 12 Athens | 23.0 | 32-Bit | acht BPLs `…290.bpl`, Ziel `{app}\bpl\d12` | `…\BDS\23.0\Known Packages` | **wird unterstützt** |
+| 13 Florence | 37.0 | 32-Bit | acht BPLs `…370.bpl`, Ziel `{app}\bpl\d13` | `…\BDS\37.0\Known Packages` | **wird unterstützt** |
+| 13 Florence | 37.0 | 64-Bit | – | – | **nicht unterstützt** (nur 32-Bit-IDE): dpcc baut nur Win32, die 64-Bit-IDE lädt keine Win32-BPL |
 
 Das Setup zeigt nur die Versionen zur Auswahl, deren IDE es findet (`RootDir` unter
 `HKCU` bzw. `HKLM\…\Embarcadero\BDS\<bds>` und dort eine vorhandene `bin\bds.exe`). Findet es keine, bricht es
@@ -87,7 +87,9 @@ iscc /DDpccBplSourceDirD12="D:\release\d12" /DDpccBplSourceDirD13="D:\release\d1
 ```
 
 Ohne `/DDpccVersion` liest das Skript die Version beim Kompilieren selbst aus `dpcc.Text.Product.Version.pas`
-(`cVersion`, mit angehängtem `.0`); eine zweite, von Hand gepflegte Versionsangabe gibt es nicht. Weitere Defines:
+(`cVersion`, mit angehängtem `.0`); eine zweite, von Hand gepflegte Versionsangabe gibt es nicht. Die vierstellige
+Fassung steht im Dateinamen und in der VERSIONINFO der Setup-EXE; angezeigt wird (`AppVersion`, abgeleitet als
+`DpccVersionShort`) die dreistellige, z. B. `0.1.0` statt `0.1.0.0`. Weitere Defines:
 `DpccRepoRoot` (Repo-Wurzel mit abschließendem `\`, Vorgabe der Ordner über `installer`) und `DpccDonateUrl`
 (leer = kein Spenden-Button). Ergebnis: `installer\Output\dpccSetup-<Version>.exe`. Setup-EXEs gehören nicht ins
 Repo.
@@ -96,13 +98,18 @@ Repo.
 
 - **Per-User, nie elevated** (`PrivilegesRequired=lowest`). Dateien nach `%LOCALAPPDATA%\Programs\dpcc\`:
 
-  | Version | Dateien nach | Known Packages (Wertname = voller Pfad, Daten `dpcc (Code Insight-Manager)`) | PATH-Override |
+  | Version | Dateien nach | Known Packages (Wertname = voller Pfad, Daten `dpcc - Delphi Pascal Code Completion`) | PATH-Override |
   |---|---|---|---|
   | Delphi 12 | `bpl\d12\dpcc.*290.bpl` | `HKCU\Software\Embarcadero\BDS\23.0\Known Packages`, Wert `…\bpl\d12\dpcc.IDE.Base290.bpl` | `…\BDS\23.0\Environment Variables`, Wert `PATH` |
   | Delphi 13 | `bpl\d13\dpcc.*370.bpl` | `HKCU\Software\Embarcadero\BDS\37.0\Known Packages`, Wert `…\bpl\d13\dpcc.IDE.Base370.bpl` | `…\BDS\37.0\Environment Variables`, Wert `PATH` |
 
   Dazu `unins000.exe`/`unins000.dat` in `{app}`, der Eintrag unter „Apps“ von Windows und ein Startmenü-Eintrag
-  `dpcc\Uninstall dpcc (IDE-Plugin)`.
+  `Delphi Pascal Code Completion\dpcc deinstallieren` (englisch: `Uninstall dpcc`). Die Verknüpfung
+  `dpcc\Uninstall dpcc (IDE-Plugin)` früherer Setups entfernt `[InstallDelete]` beim Drüberinstallieren, den Ordner
+  `dpcc` nur, wenn er dann leer ist.
+- **Anzeige**: Programmname „Delphi Pascal Code Completion (dpcc)“ (Wizard und „Apps“), Herausgeber
+  „Delphi Technologies by nrodear“, Version dreistellig (`x.y.z`). Die Paketbeschreibung in den Known Packages
+  entspricht `{$DESCRIPTION}` aus `dpcc.IDE.Base.dpk`.
 - **IDE-PATH-Override**: `{app}\bpl\<version>` kommt vorn in den Wert. Er ist geteilt (InterBase trägt dort z. B.
   `…\IDE_spoof;$(PATH)`): nur das eigene Segment wird bewegt, alles andere bleibt Zeichen für Zeichen. Das Segment
   wird immer entnommen und vorn eingesetzt; eine Doppelinstallation ändert den Wert nicht, und es steht vor einem

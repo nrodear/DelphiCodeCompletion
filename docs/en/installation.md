@@ -64,7 +64,7 @@ the Delphi 12 IDE.
 
 1. In the IDE, open **Component › Install Packages…**.
 2. Choose **Add…** and open `Output\Win32\Debug\Bpl\dpcc.IDE.Base370.bpl`.
-3. The IDE shows the package with the description “dpcc (Code Insight-Manager)”.
+3. The IDE shows the package with the description “dpcc - Delphi Pascal Code Completion”.
 
 Only `dpcc.IDE.Base370.bpl` is installed. At run time it needs seven more BPLs (under Delphi 12 with the suffix
 `290` instead of `370`):
@@ -156,8 +156,8 @@ For each version the setup copies the eight BPLs to `%LOCALAPPDATA%\Programs\dpc
 of the IDE's PATH. A registration of your own build (for example from `Output\Win32\Debug\Bpl`) is replaced after a
 notice: having both would make the IDE fail at startup. If Delphi is running, the setup stops.
 
-To uninstall, use Windows **Apps** or the Start menu entry **dpcc › Uninstall dpcc (IDE-Plugin)**. Before that, turn
-off the master switch as in [Uninstalling](#uninstalling), step 1; if dpcc is still the Code Insight provider, the
+To uninstall, use Windows **Apps** or the Start menu entry **Delphi Pascal Code Completion › Uninstall dpcc**.
+Before that, turn off the master switch as in [Uninstalling](#uninstalling), step 1; if dpcc is still the Code Insight provider, the
 uninstaller asks. It removes the registration, its PATH segment and the files; settings, data and cache stay.
 Details (German): [installer/README_Installer.md](../../installer/README_Installer.md).
 
@@ -198,7 +198,7 @@ rebuild these files are still in the BPL folder; the plugin no longer loads them
 1. So that dpcc hands the provider and the IDE switches back: under **Tools › Options › Third Party › dpcc**, turn
    off the master switch “Code Insight by dpcc”, close with **OK** and restart Delphi once. dpcc then switches the
    provider back (default DelphiLSP) and reverts its switches.
-2. Open **Component › Install Packages…**, select “dpcc (Code Insight-Manager)” and click **Remove**.
+2. Open **Component › Install Packages…**, select “dpcc - Delphi Pascal Code Completion” and click **Remove**.
 3. Close the IDE.
 4. Remove the PATH entry: `powershell -NoProfile -File Tools\IdePath.ps1 -Action Remove`, or manually under
    **Tools › Options › IDE › Environment Variables**.

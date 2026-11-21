@@ -1,4 +1,4 @@
-; =============================================================================
+﻿; =============================================================================
 ; dpccSetup.iss  -  Inno Setup 6.x, dpcc-Paketsatz fuer Delphi 12 und Delphi 13
 ; Installiert die acht Packages von dpcc je Benutzer und traegt sie in die IDE ein.
 ; Beschreibung, Bau und Testmatrix: installer\README_Installer.md
@@ -38,6 +38,9 @@
 ; (VERSIONINFO hat vier Felder). Tools\Build-Setup.ps1 reicht dieselbe Zahl
 ; per /DDpccVersion=x.y.z.0 durch. Ein Hand-Compile ohne /D bekommt damit
 ; dieselbe Version, eine von Hand gepflegte Kopie gibt es nicht.
+; Vierstellig (DpccVersion) bleiben VersionInfoVersion und der Dateiname des
+; Setups; angezeigt wird die dreistellige Fassung DpccVersionShort (x.y.z),
+; die unten aus DpccVersion entsteht, indem der letzte Teil wegfaellt.
 #ifndef DpccVersion
   #define DpccVersionFile DpccRepoRoot + "Packages\dpcc.Text\Source\Product\dpcc.Text.Product.Version.pas"
   ; Zeilenweise lesen bis zur ersten Zeile mit "cVersion = '...'". Bewusst als
@@ -57,8 +60,10 @@
   #endif
   #define DpccVersion VerFound + ".0"
 #endif
-#define DpccAppName     "dpcc - Delphi Pascal Code Completion (IDE-Plugin)"
-#define DpccPublisher   "dpcc"
+; Anzeige ohne den letzten Teil: 0.1.0.0 -> 0.1.0 (AppVersion).
+#define DpccVersionShort Copy(DpccVersion, 1, RPos(".", DpccVersion) - 1)
+#define DpccAppName     "Delphi Pascal Code Completion (dpcc)"
+#define DpccPublisher   "Delphi Technologies by nrodear"
 
 ; --- Community-Buttons unten links im Wizard. Klick
 ; oeffnet den STANDARD-BROWSER - rein nutzerinitiiert, das Setup selbst baut
@@ -102,7 +107,7 @@
 #define DpccIdeBplD12 "dpcc.IDE.Base" + DpccSuffixD12 + ".bpl"
 #define DpccIdeBplD13 "dpcc.IDE.Base" + DpccSuffixD13 + ".bpl"
 ; Wertdaten der Known Packages = {$DESCRIPTION} aus dpcc.IDE.Base.dpk.
-#define DpccPackageDescription "dpcc (Code Insight-Manager)"
+#define DpccPackageDescription "dpcc - Delphi Pascal Code Completion"
 
 ; BDS-Registry-Schluessel (HKCU). Der Nummernsprung 23.0 -> 37.0 ist real.
 #define KnownPackages23 "Software\Embarcadero\BDS\23.0\Known Packages"
@@ -118,7 +123,7 @@
 ; Eigene AppId; an ihr erkennt Windows das Produkt bei Update und Deinstallation.
 AppId={{1CC1EC9F-520B-40D8-A96C-CC5387D2FEC0}
 AppName={#DpccAppName}
-AppVersion={#DpccVersion}
+AppVersion={#DpccVersionShort}
 ; Ohne VersionInfoVersion bleibt die FileVersion der Setup-Exe LEER.
 VersionInfoVersion={#DpccVersion}
 AppPublisher={#DpccPublisher}
@@ -149,20 +154,23 @@ Name: "de"; MessagesFile: "compiler:Languages\German.isl"
 Name: "en"; MessagesFile: "compiler:Default.isl"
 
 [CustomMessages]
-de.IdeRunning=Eine Delphi-IDE (bds.exe) scheint zu laufen. Bitte alle Delphi-Instanzen schliessen und erneut starten. Das Setup beendet keine Programme.
+de.IdeRunning=Eine Delphi-IDE (bds.exe) scheint zu laufen. Bitte alle Delphi-Instanzen schließen und erneut starten. Das Setup beendet keine Programme.
 en.IdeRunning=A Delphi IDE (bds.exe) appears to be running. Please close all Delphi instances and start again. Setup does not close any programs.
-de.NoDelphi=Es wurde weder Delphi 12 (BDS 23.0) noch Delphi 13 (BDS 37.0) auf diesem System gefunden. dpcc unterstuetzt Delphi 12 und Delphi 13 (jeweils die 32-bit-IDE); aeltere Versionen werden nicht unterstuetzt. Das Setup wird beendet, es wird nichts installiert.
+de.NoDelphi=Es wurde weder Delphi 12 (BDS 23.0) noch Delphi 13 (BDS 37.0) auf diesem System gefunden. dpcc unterstützt Delphi 12 und Delphi 13 (jeweils die 32-bit-IDE); ältere Versionen werden nicht unterstützt. Das Setup wird beendet, es wird nichts installiert.
 en.NoDelphi=Neither Delphi 12 (BDS 23.0) nor Delphi 13 (BDS 37.0) was found on this system. dpcc supports Delphi 12 and Delphi 13 (32-bit IDE each); older versions are not supported. Setup will close without installing anything.
-de.DevBplWarn=Unter "%2" ist bereits eine Registrierung von dpcc mit anderem Pfad eingetragen (z. B. ein eigener Bau aus dem Repo):%n%n%1%nDer Eintrag wird durch die Installations-Registrierung ersetzt; beide zusammen liessen die IDE beim Start scheitern. Wer spaeter wieder den eigenen Bau nutzt, traegt ihn neu ein (docs\de\installation.md).
+de.DevBplWarn=Unter "%2" ist bereits eine Registrierung von dpcc mit anderem Pfad eingetragen (z. B. ein eigener Bau aus dem Repo):%n%n%1%nDer Eintrag wird durch die Installations-Registrierung ersetzt; beide zusammen ließen die IDE beim Start scheitern. Wer später wieder den eigenen Bau nutzt, trägt ihn neu ein (docs\de\installation.md).
 en.DevBplWarn=A registration of dpcc with a different path already exists under "%2" (for example your own build from the repository):%n%n%1%nIt will be replaced by the installed registration; having both would make the IDE fail at startup. To use your own build again later, register it again (docs\en\installation.md).
-de.OverrideFail=Der PATH-Eintrag der IDE konnte nicht geschrieben werden (%1). Ohne ihn laedt dpcc beim IDE-Start nicht.
+de.OverrideFail=Der PATH-Eintrag der IDE konnte nicht geschrieben werden (%1). Ohne ihn lädt dpcc beim IDE-Start nicht.
 en.OverrideFail=The IDE's PATH entry could not be written (%1). Without it dpcc will not load when the IDE starts.
-de.ProviderStill=dpcc ist noch als Code-Insight-Anbieter eingetragen in:%n%n%1%nOhne das Plugin bleiben dort sonst Help Insight, die Kurzhinweise und der Wert-Tooltip der IDE aus.%n%nEmpfohlen: Delphi starten, unter Tools > Optionen > Drittanbieter > dpcc den Hauptschalter ausschalten, mit OK schliessen, Delphi einmal neu starten und wieder schliessen. dpcc stellt dabei den Anbieter (DelphiLSP) und seine Schalter zurueck.%n%nTrotzdem jetzt deinstallieren?
+de.ProviderStill=dpcc ist noch als Code-Insight-Anbieter eingetragen in:%n%n%1%nOhne das Plugin bleiben dort sonst Help Insight, die Kurzhinweise und der Wert-Tooltip der IDE aus.%n%nEmpfohlen: Delphi starten, unter Tools > Optionen > Drittanbieter > dpcc den Hauptschalter ausschalten, mit OK schließen, Delphi einmal neu starten und wieder schließen. dpcc stellt dabei den Anbieter (DelphiLSP) und seine Schalter zurück.%n%nTrotzdem jetzt deinstallieren?
 en.ProviderStill=dpcc is still set as the Code Insight provider in:%n%n%1%nWithout the plugin, Help Insight, tooltips and the value tooltip of the IDE would then stay off there.%n%nRecommended: start Delphi, turn off the main switch under Tools > Options > Third Party > dpcc, close with OK, restart Delphi once and close it again. dpcc then restores the provider (DelphiLSP) and its switches.%n%nUninstall now anyway?
 de.DonateBtn=Spenden
 en.DonateBtn=Donate
 de.StarBtn=Stern auf GitHub
 en.StarBtn=Star on GitHub
+; Startmenue-Eintrag zum Deinstaller (siehe [Icons]).
+de.UninstallShortcut=dpcc deinstallieren
+en.UninstallShortcut=Uninstall dpcc
 ; --- Auswahlliste der Ziel-IDEs -----------------------------------------------
 ; Angezeigt wird nur, was auf diesem Rechner wirklich gefunden wurde - die
 ; Check:-Ausdruecke der [Components] blenden den Rest aus.
@@ -174,30 +182,30 @@ de.CompD12=Delphi 12 Athens (32-bit-IDE)
 en.CompD12=Delphi 12 Athens (32-bit IDE)
 de.CompD13=Delphi 13 Florence (32-bit-IDE)
 en.CompD13=Delphi 13 Florence (32-bit IDE)
-de.NoComponent=Bitte mindestens eine Delphi-Version auswaehlen - sonst wird dpcc nicht installiert.
+de.NoComponent=Bitte mindestens eine Delphi-Version auswählen - sonst wird dpcc nicht installiert.
 en.NoComponent=Please select at least one Delphi version - otherwise dpcc is not installed.
 ; Versions-Uebersicht auf der "Ready to Install"-Seite. Dieselben Aussagen
 ; wie die Tabelle in README_Installer.md, Abschnitt 0 - bei Aenderungen BEIDE
 ; Stellen pflegen.
-de.ReadyHead=Unterstuetzte Delphi-Versionen:
+de.ReadyHead=Unterstützte Delphi-Versionen:
 en.ReadyHead=Supported Delphi versions:
-de.ReadyYes1=Delphi 12 Athens (32-bit-IDE)  -  JA, dieses Setup
-en.ReadyYes1=Delphi 12 Athens (32-bit IDE)  -  YES, this setup
-de.ReadyYes2=Delphi 13 Florence (32-bit-IDE)  -  JA, dieses Setup
-en.ReadyYes2=Delphi 13 Florence (32-bit IDE)  -  YES, this setup
-de.ReadyNo1=Delphi 13 Florence (64-bit-IDE)  -  nicht in diesem Setup (nur Win32-Pakete)
-en.ReadyNo1=Delphi 13 Florence (64-bit IDE)  -  not in this setup (Win32 packages only)
-de.ReadyNo2=Delphi 11 und aelter  -  nicht unterstuetzt
+de.ReadyYes1=Delphi 12 Athens (32-bit-IDE)  -  wird unterstützt
+en.ReadyYes1=Delphi 12 Athens (32-bit IDE)  -  supported
+de.ReadyYes2=Delphi 13 Florence (32-bit-IDE)  -  wird unterstützt
+en.ReadyYes2=Delphi 13 Florence (32-bit IDE)  -  supported
+de.ReadyNo1=Delphi 13 Florence (64-bit-IDE)  -  nicht unterstützt (nur 32-bit-IDE)
+en.ReadyNo1=Delphi 13 Florence (64-bit IDE)  -  not supported (32-bit IDE only)
+de.ReadyNo2=Delphi 11 und älter  -  nicht unterstützt
 en.ReadyNo2=Delphi 11 and older  -  not supported
 de.ReadyNote=Alternative: das Projekt von GitHub laden und die Packages selbst in der IDE bauen und installieren - Anleitung (docs\de\installation.md) im Repository:
 en.ReadyNote=Alternative: download the project from GitHub and build/install the packages yourself in the IDE - instructions (docs\en\installation.md) in the repository:
-de.ReadyPath=Das Setup traegt seinen Paketordner vorn in die PATH-Einstellung der gewaehlten IDEs ein (Tools > Optionen > IDE > Umgebungsvariablen), sonst findet die IDE die sieben Laufzeitpakete von dpcc nicht. Bestehende Eintraege bleiben erhalten, die Deinstallation nimmt nur diesen Ordner wieder heraus.
+de.ReadyPath=Das Setup trägt seinen Paketordner vorn in die PATH-Einstellung der gewählten IDEs ein (Tools > Optionen > IDE > Umgebungsvariablen), sonst findet die IDE die sieben Laufzeitpakete von dpcc nicht. Bestehende Einträge bleiben erhalten, die Deinstallation nimmt nur diesen Ordner wieder heraus.
 en.ReadyPath=Setup adds its package folder to the front of the PATH setting of the selected IDEs (Tools > Options > IDE > Environment Variables); without it the IDE cannot find the seven runtime packages of dpcc. Existing entries stay in place, uninstalling removes only this folder.
-de.ReadyStart=Nach der Installation: Ist in Delphi DelphiLSP als Code-Insight-Anbieter gewaehlt (Vorgabe), bleibt dpcc zunaechst aus. Einschalten unter Tools > Optionen > Drittanbieter > dpcc (Hauptschalter, OK, Delphi neu starten).
+de.ReadyStart=Nach der Installation: Ist in Delphi DelphiLSP als Code-Insight-Anbieter gewählt (Vorgabe), bleibt dpcc zunächst aus. Einschalten unter Tools > Optionen > Drittanbieter > dpcc (Hauptschalter, OK, Delphi neu starten).
 en.ReadyStart=After installing: if DelphiLSP is the Code Insight provider in Delphi (default), dpcc stays off at first. Turn it on under Tools > Options > Third Party > dpcc (main switch, OK, restart Delphi).
 
 [Messages]
-de.WelcomeLabel2=%n[name/ver] wird auf Ihrem Computer installiert (nur fuer den aktuellen Benutzer, ohne Administratorrechte).%n%nDieses Setup baut keine Netzwerkverbindungen auf: kein Update-Check, keine Telemetrie, kein Download.
+de.WelcomeLabel2=%n[name/ver] wird auf Ihrem Computer installiert (nur für den aktuellen Benutzer, ohne Administratorrechte).%n%nDieses Setup baut keine Netzwerkverbindungen auf: kein Update-Check, keine Telemetrie, kein Download.
 en.WelcomeLabel2=%nThis will install [name/ver] on your computer (current user only, no administrator rights).%n%nThis setup never opens network connections: no update check, no telemetry, no download.
 
 [Types]
@@ -247,10 +255,17 @@ Type: filesandordirs; Name: "{app}\bpl\d12"
 Type: filesandordirs; Name: "{app}\bpl\d13"
 Type: dirifempty;     Name: "{app}\bpl"
 
+[InstallDelete]
+; Fruehere Setups legten den Startmenue-Eintrag unter "dpcc" an. Beim
+; Drueberinstallieren die alte Verknuepfung entfernen, sonst stuenden zwei
+; Eintraege zum Deinstaller im Startmenue; der Ordner nur, wenn er leer ist.
+Type: files;      Name: "{userprograms}\dpcc\Uninstall dpcc (IDE-Plugin).lnk"
+Type: dirifempty; Name: "{userprograms}\dpcc"
+
 [Icons]
 ; Sichtbarer Weg zum Deinstaller: ein IDE-Plugin hat keine startbare EXE und
 ; damit keinen natuerlichen Fundort. {userprograms}: per-user, kein Admin.
-Name: "{userprograms}\dpcc\Uninstall dpcc (IDE-Plugin)"; Filename: "{uninstallexe}"
+Name: "{userprograms}\Delphi Pascal Code Completion\{cm:UninstallShortcut}"; Filename: "{uninstallexe}"
 
 [Registry]
 ; HKCU-Registrierung, je Version nur dpcc.IDE.Base<suffix>.bpl. Die sieben
@@ -599,13 +614,31 @@ begin
 end;
 
 // RTF-Sonderzeichen entschaerfen (Backslash/geschweifte Klammern - der
-// Zielordner-Block enthaelt Windows-Pfade).
+// Zielordner-Block enthaelt Windows-Pfade). Zeichen jenseits von ASCII
+// (Umlaute der Texte, Benutzernamen im Zielordner) gehen als \uN in den
+// RTF-Text: RTFText ist ein AnsiString, ohne das haenge ihre Darstellung an
+// der Codepage des Rechners.
 function RtfEscape(const S: string): string;
+var
+  I, Code: Integer;
 begin
-  Result := S;
-  StringChangeEx(Result, '\', '\\', True);
-  StringChangeEx(Result, '{', '\{', True);
-  StringChangeEx(Result, '}', '\}', True);
+  Result := '';
+  for I := 1 to Length(S) do
+  begin
+    Code := Ord(S[I]);
+    if (S[I] = '\') or (S[I] = '{') or (S[I] = '}') then
+      Result := Result + '\' + S[I]
+    else if Code > 127 then
+    begin
+      // \uN erwartet eine vorzeichenbehaftete 16-Bit-Zahl; "?" ist der Ersatz
+      // fuer Leser ohne Unicode.
+      if Code > 32767 then
+        Code := Code - 65536;
+      Result := Result + '\u' + IntToStr(Code) + '?';
+    end
+    else
+      Result := Result + S[I];
+  end;
 end;
 
 // Zeilenumbrueche des Memo-Texts (#13#10) in RTF-\par wandeln.
