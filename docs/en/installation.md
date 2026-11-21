@@ -8,7 +8,8 @@
 
 - Delphi 13 / RAD Studio 37.0. For Delphi 12 / RAD Studio 23.0 see [Building for Delphi 12](#building-for-delphi-12).
 - Win32 platform. The IDE is a 32-bit process, so the plugin is a Win32 package.
-- The dpcc source code. There are no prebuilt BPLs; dpcc is built from the project group.
+- The dpcc source code. There are no prebuilt BPLs; dpcc is built from the project group. A setup can be created
+  from the built BPLs, see [Installing with the setup](#installing-with-the-setup).
 
 ## Building
 
@@ -131,6 +132,34 @@ Exit code of `Status` and `Check`:
 | 0 | entry present, all BPLs there |
 | 1 | entry missing; fix with `-Action Add` |
 | 2 | BPL folder or BPLs missing; build the group first |
+
+## Installing with the setup
+
+Instead of adding the package and the PATH entry by hand, you can create a setup from the built BPLs (Inno Setup 6).
+It installs dpcc for the current user, without administrator rights, into Delphi 12 and/or Delphi 13 (32-bit IDE
+each).
+
+1. Build both groups: `dpcc_d13.groupproj` (configuration Debug) and `dpcc_d12.groupproj` (configuration D12), see
+   above.
+2. Create the setup, from the repo folder:
+
+   ```powershell
+   powershell -NoProfile -File Tools\Build-Setup.ps1 -DryRun   # check only, creates nothing
+   powershell -NoProfile -File Tools\Build-Setup.ps1           # installer\Output\dpccSetup-<version>.exe
+   ```
+
+3. Close all Delphi instances and run `dpccSetup-<version>.exe`. Only the Delphi versions the setup finds are
+   offered.
+
+For each version the setup copies the eight BPLs to `%LOCALAPPDATA%\Programs\dpcc\bpl\d12` or `…\bpl\d13`, registers
+`dpcc.IDE.Base290.bpl` or `dpcc.IDE.Base370.bpl` under the IDE's `Known Packages` and puts its BPL folder at the front
+of the IDE's PATH. A registration of your own build (for example from `Output\Win32\Debug\Bpl`) is replaced after a
+notice: having both would make the IDE fail at startup. If Delphi is running, the setup stops.
+
+To uninstall, use Windows **Apps** or the Start menu entry **dpcc › Uninstall dpcc (IDE-Plugin)**. Before that, turn
+off the master switch as in [Uninstalling](#uninstalling), step 1; if dpcc is still the Code Insight provider, the
+uninstaller asks. It removes the registration, its PATH segment and the files; settings, data and cache stay.
+Details (German): [installer/README_Installer.md](../../installer/README_Installer.md).
 
 ## Checking that dpcc is loaded
 

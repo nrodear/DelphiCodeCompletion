@@ -8,7 +8,8 @@ Deutsch | [English](../en/installation.md) | [Français](../fr/installation.md)
 
 - Delphi 13 / RAD Studio 37.0. Für Delphi 12 / RAD Studio 23.0 siehe [Bauen für Delphi 12](#bauen-für-delphi-12).
 - Plattform Win32. Die IDE ist ein 32-Bit-Prozess, das Plugin ist deshalb ein Win32-Package.
-- Der Quelltext von dpcc. Es gibt keine fertigen BPLs; dpcc wird aus der Projektgruppe gebaut.
+- Der Quelltext von dpcc. Es gibt keine fertigen BPLs; dpcc wird aus der Projektgruppe gebaut. Aus den gebauten BPLs
+  lässt sich ein Setup erzeugen, siehe [Mit dem Setup installieren](#mit-dem-setup-installieren).
 
 ## Bauen
 
@@ -132,6 +133,34 @@ Exit-Code von `Status` und `Check`:
 | 0 | Eintrag vorhanden, alle BPLs da |
 | 1 | Eintrag fehlt; Abhilfe `-Action Add` |
 | 2 | BPL-Ordner oder BPLs fehlen; erst die Gruppe bauen |
+
+## Mit dem Setup installieren
+
+Statt Package und PATH von Hand einzutragen, kann man aus den gebauten BPLs ein Setup erzeugen (Inno Setup 6). Es
+installiert dpcc für den aktuellen Benutzer, ohne Administratorrechte, wahlweise in Delphi 12 und Delphi 13 (jeweils
+die 32-Bit-IDE).
+
+1. Beide Gruppen bauen: `dpcc_d13.groupproj` (Konfiguration Debug) und `dpcc_d12.groupproj` (Konfiguration D12),
+   siehe oben.
+2. Das Setup erzeugen, aus dem Repo-Ordner:
+
+   ```powershell
+   powershell -NoProfile -File Tools\Build-Setup.ps1 -DryRun   # nur prüfen, nichts anlegen
+   powershell -NoProfile -File Tools\Build-Setup.ps1           # installer\Output\dpccSetup-<Version>.exe
+   ```
+
+3. Alle Delphi-Instanzen schließen und `dpccSetup-<Version>.exe` ausführen. Zur Auswahl stehen nur die Delphi-
+   Versionen, die das Setup findet.
+
+Das Setup kopiert je Version die acht BPLs nach `%LOCALAPPDATA%\Programs\dpcc\bpl\d12` bzw. `…\bpl\d13`, trägt
+`dpcc.IDE.Base290.bpl` bzw. `dpcc.IDE.Base370.bpl` unter `Known Packages` der IDE ein und setzt seinen BPL-Ordner
+vorn in den PATH der IDE. Eine Registrierung eines eigenen Baus (etwa aus `Output\Win32\Debug\Bpl`) ersetzt es nach
+einem Hinweis: beide zusammen ließen die IDE beim Start scheitern. Läuft Delphi, bricht es ab.
+
+Deinstalliert wird über **Apps** von Windows oder den Startmenü-Eintrag **dpcc › Uninstall dpcc (IDE-Plugin)**.
+Vorher wie unter [Deinstallieren](#deinstallieren), Schritt 1, den Hauptschalter ausschalten; ist dpcc noch
+Code-Insight-Anbieter, fragt der Deinstaller nach. Er entfernt die Registrierung, sein PATH-Segment und die Dateien;
+Einstellungen, Daten und Cache bleiben. Einzelheiten: [installer/README_Installer.md](../../installer/README_Installer.md).
 
 ## Prüfen, ob dpcc geladen ist
 

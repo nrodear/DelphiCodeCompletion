@@ -68,6 +68,13 @@ powershell -NoProfile -File Tools\IdePath.ps1 -Action Remove  # remove the entry
 The entry takes effect at the next start of the IDE. All steps, checking and uninstalling:
 [Installation](docs/en/installation.md).
 
+### Setup
+
+From the built BPLs of both groups, `Tools\Build-Setup.ps1` creates the setup `installer\Output\dpccSetup-<version>.exe`
+with Inno Setup 6. It installs dpcc for the current user into Delphi 12 and/or 13, without administrator rights, and
+sets the IDE's Known Packages and PATH itself. See
+[Installing with the setup](docs/en/installation.md#installing-with-the-setup).
+
 The options are under **Tools › Options › Third Party › dpcc**: [Settings](docs/en/settings.md).
 If something does not work: [Troubleshooting](docs/en/troubleshooting.md).
 

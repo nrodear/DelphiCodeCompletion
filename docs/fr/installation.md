@@ -10,6 +10,8 @@
   [Compiler pour Delphi 12](#compiler-pour-delphi-12).
 - Plateforme Win32. L'IDE est un processus 32 bits, le plugin est donc un paquet Win32.
 - Le code source de dpcc. Il n'existe pas de BPL prêtes à l'emploi ; dpcc se compile à partir du groupe de projets.
+  Un programme d'installation peut être créé à partir des BPL compilées, voir
+  [Installer avec le programme d'installation](#installer-avec-le-programme-dinstallation).
 
 ## Compilation
 
@@ -132,6 +134,36 @@ Code de sortie de `Status` et `Check` :
 | 0 | entrée présente, toutes les BPL sont là |
 | 1 | entrée manquante ; solution : `-Action Add` |
 | 2 | dossier des BPL ou BPL manquants ; compiler d'abord le groupe |
+
+## Installer avec le programme d'installation
+
+Au lieu d'ajouter le paquet et l'entrée PATH à la main, on peut créer un programme d'installation à partir des BPL
+compilées (Inno Setup 6). Il installe dpcc pour l'utilisateur courant, sans droits d'administrateur, au choix dans
+Delphi 12 et Delphi 13 (chaque fois l'IDE 32 bits).
+
+1. Compiler les deux groupes : `dpcc_d13.groupproj` (configuration Debug) et `dpcc_d12.groupproj` (configuration
+   D12), voir plus haut.
+2. Créer le programme d'installation, depuis le dossier du dépôt :
+
+   ```powershell
+   powershell -NoProfile -File Tools\Build-Setup.ps1 -DryRun   # vérifier seulement, ne crée rien
+   powershell -NoProfile -File Tools\Build-Setup.ps1           # installer\Output\dpccSetup-<version>.exe
+   ```
+
+3. Fermer toutes les instances de Delphi et lancer `dpccSetup-<version>.exe`. Seules les versions de Delphi trouvées
+   sont proposées.
+
+Pour chaque version, le programme copie les huit BPL dans `%LOCALAPPDATA%\Programs\dpcc\bpl\d12` ou `…\bpl\d13`,
+inscrit `dpcc.IDE.Base290.bpl` ou `dpcc.IDE.Base370.bpl` sous `Known Packages` de l'IDE et place son dossier des BPL
+en tête du PATH de l'IDE. Une inscription d'une compilation personnelle (par exemple depuis `Output\Win32\Debug\Bpl`)
+est remplacée après un avertissement : les deux ensemble feraient échouer le démarrage de l'IDE. Si Delphi est en
+cours d'exécution, le programme s'arrête.
+
+Pour désinstaller, passer par **Applications** de Windows ou l'entrée du menu Démarrer
+**dpcc › Uninstall dpcc (IDE-Plugin)**. Auparavant, désactiver l'interrupteur principal comme sous
+[Désinstallation](#désinstallation), étape 1 ; si dpcc est encore le fournisseur Code Insight, le programme de
+désinstallation demande confirmation. Il retire l'inscription, son segment de PATH et les fichiers ; réglages,
+données et cache restent. Détails (en allemand) : [installer/README_Installer.md](../../installer/README_Installer.md).
 
 ## Vérifier que dpcc est chargé
 
