@@ -6,7 +6,9 @@
 // Kopplung „Eigener Tooltip“ → „Werte beim Debuggen“, Laden und Speichern über TDpccPluginSettings, die Knöpfe und
 // das Layout (keine Beschriftung ragt in ein Feld, deutsch und englisch; passt ohne Rollen). Seit IDECHECK zuletzt der
 // Abschnitt IDE mit „Jetzt prüfen“ und den Statuszeilen (OnIdeStatus). Seit LOOK1 dreizehn Optionen: zuletzt im
-// Abschnitt Parameter-Hint und Tooltip die Auswahl „Darstellung der Popups“ (Intensiv, Dezent, Unscheinbar).
+// Abschnitt Parameter-Hint und Tooltip die Auswahl „Darstellung der Popups“ (Intensiv, Dezent, Unscheinbar). Seit LOG1
+// vierzehn Optionen: zuletzt im Abschnitt IDE das Häkchen „Ablauf protokollieren (Log)“ (Diagnose), nicht am
+// Hauptschalter, mit der Protokolldatei im Hint.
 
 interface
 
@@ -20,10 +22,17 @@ type
     /// <summary>Einmalige Belegungen der VCL (Stil, Schriften) vor der Leckmessung der Tests.</summary>
     [SetupFixture]
     procedure Prewarm;
-    /// <summary>Genau Hauptschalter, dreizehn Optionen und zwei Knöpfe, in der Reihenfolge der Seite und unter der
-    /// richtigen Überschrift; vier Überschriften in Großbuchstaben.</summary>
+    /// <summary>Genau Hauptschalter, (seit LOG1) vierzehn Optionen und drei Knöpfe, in der Reihenfolge der Seite und
+    /// unter der richtigen Überschrift; fünf Überschriften in Großbuchstaben.</summary>
     [Test]
-    procedure PageHasThirteenOptionsAndTwoButtonsInSections;
+    procedure PageHasFourteenOptionsAndThreeButtonsInSections;
+    /// <summary>LOG1: „Ablauf protokollieren (Log)“ (englisch „Log the flow (log file)“) als Häkchen zuletzt im
+    /// Abschnitt IDE; Vorgabe aus, geladen und gespeichert über TDpccPluginSettings.Diagnose; hängt nicht am
+    /// Hauptschalter; der Hint nennt die Datei, sobald die IDE-Schicht sie setzt.</summary>
+    [Test]
+    [TestCase('Deutsch', 'False')]
+    [TestCase('Englisch', 'True')]
+    procedure DiagnoseCheckBox(AEnglish: Boolean);
     /// <summary>LOOK1: „Darstellung der Popups“ ist eine Auswahl mit Intensiv, Dezent, Unscheinbar (englisch Intense,
     /// Subtle, Plain), zuletzt im Abschnitt Parameter-Hint und Tooltip; Vorgabe Dezent; jede Stufe geladen und
     /// gespeichert; ohne Auswahl bleibt der bisherige Wert.</summary>
@@ -119,14 +128,14 @@ begin
   TDpccStrings.Language := Low(TDpccLanguage);
 end;
 
-procedure TDpccSettingsPageTests.PageHasThirteenOptionsAndTwoButtonsInSections;
+procedure TDpccSettingsPageTests.PageHasFourteenOptionsAndThreeButtonsInSections;
 const
-  cNames: array[0..16] of string = ('Enabled', 'AutoMinChars', 'CompletionListMode', 'VisibleRows', 'ListWidth',
+  cNames: array[0..17] of string = ('Enabled', 'AutoMinChars', 'CompletionListMode', 'VisibleRows', 'ListWidth',
     'Learning', 'ResetHistory', 'AutoParentheses', 'CommitCharacters', 'AutoUses', 'ParameterHints', 'HoverTooltip',
-    'DebugHoverValues', 'PopupLook', 'IndexExtraSourceFolders', 'RebuildIndex', 'CheckIde');
-  cSections: array[0..16] of TDpccPageSection = (psMaster, psCompletion, psCompletion, psCompletion, psCompletion,
+    'DebugHoverValues', 'PopupLook', 'IndexExtraSourceFolders', 'RebuildIndex', 'CheckIde', 'Diagnose');
+  cSections: array[0..17] of TDpccPageSection = (psMaster, psCompletion, psCompletion, psCompletion, psCompletion,
     psCompletion, psCompletion, psCommit, psCommit, psCommit, psHints, psHints, psHints, psHints, psIndex, psIndex,
-    psIde);
+    psIde, psIde);
   cTitles: array[TDpccPageSection] of string = ('', 'VERVOLLSTÄNDIGUNG', 'BEIM ÜBERNEHMEN',
     'PARAMETER-HINT UND TOOLTIP', 'INDEX', 'IDE');
 var
@@ -186,10 +195,11 @@ begin
       end;
       Assert.AreEqual(Ord(mEntry.Item.Section), Ord(mFound), cNames[mIndex] + ': unter der Überschrift');
     end;
-    Assert.AreEqual(13, mOptions, 'Optionen');
+    Assert.AreEqual(14, mOptions, 'Optionen');
     Assert.AreEqual(3, mButtons, 'Knöpfe');
     // Art der Elemente.
     Assert.IsTrue(mPage.ControlOf('Enabled') is TCheckBox, 'Hauptschalter');
+    Assert.IsTrue(mPage.ControlOf('Diagnose') = mPage.DiagnoseLog, 'Ablauf protokollieren');
     Assert.IsTrue(mPage.ControlOf('PopupLook') = mPage.PopupLookChoice, 'Darstellung der Popups');
     Assert.IsTrue(mPage.ControlOf('ListWidth') = mPage.AutoWidth, 'Breite automatisch');
     Assert.IsTrue(mPage.ControlOf('IndexExtraSourceFolders') is TEdit, 'Quellordner');
@@ -232,8 +242,9 @@ begin
     mPage.LoadFrom(mSettings);
     for mEntry in mPage.Entries do
     begin
+      // Seit LOG1 bleibt auch „Ablauf protokollieren (Log)“ bedienbar.
       if (mEntry.Item.Name = 'Enabled') or (mEntry.Item.Name = cPageRebuildIndex) or
-        (mEntry.Item.Name = cPageCheckIde) then
+        (mEntry.Item.Name = cPageCheckIde) or (mEntry.Item.Name = 'Diagnose') then
       begin
         Assert.IsTrue(mEntry.Control.Enabled, mEntry.Item.Name + ' bleibt bedienbar');
         Continue;
@@ -309,9 +320,11 @@ begin
   mLoaded.DebugHoverValues := False;
   mLoaded.PopupLook := TDpccLookLevel.Plain;
   mLoaded.IndexExtraSourceFolders := 'C:\A;C:\B';
+  mLoaded.Diagnose := True;
   mPage := TDpccSettingsPage.Create(nil);
   try
     mPage.LoadFrom(mLoaded);
+    Assert.IsTrue(mPage.DiagnoseLog.Checked, 'Ablauf protokollieren');
     Assert.AreEqual(4, mPage.AutoMinCharsChoice.Choice, 'Auswahl ab Zeichen');
     Assert.AreEqual(Ord(TDpccLookLevel.Plain), mPage.PopupLookChoice.Choice, 'Darstellung der Popups');
     Assert.AreEqual(13 - TDpccPluginSettings.cMinVisibleRows, mPage.VisibleRowsChoice.Choice, 'Auswahl Zeilen');
@@ -337,6 +350,7 @@ begin
     Assert.IsFalse(mTarget.DebugHoverValues, 'DebugHoverValues');
     Assert.AreEqual(Ord(TDpccLookLevel.Plain), Ord(mTarget.PopupLook), 'PopupLook');
     Assert.AreEqual('C:\A;C:\B', mTarget.IndexExtraSourceFolders, 'IndexExtraSourceFolders');
+    Assert.IsTrue(mTarget.Diagnose, 'Diagnose');
     Assert.AreEqual(9, mTarget.XmlDocMaxLines, 'XmlDocMaxLines bleibt');
     Assert.IsTrue(mTarget.LogNames, 'LogNames bleibt');
     // Und zurück zur Vorgabe.
@@ -350,6 +364,7 @@ begin
     Assert.AreEqual(Ord(cDpccLookLevelDefault), Ord(mTarget.PopupLook), 'PopupLook Vorgabe');
     Assert.AreEqual(0, mTarget.ListWidth, 'ListWidth automatisch');
     Assert.AreEqual('', mTarget.IndexExtraSourceFolders, 'Quellordner leer');
+    Assert.IsFalse(mTarget.Diagnose, 'Diagnose Vorgabe aus');
   finally
     mPage.Free;
   end;
@@ -694,6 +709,65 @@ begin
   end;
 end;
 
+procedure TDpccSettingsPageTests.DiagnoseCheckBox(AEnglish: Boolean);
+var
+  mPage: TDpccSettingsPage;
+  mSettings: TDpccPluginSettings;
+  mLast: TDpccSettingsPageEntry;
+begin
+  if AEnglish then
+  begin
+    TDpccStrings.Language := High(TDpccLanguage);
+  end
+  else
+  begin
+    TDpccStrings.Language := Low(TDpccLanguage);
+  end;
+  mPage := TDpccSettingsPage.Create(nil);
+  try
+    // Lage: letztes Element der Seite, eine Einstellung im Abschnitt IDE, unter der Zeile von „Jetzt prüfen“.
+    mLast := mPage.Entries[High(mPage.Entries)];
+    Assert.AreEqual('Diagnose', mLast.Item.Name, 'letztes Element');
+    Assert.AreEqual(Ord(psIde), Ord(mLast.Item.Section), 'Abschnitt IDE');
+    Assert.IsTrue(mLast.Control = mPage.DiagnoseLog, 'Häkchen');
+    Assert.IsTrue(mPage.DiagnoseLog.Parent.Top > mPage.CheckIde.Parent.Top, 'unter „Jetzt prüfen“');
+    if AEnglish then
+    begin
+      Assert.AreEqual('Log the flow (log file)', mPage.DiagnoseLog.Caption, 'Beschriftung');
+    end
+    else
+    begin
+      Assert.AreEqual('Ablauf protokollieren (Log)', mPage.DiagnoseLog.Caption, 'Beschriftung');
+    end;
+    // Hint: ohne Datei der allgemeine Text, mit Datei zusätzlich die Zeile mit der Datei.
+    Assert.IsTrue(mPage.DiagnoseLog.ShowHint, 'Hint an');
+    Assert.IsTrue(mPage.DiagnoseLog.Hint <> '', 'Hint ohne Datei');
+    Assert.IsFalse(ContainsText(mPage.DiagnoseLog.Hint, 'dpcc.IDE.Expert370.log'), 'noch keine Datei');
+    mPage.DiagnoseFile := 'X:\Bpl\dpcc.IDE.Expert370.log';
+    Assert.IsTrue(ContainsText(mPage.DiagnoseLog.Hint, 'X:\Bpl\dpcc.IDE.Expert370.log'), 'Datei im Hint');
+    Assert.AreEqual('X:\Bpl\dpcc.IDE.Expert370.log', mPage.DiagnoseFile, 'Datei gemerkt');
+    // Vorgabe aus; geladen und gespeichert über Diagnose.
+    mPage.LoadFrom(TDpccPluginSettings.Defaults);
+    Assert.IsFalse(mPage.DiagnoseLog.Checked, 'Vorgabe aus');
+    mSettings := TDpccPluginSettings.Defaults;
+    mSettings.Diagnose := True;
+    mPage.LoadFrom(mSettings);
+    Assert.IsTrue(mPage.DiagnoseLog.Checked, 'geladen an');
+    mPage.DiagnoseLog.Checked := False;
+    mPage.SaveTo(mSettings);
+    Assert.IsFalse(mSettings.Diagnose, 'auf der Seite ausgeschaltet');
+    mPage.DiagnoseLog.Checked := True;
+    mPage.SaveTo(mSettings);
+    Assert.IsTrue(mSettings.Diagnose, 'auf der Seite eingeschaltet');
+    // Hängt nicht am Hauptschalter: Das Protokoll zeigt gerade dann, warum dpcc nicht zuständig ist.
+    mPage.MasterSwitch.Checked := False;
+    Assert.IsTrue(mPage.DiagnoseLog.Enabled, 'Hauptschalter aus');
+  finally
+    mPage.Free;
+    TDpccStrings.Language := Low(TDpccLanguage);
+  end;
+end;
+
 procedure TDpccSettingsPageTests.LabelsDoNotOverlapFields(AEnglish: Boolean);
 var
   mPage: TDpccSettingsPage;
@@ -745,9 +819,12 @@ begin
     Assert.AreEqual(mPage.ControlOf('Learning').Left, mPage.ControlOf('HoverTooltip').Left, 'Einrückung');
     Assert.IsTrue(mPage.DebugHoverValues.Left > mPage.HoverTooltip.Left, 'Unterpunkt eingerückt');
     Assert.IsTrue(mPage.ControlOf('AutoParentheses').Left > mPage.MasterSwitch.Left, 'unter der Überschrift');
-    // Passt ohne Rollen in einen Bereich üblicher Größe (bei 96 dpi etwa 610 Punkte hoch und 520 breit; seit IDECHECK
-    // mit dem Abschnitt IDE, vorher 500; seit LOOK1 mit der Zeile „Darstellung der Popups“, vorher 580).
-    Assert.IsTrue(mPage.Height <= mPage.ScaleValue(610), 'Höhe ' + IntToStr(mPage.Height));
+    // Passt ohne Rollen in einen Bereich üblicher Größe (bei 96 dpi etwa 640 Punkte hoch und 520 breit; seit IDECHECK
+    // mit dem Abschnitt IDE, vorher 500; seit LOOK1 mit der Zeile „Darstellung der Popups“, vorher 580; seit LOG1 mit
+    // der Zeile „Ablauf protokollieren (Log)“, vorher 610).
+    Assert.IsTrue(mPage.Height <= mPage.ScaleValue(640), 'Höhe ' + IntToStr(mPage.Height));
+    // LOG1: Das Häkchen im Abschnitt IDE eingerückt wie die übrigen Optionen.
+    Assert.AreEqual(mPage.ControlOf('Learning').Left, mPage.DiagnoseLog.Left, 'Einrückung Ablauf protokollieren');
     Assert.IsTrue(mPage.ResetHistory.Left + mPage.ResetHistory.Width <= mPage.ScaleValue(520),
       'Breite der Lernen-Zeile ' + IntToStr(mPage.ResetHistory.Left + mPage.ResetHistory.Width));
   finally

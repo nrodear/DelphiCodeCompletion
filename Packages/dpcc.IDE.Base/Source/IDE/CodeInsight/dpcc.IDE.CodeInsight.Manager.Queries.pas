@@ -78,6 +78,7 @@ type
     class function HintWithDebugValue(const AHover: string; const APlace: TDpccHintPlace): string; static;
     /// <summary>Stelle des Sprungwunschs: an der Klickstelle (Strg gedrückt, Maus über einem Bezeichner im Editor
     /// von AView), sonst am Cursor. False (mit Zeile im Diagnoseprotokoll), wenn sie außerhalb des Puffers liegt.
+    /// ADiagnose bekommt Strg, Cursor, Maus und die gewählte Stelle; nil = nicht protokolliert (kein Text, LOG1).
     /// </summary>
     class function GotoPlace(const AView: IOTAEditView; const ADiagnose: TProc<string>;
       out APlace: TDpccGotoPlace): Boolean; static;
@@ -109,6 +110,7 @@ uses
   dpcc.Core.Hover.DebugValue,
   dpcc.Core.Completion.Word,
   dpcc.Core.Lsp.IdeMembers,
+  dpcc.Core.Editor.TabStops,
   dpcc.IDE.Foundation.Settings,
   dpcc.IDE.Foundation.EditorBuffer,
   dpcc.IDE.Hover.DebugValue;
@@ -169,7 +171,7 @@ begin
     Exit;
   end;
   mLine := TDpccEditorBuffer.LineText(mView, mView.CursorPos.Line);
-  mCharacter := TLspSession.ColumnToIndex(mLine, mView.CursorPos.Col, TDpccEditorBuffer.TabWidth(mView.Buffer));
+  mCharacter := TLspSession.ColumnToIndex(mLine, mView.CursorPos.Col, TDpccEditorBuffer.TabStops(mView.Buffer));
   Result := TDpccWord.InDataNameString(mLine, mCharacter);
   if not Result and ATypedQuote then
   begin
@@ -311,7 +313,7 @@ begin
   APlace.HintCol := AHintCol;
   APlace.Line := AHintLine - 1;
   APlace.LineText := LineOf(APlace.Text, mTable, APlace.Line);
-  APlace.Character := TLspSession.ColumnToIndex(APlace.LineText, AHintCol, TDpccEditorBuffer.TabWidth(AView.Buffer));
+  APlace.Character := TLspSession.ColumnToIndex(APlace.LineText, AHintCol, TDpccEditorBuffer.TabStops(AView.Buffer));
   APlace.Key := TDpccHintKey.Make(APlace.FileName, APlace.LineText, APlace.Line, APlace.Character,
     TDpccHintKey.HashOf(APlace.Text));
 end;
@@ -341,8 +343,8 @@ end;
 
 /// <summary>Stelle unter der Maus im Editor von AView: Zeile (1-basiert) und Zeichen (0-basiert) über einem
 /// Bezeichner; False außerhalb des Editors oder neben einem Bezeichner. Zeilen aus AText über ATable.</summary>
-function MousePosition(const AView: IOTAEditView; const AText: string; const ATable: TLineTable; ATabWidth: Integer;
-  out ALine, ACharacter: Integer): Boolean;
+function MousePosition(const AView: IOTAEditView; const AText: string; const ATable: TLineTable;
+  const ATabStops: TDpccTabStops; out ALine, ACharacter: Integer): Boolean;
 var
   mServices: INTACodeEditorServices;
   mEditor: TWinControl;
@@ -379,7 +381,7 @@ begin
     Exit;
   end;
   mLineText := LineOf(AText, ATable, ALine - 1);
-  ACharacter := TLspSession.ColumnToIndex(mLineText, mColumn, ATabWidth);
+  ACharacter := TLspSession.ColumnToIndex(mLineText, mColumn, ATabStops);
   Result := (ACharacter < Length(mLineText)) and TDpccWord.IsIdentifierChar(mLineText[ACharacter + 1]);
 end;
 
@@ -388,7 +390,8 @@ class function TDpccCodeInsightQueries.GotoPlace(const AView: IOTAEditView; cons
 var
   mTable: TLineTable;
   mCursor: TOTAEditPos;
-  mTabWidth, mMouseLine, mMouseCharacter: Integer;
+  mTabStops: TDpccTabStops;
+  mMouseLine, mMouseCharacter: Integer;
   mMouseOver, mMouseValid, mCtrlDown: Boolean;
   mCaret, mAt: TPoint;
   mCaretLineText: string;
@@ -396,7 +399,7 @@ begin
   APlace := Default(TDpccGotoPlace);
   APlace.Text := TDpccEditorBuffer.Text(AView.Buffer);
   mTable := TLineTable.Build(APlace.Text);
-  mTabWidth := TDpccEditorBuffer.TabWidth(AView.Buffer);
+  mTabStops := TDpccEditorBuffer.TabStops(AView.Buffer);
   // Die synchrone Schnittstelle übergibt keine Klickstelle. Bei Strg+Klick gilt die Stelle unter der Maus (ob die
   // IDE den Cursor vorher dorthin setzt, ist nicht geprüft), sonst der Cursor („Deklaration suchen“, Alt+↑).
   mCursor := AView.CursorPos;
@@ -405,23 +408,30 @@ begin
   if (mCursor.Line >= 1) and (mCursor.Line <= mTable.LineCount) then
   begin
     mCaretLineText := LineOf(APlace.Text, mTable, mCursor.Line - 1);
-    mCaret.X := TLspSession.ColumnToIndex(mCaretLineText, mCursor.Col, mTabWidth);
+    mCaret.X := TLspSession.ColumnToIndex(mCaretLineText, mCursor.Col, mTabStops);
   end;
   mCtrlDown := GetKeyState(VK_CONTROL) < 0;
   // Die Mausstelle auch ohne Strg: nur fürs Diagnoseprotokoll.
-  mMouseOver := MousePosition(AView, APlace.Text, mTable, mTabWidth, mMouseLine, mMouseCharacter);
+  mMouseOver := MousePosition(AView, APlace.Text, mTable, mTabStops, mMouseLine, mMouseCharacter);
   mMouseValid := mCtrlDown and mMouseOver;
   mAt := TDpccGotoDefinition.ChoosePosition(mCtrlDown, mMouseValid, TPoint.Create(mMouseCharacter, mMouseLine),
     mCaret);
-  // Ein Lauf mit Diagnose = 1 klärt, welche Stelle die IDE meint (Annahmen im Kopf der Unit).
-  ADiagnose(Format('Gehe zu Definition: Stelle der IDE keine (nur Index), Strg %s, Cursor %d:%d (Editorspalte ' +
-    '%d), Maus %s %d:%d, gefragt %d:%d (%s)', [BoolToStr(mCtrlDown, True), mCaret.Y, mCaret.X + 1, mCursor.Col,
-    IfThen(mMouseOver, 'über Bezeichner', 'nicht über Bezeichner'), mMouseLine, mMouseCharacter + 1, mAt.Y,
-    mAt.X + 1, IfThen(mMouseValid, 'Maus', 'Cursor')]));
+  // Ein Lauf mit Diagnose = 1 klärt, welche Stelle die IDE meint (Annahmen im Kopf der Unit). Ohne ADiagnose (nicht
+  // protokolliert, LOG1) kein Text.
+  if Assigned(ADiagnose) then
+  begin
+    ADiagnose(Format('Stelle der IDE keine (nur Index), Strg %s, Cursor %d:%d (Editorspalte %d), Maus %s %d:%d, ' +
+      'gefragt %d:%d (%s)', [BoolToStr(mCtrlDown, True), mCaret.Y, mCaret.X + 1, mCursor.Col,
+      IfThen(mMouseOver, 'über Bezeichner', 'nicht über Bezeichner'), mMouseLine, mMouseCharacter + 1, mAt.Y,
+      mAt.X + 1, IfThen(mMouseValid, 'Maus', 'Cursor')]));
+  end;
   Result := (mAt.X >= 0) and (mAt.Y >= 1) and (mAt.Y <= mTable.LineCount);
   if not Result then
   begin
-    ADiagnose(Format('Gehe zu Definition: Zeile %d außerhalb des Puffers (%d Zeilen)', [mAt.Y, mTable.LineCount]));
+    if Assigned(ADiagnose) then
+    begin
+      ADiagnose(Format('Ende: Zeile %d außerhalb des Puffers (%d Zeilen)', [mAt.Y, mTable.LineCount]));
+    end;
     Exit;
   end;
   APlace.Origin.FileName := AView.Buffer.FileName;
@@ -456,7 +466,7 @@ begin
   Result.FileName := mView.Buffer.FileName;
   Result.CaretLine := mCursor.Line;
   Result.CaretCharacter := TLspSession.ColumnToIndex(TDpccEditorBuffer.LineText(mView, mCursor.Line), mCursor.Col,
-    TDpccEditorBuffer.TabWidth(mView.Buffer));
+    TDpccEditorBuffer.TabStops(mView.Buffer));
 end;
 
 class function TDpccCodeInsightQueries.GotoNote(AIndex: Integer; const APlace: TDpccGotoPlace;

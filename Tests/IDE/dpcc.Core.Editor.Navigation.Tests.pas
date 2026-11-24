@@ -35,6 +35,14 @@ type
     procedure OnTargetWithinSameName;
     [Test]
     procedure OnTargetOtherLineFileOrWord;
+    /// <summary>Dieselbe Datei in anderer Schreibweise (Schrägstriche, "..", Laufwerk, Umlaute in anderer
+    /// Groß-/Kleinschreibung) gilt als Klickstelle; ein anderer Ordner nicht. Vorher verglich OnTarget mit SameText,
+    /// und der Sprung blieb auf der Deklaration stehen.</summary>
+    [Test]
+    procedure OnTargetComparesNormalizedPaths;
+    /// <summary>FlowResult nennt „gleich der Ausgangsstelle“ auch, wenn der Server den Pfad anders schreibt.</summary>
+    [Test]
+    procedure FlowResultComparesNormalizedPaths;
     [Test]
     procedure CtrlClickTakesMousePosition;
     [Test]
@@ -177,6 +185,47 @@ begin
   Assert.IsFalse(TDpccGotoDefinition.OnTarget('C:\P\A.pas', 3, 2, cLine, 'C:\P\A.pas', 4, 2), 'andere Zeile');
   Assert.IsFalse(TDpccGotoDefinition.OnTarget('C:\P\A.pas', 3, 9, cLine, 'C:\P\A.pas', 3, 2), 'anderes Wort');
   Assert.IsFalse(TDpccGotoDefinition.OnTarget('C:\P\A.pas', 3, 1, cLine, 'C:\P\A.pas', 3, 2), 'vor dem Ziel');
+end;
+
+procedure TDpccNavigationTests.OnTargetComparesNormalizedPaths;
+const
+  cLine = '    procedure Bar;';
+  // Wie der Server den Pfad liefert: Backslashes, ".." aufgelöst, Laufwerk klein.
+  cServer = 'c:\Temp\Projekt\UGoto.pas';
+begin
+  Assert.IsTrue(TDpccGotoDefinition.OnTarget('C:\Temp\Projekt/Unter/../UGoto.pas', 5, 14, cLine, cServer, 5, 14),
+    'gemischte Schrägstriche und ..');
+  Assert.IsTrue(TDpccGotoDefinition.OnTarget('C:/Temp/Projekt/UGoto.pas', 5, 14, cLine, cServer, 5, 14),
+    'nur Schrägstriche');
+  Assert.IsTrue(TDpccGotoDefinition.OnTarget('C:\Temp\Projekt\Unter\..\UGoto.pas', 5, 14, cLine, cServer, 5, 14),
+    'Punkte im Pfad');
+  Assert.IsTrue(TDpccGotoDefinition.OnTarget('C:\Temp\.\Projekt\\UGoto.pas', 5, 14, cLine, cServer, 5, 14),
+    '"." und doppelter Trenner');
+  Assert.IsTrue(TDpccGotoDefinition.OnTarget('\\?\C:\Temp\Projekt\UGoto.pas', 5, 14, cLine, cServer, 5, 14),
+    'Präfix für lange Pfade');
+  // "Müller" gegen "MÜLLER": SameText kennt nur A bis Z.
+  Assert.IsTrue(TDpccGotoDefinition.OnTarget('C:\M'#$00FC'ller\UGoto.pas', 5, 14, cLine, 'c:\M'#$00DC'LLER\ugoto.pas',
+    5, 14), 'Groß/Klein außerhalb von ASCII');
+  Assert.IsFalse(TDpccGotoDefinition.OnTarget('C:\Temp\Projekt\Unter\UGoto.pas', 5, 14, cLine, cServer, 5, 14),
+    'anderer Ordner');
+  Assert.IsFalse(TDpccGotoDefinition.OnTarget('D:\Temp\Projekt\UGoto.pas', 5, 14, cLine, cServer, 5, 14),
+    'anderes Laufwerk');
+  // OnTargetWhy fällt dasselbe Urteil.
+  Assert.IsTrue(TDpccGotoDefinition.OnTargetWhy('C:/Temp/Projekt/UGoto.pas', 5, 14, cLine, cServer, 5,
+    14).StartsWith('ja ('), 'OnTargetWhy wie OnTarget');
+  Assert.IsTrue(TDpccGotoDefinition.OnTargetWhy('C:\Temp\Projekt\Unter\UGoto.pas', 5, 14, cLine, cServer, 5,
+    14).StartsWith('nein ('), 'OnTargetWhy anderer Ordner');
+end;
+
+procedure TDpccNavigationTests.FlowResultComparesNormalizedPaths;
+var
+  mAnswer: TDpccGotoAnswer;
+begin
+  mAnswer := TDpccGotoDefinition.Answer(TDpccGotoOutcome.Found, 'c:\temp\projekt\ugoto.pas', 5);
+  Assert.IsTrue(TDpccGotoLog.FlowResult(TDpccGotoOutcome.Found, mAnswer, True, 'C:/Temp/Projekt/Unter/../UGoto.pas',
+    6).EndsWith('gleich der Ausgangsstelle: ja (die IDE bleibt in derselben Zeile)'), 'gleiche Datei');
+  Assert.IsTrue(TDpccGotoLog.FlowResult(TDpccGotoOutcome.Found, mAnswer, True, 'C:\Temp\Projekt\Unter\UGoto.pas',
+    6).EndsWith('gleich der Ausgangsstelle: nein'), 'anderer Ordner');
 end;
 
 procedure TDpccNavigationTests.CtrlClickTakesMousePosition;

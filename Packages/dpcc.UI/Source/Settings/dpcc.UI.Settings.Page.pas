@@ -13,8 +13,11 @@
 // (OnResetHistory), die Statuszeilen des Abschnitts IDE ebenso (OnIdeStatus, nur gelesen).
 // Seit LOOK1 steht zuletzt im Abschnitt Parameter-Hint und Tooltip die Auswahl „Darstellung der Popups“ (Intensiv,
 // Dezent, Unscheinbar; TDpccPluginSettings.PopupLook); sie ändert nur, wie die Fenster von dpcc zeichnen.
+// Seit LOG1 steht zuletzt im Abschnitt IDE „Ablauf protokollieren (Log)“ (TDpccPluginSettings.Diagnose, derselbe
+// Registry-Wert wie das frühere Diagnose = 1); sein Hint nennt die Protokolldatei (DiagnoseFile, von der IDE-Schicht).
 // Sperren: Hauptschalter aus → alle Optionen und „Verlauf zurücksetzen“ grau; „Werte beim Debuggen“ zusätzlich grau,
-// wenn „Eigener Tooltip“ aus ist. „Index neu aufbauen“ und „Jetzt prüfen“ hängen nicht am Hauptschalter.
+// wenn „Eigener Tooltip“ aus ist. „Index neu aufbauen“, „Jetzt prüfen“ und „Ablauf protokollieren“ hängen nicht am
+// Hauptschalter.
 // „Index neu aufbauen“ läuft im Hintergrund: OnRebuildIndex kehrt sofort zurück. Den Zustand (läuft → Knopf grau,
 // Meldung daneben) fragt die Seite über OnRebuildStatus ab, beim Setzen und per Timer der Seite, solange er läuft.
 // Die IDE-Schicht hält keinen Verweis auf die Seite; sie kann jederzeit geschlossen und zerstört werden.
@@ -109,6 +112,9 @@ type
     FCheckIde: TButton;
     FIdeStatus: TLabel;
     FOnIdeStatus: TFunc<string>;
+    /// <summary>„Ablauf protokollieren (Log)“ (LOG1, Registry-Wert Diagnose); Hint mit der Protokolldatei.</summary>
+    FDiagnose: TCheckBox;
+    FDiagnoseFile: string;
     /// <summary>Breite der Liste beim Laden (0 = automatisch); gezogene Breiten bleiben, solange „Breite
     /// automatisch“ aus ist.</summary>
     FListWidth: Integer;
@@ -145,6 +151,7 @@ type
     procedure SetOnRebuildStatus(const AValue: TFunc<TDpccRebuildStatus>);
     procedure RebuildTimerTick(Sender: TObject);
     procedure SetOnIdeStatus(const AValue: TFunc<string>);
+    procedure SetDiagnoseFile(const AValue: string);
     procedure CMFontChanged(var AMessage: TMessage); message CM_FONTCHANGED;
   protected
     procedure CreateWnd; override;
@@ -185,6 +192,11 @@ type
     property RebuildInfo: TLabel read FRebuildInfo;
     property CheckIde: TButton read FCheckIde;
     property IdeStatus: TLabel read FIdeStatus;
+    /// <summary>„Ablauf protokollieren (Log)“ im Abschnitt IDE (LOG1).</summary>
+    property DiagnoseLog: TCheckBox read FDiagnose;
+    /// <summary>Protokolldatei für den Hint an „Ablauf protokollieren (Log)“; setzt die IDE-Schicht ('' = Hint ohne
+    /// Datei).</summary>
+    property DiagnoseFile: string read FDiagnoseFile write SetDiagnoseFile;
     /// <summary>„Verlauf zurücksetzen“ der lernenden Gewichtung (#418).</summary>
     property OnResetHistory: TProc read FOnResetHistory write FOnResetHistory;
     /// <summary>„Index neu aufbauen“ (S4): stößt das Leeren der Index-Caches und den Neuaufbau an (kehrt sofort
@@ -469,6 +481,14 @@ begin
     FIdeStatus.Font.Color := StyleServices.GetSystemColor(clGrayText);
     AddEntry(AItem, FCheckIde, nil);
   end
+  else if AItem.Name = 'Diagnose' then
+  begin
+    // LOG1: unter „Jetzt prüfen“; derselbe Registry-Wert wie das frühere Diagnose = 1. Der Hint nennt die Datei.
+    FDiagnose := AddCheckRow(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsDiagnose), cIndent);
+    FDiagnose.ShowHint := True;
+    FDiagnose.Hint := TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsDiagnoseHint);
+    AddEntry(AItem, FDiagnose, nil);
+  end
   else
   begin
     raise EArgumentException.CreateFmt('Unbekanntes Element der Optionsseite: %s', [AItem.Name]);
@@ -729,7 +749,10 @@ begin
   mOn := FMaster.Checked;
   for mEntry in FEntries do
   begin
-    if (mEntry.Control = FMaster) or (mEntry.Control = FRebuild) or (mEntry.Control = FCheckIde) then
+    // „Ablauf protokollieren“ (LOG1) auch bei Hauptschalter aus: Das Protokoll zeigt dann, warum dpcc nicht zuständig
+    // ist.
+    if (mEntry.Control = FMaster) or (mEntry.Control = FRebuild) or (mEntry.Control = FCheckIde) or
+      (mEntry.Control = FDiagnose) then
     begin
       Continue;
     end;
@@ -768,6 +791,7 @@ begin
   FDebugHoverValues.Checked := ASettings.DebugHoverValues;
   FPopupLook.Choice := Ord(ASettings.PopupLook);
   FExtraSourceFolders.Text := ASettings.IndexExtraSourceFolders;
+  FDiagnose.Checked := ASettings.Diagnose;
   UpdateLocks;
 end;
 
@@ -811,7 +835,19 @@ begin
     ASettings.PopupLook := TDpccLookLevel(FPopupLook.Choice);
   end;
   ASettings.IndexExtraSourceFolders := Trim(FExtraSourceFolders.Text);
+  ASettings.Diagnose := FDiagnose.Checked;
   ASettings.Normalize;
+end;
+
+procedure TDpccSettingsPage.SetDiagnoseFile(const AValue: string);
+begin
+  FDiagnoseFile := AValue;
+  FDiagnose.Hint := TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsDiagnoseHint);
+  if AValue <> '' then
+  begin
+    FDiagnose.Hint := FDiagnose.Hint + sLineBreak + TDpccSettingsStrings.Fmt(TDpccSettingsTextId.SettingsDiagnoseFile,
+      [AValue]);
+  end;
 end;
 
 procedure TDpccSettingsPage.ResetHistoryClick(Sender: TObject);

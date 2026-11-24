@@ -162,7 +162,7 @@ begin
   Result.Cursor := AView.CursorPos;
   Result.LineText := TDpccEditorBuffer.LineText(AView, Result.Cursor.Line);
   Result.Character := TLspSession.ColumnToIndex(Result.LineText, Result.Cursor.Col,
-    TDpccEditorBuffer.TabWidth(AView.Buffer));
+    TDpccEditorBuffer.TabStops(AView.Buffer));
   // Über ein Commit-Zeichen: Das Wort endet davor, das Zeichen bleibt stehen.
   if AOwner.FCommitChar.WordEnd >= 0 then
   begin
@@ -475,7 +475,7 @@ var
 begin
   mLineText := TDpccEditorBuffer.LineText(AView, AView.CursorPos.Line);
   FAutoParen := TDpccAutoParen.Start(AView.CursorPos.Line, TLspSession.ColumnToIndex(mLineText,
-    AView.CursorPos.Col, TDpccEditorBuffer.TabWidth(AView.Buffer)), mLineText);
+    AView.CursorPos.Col, TDpccEditorBuffer.TabStops(AView.Buffer)), mLineText);
   if Assigned(FOnOpenSignature) then
   begin
     TDpccMainThread.ForceQueue(TDpccFeature.Signature,

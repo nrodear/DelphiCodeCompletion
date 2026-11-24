@@ -114,6 +114,7 @@ saute que s'il y est choisi (voir [Utilisation](usage.md#quand-dpcc-est-choisi-c
 | dpcc ne trouve pas l'unité ou ne peut pas résoudre le nom sans ambiguïté (surcharge ambiguë, `with` avec un type inconnu). Message « unit X not found » ou « "Name" could not be resolved ». | Attendu. Vérifier les chemins de recherche ; voir [La liste est vide ou incomplète](#la-liste-est-vide-ou-incomplète). |
 | L'index est encore en construction (ajout « The index is still being built. »), dpcc démarre encore ou la réponse a pris plus de 10 secondes (« no answer from dpcc within 10 s »). Après 250 ms, dpcc saute lui-même, mais seulement jusque-là et tant que le curseur reste dans le même identificateur. | Attendre et réessayer. |
 | Aucun message dans la fenêtre des messages. | `dpcc.log` consigne chaque saut sans cible sur une ligne `Gehe zu Definition: <issue> nach <n> ms, <fichier> <ligne>:<colonne> (Maus\|Cursor)` (lignes du journal non traduites), y compris les réponses tardives écartées (« Cursor bewegt », « andere Datei aktiv », « neuerer Sprungwunsch », « zu spät »). |
+| Ctrl+clic sur une utilisation saute vers la déclaration, mais Ctrl+clic sur la déclaration ne saute pas vers l'implémentation. | Activer « Log the flow (log file) », refaire le saut et envoyer la chaîne (voir [Journal du déroulement](#journal-du-déroulement)) : elle montre le verdict de `OnTarget` et si `definition` a été demandée. |
 | Une aide aux paramètres de dpcc avec plusieurs surcharges est ouverte. | Depuis cette version, Ctrl+Alt+↑/↓ y change de surcharge ; Alt+↑ va à l'IDE. |
 | L'infobulle de dpcc recouvre le mot. | Maintenir Ctrl enfoncée : la souris et le clic traversent alors l'infobulle jusqu'à l'éditeur. |
 
@@ -193,15 +194,65 @@ avant de le transmettre.
 
 Plusieurs instances de l'IDE partagent le dossier ; un verrou les empêche de se gêner mutuellement.
 
-### Journal de diagnostic
+### Journal du déroulement
 
-Pour un dépannage précis, dpcc journalise les appels de l'IDE à son gestionnaire Code Insight :
+Pour un dépannage précis, dpcc écrit le déroulement de chaque action dans un journal à part (autrefois « journal
+de diagnostic ») : pour Ctrl+clic ou « Find Declaration », la complétion, le survol et l'aide aux
+paramètres, une ligne par étape, de l'appel de l'IDE jusqu'au résultat. Toutes les lignes d'une action portent le même
+identifiant (`#12 Sprung: …`, `#13 Vervollständigung: …` ; les lignes du journal sont en allemand) ; la dernière
+ligne d'une chaîne dit où et pourquoi elle s'arrête. Comme avant, le journal contient aussi les autres appels de l'IDE
+à son gestionnaire Code Insight.
 
-1. Sous `HKCU\Software\dpcc\IdePlugin`, créer la valeur DWORD `Diagnose` = 1.
-2. Redémarrer l'IDE.
-3. Le journal se trouve à côté de la BPL du plugin : `Output\Win32\Debug\Bpl\dpcc.IDE.Expert370.log`.
+Pour l'activer :
 
-Les chemins et le nom d'utilisateur y sont remplacés. Pour désactiver, supprimer la valeur ou la mettre à 0.
+1. **Tools › Options › Third Party › dpcc**, section **IDE** : cocher « Log the flow (log file) »
+   (journaliser le déroulement) et confirmer avec OK. L'effet est immédiat, sans redémarrage. La fenêtre Messages
+   (groupe dpcc) nomme le fichier (« dpcc: The flow is logged to … »), l'infobulle de la case aussi.
+2. Ou à la main comme avant : sous `HKCU\Software\dpcc\IdePlugin`, créer la valeur DWORD `Diagnose` = 1 et
+   redémarrer l'IDE. C'est la même valeur ; la page l'affiche cochée.
+
+| | |
+|---|---|
+| Emplacement | à côté de la BPL du plugin : `dpcc.IDE.Expert290.log` (Delphi 12) ou `dpcc.IDE.Expert370.log` (Delphi 13), par exemple `Output\Win32\Debug\Bpl\dpcc.IDE.Expert370.log` |
+| Fichiers plus anciens | `dpcc.IDE.Expert370.1.log` à `….4.log` ; au plus 5 fichiers de 1 Mo chacun |
+| Contenu | une ligne par étape avec l'heure : point d'entrée de l'IDE, chaque sortie anticipée avec sa raison, réponses du serveur, résultat rendu à l'IDE. Fichiers seulement par leur nom, positions en ligne:colonne |
+| Jamais contenu | dossiers et nom d'utilisateur (remplacés), code source sauf le seul mot à la position |
+
+Exemple : Ctrl+clic sur le nom d'une méthode dans la classe (ligne 12), saut vers l'implémentation (ligne 40) :
+
+```
+10:15:02.114 #7 Sprung: Eintritt IOTACodeInsightManager.GotoDefinition(Index -1), Datei Haupt.pas
+10:15:02.115 #7 Sprung: Stelle der IDE keine (nur Index), Strg True, Cursor 12:15 (Editorspalte 15), Maus über Bezeichner 12:16, gefragt 12:16 (Maus)
+10:15:02.115 #7 Sprung: Stelle Haupt.pas 12:16 (Maus), Wort „Rechne“
+10:15:02.118 #7 Sprung: declaration: Haupt.pas 12:15 nach 3 ms
+10:15:02.118 #7 Sprung: OnTarget ja (Datei gleich; Zeile ja, 12 | 12; Stelle im Wort ja, Spalte 16, Ziel ab 15)
+10:15:02.121 #7 Sprung: definition: Haupt.pas 40:20
+10:15:02.121 #7 Sprung: Antwort der Sitzung nach 6 ms: Haupt.pas 40:20
+10:15:02.121 #7 Sprung: Ergebnis an die IDE: True, Haupt.pas Zeile 40; gleich der Ausgangsstelle: nein
+```
+
+Si la déclaration ne saute pas, la chaîne montre l'étape où cela bloque : `OnTarget nein (Datei verschieden …)` avec
+« definition nicht gefragt » (l'IDE et le serveur écrivent le fichier différemment), `definition: leer`, ou une
+`definition` qui renvoie à la déclaration, et à la fin `gleich der Ausgangsstelle: ja (die IDE bleibt in derselben
+Zeile)` (l'IDE reste sur la même ligne). Si le serveur a trouvé une paire déclaration/implémentation figure dans le
+[journal de diagnostic du serveur](#journal-de-diagnostic-du-serveur), sur la ligne `declaration` ou `definition` de la
+même heure : `pair=found pairChosen=implementation` ou `pair=none:<raison>` avec `pairSame` (emplacements de la
+routine) et `pairVariant` (parmi eux, ceux dont les types de paramètres correspondent). Raisons : `noUnit` (unité de
+la cible absente de l'index), `noSymbol` (routine introuvable), `single` (un seul emplacement, pas de seconde moitié),
+`params` (plusieurs emplacements, mais les types de paramètres ne correspondent pas).
+
+Ce qu'il faut envoyer :
+
+1. Activer « Log the flow (log file) » (OK).
+2. Exécuter l'action une fois, par exemple Ctrl+clic sur la déclaration.
+3. Envoyer les lignes de cet identifiant du journal du déroulement, avec `dpcc.log` et le journal de diagnostic du
+   serveur du même jour. Les relire avant de les transmettre : les noms de fichiers et le mot à la position y
+   figurent en clair.
+4. Désactiver de nouveau la case.
+
+Pour désactiver : décocher et OK (immédiat), ou supprimer la valeur de registre ou la mettre à 0. La mesure des
+appels les plus lents au déchargement et les blocages sans action de dpcc (voir plus bas) ne suivent la case qu'au
+prochain démarrage de l'IDE.
 
 ### Blocages et actions lentes
 
@@ -221,9 +272,9 @@ plus 5 blocages par minute un par un (`… nicht einzeln protokolliert, zusammen
 dpcc (par exemple pendant la compilation), dpcc n'écrit rien. Les dialogues modaux ne comptent pas comme blocages, pas
 plus que le temps où l'IDE était arrêtée dans un débogueur.
 
-Avec `Diagnose` = 1 (voir ci-dessus), les blocages sans action de dpcc figurent aussi dans le journal de diagnostic
-sous `… ohne dpcc-Aktivität`, et au déchargement il liste les 10 appels, requêtes au serveur et requêtes de complétion
-les plus lents.
+Avec `Diagnose` = 1 ou « Log the flow (log file) » au démarrage de l'IDE (voir ci-dessus), les blocages sans
+action de dpcc figurent aussi dans le journal du déroulement sous `… ohne dpcc-Aktivität`, et au déchargement il liste
+les 10 appels, requêtes au serveur et requêtes de complétion les plus lents.
 
 ### Journal de diagnostic du serveur
 

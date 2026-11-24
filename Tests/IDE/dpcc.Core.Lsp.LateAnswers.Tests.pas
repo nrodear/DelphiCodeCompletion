@@ -190,6 +190,9 @@ begin
   mNow := NowAt(12, 4, cT0 + 500);
   mNow.FileName := 'c:\p\WERKZEUG.pas';
   CheckVerdict(TDpccGotoVerdict.Jump, mNow, True, 3000, 'Dateiname');
+  // Dieselbe Datei mit Schrägstrichen: wie OnTarget (TTextUris.SamePath).
+  mNow.FileName := 'C:/P/Werkzeug.pas';
+  CheckVerdict(TDpccGotoVerdict.Jump, mNow, True, 3000, 'Schrägstriche');
 end;
 
 procedure TDpccLateAnswersTests.LateGotoRejects;
@@ -376,6 +379,9 @@ begin
     'Datei ohne Groß-/Kleinschreibung, Eintrag ohne Methode passt zu jeder');
   Assert.AreEqual('TFoo', mTarget.Name);
   Assert.IsFalse(mStore.Take('', cFile, 3, 7, cT0 + 20, mTarget), 'nur einmal');
+  // Pfad in anderer Schreibweise (Schrägstriche, ".."): dieselbe Datei wie bei OnTarget (TTextUris.SamePath).
+  mStore.Add(Note(cFile, 3, 7, '', TDpccNoTargetReason.Unresolved, 'TFoo', False), cT0);
+  Assert.IsTrue(mStore.Take('', 'C:/P/Q/../Werkzeug.pas', 3, 7, cT0 + 10, mTarget), 'Pfad vereinheitlicht');
   mStore.Add(Note(cFile, 3, 7, '', TDpccNoTargetReason.Unresolved, 'TFoo', False), cT0);
   Assert.IsTrue(mStore.Take('', cFile, 3, 7, cT0 + 5000, mTarget), 'an der Grenze');
   mStore.Add(Note(cFile, 3, 7, '', TDpccNoTargetReason.Unresolved, 'TFoo', False), cT0);

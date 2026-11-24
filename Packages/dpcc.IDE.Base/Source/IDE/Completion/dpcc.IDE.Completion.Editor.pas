@@ -132,6 +132,7 @@ uses
   DockForm,
   dpcc.Core.Diagnostics.MainThread,
   dpcc.Core.Diagnostics.Guard,
+  dpcc.Core.Diagnostics.Flow,
   dpcc.Core.Completion.Parentheses,
   dpcc.Core.Completion.Favorites,
   dpcc.Core.Completion.Word,
@@ -431,7 +432,7 @@ var
 begin
   mLine := AView.CursorPos.Line;
   mLineText := TDpccEditorBuffer.LineText(AView, mLine);
-  mCharacter := TLspSession.ColumnToIndex(mLineText, AView.CursorPos.Col, TDpccEditorBuffer.TabWidth(AView.Buffer));
+  mCharacter := TLspSession.ColumnToIndex(mLineText, AView.CursorPos.Col, TDpccEditorBuffer.TabStops(AView.Buffer));
   if not TDpccParentheses.CallOpened(mLineText, mCharacter) then
   begin
     Exit;
@@ -453,7 +454,7 @@ var
 begin
   mLine := AView.CursorPos.Line;
   ALineText := TDpccEditorBuffer.LineText(AView, mLine);
-  ACharacter := TLspSession.ColumnToIndex(ALineText, AView.CursorPos.Col, TDpccEditorBuffer.TabWidth(AView.Buffer));
+  ACharacter := TLspSession.ColumnToIndex(ALineText, AView.CursorPos.Col, TDpccEditorBuffer.TabStops(AView.Buffer));
   Result := FTyping.Typed(AView.Buffer.FileName, mLine, ACharacter, ALineText);
 end;
 
@@ -520,7 +521,7 @@ begin
   mLine := AView.CursorPos.Line;
   mLineText := TDpccEditorBuffer.LineText(AView, mLine);
   Result := TDpccCompletionPlace.At(AView.Buffer.FileName, mLine,
-    TLspSession.ColumnToIndex(mLineText, AView.CursorPos.Col, TDpccEditorBuffer.TabWidth(AView.Buffer)), mLineText);
+    TLspSession.ColumnToIndex(mLineText, AView.CursorPos.Col, TDpccEditorBuffer.TabStops(AView.Buffer)), mLineText);
 end;
 
 function TDpccEditorCompletion.KeyInvoke(const AView: IOTAEditView; const AIde: TDpccIdeList): Boolean;
@@ -529,13 +530,16 @@ begin
   if (AView <> nil) and (AView.Buffer <> nil) and
     (FFallback.Press(CursorPlace(AView), AIde) = TDpccCompletionRoute.Ide) then
   begin
+    // Ablaufprotokoll (LOG1): Ende der Kette dieses Strg+Leer.
     if AIde.Open then
     begin
-      Log('Vervollständigung: Strg+Leer bei offener Liste der IDE, die Taste gehört ihr');
+      TDpccFlow.Step(TDpccFlow.Current(TDpccFlowArea.Completion), TDpccFlowArea.Completion, 'Ende: Liste der IDE ' +
+        'ist offen, die Taste gehört ihr');
     end
     else
     begin
-      Log('Vervollständigung: zweites Strg+Leer an derselben Stelle, die Liste der IDE übernimmt');
+      TDpccFlow.Step(TDpccFlow.Current(TDpccFlowArea.Completion), TDpccFlowArea.Completion, 'Ende: zweites ' +
+        'Strg+Leer an derselben Stelle nach leerer Liste, die Liste der IDE übernimmt (L3)');
     end;
     Close;
     Exit(False);
@@ -692,7 +696,7 @@ begin
   if mCursor.Line = FOpen.Line then
   begin
     mLineText := TDpccEditorBuffer.LineText(FOpen.View, mCursor.Line);
-    mCharacter := TLspSession.ColumnToIndex(mLineText, mCursor.Col, TDpccEditorBuffer.TabWidth(FOpen.View.Buffer));
+    mCharacter := TLspSession.ColumnToIndex(mLineText, mCursor.Col, TDpccEditorBuffer.TabStops(FOpen.View.Buffer));
   end;
   // Andere Zeile, Cursor vor dem Wortanfang oder ein Zeichen, das kein Bezeichner ist: Wort verlassen.
   mReason := TDpccCloseRules.PopupWord(mCursor.Line = FOpen.Line, mLineText, FOpen.WordStart, mCharacter, mIndex);

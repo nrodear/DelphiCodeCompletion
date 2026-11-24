@@ -14,13 +14,13 @@ noms d'options sont donc cités ici en anglais, avec une traduction française e
 - En haut figure l'interrupteur principal, suivi des sections **Completion** (complétion), **When accepting** (lors
   de l'acceptation), **Parameter hint and tooltip** (aide aux paramètres et infobulle), **Index** (index) et **IDE**.
 - Si l'interrupteur principal est désactivé, toutes les options situées en dessous et le bouton « Reset history »
-  (réinitialiser l'historique) sont grisés. « Rebuild index » (reconstruire l'index) et « Check now » (vérifier
-  maintenant) restent utilisables.
+  (réinitialiser l'historique) sont grisés. « Rebuild index » (reconstruire l'index), « Check now » (vérifier
+  maintenant) et « Log the flow (log file) » (journaliser le déroulement) restent utilisables.
 - « Show values while debugging » (afficher les valeurs pendant le débogage) est grisé tant que « Own tooltip when
   hovering identifiers » (infobulle propre au survol des identificateurs) est désactivé.
 
 L'enregistrement se fait avec **OK**. Exceptions : « Reset history » et « Rebuild index » agissent immédiatement,
-« Check now » ne fait que lire.
+« Check now » ne fait que lire. « Log the flow (log file) » agit après OK sans redémarrage.
 
 Certaines anciennes options ne figurent plus sur la page et ont une valeur fixe (voir
 [Valeurs fixes](#valeurs-fixes)).
@@ -87,6 +87,7 @@ l'IDE et la fenêtre des messages. Là, c'est l'IDE qui décide des couleurs.
 | Option | Valeur de registre | Clé | Par défaut | Effet |
 |---|---|---|---|---|
 | Bouton « Check now » (vérifier maintenant) | – | – | – | À sa droite, jusqu'à quatre lignes : mode et fournisseur, si un changement attend encore le redémarrage de Delphi, ce que dpcc a réglé dans l'IDE et le résultat de la vérification (par exemple « 1 difference: Auto Code Completions »). Lu à l'ouverture de la page ; le bouton relit. Lit seulement, ne modifie rien ; ne dépend pas de l'interrupteur principal. Voir [Ce que dpcc modifie dans l'IDE](#ce-que-dpcc-modifie-dans-lide). |
+| Log the flow (log file) (journaliser le déroulement) | `Diagnose` | – | désactivé | Pour chaque action (Ctrl+clic ou « Find Declaration », complétion, survol, aide aux paramètres), écrit chaque étape, de l'appel de l'IDE jusqu'au résultat, dans le journal de diagnostic à côté du BPL du plugin. Aucun code source, sauf le mot à la position. Le même DWORD que l'ancien `Diagnose` = 1 réglé à la main : une valeur réglée ainsi apparaît cochée. Agit immédiatement après OK, sans redémarrage ; la fenêtre Messages nomme alors le fichier, l'infobulle de la case aussi. Ne dépend pas de l'interrupteur principal. Voir [Dépannage](troubleshooting.md#journal-du-déroulement). |
 
 ## Valeurs fixes
 
@@ -149,12 +150,16 @@ Ces options ne figurent plus sur la page. Elles ont une valeur fixe, leur ancien
   registre `DebugEnabled`) ne la désactive plus.
 - dpcc n'écrit plus l'historique des réglages `%APPDATA%\dpcc\settings-history.json`. Un fichier existant reste en
   place et peut être supprimé.
+- Nouveau dans la section **IDE** : « Log the flow (log file) » (journaliser le déroulement). Il active le même
+  journal de diagnostic que la valeur de registre `Diagnose` = 1, réglée jusqu'ici uniquement à la main, désormais
+  sans redémarrage. Depuis, OK écrit aussi `Diagnose` ; si vous aviez réglé la valeur à la main, la case apparaît
+  cochée.
 
 ## Stockage
 
 | Emplacement | Contenu |
 |---|---|
-| `HKCU\Software\dpcc\IdePlugin` | toutes les options de la page sauf `index.extraSourceFolders`. Interrupteurs et nombres en DWORD (interrupteurs 0/1), choix en texte (`CompletionListMode` : `filter`, `all`, `rest` ; `PopupLook` : `intense`, `subtle`, `plain`). En plus, les marqueurs pour les réglages de l'IDE (plus bas) et `PathOverrideBackup` de `Tools\IdePath.ps1`. Lu seulement, jamais écrit : l'interrupteur de support `LogNames` (voir [Dépannage](troubleshooting.md)). Les anciennes valeurs des options fixes et des options supprimées restent en place, mais sans effet ; dpcc ne les écrit plus. |
+| `HKCU\Software\dpcc\IdePlugin` | toutes les options de la page sauf `index.extraSourceFolders`. Interrupteurs et nombres en DWORD (interrupteurs 0/1), choix en texte (`CompletionListMode` : `filter`, `all`, `rest` ; `PopupLook` : `intense`, `subtle`, `plain`). En plus, les marqueurs pour les réglages de l'IDE (plus bas) et `PathOverrideBackup` de `Tools\IdePath.ps1`. Lu seulement, jamais écrit : l'interrupteur de support `LogNames` (voir [Dépannage](troubleshooting.md)). `Diagnose` (« Log the flow (log file) ») fait désormais partie des valeurs de la page ; OK l'écrit sous forme 0 ou 1, une valeur réglée à la main reste valable. Les anciennes valeurs des options fixes et des options supprimées restent en place, mais sans effet ; dpcc ne les écrit plus. |
 | `%APPDATA%\dpcc\settings.json` | `index.extraSourceFolders` (depuis la page) et `hints.xmlDocMaxLines` (réglable uniquement dans le fichier). Le serveur dans le processus de l'IDE lit lui-même le fichier et le surveille. dpcc lit seulement `hints.xmlDocMaxLines` et n'écrit jamais la clé ; si elle manque dans le fichier, une valeur de registre `XmlDocMaxLines` d'une version antérieure s'applique, sinon 0. dpcc ne touche pas aux autres clés du fichier. Une ancienne valeur `hints.xmlDocExpand` ou `hints.xmlDocFull` reste sans effet. |
 | `%APPDATA%\dpcc\settings-history.json` | uniquement issu de versions antérieures : états antérieurs des réglages. dpcc n'écrit ni ne lit plus ce fichier ; il peut être supprimé. |
 | `%APPDATA%\dpcc\usage.json` | historique de la pondération apprise |

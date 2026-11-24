@@ -11,6 +11,9 @@
 // Abfrage-Übernahme und keinen Einstellungsverlauf (settings-history.json) mehr: Current ist genau der gespeicherte
 // Stand, und Update schreibt nur noch die Werte der Seite (TDpccPluginSettings.StoredNames). Eine vorhandene
 // settings-history.json und alte Registry-Werte bleiben liegen und werden nicht gelesen.
+// Seit LOG1 gehört der DWORD Diagnose („Ablauf protokollieren (Log)“) zu den Werten der Seite. Weil der Support ihn
+// auch von Hand setzt, liest RefreshDiagnose ihn vor dem Laden der Seite neu, und Update übernimmt den Stand der
+// Registry, wenn der Aufrufer den Wert nicht geändert hat.
 
 interface
 
@@ -31,6 +34,10 @@ type
     /// <summary>Übernimmt und speichert ASettings: die Werte der Seite in die Registry, index.extraSourceFolders
     /// nach settings.json.</summary>
     class procedure Update(const ASettings: TDpccPluginSettings); static;
+    /// <summary>„Ablauf protokollieren“ (LOG1, DWORD Diagnose) neu aus der Registry in den aktuellen Stand: Der Support
+    /// setzt den Wert auch von Hand, während die IDE läuft. Vor dem Laden der Optionsseite; ändert sonst nichts und
+    /// löst OnChanged nicht aus.</summary>
+    class procedure RefreshDiagnose; static;
     /// <summary>Beim Entladen: Stand verwerfen; der nächste Zugriff liest neu.</summary>
     class procedure Release; static;
     /// <summary>Nach Update (Optionsseite, gezogene Breite): z. B. Hauptschalter und Tooltips abgleichen (#494).
@@ -214,6 +221,22 @@ begin
   end;
 end;
 
+/// <summary>DWORD Diagnose (LOG1) jetzt in der Registry, wie TDpccPluginSettings ihn liest (ungleich 0 = an); ohne
+/// Wert oder ohne Schlüssel ADefault.</summary>
+function RegistryDiagnose(ADefault: Boolean): Boolean;
+var
+  mStore: IDpccSettingsStore;
+  mDefault: Integer;
+begin
+  mDefault := 0;
+  if ADefault then
+  begin
+    mDefault := 1;
+  end;
+  mStore := TRegistryStore.Create(False);
+  Result := mStore.ReadInteger('Diagnose', mDefault) <> 0;
+end;
+
 { TDpccIdeSettings }
 
 class procedure TDpccIdeSettings.EnsureLoaded;
@@ -248,6 +271,12 @@ begin
   EnsureLoaded;
   mNext := ASettings;
   mNext.Normalize;
+  // Diagnose (LOG1) setzt der Support auch von Hand in der Registry: Ändert der Aufrufer den Wert nicht (gezogene
+  // Breite der Liste, Betriebsart), gilt der Stand dort, statt ihn mit einem älteren zu überschreiben.
+  if mNext.Diagnose = GState.Settings.Diagnose then
+  begin
+    mNext.Diagnose := RegistryDiagnose(mNext.Diagnose);
+  end;
   GState.Settings := mNext;
   GState.Loaded := True;
   // settings.json frisch lesen: Der Server und andere Werkzeuge schreiben dieselbe Datei.
@@ -263,6 +292,12 @@ begin
   begin
     FOnChanged();
   end;
+end;
+
+class procedure TDpccIdeSettings.RefreshDiagnose;
+begin
+  EnsureLoaded;
+  GState.Settings.Diagnose := RegistryDiagnose(GState.Settings.Diagnose);
 end;
 
 class procedure TDpccIdeSettings.Release;

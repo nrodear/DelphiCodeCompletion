@@ -82,6 +82,24 @@ type
     /// galt immer die erste Überladung (Hover auf der zweiten zeigte die erste).</summary>
     [Test]
     procedure OverloadsPairByParameters;
+    /// <summary>Überladungen mit "System.Integer" bzw. "TList&lt;System.Integer&gt;" in der Deklaration und ohne
+    /// Unit in der Implementierung: dieselbe Variante (Typen ohne Unit-Qualifizierung verglichen).</summary>
+    [Test]
+    procedure OverloadsIgnoreUnitQualification;
+    /// <summary>Zwei class operator Implicit, die sich nur im Ergebnistyp unterscheiden: jeder zu seinem Rumpf.
+    /// </summary>
+    [Test]
+    procedure OperatorsDifferOnlyByResultType;
+    /// <summary>Typen passen nicht (Alias string/UnicodeString), Parameternamen schon: Paar über die Namen.</summary>
+    [Test]
+    procedure OverloadsFallBackToParameterNames;
+    /// <summary>Weder Typen noch Namen passen, je eine Deklaration und ein Rumpf übrig: Paar über die Reihenfolge.
+    /// </summary>
+    [Test]
+    procedure OverloadsFallBackToOrder;
+    /// <summary>Mehr ungepaarte Deklarationen als Rümpfe: kein Paar, das Ziel bleibt das Symbol selbst.</summary>
+    [Test]
+    procedure OverloadsWithoutUniquePairStay;
   end;
 
 implementation
@@ -343,6 +361,158 @@ begin
   Assert.AreEqual(8, Targets[0].SelectionRange.StartPos.Line, 'Implementierung der ersten');
   Targets := TargetsIn(UnitKonsole, Erste, 2, False);
   Assert.AreEqual(4, Targets[0].SelectionRange.StartPos.Line, 'zurück zur ersten');
+end;
+
+/// <summary>Zeile (0-basiert) des Ziels von definition an der AOccurrence-ten Stelle von AMarker in AText; -1 ohne
+/// Ziel.</summary>
+function DefinitionLine(ATests: TLspDefinitionTests; const AText, AMarker: string; AOccurrence: Integer): Integer;
+var
+  Targets: TArray<TDefinitionTarget>;
+begin
+  Result := -1;
+  // TargetsIn ist privat, in derselben Unit aber erreichbar.
+  Targets := ATests.TargetsIn(AText, AMarker, AOccurrence, False);
+  if Length(Targets) > 0 then
+  begin
+    Result := Targets[0].SelectionRange.StartPos.Line;
+  end;
+end;
+
+procedure TLspDefinitionTests.OverloadsIgnoreUnitQualification;
+const
+  Text =
+    'unit Konsole;'#10 +                                                  // 0
+    'interface'#10 +                                                      // 1
+    'type'#10 +                                                           // 2
+    '  TKonsole = class'#10 +                                             // 3
+    '    procedure Zeige(A: System.Integer); overload;'#10 +              // 4
+    '    procedure Zeige(const L: TList<System.Integer>); overload;'#10 + // 5
+    '    procedure Zeige(const S: string); overload;'#10 +                // 6
+    '  end;'#10 +                                                         // 7
+    'implementation'#10 +                                                 // 8
+    'procedure TKonsole.Zeige(const S: string);'#10 +                     // 9
+    'begin'#10 +                                                          // 10
+    'end;'#10 +                                                           // 11
+    'procedure TKonsole.Zeige(const L: TList<Integer>);'#10 +             // 12
+    'begin'#10 +                                                          // 13
+    'end;'#10 +                                                           // 14
+    'procedure TKonsole.Zeige(A: Integer);'#10 +                          // 15
+    'begin'#10 +                                                          // 16
+    'end;'#10 +                                                           // 17
+    'end.';
+begin
+  Assert.AreEqual(15, DefinitionLine(Self, Text, 'Zeige(A', 1), 'System.Integer → Integer');
+  Assert.AreEqual(4, DefinitionLine(Self, Text, 'Zeige(A', 2), 'zurück');
+  Assert.AreEqual(12, DefinitionLine(Self, Text, 'Zeige(const L', 1), 'TList<System.Integer> → TList<Integer>');
+  Assert.AreEqual(5, DefinitionLine(Self, Text, 'Zeige(const L', 2), 'zurück');
+  Assert.AreEqual(9, DefinitionLine(Self, Text, 'Zeige(const S', 1), 'string');
+  Assert.AreEqual(6, DefinitionLine(Self, Text, 'Zeige(const S', 2), 'zurück');
+end;
+
+procedure TLspDefinitionTests.OperatorsDifferOnlyByResultType;
+const
+  Text =
+    'unit Konsole;'#10 +                                                    // 0
+    'interface'#10 +                                                        // 1
+    'type'#10 +                                                             // 2
+    '  TVec = record'#10 +                                                  // 3
+    '    X: Integer;'#10 +                                                  // 4
+    '    class operator Implicit(const A: TVec): Integer;'#10 +             // 5
+    '    class operator Implicit(const A: TVec): string;'#10 +              // 6
+    '  end;'#10 +                                                           // 7
+    'implementation'#10 +                                                   // 8
+    'class operator TVec.Implicit(const A: TVec): string;'#10 +             // 9
+    'begin'#10 +                                                            // 10
+    '  Result := '''';'#10 +                                                // 11
+    'end;'#10 +                                                             // 12
+    'class operator TVec.Implicit(const A: TVec): Integer;'#10 +            // 13
+    'begin'#10 +                                                            // 14
+    '  Result := A.X;'#10 +                                                 // 15
+    'end;'#10 +                                                             // 16
+    'end.';
+begin
+  Assert.AreEqual(13, DefinitionLine(Self, Text, 'Implicit(const A: TVec): Integer', 1), 'Integer');
+  Assert.AreEqual(5, DefinitionLine(Self, Text, 'Implicit(const A: TVec): Integer', 2), 'zurück zu Integer');
+  Assert.AreEqual(9, DefinitionLine(Self, Text, 'Implicit(const A: TVec): string', 1), 'string');
+  Assert.AreEqual(6, DefinitionLine(Self, Text, 'Implicit(const A: TVec): string', 2), 'zurück zu string');
+end;
+
+procedure TLspDefinitionTests.OverloadsFallBackToParameterNames;
+const
+  Text =
+    'unit Konsole;'#10 +                                              // 0
+    'interface'#10 +                                                  // 1
+    'type'#10 +                                                       // 2
+    '  TKonsole = class'#10 +                                         // 3
+    '    procedure Zeige(const Text: string); overload;'#10 +         // 4
+    '    procedure Zeige(Zahl: Integer); overload;'#10 +              // 5
+    '  end;'#10 +                                                     // 6
+    'implementation'#10 +                                             // 7
+    'procedure TKonsole.Zeige(Zahl: Integer);'#10 +                   // 8
+    'begin'#10 +                                                      // 9
+    'end;'#10 +                                                       // 10
+    'procedure TKonsole.Zeige(const Text: UnicodeString);'#10 +       // 11
+    'begin'#10 +                                                      // 12
+    'end;'#10 +                                                       // 13
+    'end.';
+begin
+  // string und UnicodeString sind für den Textvergleich verschieden; die Namen (Text) passen.
+  Assert.AreEqual(11, DefinitionLine(Self, Text, 'Zeige(const Text', 1), 'über die Namen');
+  Assert.AreEqual(4, DefinitionLine(Self, Text, 'Zeige(const Text', 2), 'zurück über die Namen');
+  Assert.AreEqual(8, DefinitionLine(Self, Text, 'Zeige(Zahl', 1), 'über die Typen');
+  Assert.AreEqual(5, DefinitionLine(Self, Text, 'Zeige(Zahl', 2), 'zurück über die Typen');
+end;
+
+procedure TLspDefinitionTests.OverloadsFallBackToOrder;
+const
+  Text =
+    'unit Konsole;'#10 +                                              // 0
+    'interface'#10 +                                                  // 1
+    'type'#10 +                                                       // 2
+    '  TKonsole = class'#10 +                                         // 3
+    '    procedure Zeige(const Text: string); overload;'#10 +         // 4
+    '    procedure Zeige(Zahl: Integer); overload;'#10 +              // 5
+    '  end;'#10 +                                                     // 6
+    'implementation'#10 +                                             // 7
+    'procedure TKonsole.Zeige(Zahl: Integer);'#10 +                   // 8
+    'begin'#10 +                                                      // 9
+    'end;'#10 +                                                       // 10
+    'procedure TKonsole.Zeige(const Wert: UnicodeString);'#10 +       // 11
+    'begin'#10 +                                                      // 12
+    'end;'#10 +                                                       // 13
+    'end.';
+begin
+  // Zeige(Zahl) paart über die Typen; übrig bleiben je eine Deklaration und ein Rumpf.
+  Assert.AreEqual(11, DefinitionLine(Self, Text, 'Zeige(const Text', 1), 'über die Reihenfolge');
+  Assert.AreEqual(4, DefinitionLine(Self, Text, 'Zeige(const Wert', 1), 'zurück über die Reihenfolge');
+  Assert.AreEqual(8, DefinitionLine(Self, Text, 'Zeige(Zahl', 1), 'über die Typen');
+end;
+
+procedure TLspDefinitionTests.OverloadsWithoutUniquePairStay;
+const
+  Text =
+    'unit Konsole;'#10 +                                              // 0
+    'interface'#10 +                                                  // 1
+    'type'#10 +                                                       // 2
+    '  TKonsole = class'#10 +                                         // 3
+    '    procedure Zeige(const Text: string); overload;'#10 +         // 4
+    '    procedure Zeige(const Name: AnsiString); overload;'#10 +     // 5
+    '    procedure Zeige(Zahl: Integer); overload;'#10 +              // 6
+    '  end;'#10 +                                                     // 7
+    'implementation'#10 +                                             // 8
+    'procedure TKonsole.Zeige(Zahl: Integer);'#10 +                   // 9
+    'begin'#10 +                                                      // 10
+    'end;'#10 +                                                       // 11
+    'procedure TKonsole.Zeige(const Wert: UnicodeString);'#10 +       // 12
+    'begin'#10 +                                                      // 13
+    'end;'#10 +                                                       // 14
+    'end.';
+begin
+  // Zwei Deklarationen ohne Gegenstück, ein Rumpf: Die Reihenfolge wäre geraten, also kein Paar.
+  Assert.AreEqual(4, DefinitionLine(Self, Text, 'Zeige(const Text', 1), 'bleibt auf der Deklaration');
+  Assert.AreEqual(5, DefinitionLine(Self, Text, 'Zeige(const Name', 1), 'bleibt auf der zweiten');
+  Assert.AreEqual(12, DefinitionLine(Self, Text, 'Zeige(const Wert', 1), 'Rumpf bleibt bei sich');
+  Assert.AreEqual(9, DefinitionLine(Self, Text, 'Zeige(Zahl', 1), 'über die Typen weiter');
 end;
 
 procedure TLspDefinitionTests.DefinitionOfMethodCallIsImplementation;

@@ -12,6 +12,8 @@
 // Seit LOOK1 dreizehn Optionen: zuletzt im Abschnitt Parameter-Hint und Tooltip „Darstellung der Popups“ (PopupLook,
 // in der Registry als Text 'intense' | 'subtle' | 'plain', Vorgabe Dezent); OK schreibt damit dreizehn Werte in die
 // Registry.
+// Seit LOG1 vierzehn Optionen: zuletzt im Abschnitt IDE (nach „Jetzt prüfen“) „Ablauf protokollieren (Log)“ (DWORD
+// Diagnose, derselbe Wert wie das frühere Diagnose = 1); OK schreibt damit vierzehn Werte in die Registry.
 
 interface
 
@@ -22,11 +24,11 @@ type
   [TestFixture]
   TDpccCompletionViewTests = class
   public
-    /// <summary>OPT1: Die Seite zeigt genau den Hauptschalter und (seit LOOK1) dreizehn Optionen in vier Abschnitten,
-    /// dazu zwei Knöpfe; gespeichert werden genau diese Optionen (OPT2).</summary>
+    /// <summary>OPT1: Die Seite zeigt genau den Hauptschalter und (seit LOG1) vierzehn Optionen in fünf Abschnitten,
+    /// dazu drei Knöpfe; gespeichert werden genau diese Optionen (OPT2).</summary>
     [Test]
-    procedure PageShowsExactlyThirteenOptions;
-    /// <summary>OPT2: OK schreibt nur die Werte der Seite: dreizehn in die Registry, index.extraSourceFolders nach
+    procedure PageShowsExactlyFourteenOptions;
+    /// <summary>OPT2: OK schreibt nur die Werte der Seite: vierzehn in die Registry, index.extraSourceFolders nach
     /// settings.json; keine weiteren Namen und keine weiteren Schlüssel der Datei.</summary>
     [Test]
     procedure SaveWritesOnlyPageValues;
@@ -130,17 +132,18 @@ end;
 
 { TDpccCompletionViewTests }
 
-procedure TDpccCompletionViewTests.PageShowsExactlyThirteenOptions;
+procedure TDpccCompletionViewTests.PageShowsExactlyFourteenOptions;
 const
   // Erwarteter Aufbau der Seite (Auftrag OPT1): Abschnitt und Element; Knöpfe mit ihrer Kennung.
   // Seit IDECHECK zuletzt der Abschnitt IDE mit „Jetzt prüfen“ (keine Einstellung); seit LOOK1 „Darstellung der
-  // Popups“ zuletzt im Abschnitt Parameter-Hint und Tooltip.
-  cSections: array[0..16] of TDpccPageSection = (psMaster, psCompletion, psCompletion, psCompletion, psCompletion,
+  // Popups“ zuletzt im Abschnitt Parameter-Hint und Tooltip; seit LOG1 „Ablauf protokollieren (Log)“ zuletzt im
+  // Abschnitt IDE.
+  cSections: array[0..17] of TDpccPageSection = (psMaster, psCompletion, psCompletion, psCompletion, psCompletion,
     psCompletion, psCompletion, psCommit, psCommit, psCommit, psHints, psHints, psHints, psHints, psIndex, psIndex,
-    psIde);
-  cNames: array[0..16] of string = ('Enabled', 'AutoMinChars', 'CompletionListMode', 'VisibleRows', 'ListWidth',
+    psIde, psIde);
+  cNames: array[0..17] of string = ('Enabled', 'AutoMinChars', 'CompletionListMode', 'VisibleRows', 'ListWidth',
     'Learning', 'ResetHistory', 'AutoParentheses', 'CommitCharacters', 'AutoUses', 'ParameterHints', 'HoverTooltip',
-    'DebugHoverValues', 'PopupLook', 'IndexExtraSourceFolders', 'RebuildIndex', 'CheckIde');
+    'DebugHoverValues', 'PopupLook', 'IndexExtraSourceFolders', 'RebuildIndex', 'CheckIde', 'Diagnose');
 var
   mIndex, mOptions, mButtons: Integer;
   mName: string;
@@ -162,20 +165,24 @@ begin
       Inc(mOptions);
     end;
   end;
-  Assert.AreEqual(13, mOptions, 'Optionen unter dem Hauptschalter');
+  Assert.AreEqual(14, mOptions, 'Optionen unter dem Hauptschalter');
   Assert.AreEqual(3, mButtons, 'Knöpfe');
   Assert.AreEqual(cPageResetHistory, cPageItems[6].Name);
   Assert.AreEqual(cPageRebuildIndex, cPageItems[15].Name);
   Assert.AreEqual(cPageCheckIde, cPageItems[16].Name);
+  // LOG1: „Ablauf protokollieren (Log)“ als Einstellung zuletzt im Abschnitt IDE, unter dem Registry-Namen Diagnose.
+  Assert.AreEqual('Diagnose', cPageItems[17].Name, 'Ablauf protokollieren');
+  Assert.AreEqual(Ord(psIde), Ord(cPageItems[17].Section), 'Diagnose: Abschnitt');
+  Assert.AreEqual(Ord(pkSetting), Ord(cPageItems[17].Kind), 'Diagnose: Einstellung');
   // LOOK1: letzte Option im Abschnitt Parameter-Hint und Tooltip, direkt vor dem Abschnitt Index.
   Assert.AreEqual('PopupLook', cPageItems[13].Name, 'Darstellung der Popups');
   Assert.AreEqual(Ord(psHints), Ord(cPageItems[13].Section), 'PopupLook: Abschnitt');
   Assert.AreEqual(Ord(pkSetting), Ord(cPageItems[13].Kind), 'PopupLook: Einstellung');
   Assert.AreEqual(Ord(psIndex), Ord(cPageItems[14].Section), 'danach der Abschnitt Index');
-  Assert.AreEqual(14, Integer(Length(TDpccCompletionView.SettingNames)), 'Einstellungen samt Hauptschalter');
+  Assert.AreEqual(15, Integer(Length(TDpccCompletionView.SettingNames)), 'Einstellungen samt Hauptschalter');
   // Gespeichert werden genau die Einstellungen der Seite, jede einmal.
   mStored := TDpccPluginSettings.StoredNames;
-  Assert.AreEqual(14, Integer(Length(mStored)), 'gespeicherte Namen: ' + string.Join(', ', mStored));
+  Assert.AreEqual(15, Integer(Length(mStored)), 'gespeicherte Namen: ' + string.Join(', ', mStored));
   for mName in TDpccCompletionView.SettingNames do
   begin
     Assert.IsTrue(MatchText(mName, mStored), mName + ' gespeichert');
@@ -212,9 +219,9 @@ begin
   mRouted := TDpccRoutedSettingsStore.Create(mRegistry, cBefore);
   mStore := mRouted;
   mSettings.Save(mStore);
-  // Registry: genau die dreizehn Werte der Seite (Hauptschalter und zwölf Optionen samt PopupLook seit LOOK1; die
-  // Quellordner liegen in der Datei).
-  Assert.AreEqual(13, Integer(Length(mRegistry.Names)), 'Registry: ' + string.Join(', ', mRegistry.Names));
+  // Registry: genau die vierzehn Werte der Seite (Hauptschalter und dreizehn Optionen samt PopupLook seit LOOK1 und
+  // Diagnose seit LOG1; die Quellordner liegen in der Datei).
+  Assert.AreEqual(14, Integer(Length(mRegistry.Names)), 'Registry: ' + string.Join(', ', mRegistry.Names));
   for mName in RegistryPageNames do
   begin
     Assert.IsTrue(MatchText(mName, mRegistry.Names), mName + ' in der Registry');
@@ -348,7 +355,7 @@ begin
   begin
     Assert.AreEqual('alt', mStore.Text(mName), mName + ' bleibt liegen');
   end;
-  Assert.AreEqual(Integer(Length(cOldIntegers) + Length(cOldStrings) + 14), Integer(Length(mStore.Names)),
+  Assert.AreEqual(Integer(Length(cOldIntegers) + Length(cOldStrings) + 15), Integer(Length(mStore.Names)),
     'nur die Seite dazu');
   // In einen leeren Speicher: keiner der alten Namen.
   mSaved := TDpccMemorySettingsStore.FromSettings(mSettings);

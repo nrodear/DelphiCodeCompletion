@@ -31,6 +31,12 @@
 // mehrfach hintereinander; verworfene späte Antworten (Cursor bewegt, andere Datei, neuer Sprung) nur im Protokoll.
 // Startet der Server noch, merkt sich GotoDefinition den Wunsch (FStartGoto, Meldung „dpcc startet noch“);
 // SessionStartDone fragt ihn nach dem Start im Hintergrund, die Antwort läuft über LateGoto mit derselben Prüfung.
+// Ablaufprotokoll (LOG1, dpcc.Core.Diagnostics.Flow; „Ablauf protokollieren (Log)“ bzw. Diagnose = 1, ohne Neustart):
+// Jeder Einstieg der IDE (GotoDefinition, GetHintText, InvokeCodeCompletion, InvokeParameterCodeInsight, eigene Tasten)
+// beginnt eine Kennung und schreibt Eintritt, jeden frühen Ausstieg mit Grund und das Ergebnis an die IDE. Beim Sprung
+// geht die Kennung mit der Stelle (TDpccGotoOrigin.FlowId) in den Hintergrund: Die Sitzung schreibt die Antwort auf
+// declaration, das Urteil von OnTarget und definition, LateGoto und GotoLog den späteren Ausgang. Die früheren
+// Diagnosezeilen dieser Einstiege sind darin aufgegangen; ausgeschaltet wird kein Text gebaut.
 
 interface
 
@@ -61,6 +67,8 @@ type
       /// <summary>NoSession: dpcc ist für die Datei zuständig, aber kein Server läuft (sonst Hauptschalter aus,
       /// Manager abgeschaltet oder Datei nicht von dpcc).</summary>
       Responsible: Boolean;
+      /// <summary>Kennung im Ablaufprotokoll (LOG1); 0 = nicht protokolliert.</summary>
+      Flow: Integer;
     end;
   private
     /// <summary>Laufende Nummer der Sprungwünsche: Ein nachgereichtes Ziel gilt nur für den neuesten. Nur
@@ -103,6 +111,9 @@ type
     procedure GotoLog(AAlways: Boolean; const AOutcome: string; const AOrigin: TDpccGotoOrigin);
     /// <summary>AText im Meldungsfenster (Gruppe dpcc), dieselbe Meldung nicht mehrfach hintereinander.</summary>
     procedure GotoNotice(const AText: string);
+    /// <summary>Für GotoPlace: Zeilen unter der Kennung AFlow ins Ablaufprotokoll (LOG1); nil bei AFlow = 0, dann
+    /// baut GotoPlace keinen Text.</summary>
+    function GotoPlaceLog(AFlow: Integer): TProc<string>;
     /// <summary>Hover-Text des Servers für APlace: gemerkt, sonst im Hintergrund gefragt und höchstens cWaitMs
     /// gewartet ('' und gemerkt, wenn er später kommt). ASource fürs Diagnoseprotokoll.</summary>
     function ServerHint(const APlace: TDpccHintPlace; out ASource: string): string;
@@ -211,6 +222,7 @@ uses
   dpcc.Core.Diagnostics.Hangs,
   dpcc.Core.Diagnostics.Shutdown,
   dpcc.Core.Diagnostics.MainThread,
+  dpcc.Core.Diagnostics.Flow,
   dpcc.IDE.Foundation.Settings,
   dpcc.IDE.Foundation.EditorSnapshot,
   dpcc.IDE.Foundation.EditorBuffer,
@@ -343,6 +355,126 @@ begin
   end;
 end;
 
+/// <summary>Zeile AText des Sprungs AFlow im Ablaufprotokoll (LOG1); nichts bei AFlow = 0.</summary>
+procedure FlowStep(AFlow: Integer; const AText: string);
+begin
+  if AFlow > 0 then
+  begin
+    TDpccFlow.Step(AFlow, TDpccFlowArea.Jump, AText);
+  end;
+end;
+
+/// <summary>Zeile AText der Aktion AFlow im Bereich AArea (Ablaufprotokoll, LOG1); nichts bei AFlow = 0.</summary>
+procedure AreaStep(AArea: TDpccFlowArea; AFlow: Integer; const AText: string);
+begin
+  if AFlow > 0 then
+  begin
+    TDpccFlow.Step(AFlow, AArea, AText);
+  end;
+end;
+
+/// <summary>Zusatz fürs Ablaufprotokoll, wenn der Symbolhinweis der IDE leer bleibt; '' mit Text.</summary>
+function HintEmptyReason(const AHint, ASource: string): string;
+begin
+  Result := '';
+  if AHint <> '' then
+  begin
+    Exit;
+  end;
+  if ASource = 'kommt später' then
+  begin
+    Result := '; leer: Antwort nicht binnen der Wartezeit, gemerkt für den nächsten Aufruf';
+  end
+  else
+  begin
+    Result := '; leer: kein Hover-Text an der Stelle';
+  end;
+end;
+
+/// <summary>Datei der Ansicht ohne Ordner fürs Ablaufprotokoll; „-“ ohne Ansicht.</summary>
+function ViewFileText(const AView: IOTAEditView): string;
+begin
+  Result := '-';
+  if (AView <> nil) and (AView.Buffer <> nil) then
+  begin
+    Result := TDpccFlow.FileText(AView.Buffer.FileName);
+  end;
+end;
+
+/// <summary>„Maus“ (Strg+Klick) bzw. „Cursor“ als Quelle der Stelle.</summary>
+function PlaceSource(AMouse: Boolean): string;
+begin
+  if AMouse then
+  begin
+    Result := 'Maus';
+  end
+  else
+  begin
+    Result := 'Cursor';
+  end;
+end;
+
+/// <summary>Warum dpcc die Datei AFileName nicht bedient (Ablaufprotokoll, LOG1), in der Reihenfolge der Prüfung von
+/// FEnabled und Handles.</summary>
+function NotHandledReason(AShutDown, AEnabled: Boolean; const AFileName: string): string;
+begin
+  if AShutDown then
+  begin
+    Result := 'Manager abgebaut';
+  end
+  else if not AEnabled then
+  begin
+    Result := 'Manager von der IDE abgeschaltet (SetEnabled(False))';
+  end
+  else if not TDpccIdeSettings.Current.Enabled then
+  begin
+    Result := 'Hauptschalter aus';
+  end
+  else if TDpccGuard.Disabled(TDpccFeature.Completion) then
+  begin
+    Result := 'Vervollständigung von der Sicherung abgeschaltet';
+  end
+  else
+  begin
+    Result := 'Dateiart nicht von dpcc (' + ExtractFileExt(AFileName) + ')';
+  end;
+end;
+
+/// <summary>Warum eine eigene Taste von dpcc nichts öffnet (Ablaufprotokoll, LOG1), in der Reihenfolge der Prüfung.
+/// </summary>
+function OwnKeyOffReason(AEnabled, AGuardOff: Boolean): string;
+begin
+  if not AEnabled then
+  begin
+    Result := 'Manager von der IDE abgeschaltet (SetEnabled(False))';
+  end
+  else if AGuardOff then
+  begin
+    Result := 'von der Sicherung abgeschaltet';
+  end
+  else
+  begin
+    Result := 'kein Server verfügbar';
+  end;
+end;
+
+/// <summary>Ziel einer nachgereichten Antwort fürs Ablaufprotokoll: Stelle, „kein Ziel“ oder der Fehler.</summary>
+function LateTargetText(const AAnswer: TDpccAnswer): string;
+begin
+  if AAnswer.Error <> TDpccAnswerError.None then
+  begin
+    Result := 'Fehler (' + AAnswer.ErrorText + ')';
+  end
+  else if TDpccCodeInsightQueries.TargetOf(AAnswer) then
+  begin
+    Result := TDpccFlow.PlaceText(AAnswer.FileName, AAnswer.Line + 1, AAnswer.Character);
+  end
+  else
+  begin
+    Result := 'keins';
+  end;
+end;
+
 /// <summary>Nachgereichtes Sprungziel im Hauptthread: an den lebenden Manager, sonst verworfen.</summary>
 procedure DeliverLateGoto(const AOrigin: TDpccGotoOrigin; const AAnswer: TDpccAnswer);
 var
@@ -400,8 +532,9 @@ begin
           TThread.NameThreadForDebugging('dpcc.GotoDefinition');
           mAnswer := Default(TDpccAnswer);
           try
+            // Mit der Kennung des Ablaufprotokolls (LOG1): Die Sitzung schreibt declaration, OnTarget und definition.
             mAnswer.Found := mSession.GotoTargetAt(mOrigin.FileName, mLineText, mOrigin.AtLine - 1,
-              mOrigin.AtCharacter, TDpccLateAnswers.cMaxAgeMs, mLocation, mNoTarget);
+              mOrigin.AtCharacter, TDpccLateAnswers.cMaxAgeMs, mLocation, mNoTarget, mOrigin.FlowId);
             mAnswer.FileName := mLocation.FileName;
             mAnswer.Line := mLocation.Line;
             mAnswer.Character := mLocation.Character;
@@ -416,6 +549,11 @@ begin
           mAnswer.ArrivedMs := TThread.GetTickCount64;
           if not mSlot.Complete(mAnswer) then
           begin
+            if mOrigin.FlowId > 0 then
+            begin
+              TDpccFlow.Step(mOrigin.FlowId, TDpccFlowArea.Jump, Format('Antwort nach %d ms, der Hauptthread wartet ' +
+                'nicht mehr: wird nachgereicht', [Int64(mAnswer.ArrivedMs - mOrigin.StartedMs)]));
+            end;
             QueueLateGoto(mOrigin, mAnswer);
           end;
         except
@@ -702,36 +840,75 @@ var
   mView: IOTAEditView;
   mActivity: IInterface;
   mPlace: TDpccHintPlace;
-  mSource: string;
+  mSource, mWhy: string;
+  mFlow, mWordStart, mWordEnd: Integer;
 begin
   mActivity := TDpccActivity.Scope('Symbolhinweis');
   Result := '';
+  // Ablaufprotokoll (LOG1): je Aufruf der IDE eine Kennung; 0 = nicht protokolliert.
+  mFlow := TDpccFlow.Start(TDpccFlowArea.Hover);
   // Durch die Sicherung abgeschaltet (#493); eigener Tooltip (#442): die IDE zeigt keinen
   // zweiten.
   if TDpccGuard.Disabled(TDpccFeature.Hover) then
   begin
+    AreaStep(TDpccFlowArea.Hover, mFlow, 'Eintritt GetHintText: Ende, Hover ist von der Sicherung abgeschaltet');
     Exit;
   end;
-  Diagnose(Format('GetHintText(%d, %d) aufgerufen', [HintLine, HintCol]));
   if TDpccIdeSettings.Current.HoverTooltip then
   begin
+    if mFlow > 0 then
+    begin
+      AreaStep(TDpccFlowArea.Hover, mFlow, Format('Eintritt GetHintText(%d, %d): Ende, eigener Tooltip an (die IDE ' +
+        'bekommt keinen Hinweis)', [HintLine, HintCol]));
+    end;
     Exit;
+  end;
+  if mFlow > 0 then
+  begin
+    AreaStep(TDpccFlowArea.Hover, mFlow, Format('Eintritt GetHintText(%d, %d)', [HintLine, HintCol]));
   end;
   try
     mView := TDpccCodeInsightQueries.CurrentEditView;
-    // Hauptschalter und Datei vor dem Start prüfen; EnsureSession wartet nie (ohne Sitzung kein Hinweis).
-    if (mView <> nil) and (mView.Buffer <> nil) and FEnabled and Handles(mView.Buffer.FileName) and EnsureSession
-      and TDpccCodeInsightQueries.HintPlace(mView, HintLine, HintCol, mPlace) then
+    // Hauptschalter und Datei vor dem Start prüfen; EnsureSession wartet nie (ohne Sitzung kein Hinweis). Dieselbe
+    // Reihenfolge wie früher in einer Bedingung; der erste Grund steht im Ablaufprotokoll.
+    mWhy := '';
+    if (mView = nil) or (mView.Buffer = nil) then
+    begin
+      mWhy := 'keine Editoransicht';
+    end
+    else if not FEnabled or not Handles(mView.Buffer.FileName) then
+    begin
+      mWhy := 'nicht zuständig, ' + NotHandledReason(FShutDown, FEnabled, mView.Buffer.FileName);
+    end
+    else if not EnsureSession then
+    begin
+      mWhy := 'keine Sitzung (Server startet noch oder läuft nicht)';
+    end
+    else if not TDpccCodeInsightQueries.HintPlace(mView, HintLine, HintCol, mPlace) then
+    begin
+      mWhy := 'Zeile außerhalb des Puffers';
+    end;
+    if mWhy <> '' then
+    begin
+      AreaStep(TDpccFlowArea.Hover, mFlow, 'Ende: ' + mWhy);
+    end
+    else
     begin
       // Der Server im Hintergrund, höchstens cWaitMs; der Wert im Debugger wie bisher sofort.
       Result := TDpccCodeInsightQueries.HintWithDebugValue(ServerHint(mPlace, mSource), mPlace);
-      Diagnose(Format('Hover (%s), Zeile %d, Spalte %d (Cursor %d/%d): %d Zeichen (%s)',
-        [ExtractFileExt(mPlace.FileName), HintLine, HintCol, mView.CursorPos.Line, mView.CursorPos.Col,
-        Length(Result), mSource]));
+      if mFlow > 0 then
+      begin
+        TDpccLateGoto.WordRange(mPlace.LineText, mPlace.Character, mWordStart, mWordEnd);
+        AreaStep(TDpccFlowArea.Hover, mFlow, Format('Ergebnis an die IDE: %d Zeichen (%s), %s, Wort %s, Cursor ' +
+          '%d/%d%s', [Length(Result), mSource, TDpccFlow.PlaceText(mPlace.FileName, HintLine, mPlace.Character),
+          TDpccFlow.WordText(mPlace.LineText, mWordStart, mWordEnd), mView.CursorPos.Line, mView.CursorPos.Col,
+          HintEmptyReason(Result, mSource)]));
+      end;
     end;
   except
     on E: Exception do
     begin
+      AreaStep(TDpccFlowArea.Hover, mFlow, 'Ende: Fehler ' + E.ClassName + ': ' + E.Message);
       ReportError('Hover: ' + E.Message);
       ReportFailure(TDpccFeature.Hover, E);
       Result := '';
@@ -765,26 +942,37 @@ begin
   mFileName := '';
   mLine := 0;
   mReport := Default(TGotoReport);
+  // Ablaufprotokoll (LOG1): eine Kennung für alle Zeilen dieses Sprungwunschs; 0 = nicht protokolliert.
+  mReport.Flow := TDpccFlow.Start(TDpccFlowArea.Jump);
   // Durch die Sicherung abgeschaltet (#493): still abbrechen.
   if TDpccGuard.Disabled(TDpccFeature.GoToDefinition) then
   begin
+    FlowStep(mReport.Flow, 'Ende: Gehe zu Definition ist von der Sicherung abgeschaltet (bis zum Neustart der IDE)');
     mOutcome := TDpccGotoOutcome.Disabled;
   end
   else
   begin
-    Diagnose(Format('GotoDefinition(Index %d) aufgerufen', [Index]));
     try
       NoticeIfSelected;
       mView := TDpccCodeInsightQueries.CurrentEditView;
+      if mReport.Flow > 0 then
+      begin
+        TDpccFlow.Step(mReport.Flow, TDpccFlowArea.Jump, Format('Eintritt IOTACodeInsightManager.GotoDefinition' +
+          '(Index %d), Datei %s', [Index, ViewFileText(mView)]));
+      end;
       if (mView = nil) or (mView.Buffer = nil) then
       begin
-        Diagnose('Gehe zu Definition: keine Editoransicht');
+        FlowStep(mReport.Flow, 'Ende: keine Editoransicht');
         mOutcome := TDpccGotoOutcome.NoView;
       end
       else if not FEnabled or not Handles(mView.Buffer.FileName) then
       begin
         // Hauptschalter aus oder keine Datei von dpcc: ohne Sitzung wie bisher, kein Start.
-        Diagnose('Gehe zu Definition: dpcc bedient die Datei nicht');
+        if mReport.Flow > 0 then
+        begin
+          FlowStep(mReport.Flow, 'Ende: nicht zuständig, ' + NotHandledReason(FShutDown, FEnabled,
+            mView.Buffer.FileName));
+        end;
         mReport.Detail := 'nicht zuständig (Hauptschalter, Manager abgeschaltet oder Datei nicht von dpcc)';
         mOutcome := TDpccGotoOutcome.NoSession;
       end
@@ -794,11 +982,13 @@ begin
         // nach Fehlschlag, nach Abstürzen angehalten) wie ohne Server.
         if StartPending then
         begin
-          Diagnose('Gehe zu Definition: dpcc startet noch, Sprungwunsch gemerkt');
+          FlowStep(mReport.Flow, 'dpcc startet noch: Sprungwunsch gemerkt, gefragt wird nach dem Start');
           mOutcome := RememberStartGoto(mView, mReport);
         end
         else
         begin
+          FlowStep(mReport.Flow, 'Ende: keine Sitzung (Server nicht gestartet, Start gesperrt oder nach Abstürzen ' +
+            'angehalten)');
           mReport.Detail := 'keine Sitzung (Server nicht gestartet)';
           mReport.Responsible := True;
           mOutcome := TDpccGotoOutcome.NoSession;
@@ -807,7 +997,7 @@ begin
       else if not FSession.Offers(cDefinitionMethod) then
       begin
         // Server ohne Sprungziele (ältere Fassung): still abbrechen, die IDE springt nicht.
-        Diagnose('Gehe zu Definition: Server bietet keine Definitionen');
+        FlowStep(mReport.Flow, 'Ende: Server bietet textDocument/definition nicht an');
         mOutcome := TDpccGotoOutcome.NotOffered;
       end
       else
@@ -819,7 +1009,7 @@ begin
       on E: ELspMethodNotFound do
       begin
         // Erst jetzt als fehlend erkannt (-32601): wie oben.
-        Diagnose('Gehe zu Definition: ' + E.Message);
+        FlowStep(mReport.Flow, 'Ende: Server ohne Sprungziele (-32601): ' + E.Message);
         mReport.Detail := TDpccGuard.MessageText(E.Message);
         mOutcome := TDpccGotoOutcome.NotOffered;
       end;
@@ -827,12 +1017,13 @@ begin
       begin
         // Beendeter Server beim Abgleich: erwartbar. (Eine langsame Antwort ist kein Fehler mehr: Sie wird
         // nachgereicht, AskDefinition.)
-        Diagnose('Gehe zu Definition: ' + E.Message);
+        FlowStep(mReport.Flow, 'Ende: Server getrennt beim Abgleich: ' + E.Message);
         mReport.Detail := TDpccGuard.MessageText(E.Message);
         mOutcome := TDpccGotoOutcome.TimedOut;
       end;
       on E: Exception do
       begin
+        FlowStep(mReport.Flow, 'Ende: Fehler ' + E.ClassName + ': ' + E.Message);
         mOutcome := TDpccGotoOutcome.Failed;
         mReport.Detail := TDpccGuard.ErrorText(E);
         ReportError('Gehe zu Definition: ' + E.Message);
@@ -850,6 +1041,12 @@ begin
     end;
   end;
   mAnswer := TDpccGotoDefinition.Answer(mOutcome, mFileName, mLine);
+  if mReport.Flow > 0 then
+  begin
+    // Letzte Zeile der Kette (LOG1): was die IDE bekommt und ob das die Stelle des Klicks ist.
+    TDpccFlow.Step(mReport.Flow, TDpccFlowArea.Jump, TDpccGotoLog.FlowResult(mOutcome, mAnswer, mReport.HasPlace,
+      mReport.Place.Origin.FileName, mReport.Place.Origin.AtLine));
+  end;
   AFileName := mAnswer.FileName;
   ALineNum := mAnswer.Line;
   Result := mAnswer.Result;
@@ -860,19 +1057,22 @@ function TDpccCodeInsightManager.AskDefinition(const AView: IOTAEditView; AIndex
 var
   mSlot: IDpccAnswerSlot;
   mAnswer: TDpccAnswer;
-  mTarget: string;
 begin
   AFileName := '';
   ALine := 0;
-  if not TDpccCodeInsightQueries.GotoPlace(AView,
-    procedure(AMessage: string)
-    begin
-      Diagnose(AMessage);
-    end, AReport.Place) then
+  if not TDpccCodeInsightQueries.GotoPlace(AView, GotoPlaceLog(AReport.Flow), AReport.Place) then
   begin
     Exit(TDpccGotoOutcome.NoView);
   end;
   AReport.HasPlace := True;
+  AReport.Place.Origin.FlowId := AReport.Flow;
+  if AReport.Flow > 0 then
+  begin
+    TDpccFlow.Step(AReport.Flow, TDpccFlowArea.Jump, Format('Stelle %s (%s), Wort %s', [TDpccFlow.PlaceText(
+      AReport.Place.Origin.FileName, AReport.Place.Origin.AtLine, AReport.Place.Origin.AtCharacter),
+      PlaceSource(AReport.Place.Mouse), TDpccFlow.WordText(AReport.Place.LineText,
+      AReport.Place.Origin.AtWordStart, AReport.Place.Origin.AtWordEnd)]));
+  end;
   // Jeder Sprungwunsch macht ältere, noch ausstehende ungültig (auch einen, der auf den Start wartet).
   Inc(FGotoGeneration);
   AReport.Place.Origin.Generation := FGotoGeneration;
@@ -885,7 +1085,12 @@ begin
     // Die Anfrage läuft weiter (nicht abgebrochen); die IDE bricht still ab, LateGoto meldet später den Ausgang.
     TDpccGuard.ReportProviderSlow(cGotoSlowName, Format('keine Antwort innerhalb von %d ms, Sprung wird nachgereicht',
       [TDpccLateAnswers.cWaitMs]));
-    Diagnose(TDpccCodeInsightQueries.GotoNote(AIndex, AReport.Place, 'kommt später'));
+    if AReport.Flow > 0 then
+    begin
+      FlowStep(AReport.Flow, Format('keine Antwort binnen %d ms: die IDE bekommt kein Ziel, der Sprung wird ' +
+        'nachgereicht (LateGoto, höchstens %d s nach dem Klick)', [TDpccLateAnswers.cWaitMs,
+        TDpccLateAnswers.cMaxAgeMs div 1000]));
+    end;
     Exit(TDpccGotoOutcome.Deferred);
   end;
   mAnswer := mSlot.Answer;
@@ -893,14 +1098,14 @@ begin
     TDpccAnswerError.MethodNotFound:
       begin
         // Erst jetzt als fehlend erkannt (-32601): Server ohne Sprungziele.
-        Diagnose('Gehe zu Definition: ' + mAnswer.ErrorText);
+        FlowStep(AReport.Flow, 'Ende: Server ohne Sprungziele (-32601): ' + mAnswer.ErrorText);
         AReport.Detail := TDpccGuard.MessageText(mAnswer.ErrorText);
         Exit(TDpccGotoOutcome.NotOffered);
       end;
     TDpccAnswerError.ClientError:
       begin
         // Beendeter Server: erwartbar, keine Sicherung.
-        Diagnose('Gehe zu Definition: ' + mAnswer.ErrorText);
+        FlowStep(AReport.Flow, 'Ende: Server getrennt oder Zeitlimit: ' + mAnswer.ErrorText);
         AReport.Detail := TDpccGuard.MessageText(mAnswer.ErrorText);
         Exit(TDpccGotoOutcome.TimedOut);
       end;
@@ -911,33 +1116,44 @@ begin
       end;
   end;
   Result := TDpccGotoOutcome.NotFound;
-  mTarget := 'kein Ziel';
   if TDpccCodeInsightQueries.TargetOf(mAnswer) then
   begin
     AFileName := mAnswer.FileName;
     ALine := mAnswer.Line;
     Result := TDpccGotoOutcome.Found;
-    mTarget := Format('%s, Zeile %d', [ExtractFileExt(AFileName), ALine + 1]);
+    if AReport.Flow > 0 then
+    begin
+      FlowStep(AReport.Flow, Format('Antwort der Sitzung nach %d ms: %s', [Int64(mAnswer.ArrivedMs -
+        AReport.Place.Origin.StartedMs), TDpccFlow.PlaceText(mAnswer.FileName, mAnswer.Line + 1,
+        mAnswer.Character)]));
+    end;
   end
   else
   begin
     AReport.NoTarget := TDpccCodeInsightQueries.NoTargetOf(mAnswer);
+    if AReport.Flow > 0 then
+    begin
+      FlowStep(AReport.Flow, 'Antwort der Sitzung: ' + TDpccGotoLog.NoTargetOutcome(AReport.NoTarget));
+    end;
   end;
-  Diagnose(TDpccCodeInsightQueries.GotoNote(AIndex, AReport.Place, mTarget));
 end;
 
 function TDpccCodeInsightManager.RememberStartGoto(const AView: IOTAEditView;
   var AReport: TGotoReport): TDpccGotoOutcome;
 begin
-  if not TDpccCodeInsightQueries.GotoPlace(AView,
-    procedure(AMessage: string)
-    begin
-      Diagnose(AMessage);
-    end, AReport.Place) then
+  if not TDpccCodeInsightQueries.GotoPlace(AView, GotoPlaceLog(AReport.Flow), AReport.Place) then
   begin
     Exit(TDpccGotoOutcome.NoView);
   end;
   AReport.HasPlace := True;
+  AReport.Place.Origin.FlowId := AReport.Flow;
+  if AReport.Flow > 0 then
+  begin
+    FlowStep(AReport.Flow, Format('Stelle %s (%s), Wort %s; gemerkt bis zum Start', [TDpccFlow.PlaceText(
+      AReport.Place.Origin.FileName, AReport.Place.Origin.AtLine, AReport.Place.Origin.AtCharacter),
+      PlaceSource(AReport.Place.Mouse), TDpccFlow.WordText(AReport.Place.LineText, AReport.Place.Origin.AtWordStart,
+      AReport.Place.Origin.AtWordEnd)]));
+  end;
   // Wie ein Sprungwunsch an den Server: Ein neuerer (oder ein späterer Klick) macht ihn ungültig.
   Inc(FGotoGeneration);
   AReport.Place.Origin.Generation := FGotoGeneration;
@@ -1009,7 +1225,7 @@ begin
     GotoNotice(TDpccGotoNotice.ForKind(TDpccTextLanguage.Current, TDpccGotoNoticeKind.NotOffered, '', 0, False));
     Exit;
   end;
-  Diagnose(TDpccCodeInsightQueries.GotoNote(-1, APlace, 'nach dem Start gefragt'));
+  FlowStep(APlace.Origin.FlowId, 'nach dem Start: frage den Server, die Antwort geht über LateGoto');
   FSession.Sync(APlace.Origin.FileName, APlace.Text);
   mSlot := TDpccAnswerSlot.Create(APlace.Origin.StartedMs);
   StartWork(GotoWork(FSession, FSignals, mSlot, APlace));
@@ -1026,7 +1242,7 @@ var
   mVerdict: TDpccGotoVerdict;
   mNow: TDpccGotoNow;
   mCurrent, mOpened: Boolean;
-  mArrival, mFileName, mProblem: string;
+  mArrival, mFileName, mProblem, mFlowText: string;
   mLine, mCharacter: Integer;
 begin
   // Abgebaut: Protokoll und Editor gehören nicht mehr uns.
@@ -1040,9 +1256,22 @@ begin
   mArrival := Format(' (Antwort nach %d ms)', [Int64(TDpccLateGoto.AgeMs(AOrigin, mNow))]);
   // Nur der neueste Sprungwunsch bekommt eine Meldung; ältere stehen nur im Protokoll.
   mCurrent := AOrigin.Generation = FGotoGeneration;
-  Diagnose(Format('Gehe zu Definition nachgereicht: Cursor jetzt %d:%d (%s), gefragt %d:%d, Cursor beim Fragen ' +
-    '%d:%d', [mNow.CaretLine, mNow.CaretCharacter + 1, ExtractFileExt(mNow.FileName), AOrigin.AtLine,
-    AOrigin.AtCharacter + 1, AOrigin.CaretLine, AOrigin.CaretCharacter + 1]));
+  // Ablaufprotokoll (LOG1); ohne Kennung (vor dem Einschalten gefragt) wie bisher nur mit Diagnose = 1.
+  if Diagnosing then
+  begin
+    mFlowText := Format('LateGoto: Antwort nach %d ms, Cursor jetzt %s %d:%d, gefragt %d:%d, Cursor beim Fragen ' +
+      '%d:%d; Ziel %s', [Int64(TDpccLateGoto.AgeMs(AOrigin, mNow)), TDpccFlow.FileText(mNow.FileName),
+      mNow.CaretLine, mNow.CaretCharacter + 1, AOrigin.AtLine, AOrigin.AtCharacter + 1, AOrigin.CaretLine,
+      AOrigin.CaretCharacter + 1, LateTargetText(AAnswer)]);
+    if AOrigin.FlowId > 0 then
+    begin
+      FlowStep(AOrigin.FlowId, mFlowText);
+    end
+    else
+    begin
+      Diagnose('Gehe zu Definition nachgereicht: ' + mFlowText);
+    end;
+  end;
   if not FEnabled or TDpccGuard.Disabled(TDpccFeature.GoToDefinition) then
   begin
     GotoLog(True, 'nachgereicht verworfen: dpcc abgeschaltet' + mArrival, AOrigin);
@@ -1169,6 +1398,9 @@ begin
     end;
   end;
   mOrigin.StartedMs := AStartedMs;
+  // Ablaufprotokoll (LOG1): Ende und Ergebnis dieses Aufrufs schreibt GotoDefinition selbst; GotoLog ergänzt die Kette
+  // nur für spätere Ausgänge (LateGoto, nach dem Start).
+  mOrigin.FlowId := 0;
   mLanguage := TDpccTextLanguage.Current;
   case AOutcome of
     TDpccGotoOutcome.Found:
@@ -1219,7 +1451,12 @@ procedure TDpccCodeInsightManager.GotoLog(AAlways: Boolean; const AOutcome: stri
 var
   mElapsed: Int64;
 begin
-  if not AAlways and not FDiagnose then
+  // Ablaufprotokoll (LOG1): derselbe Ausgang als Zeile der Kette, auch für nachgereichte und verworfene Antworten.
+  if AOrigin.FlowId > 0 then
+  begin
+    FlowStep(AOrigin.FlowId, 'Ausgang (dpcc.log): ' + AOutcome);
+  end;
+  if not AAlways and not Diagnosing then
   begin
     Exit;
   end;
@@ -1269,6 +1506,23 @@ begin
     MessageLine(TDpccProviderNotice.Text(TDpccTextLanguage.Current));
     Diagnose('Hinweis: dpcc ist der gewählte Code-Insight-Anbieter');
   end;
+end;
+
+function TDpccCodeInsightManager.GotoPlaceLog(AFlow: Integer): TProc<string>;
+var
+  mFlow: Integer;
+begin
+  Result := nil;
+  if AFlow <= 0 then
+  begin
+    Exit;
+  end;
+  mFlow := AFlow;
+  Result :=
+    procedure(AMessage: string)
+    begin
+      FlowStep(mFlow, AMessage);
+    end;
 end;
 
 procedure TDpccCodeInsightManager.GotoNotice(const AText: string);
@@ -1549,23 +1803,37 @@ function TDpccCodeInsightManager.InvokeCodeCompletion(HowInvoked: TOTAInvokeType
 var
   mActivity: IInterface;
   mView: IOTAEditView;
+  mFlow: Integer;
 begin
   mActivity := TDpccActivity.Scope('Vervollständigung öffnen');
   // False: Die IDE zeigt keine eigene Liste; unser Popup übernimmt (#407, #410).
   Result := False;
-  Diagnose(Format('InvokeCodeCompletion(%d, %d Zeichen)', [Ord(HowInvoked), Length(Str)]));
+  // Ablaufprotokoll (LOG1): Kennung für Anfrage und Ergebnis (EditorOpen, Controller schreiben unter Current).
+  mFlow := TDpccFlow.Start(TDpccFlowArea.Completion);
   try
     // Start nur hier im Hauptthread und nur für Dateien, die dpcc bei Hauptschalter an bedient; er läuft im
     // Hintergrund, die Quellen bekommen die laufende Sitzung. Ohne Server liefern die übrigen Quellen trotzdem.
     mView := TDpccCodeInsightQueries.CurrentEditView;
+    if mFlow > 0 then
+    begin
+      AreaStep(TDpccFlowArea.Completion, mFlow, Format('Eintritt InvokeCodeCompletion(%d, %d Zeichen), Datei %s',
+        [Ord(HowInvoked), Length(Str), ViewFileText(mView)]));
+    end;
     if FEnabled and (mView <> nil) and (mView.Buffer <> nil) and Handles(mView.Buffer.FileName) then
     begin
       EnsureSession;
+    end
+    else if (mFlow > 0) and (mView <> nil) and (mView.Buffer <> nil) then
+    begin
+      // Fragt trotzdem: die übrigen Quellen liefern auch ohne Server.
+      AreaStep(TDpccFlowArea.Completion, mFlow, 'ohne Server: ' + NotHandledReason(FShutDown, FEnabled,
+        mView.Buffer.FileName));
     end;
     Completion.Invoke(mView, HowInvoked <> itManual);
   except
     on E: Exception do
     begin
+      AreaStep(TDpccFlowArea.Completion, mFlow, 'Ende: Fehler ' + E.ClassName + ': ' + E.Message);
       ReportError(UiText(TManagerText.Completion) + E.Message);
       ReportFailure(TDpccFeature.Completion, E);
     end;
@@ -1577,27 +1845,42 @@ function TDpccCodeInsightManager.InvokeParameterCodeInsight(HowInvoked: TOTAInvo
 var
   mActivity: IInterface;
   mView: IOTAEditView;
+  mFlow: Integer;
 begin
   // False: Die IDE zeigt keine eigene Parameterhilfe; unser Hint übernimmt (#436).
   Result := False;
+  // Ablaufprotokoll (LOG1): Kennung für Anfrage und Ergebnis (Signature.Editor schreibt unter Current).
+  mFlow := TDpccFlow.Start(TDpccFlowArea.Signature);
   // Durch die Sicherung abgeschaltet (#493).
   if TDpccGuard.Disabled(TDpccFeature.Signature) then
   begin
+    AreaStep(TDpccFlowArea.Signature, mFlow, 'Eintritt InvokeParameterCodeInsight: Ende, Parameterhilfe ist von ' +
+      'der Sicherung abgeschaltet');
     Exit;
   end;
   mActivity := TDpccActivity.Scope('Parameterhilfe');
-  Diagnose(Format('InvokeParameterCodeInsight(%d)', [Ord(HowInvoked)]));
   try
     // Start nur hier im Hauptthread, nur bei Hauptschalter an und für Dateien von dpcc; er läuft im Hintergrund.
     mView := TDpccCodeInsightQueries.CurrentEditView;
+    if mFlow > 0 then
+    begin
+      AreaStep(TDpccFlowArea.Signature, mFlow, Format('Eintritt InvokeParameterCodeInsight(%d), Datei %s',
+        [Ord(HowInvoked), ViewFileText(mView)]));
+    end;
     if FEnabled and (mView <> nil) and (mView.Buffer <> nil) and Handles(mView.Buffer.FileName) then
     begin
       EnsureSession;
+    end
+    else if (mFlow > 0) and (mView <> nil) and (mView.Buffer <> nil) then
+    begin
+      AreaStep(TDpccFlowArea.Signature, mFlow, 'ohne Server: ' + NotHandledReason(FShutDown, FEnabled,
+        mView.Buffer.FileName));
     end;
     FEditors.Signature.Invoke(mView);
   except
     on E: Exception do
     begin
+      AreaStep(TDpccFlowArea.Signature, mFlow, 'Ende: Fehler ' + E.ClassName + ': ' + E.Message);
       ReportError('Parameterhilfe: ' + E.Message);
       ReportFailure(TDpccFeature.Signature, E);
     end;
@@ -1608,13 +1891,21 @@ function TDpccCodeInsightManager.OpenCompletion: Boolean;
 var
   mView: IOTAEditView;
   mIde: TDpccIdeList;
+  mFlow: Integer;
 begin
   Result := True;
+  // Ablaufprotokoll (LOG1): Kennung für Anfrage und Ergebnis (EditorOpen, Controller schreiben unter Current).
+  mFlow := TDpccFlow.Start(TDpccFlowArea.Completion);
   if not FEnabled or TDpccGuard.Disabled(TDpccFeature.Completion) or not ServerAvailable then
   begin
+    if mFlow > 0 then
+    begin
+      AreaStep(TDpccFlowArea.Completion, mFlow, 'Eintritt eigene Taste (Strg+Leertaste): Ende, ' +
+        OwnKeyOffReason(FEnabled, TDpccGuard.Disabled(TDpccFeature.Completion)));
+    end;
     Exit;
   end;
-  Diagnose('Vervollständigung über eigene Taste');
+  AreaStep(TDpccFlowArea.Completion, mFlow, 'Eintritt eigene Taste (Strg+Leertaste)');
   try
     // Start nur hier im Hauptthread, vor der Anfrage: Die Quellen holen sich die laufende Sitzung.
     EnsureSession;
@@ -1623,8 +1914,11 @@ begin
     if (mView <> nil) and (mView.Buffer <> nil) then
     begin
       mIde := TDpccIdeList.Create(IdeListReachable(mView.Buffer.FileName), IdeCompletionListOpen);
-      Diagnose(Format('Liste der IDE: erreichbar %s, offen %s', [BoolToStr(mIde.Reachable, True),
-        BoolToStr(mIde.Open, True)]));
+      if mFlow > 0 then
+      begin
+        AreaStep(TDpccFlowArea.Completion, mFlow, Format('Datei %s; Liste der IDE: erreichbar %s, offen %s',
+          [ViewFileText(mView), BoolToStr(mIde.Reachable, True), BoolToStr(mIde.Open, True)]));
+      end;
     end;
     // Zweites Strg+Leertaste nach leerem Ergebnis an derselben Stelle (L3) bzw. offene Liste der IDE (L4): False,
     // die Taste gehört der IDE.
@@ -1632,6 +1926,7 @@ begin
   except
     on E: Exception do
     begin
+      AreaStep(TDpccFlowArea.Completion, mFlow, 'Ende: Fehler ' + E.ClassName + ': ' + E.Message);
       ReportError(UiText(TManagerText.Completion) + E.Message);
       ReportFailure(TDpccFeature.Completion, E);
     end;
@@ -1639,12 +1934,21 @@ begin
 end;
 
 procedure TDpccCodeInsightManager.OpenSignature;
+var
+  mFlow: Integer;
 begin
+  // Ablaufprotokoll (LOG1): Kennung für Anfrage und Ergebnis (Signature.Editor schreibt unter Current).
+  mFlow := TDpccFlow.Start(TDpccFlowArea.Signature);
   if not FEnabled or TDpccGuard.Disabled(TDpccFeature.Signature) or not ServerAvailable then
   begin
+    if mFlow > 0 then
+    begin
+      AreaStep(TDpccFlowArea.Signature, mFlow, 'Eintritt eigene Taste (Strg+Umschalt+Leertaste): Ende, ' +
+        OwnKeyOffReason(FEnabled, TDpccGuard.Disabled(TDpccFeature.Signature)));
+    end;
     Exit;
   end;
-  Diagnose('Parameterhilfe über eigene Taste');
+  AreaStep(TDpccFlowArea.Signature, mFlow, 'Eintritt eigene Taste (Strg+Umschalt+Leertaste)');
   try
     // Start nur hier im Hauptthread.
     EnsureSession;
@@ -1652,6 +1956,7 @@ begin
   except
     on E: Exception do
     begin
+      AreaStep(TDpccFlowArea.Signature, mFlow, 'Ende: Fehler ' + E.ClassName + ': ' + E.Message);
       ReportError('Parameterhilfe: ' + E.Message);
       ReportFailure(TDpccFeature.Signature, E);
     end;

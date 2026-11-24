@@ -6,6 +6,8 @@
 // Beim Tippen eines Bezeichners (L5, TDpccCompletionSource.Typing) prüft Invoke vor allem anderen und nach der
 // Verzögerung noch einmal die Regel TDpccAutoOpen (completion.autoMinChars): Unter der Schwelle keine Anfrage und kein
 // Popup, eine offene Liste filtert weiter. Strg+Leertaste und Auslösezeichen gehen wie bisher durch.
+// Ablaufprotokoll (LOG1, TDpccFlow): Invoke schreibt unter der Kennung des Einstiegs (Manager; Tippen beginnt eine
+// eigene) jeden frühen Ausstieg mit Grund, die Verzögerung und die Anfrage; das Ergebnis schreibt der Controller.
 
 interface
 
@@ -55,6 +57,7 @@ uses
   System.SysUtils,
   dpcc.Core.Diagnostics.Guard,
   dpcc.Core.Diagnostics.Timing,
+  dpcc.Core.Diagnostics.Flow,
   dpcc.Core.Completion.Word,
   dpcc.Core.Completion.Ranking,
   dpcc.Core.Editor.CloseRules,
@@ -255,7 +258,7 @@ var
   mContext: TDpccContext;
   mLineText: string;
   mCursor: TOTAEditPos;
-  mCharacter, mWordStart: Integer;
+  mCharacter, mWordStart, mFlow: Integer;
   mWindow: HWND;
   mAnchor: TRect;
   mStarted: Int64;
@@ -267,24 +270,33 @@ begin
   begin
     mStarted := TDpccQueryTimings.Stamp;
   end;
+  // Ablaufprotokoll (LOG1): unter der Kennung des Einstiegs (Manager); Tippen beginnt unten eine eigene.
+  mFlow := TDpccFlow.Current(TDpccFlowArea.Completion);
   if (AView = nil) or (AView.Buffer = nil) then
   begin
+    TDpccFlow.Step(mFlow, TDpccFlowArea.Completion, 'Ende: keine Editoransicht');
     Exit;
   end;
   mCursor := AView.CursorPos;
   mLineText := TDpccEditorBuffer.LineText(AView, mCursor.Line);
-  mCharacter := TLspSession.ColumnToIndex(mLineText, mCursor.Col, TDpccEditorBuffer.TabWidth(AView.Buffer));
+  mCharacter := TLspSession.ColumnToIndex(mLineText, mCursor.Col, TDpccEditorBuffer.TabStops(AView.Buffer));
   mWordStart := TDpccWord.StartBefore(mLineText, mCharacter);
   mAutomatic := ASource <> TDpccCompletionSource.Key;
-  // Beim Tippen (L5): erst ab completion.autoMinChars Zeichen, sonst keine Anfrage; offene Liste filtert weiter.
+  // Beim Tippen (L5): erst ab completion.autoMinChars Zeichen, sonst keine Anfrage; offene Liste filtert weiter. Ohne
+  // Zeile im Protokoll: Das gilt für jede getippte Taste.
   if (ASource = TDpccCompletionSource.Typing) and (TDpccAutoOpen.Action(ASource, mLineText, mCharacter,
     FController.Active, TDpccIdeSettings.Current.AutoMinChars) <> TDpccAutoOpenAction.Query) then
   begin
     Exit;
   end;
+  if (ASource = TDpccCompletionSource.Typing) and not FDelay.Running then
+  begin
+    mFlow := TDpccFlow.Start(TDpccFlowArea.Completion);
+    TDpccFlow.Step(mFlow, TDpccFlowArea.Completion, 'Eintritt Tippen eines Bezeichners (L5, ab Mindestzeichen)');
+  end;
   if not CaretRect(mWindow, mAnchor) then
   begin
-    Log('Vervollständigung: kein Caret gefunden');
+    TDpccFlow.Step(mFlow, TDpccFlowArea.Completion, 'Ende: kein Caret gefunden');
     Exit;
   end;
   CancelDelay;
@@ -292,6 +304,11 @@ begin
   // DelayTimerTick ruft wieder auf.
   if mAutomatic and not FDelay.Running then
   begin
+    if TDpccFlow.Enabled then
+    begin
+      TDpccFlow.Step(mFlow, TDpccFlowArea.Completion, Format('automatisch%s: Öffnen verzögert um %d ms',
+        [cSourceNames[ASource], TDpccFixedSettings.cOpenDelayMs]));
+    end;
     StartDelay(AView, mCursor.Line, mCharacter, mWindow, ASource);
     Exit(True);
   end;
@@ -302,6 +319,8 @@ begin
   // Mit Esc geschlossen (#414): im selben Wort nicht automatisch wieder öffnen.
   if mAutomatic and FController.Dismissed(mContext) then
   begin
+    TDpccFlow.Step(mFlow, TDpccFlowArea.Completion, 'Ende: im selben Wort mit Esc geschlossen, öffnet nicht ' +
+      'automatisch wieder');
     Exit;
   end;
   // Beim Tippen gibt es kein Auslösezeichen; "(" bzw. ";" vor dem Wort gehören zu einem früheren Öffnen.
@@ -314,10 +333,14 @@ begin
   ApplyStyle(mAnchor);
   ApplyOptions;
   Anchor(AView, mWindow, mAnchor, mCursor.Line, mWordStart, mContext.Prefix);
-  // Ohne Datei- und Bezeichnernamen: Das Diagnoselog soll weitergegeben werden können (#647).
-  Log(Format('Vervollständigung (%s%s): Zeile %d, Zeichen %d, Präfix %d Zeichen',
-    [ExtractFileExt(mContext.FileName), cSourceNames[ASource], mContext.Line + 1, mContext.Character,
-    Length(mContext.Prefix)]));
+  // Ohne Datei- und Bezeichnernamen: Das Diagnoselog soll weitergegeben werden können (#647). Seit LOG1 als Zeile der
+  // Kette; das Ergebnis schreibt der Controller (Completed).
+  if TDpccFlow.Enabled then
+  begin
+    TDpccFlow.Step(mFlow, TDpccFlowArea.Completion, Format('Anfrage (%s%s): Zeile %d, Zeichen %d, Präfix %d Zeichen',
+      [ExtractFileExt(mContext.FileName), cSourceNames[ASource], mContext.Line + 1, mContext.Character,
+      Length(mContext.Prefix)]));
+  end;
   FController.Start(mContext);
   ActiveChanged;
   Result := True;
@@ -342,11 +365,12 @@ begin
     mSame := mView.CursorPos.Line = FDelay.Line;
     mLineText := TDpccEditorBuffer.LineText(mView, mView.CursorPos.Line);
     mCharacter := TLspSession.ColumnToIndex(mLineText, mView.CursorPos.Col,
-      TDpccEditorBuffer.TabWidth(mView.Buffer));
+      TDpccEditorBuffer.TabStops(mView.Buffer));
     if not TDpccCloseRules.DelayedOpen(FDelay.State, WindowState(mView, FDelay.Window, GetFocus), mSame,
       mLineText, FDelay.Character, mCharacter) then
     begin
-      Log('Vervollständigung: verzögertes Öffnen verworfen');
+      TDpccFlow.Step(TDpccFlow.Current(TDpccFlowArea.Completion), TDpccFlowArea.Completion, 'Ende: verzögertes ' +
+        'Öffnen verworfen (Cursor, Fokus, Fenster oder Zeile seit dem Auslösen geändert)');
       Exit;
     end;
     FDelay.Running := True;

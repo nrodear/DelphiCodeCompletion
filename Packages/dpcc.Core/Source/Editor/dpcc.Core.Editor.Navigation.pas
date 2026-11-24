@@ -95,9 +95,16 @@ type
       static;
     /// <summary>Steht die Stelle ALine/ACharacter (0-basiert) in ALineText im Namen, der in derselben Datei bei
     /// ATargetLine/ATargetCharacter beginnt? Dann liegt sie auf der Deklaration selbst (Strg+Klick auf den Namen
-    /// in der Klasse), und der Sprung geht zur Implementierung.</summary>
+    /// in der Klasse), und der Sprung geht zur Implementierung. „Dieselbe Datei“ nach TTextUris.SamePath (Trenner,
+    /// "." und "..", Groß/Klein auch außerhalb von ASCII), ohne Zugriff aufs Dateisystem.</summary>
     class function OnTarget(const AFileName: string; ALine, ACharacter: Integer; const ALineText,
       ATargetFile: string; ATargetLine, ATargetCharacter: Integer): Boolean; static;
+    /// <summary>Begründung von OnTarget fürs Ablaufprotokoll (LOG1, nie übersetzt), mit denselben Bedingungen: „ja“
+    /// bzw. „nein“, dann Datei (TDpccFlow.FileComparison: gleich oder beide Namen), Zeile (beide, 1-basiert) und
+    /// Stelle im Wort (vom Beginn des Ziels bis zur Stelle nur Bezeichnerzeichen; „-“, wenn Datei oder Zeile schon
+    /// abweichen), dazu Spalte der Stelle und des Ziels. Ändert nichts am Urteil von OnTarget.</summary>
+    class function OnTargetWhy(const AFileName: string; ALine, ACharacter: Integer; const ALineText,
+      ATargetFile: string; ATargetLine, ATargetCharacter: Integer): string; static;
     /// <summary>Stelle der Anfrage (X = Zeichen, Y = Zeile): bei gedrückter Strg-Taste (Strg+Klick) und gültiger
     /// Mausstelle über einem Bezeichner AMouse, sonst ACaret.</summary>
     class function ChoosePosition(ACtrlDown, AMouseValid: Boolean; const AMouse, ACaret: TPoint): TPoint; static;
@@ -142,6 +149,15 @@ type
     /// <summary>Ausgang „kein Ziel (Grund[: Name][, Index im Aufbau])“ mit dem Wert von reason; ohne Benachrichtigung
     /// „kein Ziel (Grund unbekannt)“.</summary>
     class function NoTargetOutcome(const ANoTarget: TDpccNoTarget): string; static;
+    /// <summary>Name des Ausgangs im Ablaufprotokoll (LOG1): Found, NotFound … wie in TDpccGotoOutcome.</summary>
+    class function OutcomeName(AOutcome: TDpccGotoOutcome): string; static;
+    /// <summary>Letzte Zeile eines Sprungs im Ablaufprotokoll (LOG1): was GotoDefinition der IDE zurückgibt. Mit Datei
+    /// „Ergebnis an die IDE: True, Datei Zeile n; gleich der Ausgangsstelle: ja|nein“ (gleich = dieselbe Datei und
+    /// Zeile wie AOriginFile/AOriginLine, die IDE bleibt dann stehen); ohne Datei „Ergebnis an die IDE: True ohne
+    /// Datei (kein Sprung der IDE), Ausgang …“ samt Hinweis bei Deferred bzw. Starting. AOriginLine 1-basiert;
+    /// AHasOrigin False: Stelle unbekannt.</summary>
+    class function FlowResult(AOutcome: TDpccGotoOutcome; const AAnswer: TDpccGotoAnswer; AHasOrigin: Boolean;
+      const AOriginFile: string; AOriginLine: Integer): string; static;
   end;
 
   /// <summary>Hinweis im Meldungsfenster, wenn dpcc der gewählte Code-Insight-Anbieter ist (einmal je Sitzung).
@@ -195,7 +211,9 @@ implementation
 uses
   System.SysUtils,
   System.Math,
-  dpcc.Text.LogMarks;
+  dpcc.Text.LogMarks,
+  dpcc.Text.Uris,
+  dpcc.Core.Diagnostics.Flow;
 
 {$SCOPEDENUMS ON}
 
@@ -288,8 +306,11 @@ class function TDpccGotoDefinition.OnTarget(const AFileName: string; ALine, ACha
 var
   mIndex: Integer;
 begin
-  Result := SameText(AFileName, ATargetFile) and (ALine = ATargetLine) and (ACharacter >= ATargetCharacter) and
-    (ATargetCharacter < Length(ALineText));
+  // Datei über TTextUris.SamePath: Der Server liefert den Pfad vereinheitlicht (Backslashes, "." und ".." aufgelöst,
+  // Laufwerk klein), die IDE übergibt ihn, wie er im Editor steht (C:/…, …\Unter\..\…, Umlaute in anderer
+  // Schreibung). Mit SameText galt die Deklaration dann nicht als Klickstelle.
+  Result := TTextUris.SamePath(AFileName, ATargetFile) and (ALine = ATargetLine) and
+    (ACharacter >= ATargetCharacter) and (ATargetCharacter < Length(ALineText));
   if not Result then
   begin
     Exit;
@@ -303,6 +324,42 @@ begin
       Exit(False);
     end;
   end;
+end;
+
+class function TDpccGotoDefinition.OnTargetWhy(const AFileName: string; ALine, ACharacter: Integer; const ALineText,
+  ATargetFile: string; ATargetLine, ATargetCharacter: Integer): string;
+var
+  mSameFile, mSameLine, mInWord: Boolean;
+  mIndex: Integer;
+  mWord: string;
+begin
+  // Dieselben Bedingungen wie OnTarget, nur einzeln festgehalten.
+  mSameFile := TTextUris.SamePath(AFileName, ATargetFile);
+  mSameLine := ALine = ATargetLine;
+  mInWord := (ACharacter >= ATargetCharacter) and (ATargetCharacter < Length(ALineText));
+  if mInWord then
+  begin
+    for mIndex := ATargetCharacter + 1 to Min(ACharacter, Length(ALineText)) do
+    begin
+      if not IsNameChar(ALineText[mIndex]) then
+      begin
+        mInWord := False;
+        Break;
+      end;
+    end;
+  end;
+  if mSameFile and mSameLine then
+  begin
+    mWord := TDpccFlow.YesNo(mInWord);
+  end
+  else
+  begin
+    // Andere Datei oder Zeile: Die Spalte des Ziels bezieht sich nicht auf diese Zeile.
+    mWord := '-';
+  end;
+  Result := Format('%s (Datei %s; Zeile %s, %d | %d; Stelle im Wort %s, Spalte %d, Ziel ab %d)',
+    [TDpccFlow.YesNo(mSameFile and mSameLine and mInWord), TDpccFlow.FileComparison(AFileName, ATargetFile),
+    TDpccFlow.YesNo(mSameLine), ALine + 1, ATargetLine + 1, mWord, ACharacter + 1, ATargetCharacter + 1]);
 end;
 
 class function TDpccGotoDefinition.ChoosePosition(ACtrlDown, AMouseValid: Boolean; const AMouse,
@@ -453,6 +510,49 @@ begin
     Result := Result + ', Index im Aufbau';
   end;
   Result := Result + ')';
+end;
+
+class function TDpccGotoLog.OutcomeName(AOutcome: TDpccGotoOutcome): string;
+const
+  cNames: array[TDpccGotoOutcome] of string = ('Found', 'NotFound', 'Disabled', 'NoView', 'NoSession', 'NotOffered',
+    'TimedOut', 'Failed', 'Deferred', 'Starting');
+begin
+  Result := cNames[AOutcome];
+end;
+
+class function TDpccGotoLog.FlowResult(AOutcome: TDpccGotoOutcome; const AAnswer: TDpccGotoAnswer;
+  AHasOrigin: Boolean; const AOriginFile: string; AOriginLine: Integer): string;
+var
+  mSame: string;
+begin
+  if AAnswer.FileName <> '' then
+  begin
+    if not AHasOrigin then
+    begin
+      mSame := 'unbekannt';
+    end
+    else if TTextUris.SamePath(AAnswer.FileName, AOriginFile) and (AAnswer.Line = AOriginLine) then
+    begin
+      // Die IDE springt nur an eine Zeile: dieselbe Datei und Zeile heißt, der Cursor bleibt, wo er ist. Die Datei
+      // des Ziels kommt vom Server, die Ausgangsstelle von der IDE: Vergleich wie OnTarget.
+      mSame := 'ja (die IDE bleibt in derselben Zeile)';
+    end
+    else
+    begin
+      mSame := 'nein';
+    end;
+    Result := Format('Ergebnis an die IDE: %s, %s Zeile %d; gleich der Ausgangsstelle: %s',
+      [BoolToStr(AAnswer.Result, True), TDpccFlow.FileText(AAnswer.FileName), AAnswer.Line, mSame]);
+    Exit;
+  end;
+  Result := Format('Ergebnis an die IDE: %s ohne Datei (kein Sprung der IDE), Ausgang %s',
+    [BoolToStr(AAnswer.Result, True), OutcomeName(AOutcome)]);
+  case AOutcome of
+    TDpccGotoOutcome.Deferred:
+      Result := Result + '; die Antwort kommt später (LateGoto)';
+    TDpccGotoOutcome.Starting:
+      Result := Result + '; der Wunsch wartet auf den Start';
+  end;
 end;
 
 { TDpccProviderNotice }

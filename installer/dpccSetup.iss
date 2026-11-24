@@ -248,8 +248,9 @@ Source: "{#DpccBplSourceDirD13}\{#DpccIdeBplD13}";                 DestDir: "{ap
 
 [UninstallDelete]
 ; Inno entfernt die installierten Dateien selbst. Die bpl-Ordner koennen aber
-; Reste tragen: das Diagnoseprotokoll dpcc.IDE.Expert<suffix>.log, das dpcc
-; neben das Plugin schreibt, oder eine BPL aus einem frueheren Lauf. Ohne
+; Reste tragen: das Diagnoseprotokoll dpcc.IDE.Expert<suffix>.log (samt den
+; rotierten .1.log bis .4.log), das dpcc neben das Plugin schreibt, oder eine
+; BPL aus einem frueheren Lauf. Ohne
 ; diese Zeilen bliebe {app} als Geruest stehen.
 Type: filesandordirs; Name: "{app}\bpl\d12"
 Type: filesandordirs; Name: "{app}\bpl\d13"
@@ -808,6 +809,8 @@ end;
 // BPLs und Registry-Eintrag, und die IDE wuerde dpcc weiter laden.
 procedure EntferneVariante(const AOrdner, ASuffix, AKnownKey, ADisabledKey,
   AEnvKey: string);
+var
+  I: Integer;
 begin
   // Registry zuerst, Dateien danach - dieselbe Reihenfolge wie bei der
   // Deinstallation. Eine registrierte, aber fehlende BPL laesst die IDE bei
@@ -822,8 +825,13 @@ begin
   EntferneDatei(BplPfad(AOrdner, 'dpcc.Common' + ASuffix + '.bpl'));
   EntferneDatei(BplPfad(AOrdner, 'dpcc.WinBase' + ASuffix + '.bpl'));
   EntferneDatei(BplPfad(AOrdner, 'dpcc.Text' + ASuffix + '.bpl'));
-  // Diagnoseprotokoll, das dpcc neben das Plugin schreibt (falls es an war).
+  // Diagnoseprotokoll, das dpcc neben das Plugin schreibt (falls es an war),
+  // samt der rotierten aelteren Dateien dpcc.IDE.Expert<suffix>.1.log bis
+  // .4.log (ab 1 MB, hoechstens 5 Dateien; RotatedLog/cMaxLogFiles in
+  // dpcc.IDE.CodeInsight.Manager.Paths). Ohne sie bliebe der Ordner stehen.
   EntferneDatei(BplPfad(AOrdner, 'dpcc.IDE.Expert' + ASuffix + '.log'));
+  for I := 1 to 4 do
+    EntferneDatei(BplPfad(AOrdner, 'dpcc.IDE.Expert' + ASuffix + '.' + IntToStr(I) + '.log'));
   RemoveDir(VersionsOrdner(AOrdner));   // wirkt nur, wenn leer - genau so gewollt
 end;
 

@@ -7,6 +7,9 @@
 // Thread); der Hauptthread gleicht vorher ab und wartet höchstens cMainThreadTimeoutMs (dpcc.Core.Lsp.LateAnswers).
 // Ohne Sprungziel liefert GotoTargetAt den Grund des Servers mit (dpcc/noTarget, im Lese-Thread abgelegt, kommt vor
 // der leeren Antwort); fehlt die Benachrichtigung (älterer Server), bleibt er Unknown.
+// Ablaufprotokoll (LOG1): Mit einer Kennung (GotoTargetAt mit AFlowId) schreibt jeder Schritt eine Zeile
+// (dpcc.Core.Diagnostics.Flow): Antwort auf declaration, Urteil von OnTarget samt Teilen (OnTargetWhy), ob definition
+// gefragt wurde und was sie lieferte. Das Ergebnis bleibt dasselbe; ausgeschaltet wird kein Text gebaut.
 
 interface
 
@@ -114,6 +117,11 @@ type
     /// bei mehreren Anfragen der aussagekräftigste; ohne Benachrichtigung Reason = Unknown.</summary>
     function GotoTargetAt(const AFileName, ALineText: string; ALine, ACharacter: Integer; ATimeoutMs: Cardinal;
       out ALocation: TLspLocation; out ANoTarget: TDpccNoTarget): Boolean; overload;
+    /// <summary>Wie oben; AFlowId &gt; 0: Jeder Schritt steht unter dieser Kennung im Ablaufprotokoll (LOG1,
+    /// TDpccFlow): Antwort auf declaration, Urteil von OnTarget mit seinen Teilen, ob definition gefragt wurde und was
+    /// sie lieferte. Das Ergebnis ist dasselbe wie ohne.</summary>
+    function GotoTargetAt(const AFileName, ALineText: string; ALine, ACharacter: Integer; ATimeoutMs: Cardinal;
+      out ALocation: TLspLocation; out ANoTarget: TDpccNoTarget; AFlowId: Integer): Boolean; overload;
     /// <summary>textDocument/definition ohne Abgleich (#505): alle Ziele; Sync vorher.</summary>
     function Definitions(const AFileName: string; ALine, ACharacter: Integer): TArray<TLspLocation>;
     /// <summary>textDocument/declaration ohne Abgleich (#505): alle Ziele; Sync vorher.</summary>
@@ -148,6 +156,7 @@ implementation
 uses
   System.Classes,
   dpcc.Text.Lines,
+  dpcc.Core.Diagnostics.Flow,
   dpcc.Core.Editor.Navigation;
 
 function RangeToJson(const ARange: TLspRange): TJSONObject;
@@ -666,21 +675,46 @@ end;
 
 function TLspSessionRequests.GotoTargetAt(const AFileName, ALineText: string; ALine, ACharacter: Integer;
   ATimeoutMs: Cardinal; out ALocation: TLspLocation; out ANoTarget: TDpccNoTarget): Boolean;
+begin
+  Result := GotoTargetAt(AFileName, ALineText, ALine, ACharacter, ATimeoutMs, ALocation, ANoTarget, 0);
+end;
+
+/// <summary>Ziel fürs Ablaufprotokoll: „Datei Zeile:Spalte“ (Datei ohne Ordner, beides 1-basiert).</summary>
+function FlowPlace(const ALocation: TLspLocation): string;
+begin
+  Result := TDpccFlow.PlaceText(ALocation.FileName, ALocation.Line + 1, ALocation.Character);
+end;
+
+/// <summary>Grund aus dpcc/noTarget fürs Ablaufprotokoll (Code, ohne Namen).</summary>
+function FlowNoTarget(const ANoTarget: TDpccNoTarget): string;
+begin
+  Result := 'Grund ' + TDpccNoTarget.CodeOf(ANoTarget.Reason);
+  if ANoTarget.Indexing then
+  begin
+    Result := Result + ', Index im Aufbau';
+  end;
+end;
+
+function TLspSessionRequests.GotoTargetAt(const AFileName, ALineText: string; ALine, ACharacter: Integer;
+  ATimeoutMs: Cardinal; out ALocation: TLspLocation; out ANoTarget: TDpccNoTarget; AFlowId: Integer): Boolean;
 var
   mStarted: UInt64;
   mTimeout: Cardinal;
-  mDeclared: Boolean;
+  mDeclared, mOffered, mFlow: Boolean;
   mImplementation: TLspLocation;
   mKey: string;
 begin
   Result := False;
   ALocation := Default(TLspLocation);
   ANoTarget := Default(TDpccNoTarget);
+  // Ablaufprotokoll (LOG1): ohne Kennung oder ausgeschaltet kein Text und kein Format.
+  mFlow := (AFlowId > 0) and TDpccFlow.Enabled;
   // Wie der Empfänger die URI der Benachrichtigung liest: über die URI zum Pfad.
   mKey := UriToPath(PathToUri(AFileName));
   mTimeout := TimeoutOr(ATimeoutMs);
   mStarted := TThread.GetTickCount64;
   mDeclared := Offers(cDeclarationMethod);
+  mOffered := mDeclared;
   if mDeclared then
   try
     Result := FirstLocation(FClient, cDeclarationMethod, PositionParams(AFileName, ALine, ACharacter),
@@ -689,34 +723,97 @@ begin
     // Ein Server ohne declaration (erst die Antwort zeigt es): wie ohne declarationProvider.
     on ELspMethodNotFound do
       mDeclared := False;
+    on E: Exception do
+    begin
+      // Nur festhalten, wo es endet; die Ausnahme geht wie bisher an den Aufrufer.
+      if mFlow then
+      begin
+        TDpccFlow.Step(AFlowId, TDpccFlowArea.Jump, Format('declaration: Abbruch (%s) nach %d ms', [E.ClassName,
+          Int64(TThread.GetTickCount64 - mStarted)]));
+      end;
+      raise;
+    end;
   end;
   if not mDeclared then
   begin
+    if mFlow then
+    begin
+      if mOffered then
+      begin
+        TDpccFlow.Step(AFlowId, TDpccFlowArea.Jump, 'declaration: -32601 (nicht unterstützt), frage definition');
+      end
+      else
+      begin
+        TDpccFlow.Step(AFlowId, TDpccFlowArea.Jump, 'declaration: vom Server nicht angeboten, frage definition');
+      end;
+    end;
     Result := FirstLocation(FClient, cDefinitionMethod, PositionParams(AFileName, ALine, ACharacter),
       RestOf(mTimeout, mStarted), ALocation);
     if not Result then
     begin
       MergeNoTarget(FNoTargets, cDefinitionMethod, mKey, ALine, ACharacter, ANoTarget);
     end;
+    if mFlow then
+    begin
+      if Result then
+      begin
+        TDpccFlow.Step(AFlowId, TDpccFlowArea.Jump, 'definition: ' + FlowPlace(ALocation));
+      end
+      else
+      begin
+        TDpccFlow.Step(AFlowId, TDpccFlowArea.Jump, 'definition: leer (' + FlowNoTarget(ANoTarget) + ')');
+      end;
+    end;
     Exit;
   end;
   if not Result then
   begin
     MergeNoTarget(FNoTargets, cDeclarationMethod, mKey, ALine, ACharacter, ANoTarget);
+    if mFlow then
+    begin
+      TDpccFlow.Step(AFlowId, TDpccFlowArea.Jump, 'declaration: leer (' + FlowNoTarget(ANoTarget) +
+        '), definition nicht gefragt');
+    end;
     Exit;
+  end;
+  if mFlow then
+  begin
+    TDpccFlow.Step(AFlowId, TDpccFlowArea.Jump, Format('declaration: %s nach %d ms', [FlowPlace(ALocation),
+      Int64(TThread.GetTickCount64 - mStarted)]));
   end;
   if not Offers(cDefinitionMethod) then
   begin
+    if mFlow then
+    begin
+      TDpccFlow.Step(AFlowId, TDpccFlowArea.Jump, 'definition: vom Server nicht angeboten, Ziel bleibt die ' +
+        'Deklaration');
+    end;
     Exit;
+  end;
+  if mFlow then
+  begin
+    // Das Urteil selbst fällt unten wie bisher über OnTarget; hier nur seine Teile.
+    TDpccFlow.Step(AFlowId, TDpccFlowArea.Jump, 'OnTarget ' + TDpccGotoDefinition.OnTargetWhy(AFileName, ALine,
+      ACharacter, ALineText, ALocation.FileName, ALocation.Line, ALocation.Character));
   end;
   if not TDpccGotoDefinition.OnTarget(AFileName, ALine, ACharacter, ALineText, ALocation.FileName, ALocation.Line,
     ALocation.Character) then
   begin
+    if mFlow then
+    begin
+      TDpccFlow.Step(AFlowId, TDpccFlowArea.Jump, 'definition nicht gefragt: Klickstelle liegt nicht auf dem Ziel, ' +
+        'Ziel bleibt die Deklaration');
+    end;
     Exit;
   end;
   // Auf der Deklaration selbst: zur Implementierung, mit dem Rest der Wartezeit. Ohne Rest bleibt es beim Ziel.
   if Cardinal(TThread.GetTickCount64 - mStarted) >= mTimeout then
   begin
+    if mFlow then
+    begin
+      TDpccFlow.Step(AFlowId, TDpccFlowArea.Jump, Format('definition nicht gefragt: Zeitlimit %d ms schon ' +
+        'erreicht, Ziel bleibt die Deklaration', [Int64(mTimeout)]));
+    end;
     Exit;
   end;
   try
@@ -724,16 +821,30 @@ begin
       RestOf(mTimeout, mStarted), mImplementation) then
     begin
       ALocation := mImplementation;
+      if mFlow then
+      begin
+        TDpccFlow.Step(AFlowId, TDpccFlowArea.Jump, 'definition: ' + FlowPlace(mImplementation));
+      end;
     end
     else
     begin
       // Die Deklaration bleibt das Ziel; den Grund zur leeren definition nur abholen, damit er nicht liegen bleibt.
       MergeNoTarget(FNoTargets, cDefinitionMethod, mKey, ALine, ACharacter, ANoTarget);
+      if mFlow then
+      begin
+        TDpccFlow.Step(AFlowId, TDpccFlowArea.Jump, 'definition: leer, Ziel bleibt die Deklaration');
+      end;
     end;
   except
     // Zeitlimit beim zweiten Schritt: Die Deklaration ist schon ein Ziel.
-    on ELspClientError do
-      ;
+    on E: ELspClientError do
+    begin
+      if mFlow then
+      begin
+        TDpccFlow.Step(AFlowId, TDpccFlowArea.Jump, Format('definition: Abbruch (%s), Ziel bleibt die Deklaration',
+          [E.ClassName]));
+      end;
+    end;
   end;
 end;
 

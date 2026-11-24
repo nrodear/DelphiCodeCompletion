@@ -37,6 +37,7 @@ implementation
 uses
   System.SysUtils,
   ToolsAPI,
+  dpcc.Text.Uris,
   dpcc.Core.Lsp.IdeMembers,
   dpcc.Core.Lsp.Session.Json,
   dpcc.IDE.Foundation.EditorBuffer;
@@ -121,11 +122,11 @@ begin
   end;
   mView := mEditor.EditViews[0];
   mCursor.Line := ALine + 1;
-  // Spalte des Editors: Tabs springen zur nächsten Tabulatorposition.
+  // Spalte des Editors: Tabs springen zur nächsten Tabulatorposition (auch unregelmäßige Stopps der Editoroptionen).
   if mView.Buffer <> nil then
   begin
     mCursor.Col := TLspSessionJson.IndexToColumn(TDpccEditorBuffer.LineText(mView, ALine + 1), ACharacter,
-      TDpccEditorBuffer.TabWidth(mView.Buffer));
+      TDpccEditorBuffer.TabStops(mView.Buffer));
   end
   else
   begin
@@ -200,7 +201,8 @@ begin
     Exit;
   end;
   mView := mEditors.TopView;
-  if (mView = nil) or (mView.Buffer = nil) or not SameText(mView.Buffer.FileName, AFileName) then
+  // AFileName kommt oft vom Server (vereinheitlichter Pfad, Laufwerk klein): Vergleich wie OnTarget.
+  if (mView = nil) or (mView.Buffer = nil) or not TTextUris.SamePath(mView.Buffer.FileName, AFileName) then
   begin
     Exit;
   end;

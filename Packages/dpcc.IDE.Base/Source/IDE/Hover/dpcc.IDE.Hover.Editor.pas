@@ -30,6 +30,9 @@
 // die Ergebnisse laufender Anfragen und gibt beendete Arbeiter frei. Die Arbeiter halten die Sitzung als rohen
 // Zeiger; gRunningWorkers zählt sie, und der Stopp-Thread der Sitzung wartet mit WaitWorkersIdle auf sie, bevor er
 // die Sitzung freigibt. Destroy wartet auf alle (Entladen).
+// Ablaufprotokoll (LOG1, TDpccFlow): Nach dem Verweilen beginnt ShowTimerTick eine Kette (Eintritt mit Datei,
+// Zeile:Spalte und Wort); Anfrage, Antwort des Servers, Verwerfen und ShowData (gezeigt oder Grund) schreiben unter
+// derselben Kennung. Mausbewegungen selbst schreiben nichts.
 
 interface
 
@@ -139,6 +142,9 @@ type
     /// Dann kein Tooltip bzw. schließen (S3c, TDpccCloseRules.OtherPopup).</summary>
     function OtherPopupOpen: Boolean;
     procedure Log(const AMessage: string);
+    /// <summary>Stelle und Wort des Tooltips fürs Ablaufprotokoll (LOG1); nur bei eingeschaltetem Protokoll rufen.
+    /// </summary>
+    function FlowPlaceText: string;
     function Handles(const AFileName: string): Boolean;
     function CurrentSession: TLspSession;
     function CurrentEditView: IOTAEditView;
@@ -190,6 +196,8 @@ uses
   dpcc.Core.Diagnostics.Guard,
   dpcc.Core.Diagnostics.MainThread,
   dpcc.Core.Diagnostics.Shutdown,
+  dpcc.Core.Diagnostics.Flow,
+  dpcc.Core.Lsp.LateAnswers,
   Winapi.Windows,
   System.Diagnostics,
   Vcl.Forms,
@@ -493,7 +501,7 @@ begin
   if Result then
   begin
     APos.Text := TDpccEditorBuffer.LineText(APos.View, APos.Line);
-    APos.Index := TLspSession.ColumnToIndex(APos.Text, APos.Column, TDpccEditorBuffer.TabWidth(APos.View.Buffer));
+    APos.Index := TLspSession.ColumnToIndex(APos.Text, APos.Column, TDpccEditorBuffer.TabStops(APos.View.Buffer));
   end;
 end;
 
@@ -570,6 +578,7 @@ end;
 procedure TDpccEditorHover.ShowTimerTick(Sender: TObject);
 var
   mSession: TLspSession;
+  mFlow: Integer;
 begin
   // Durch die Sicherung abgeschaltet (#493).
   if TDpccGuard.Disabled(TDpccFeature.Hover) then
@@ -582,9 +591,16 @@ begin
     begin
       Exit;
     end;
+    // Ablaufprotokoll (LOG1): nach dem Verweilen auf einem Wort beginnt die Kette des Tooltips von dpcc.
+    mFlow := TDpccFlow.Start(TDpccFlowArea.Hover);
+    if mFlow > 0 then
+    begin
+      TDpccFlow.Step(mFlow, TDpccFlowArea.Hover, 'Eintritt eigener Tooltip nach Verweilen: ' + FlowPlaceText);
+    end;
     // Liste der Vervollständigung oder Parameter-Hint offen: kein Tooltip darüber (S3c).
     if OtherPopupOpen then
     begin
+      TDpccFlow.Step(mFlow, TDpccFlowArea.Hover, 'Ende: Liste, Parameter-Hint oder Menü offen, kein Tooltip');
       Hide;
       Exit;
     end;
@@ -593,6 +609,7 @@ begin
     if mSession = nil then
     begin
       // Ohne Server nur der Wert im Debugger (ShowData schließt, wenn es keinen gibt).
+      TDpccFlow.Step(mFlow, TDpccFlowArea.Hover, 'keine Sitzung: nur der Wert im Debugger, falls angehalten');
       ShowData(Default(TDpccHoverData));
     end
     else
@@ -608,10 +625,27 @@ begin
   end;
 end;
 
+function TDpccEditorHover.FlowPlaceText: string;
+var
+  mLineText: string;
+  mStart, mEnd: Integer;
+begin
+  // Nur mit Ablaufprotokoll (LOG1): Datei, Zeile:Spalte und das Wort unter der Maus.
+  Result := '';
+  if (FView = nil) or (FView.Buffer = nil) then
+  begin
+    Exit;
+  end;
+  mLineText := TDpccEditorBuffer.LineText(FView, FLine);
+  TDpccLateGoto.WordRange(mLineText, FStart, mStart, mEnd);
+  Result := Format('%s, Wort %s', [TDpccFlow.PlaceText(FView.Buffer.FileName, FLine, FStart),
+    TDpccFlow.WordText(mLineText, mStart, mEnd)]);
+end;
+
 procedure TDpccEditorHover.RequestHover(ASession: TLspSession);
 var
   mText, mFileName, mKey: string;
-  mLine, mCharacter, mRequest: Integer;
+  mLine, mCharacter, mRequest, mFlow: Integer;
   mOwner: TDpccEditorHover;
   mAlive: TDpccHoverAlive;
   mAliveRef: IInterface;
@@ -630,6 +664,9 @@ begin
   mOwner := Self;
   mAlive := FAlive;
   mAliveRef := FAliveRef;
+  // Ablaufprotokoll (LOG1): Kennung der Kette, die ShowTimerTick begonnen hat.
+  mFlow := TDpccFlow.Current(TDpccFlowArea.Hover);
+  TDpccFlow.Step(mFlow, TDpccFlowArea.Hover, 'frage textDocument/hover im Hintergrund');
   mWorker := TThread.CreateAnonymousThread(
     procedure
     var
@@ -640,8 +677,23 @@ begin
         mData := Default(TDpccHoverData);
         try
           mData := ASession.HoverDataAt(mFileName, mLine, mCharacter, 0);
+          if not mData.Found then
+          begin
+            TDpccFlow.Step(mFlow, TDpccFlowArea.Hover, 'Antwort: kein Hover-Text an der Stelle');
+          end
+          else
+          begin
+            TDpccFlow.Step(mFlow, TDpccFlowArea.Hover, 'Antwort: Hover-Text da');
+          end;
         except
           // Server langsam oder weg: kein Tooltip, die IDE wartet nie darauf.
+          on E: Exception do
+          begin
+            TDpccFlow.Step(mFlow, TDpccFlowArea.Hover, 'Antwort: Abbruch (' + E.ClassName + '), kein Tooltip vom ' +
+              'Server');
+            mData := Default(TDpccHoverData);
+          end;
+        else
           mData := Default(TDpccHoverData);
         end;
         mShow :=
@@ -650,6 +702,8 @@ begin
             // Nur die jüngste Anfrage und nur, solange die Maus noch auf demselben Wort steht.
             if not mAlive.Alive or (mAliveRef = nil) or (mOwner.FRequest <> mRequest) or (mOwner.FKey <> mKey) then
             begin
+              TDpccFlow.Step(mFlow, TDpccFlowArea.Hover, 'Ende: verworfen (neuere Anfrage, Maus auf anderem Wort ' +
+                'oder Sitzung beendet)');
               Exit;
             end;
             TDpccGuard.Run(TDpccFeature.Hover,
@@ -678,17 +732,32 @@ begin
 end;
 
 procedure TDpccEditorHover.ShowData(const AData: TDpccHoverData);
+var
+  mFlow: Integer;
 begin
+  // Ablaufprotokoll (LOG1): Ende der Kette des jüngsten Tooltips.
+  mFlow := TDpccFlow.Current(TDpccFlowArea.Hover);
   if (FView = nil) or not Application.Active or not MouseOverEditor then
   begin
+    TDpccFlow.Step(mFlow, TDpccFlowArea.Hover, 'Ende: nicht gezeigt (Ansicht weg, IDE inaktiv oder Maus nicht ' +
+      'über dem Editor)');
     Exit;
   end;
   // Ohne Inhalt bzw. wenn inzwischen eine Liste oder ein Parameter-Hint aufgegangen ist (S3c): nichts zeigen.
   if (not AData.Found and not FDebugValue.Visible) or OtherPopupOpen then
   begin
+    if not AData.Found and not FDebugValue.Visible then
+    begin
+      TDpccFlow.Step(mFlow, TDpccFlowArea.Hover, 'Ende: leer (kein Hover-Text und kein Wert im Debugger)');
+    end
+    else
+    begin
+      TDpccFlow.Step(mFlow, TDpccFlowArea.Hover, 'Ende: Liste, Parameter-Hint oder Menü inzwischen offen');
+    end;
     Hide;
     Exit;
   end;
+  TDpccFlow.Step(mFlow, TDpccFlowArea.Hover, 'Ergebnis: Tooltip gezeigt');
   ShowTip(AData);
   TDpccKeyHook.Add(FKeys);
   FShownKey := FKey;

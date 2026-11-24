@@ -111,6 +111,7 @@ uses
   dpcc.Core.Style.Color,
   dpcc.Core.Style.Palette,
   dpcc.Core.Style.Look,
+  dpcc.Core.Editor.TabStops,
   dpcc.IDE.Foundation.EditorBuffer,
   dpcc.IDE.Foundation.EditorStyle,
   dpcc.UI.Completion.Strings,
@@ -284,7 +285,7 @@ var
 begin
   TDpccPlaceholderSession.Locate(AText, AOffset, mLine, mCharacter);
   Result.Line := mLine + 1;
-  Result.Col := TLspSession.IndexToColumn(LineOf(AText, mLine), mCharacter, TDpccEditorBuffer.TabWidth(FView.Buffer));
+  Result.Col := TLspSession.IndexToColumn(LineOf(AText, mLine), mCharacter, TDpccEditorBuffer.TabStops(FView.Buffer));
 end;
 
 function TDpccEditorPlaceholders.CursorOffset(const AText: string): Integer;
@@ -295,7 +296,7 @@ begin
   mCursor := FView.CursorPos;
   mLineText := TDpccEditorBuffer.LineText(FView, mCursor.Line);
   Result := TDpccEditorBuffer.CharOffset(AText, mCursor.Line - 1,
-    TLspSession.ColumnToIndex(mLineText, mCursor.Col, TDpccEditorBuffer.TabWidth(FView.Buffer)));
+    TLspSession.ColumnToIndex(mLineText, mCursor.Col, TDpccEditorBuffer.TabStops(FView.Buffer)));
 end;
 
 procedure TDpccEditorPlaceholders.MoveTo(AOffset: Integer);
@@ -550,8 +551,9 @@ begin
 end;
 
 /// <summary>ALine, wie der Editor sie zeigt: Tabs bis zur nächsten Tabstelle als Leerzeichen, ohne #13 (wie
-/// TDpccPairs.DisplayLine; seit Rückbau R6 hier, ohne die Klammerpaare).</summary>
-function DisplayLine(const ALine: string; ATabWidth: Integer): string;
+/// TDpccPairs.DisplayLine; seit Rückbau R6 hier, ohne die Klammerpaare). Tabstellen nach den Editoroptionen, auch
+/// unregelmäßig (TDpccTabStops).</summary>
+function DisplayLine(const ALine: string; const ATabStops: TDpccTabStops): string;
 var
   mBuilder: TStringBuilder;
   mCh: Char;
@@ -560,9 +562,10 @@ begin
   try
     for mCh in ALine do
     begin
-      if (mCh = #9) and (ATabWidth > 0) then
+      if mCh = #9 then
       begin
-        mBuilder.Append(' ', ATabWidth - mBuilder.Length mod ATabWidth);
+        // Das nächste Zeichen steht in Spalte Length + 1; bis zur nächsten Tabstelle auffüllen.
+        mBuilder.Append(' ', ATabStops.NextStop(mBuilder.Length + 1) - (mBuilder.Length + 1));
       end
       else if mCh <> #13 then
       begin
@@ -576,9 +579,9 @@ begin
 end;
 
 /// <summary>Editorspalte (1-basiert) zum Zeichenindex (0-basiert) in ALine; Tabs aufgelöst.</summary>
-function ColumnOf(const ALine: string; ACharacter, ATabWidth: Integer): Integer;
+function ColumnOf(const ALine: string; ACharacter: Integer; const ATabStops: TDpccTabStops): Integer;
 begin
-  Result := Length(DisplayLine(Copy(ALine, 1, Max(0, ACharacter)), ATabWidth)) + 1;
+  Result := Length(DisplayLine(Copy(ALine, 1, Max(0, ACharacter)), ATabStops)) + 1;
 end;
 
 /// <summary>Zeichnet PaintLine für AContext: Modus läuft, Ansicht mit Puffer, Datei des Modus.</summary>
@@ -603,7 +606,8 @@ type
     /// <summary>Zeile (0-basiert) und ihr Text im Modell.</summary>
     Line: Integer;
     Text: string;
-    TabWidth: Integer;
+    /// <summary>Tabulatorpositionen der Ansicht (TDpccEditorBuffer.TabStops).</summary>
+    TabStops: TDpccTabStops;
     /// <summary>Entspricht die Zeile im Editor dem Stand des Modells?</summary>
     function Matches: Boolean;
     /// <summary>Linker Rand des Zeichens ACharacter (0-basiert) der Zeile in Pixeln.</summary>
@@ -619,13 +623,13 @@ type
 
 function TPlaceholderPaint.Matches: Boolean;
 begin
-  Result := TrimRight(DisplayLine(Context.LineState.Text, TabWidth)) =
-    TrimRight(DisplayLine(Text, TabWidth));
+  Result := TrimRight(DisplayLine(Context.LineState.Text, TabStops)) =
+    TrimRight(DisplayLine(Text, TabStops));
 end;
 
 function TPlaceholderPaint.Pixel(ACharacter: Integer): Integer;
 begin
-  Result := Context.EditorState.GetCharacterPosPx(ColumnOf(Text, ACharacter, TabWidth), Context.EditorLineNum).Left;
+  Result := Context.EditorState.GetCharacterPosPx(ColumnOf(Text, ACharacter, TabStops), Context.EditorLineNum).Left;
 end;
 
 procedure TPlaceholderPaint.Frame(const AField, ACurrent: TDpccPlaceholderField);
@@ -699,7 +703,7 @@ begin
   end;
   mHint := Format(TDpccCompletionStrings.Text(TDpccCompletionTextId.PlaceholderFooter), [Session.Position,
     Session.Count]);
-  mLeft := Context.EditorState.GetCharacterPosPx(Length(DisplayLine(Text, TabWidth)) + 4,
+  mLeft := Context.EditorState.GetCharacterPosPx(Length(DisplayLine(Text, TabStops)) + 4,
     Context.EditorLineNum).Left;
   mOldFont := Context.Canvas.Font.Color;
   mOldBrushStyle := Context.Canvas.Brush.Style;
@@ -730,7 +734,7 @@ begin
     mPaint.Area := Rect;
     mPaint.Line := Context.LogicalLineNum - 1;
     mPaint.Text := LineOf(FSession.Text, mPaint.Line);
-    mPaint.TabWidth := TDpccEditorBuffer.TabWidth(Context.EditView.Buffer);
+    mPaint.TabStops := TDpccEditorBuffer.TabStops(Context.EditView.Buffer);
     if not mPaint.Matches then
     begin
       Exit;

@@ -11,11 +11,11 @@ Die Optionen stehen unter **Tools › Optionen › Drittanbieter › dpcc**. Das
 - Oben steht der Hauptschalter, darunter folgen die Abschnitte **Vervollständigung**, **Beim Übernehmen**,
   **Parameter-Hint und Tooltip**, **Index** und **IDE**.
 - Ist der Hauptschalter aus, sind alle Optionen darunter und der Knopf „Verlauf zurücksetzen“ grau. „Index neu
-  aufbauen“ und „Jetzt prüfen“ bleiben bedienbar.
+  aufbauen“, „Jetzt prüfen“ und „Ablauf protokollieren (Log)“ bleiben bedienbar.
 - „Werte beim Debuggen zeigen“ ist grau, solange „Eigener Tooltip beim Verweilen über Bezeichnern“ aus ist.
 
 Gespeichert wird mit **OK**. Ausnahmen: „Verlauf zurücksetzen“ und „Index neu aufbauen“ wirken sofort, „Jetzt
-prüfen“ liest nur.
+prüfen“ liest nur. „Ablauf protokollieren (Log)“ wirkt nach OK ohne Neustart.
 
 Einige frühere Optionen stehen nicht mehr auf der Seite und gelten fest (siehe
 [Fest eingestellte Werte](#fest-eingestellte-werte)).
@@ -82,6 +82,7 @@ bestimmt die IDE die Farben.
 | Option | Registry-Wert | Schlüssel | Vorgabe | Wirkung |
 |---|---|---|---|---|
 | Knopf „Jetzt prüfen“ | – | – | – | Rechts daneben stehen bis zu vier Zeilen: Betriebsart und Anbieter, ob ein Wechsel noch auf den Neustart von Delphi wartet, was dpcc an der IDE gesetzt hat und das Ergebnis der Prüfung (etwa „1 Abweichung: Auto Code Completions“). Beim Öffnen der Seite gelesen, der Knopf liest neu. Liest nur, ändert nichts; hängt nicht am Hauptschalter. Siehe [Was dpcc an der IDE umstellt](#was-dpcc-an-der-ide-umstellt). |
+| Ablauf protokollieren (Log) | `Diagnose` | – | aus | Schreibt für jede Aktion (Strg+Klick bzw. „Deklaration suchen“, Vervollständigung, Hover, Parameterhilfe) jeden Schritt vom Aufruf der IDE bis zum Ergebnis ins Diagnoseprotokoll neben der Plugin-BPL. Ohne Quelltext außer dem Wort an der Stelle. Derselbe DWORD wie das frühere `Diagnose` = 1 von Hand: Ein so gesetzter Wert erscheint angehakt. Wirkt nach OK sofort, ohne Neustart; das Meldungsfenster nennt dann die Datei, der Hint am Schalter ebenso. Hängt nicht am Hauptschalter. Siehe [Fehlersuche](troubleshooting.md#ablaufprotokoll). |
 
 ## Fest eingestellte Werte
 
@@ -136,12 +137,15 @@ Diese Optionen stehen nicht mehr auf der Seite. Sie gelten fest mit ihrer bisher
   frühere versteckte Modul-Schalter `debug.enabled` (Registry-Wert `DebugEnabled`) schaltet sie nicht mehr ab.
 - Den Einstellungsverlauf `%APPDATA%\dpcc\settings-history.json` schreibt dpcc nicht mehr. Eine vorhandene Datei
   bleibt liegen und kann gelöscht werden.
+- Neu im Abschnitt **IDE**: „Ablauf protokollieren (Log)“. Er schaltet dasselbe Diagnoseprotokoll wie der bisher nur
+  von Hand gesetzte Registry-Wert `Diagnose` = 1, jetzt ohne Neustart. OK schreibt `Diagnose` seitdem mit; wer den
+  Wert von Hand gesetzt hat, sieht das Häkchen gesetzt.
 
 ## Ablage
 
 | Ort | Inhalt |
 |---|---|
-| `HKCU\Software\dpcc\IdePlugin` | alle Optionen der Seite außer `index.extraSourceFolders`. Schalter und Zahlen als DWORD (Schalter 0/1), Auswahlen als Text (`CompletionListMode`: `filter`, `all`, `rest`; `PopupLook`: `intense`, `subtle`, `plain`). Dazu die Merker für die IDE-Schalter (unten) und `PathOverrideBackup` von `Tools\IdePath.ps1`. Nur gelesen, nie geschrieben: der Support-Schalter `LogNames` (siehe [Fehlersuche](troubleshooting.md)). Alte Werte der fest eingestellten und der entfernten Optionen bleiben liegen, wirken aber nicht; dpcc schreibt sie nicht mehr. |
+| `HKCU\Software\dpcc\IdePlugin` | alle Optionen der Seite außer `index.extraSourceFolders`. Schalter und Zahlen als DWORD (Schalter 0/1), Auswahlen als Text (`CompletionListMode`: `filter`, `all`, `rest`; `PopupLook`: `intense`, `subtle`, `plain`). Dazu die Merker für die IDE-Schalter (unten) und `PathOverrideBackup` von `Tools\IdePath.ps1`. Nur gelesen, nie geschrieben: der Support-Schalter `LogNames` (siehe [Fehlersuche](troubleshooting.md)). `Diagnose` („Ablauf protokollieren (Log)“) gehört seit dieser Fassung zu den Werten der Seite; OK schreibt ihn als 0 oder 1, ein von Hand gesetzter Wert gilt weiter. Alte Werte der fest eingestellten und der entfernten Optionen bleiben liegen, wirken aber nicht; dpcc schreibt sie nicht mehr. |
 | `%APPDATA%\dpcc\settings.json` | `index.extraSourceFolders` (von der Seite) und `hints.xmlDocMaxLines` (nur in der Datei einstellbar). Der Server im IDE-Prozess liest die Datei selbst und beobachtet sie. dpcc liest `hints.xmlDocMaxLines` nur und schreibt den Schlüssel nie; fehlt er in der Datei, gilt ein Registry-Wert `XmlDocMaxLines` einer älteren Version, sonst 0. Andere Schlüssel der Datei fasst dpcc nicht an. Ein alter Wert `hints.xmlDocExpand` bzw. `hints.xmlDocFull` bleibt ohne Wirkung. |
 | `%APPDATA%\dpcc\settings-history.json` | nur aus älteren Versionen: frühere Stände der Einstellungen. dpcc schreibt und liest die Datei nicht mehr; sie kann gelöscht werden. |
 | `%APPDATA%\dpcc\usage.json` | Verlauf der lernenden Gewichtung |

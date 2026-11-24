@@ -23,6 +23,13 @@ type
     /// <summary>Vereinheitlicht Trenner, "\\?\"-Präfix, "." und ".."; Windows-Pfade mit "\" und großem
     /// Laufwerksbuchstaben.</summary>
     class function NormalizePath(const APath: string): string; static;
+    /// <summary>Schlüssel zum Vergleich zweier Pfade derselben Datei: NormalizePath (Trenner, "\\?\", "." und
+    /// ".."), dann Groß-/Kleinschreibung vereinheitlicht, auch außerhalb von ASCII (Ä/ä). Reine Textfunktion ohne
+    /// Dateisystem: Kurznamen (8.3), Verknüpfungen und URI-Kodierung bleiben, wie sie sind. '' bleibt ''.</summary>
+    class function PathKey(const APath: string): string; static;
+    /// <summary>Gleicher PathKey: dieselbe Datei, wie Plugin und Server sie schreiben (c:\…\A.pas gegen
+    /// C:/…/a.pas oder C:\…\Unter\..\A.pas). Zwei leere Pfade gelten als gleich.</summary>
+    class function SamePath(const APath, AOtherPath: string): Boolean; static;
     /// <summary>Pfad → file-URI; Laufwerksbuchstabe klein, ":" kodiert (wie VS Code).</summary>
     class function FromPath(const APath: string): string; static;
     /// <summary>file-URI → Pfad; '' für andere Schemata. Windows-Pfade mit "\", POSIX-Pfade behalten "/".</summary>
@@ -230,6 +237,27 @@ begin
   end;
   mRoot := TakeRoot(mPath, mSeparator);
   Result := mRoot + string.Join(mSeparator, ResolveParts(mPath.Split([mSeparator]), mRoot <> ''));
+end;
+
+class function TTextUris.PathKey(const APath: string): string;
+begin
+  if APath = '' then
+  begin
+    Exit('');
+  end;
+  // AnsiUpperCase statt UpperCase: UpperCase kennt nur A bis Z, Windows vergleicht Dateinamen auch bei Umlauten ohne
+  // Groß-/Kleinschreibung.
+  Result := AnsiUpperCase(NormalizePath(APath));
+end;
+
+class function TTextUris.SamePath(const APath, AOtherPath: string): Boolean;
+begin
+  // Schneller Weg für die häufigste Form: genau derselbe Text.
+  if APath = AOtherPath then
+  begin
+    Exit(True);
+  end;
+  Result := PathKey(APath) = PathKey(AOtherPath);
 end;
 
 end.

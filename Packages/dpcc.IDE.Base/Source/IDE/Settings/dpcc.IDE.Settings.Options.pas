@@ -14,6 +14,9 @@
 // Übersicht, „Module“ und die Knoten je Package meldet dpcc nicht mehr an.
 // Seit S7a ohne ShowSetting („Einstellungen dazu …“, #628; es gab keinen Aufrufer mehr), ohne Abschnitte der Module
 // (#1455) und ohne „Leiste anpassen …“ der Editorleiste (#1101).
+// Seit LOG1 „Ablauf protokollieren (Log)“: FrameCreated liest den DWORD Diagnose frisch (von Hand gesetzt gilt) und
+// gibt der Seite die Protokolldatei für den Hint; die Wirkung nach OK schaltet dpcc.IDE.Completion.Register
+// (SettingsChanged) ohne Neustart.
 
 interface
 
@@ -49,7 +52,8 @@ uses
   dpcc.Core.Settings.Plugin,
   dpcc.UI.Settings.Page,
   dpcc.IDE.Foundation.InsightSwitch,
-  dpcc.IDE.Foundation.Settings;
+  dpcc.IDE.Foundation.Settings,
+  dpcc.IDE.CodeInsight.Manager.Paths;
 
 type
   TDpccAddInOptions = class(TInterfacedObject, INTAAddInOptions)
@@ -98,6 +102,10 @@ begin
   TDpccPageOptions.ConnectRebuild(FPage, Hooks.RestartIndex);
   // Abschnitt „IDE“ (IDECHECK): Betriebsart, Anbieter, was dpcc gesetzt hat; nur gelesen.
   TDpccPageOptions.ConnectIdeStatus(FPage);
+  // „Ablauf protokollieren (Log)“ (LOG1): Hint mit der Datei; ein seit dem Start von Hand gesetztes Diagnose = 1
+  // erscheint angehakt.
+  FPage.DiagnoseFile := TDpccCodeInsightPaths.DiagnoseLog;
+  TDpccIdeSettings.RefreshDiagnose;
   FPage.LoadFrom(TDpccIdeSettings.Current);
 end;
 

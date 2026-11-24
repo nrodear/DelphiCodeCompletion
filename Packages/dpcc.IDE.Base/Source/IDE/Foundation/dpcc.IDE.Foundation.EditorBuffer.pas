@@ -8,7 +8,8 @@ interface
 
 uses
   System.SysUtils,
-  ToolsAPI;
+  ToolsAPI,
+  dpcc.Core.Editor.TabStops;
 
 type
   TDpccEditorBuffer = class
@@ -17,7 +18,12 @@ type
     class function Text(const ABuffer: IOTAEditBuffer): string; static;
     /// <summary>Text der Zeile ALine (1-basiert) ohne Zeilenende; '' hinter dem Dateiende.</summary>
     class function LineText(const AView: IOTAEditView; ALine: Integer): string; static;
-    /// <summary>Erste Tabulatorweite der Editoroptionen, sonst 8.</summary>
+    /// <summary>Tabulatorpositionen der Editoroptionen (BufferOptions.TabStops: eine Zahl = Abstand, mehrere =
+    /// absolute Spalten, TDpccTabStops.Parse); leer oder ungültig Abstand 8. Für jede Umrechnung Editorspalte ↔
+    /// Zeichenindex.</summary>
+    class function TabStops(const ABuffer: IOTAEditBuffer): TDpccTabStops; static;
+    /// <summary>Abstand hinter der letzten Tabulatorposition (TabStops(ABuffer).Width), sonst 8. Nur wo eine
+    /// einzelne Weite verlangt ist; bei unregelmäßigen Stopps stimmt sie nicht für jede Spalte.</summary>
     class function TabWidth(const ABuffer: IOTAEditBuffer): Integer; static;
     /// <summary>Einrückung je Ebene aus den Editoroptionen (Blockeinrückung), sonst 2 (#399).</summary>
     class function BlockIndent(const ABuffer: IOTAEditBuffer): Integer; static;
@@ -140,23 +146,19 @@ begin
   Result := UTF8ToString(Copy(mChunk, 1, mStop - 1));
 end;
 
-class function TDpccEditorBuffer.TabWidth(const ABuffer: IOTAEditBuffer): Integer;
-var
-  mStops: string;
+class function TDpccEditorBuffer.TabStops(const ABuffer: IOTAEditBuffer): TDpccTabStops;
 begin
-  Result := 8;
-  if ABuffer.BufferOptions <> nil then
+  // Vorher galt die erste Zahl als Weite: "3 5" (Stopps in Spalte 3, 5, 7, …) wurde zu Weite 3.
+  Result := TDpccTabStops.Uniform(TDpccTabStops.cDefaultWidth);
+  if (ABuffer <> nil) and (ABuffer.BufferOptions <> nil) then
   begin
-    mStops := Trim(ABuffer.BufferOptions.TabStops);
-    if mStops <> '' then
-    begin
-      Result := StrToIntDef(mStops.Split([' '])[0], 8);
-    end;
-    if Result < 1 then
-    begin
-      Result := 8;
-    end;
+    Result := TDpccTabStops.Parse(ABuffer.BufferOptions.TabStops);
   end;
+end;
+
+class function TDpccEditorBuffer.TabWidth(const ABuffer: IOTAEditBuffer): Integer;
+begin
+  Result := TabStops(ABuffer).Width;
 end;
 
 class function TDpccEditorBuffer.BlockIndent(const ABuffer: IOTAEditBuffer): Integer;

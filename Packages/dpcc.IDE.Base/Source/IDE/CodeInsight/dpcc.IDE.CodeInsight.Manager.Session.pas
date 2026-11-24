@@ -905,7 +905,7 @@ begin
   end;
   FStopGate.Enter;
   FLifecycle.StopBegun;
-  mWork := StopWork(AServer, ASession, AReason, FSignals, FStopGate, FDiagnose);
+  mWork := StopWork(AServer, ASession, AReason, FSignals, FStopGate, Diagnosing);
   try
     FLifeThreads.Start(mWork);
   except
@@ -1050,7 +1050,7 @@ begin
     SetPhase(TDpccServerPhase.Stopped, '', True);
   end;
   try
-    FLifeThreads.Start(RebuildWork(mRun, FStopGate, FStartGate, AClear, ADone, mRestart, FDiagnose));
+    FLifeThreads.Start(RebuildWork(mRun, FStopGate, FStartGate, AClear, ADone, mRestart, Diagnosing));
     Result := True;
   except
     on E: Exception do
@@ -1192,7 +1192,7 @@ begin
     Exit;
   end;
   mJob.Generation := mGeneration;
-  mJob.Diagnose := FDiagnose;
+  mJob.Diagnose := Diagnosing;
   // Sprache der Oberfläche (#1458): Befunde, Code-Aktionen und Hover wie die Oberfläche.
   mJob.Locale := TDpccTextLanguage.Code;
   mJob.MasterOn := TDpccIdeSettings.Current.Enabled;
@@ -1652,7 +1652,7 @@ begin
       'RTTI unlesbar: %d%s', [mRun.Modules, mStats.Steps, TDpccTicks.Since(AStartedAt), mStats.TotalMs,
       mStats.LongestMs, mRun.Failed, mCache]);
     // Eindeutig machen, JSON und Senden im Hintergrund; FSession ist hier noch die Sitzung des Laufs.
-    if not TDpccTimeLimit.Post(SendIdeTypesWork(FSession, mRun.Types, mInfo, FDiagnose)) then
+    if not TDpccTimeLimit.Post(SendIdeTypesWork(FSession, mRun.Types, mInfo, Diagnosing)) then
     begin
       Diagnose('IDE-Typen: nicht gesendet, dpcc wird beendet');
     end;
@@ -1772,7 +1772,7 @@ begin
       '%d ms bis fertig, %d Packages (%s), RTTI unlesbar: %d', [mRun.UnitCount, Length(mDetails), mStats.TotalMs,
       mStats.Steps, mStats.LongestMs, TDpccTicks.Since(AStartedAt), mRun.Packages, mScope, mRun.Failed]);
     // JSON und Senden im Hintergrund; FSession ist hier noch die Sitzung des Laufs.
-    if not TDpccTimeLimit.Post(SendIdeMembersWork(FSession, mDetails, mInfo, FDiagnose)) then
+    if not TDpccTimeLimit.Post(SendIdeMembersWork(FSession, mDetails, mInfo, Diagnosing)) then
     begin
       Diagnose('IDE-Mitglieder: nicht gesendet, dpcc wird beendet');
     end;

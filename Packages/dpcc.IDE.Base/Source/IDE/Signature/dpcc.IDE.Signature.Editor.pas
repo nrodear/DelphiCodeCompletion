@@ -24,6 +24,8 @@
 //     am Cursor füllt, und TDpccIdeFormatMarks färbt Platzhalter und Argumente im Editor. Ändern sich Text oder
 //     Cursor, fragt der Zeitgeber nach kurzer Ruhe neu; UpdateFormat übernimmt nur die neue Zuordnung.
 //     Abschaltbar mit completion.formatPlaceholders.
+//   - Ablaufprotokoll (LOG1, TDpccFlow): Invoke und HelpArrived schreiben unter der Kennung des Einstiegs (Manager)
+//     jeden frühen Ausstieg mit Grund, die Anfrage und das Ergebnis (Zahl der Signaturen bzw. leer).
 
 interface
 
@@ -126,6 +128,7 @@ implementation
 uses
   dpcc.Core.Diagnostics.Guard,
   dpcc.Core.Diagnostics.MainThread,
+  dpcc.Core.Diagnostics.Flow,
   dpcc.Core.Lsp.Client,
   Vcl.Forms,
   DockForm,
@@ -188,7 +191,7 @@ begin
   mCursor := AView.CursorPos;
   Result.Line := mCursor.Line;
   Result.Character := TLspSession.ColumnToIndex(TDpccEditorBuffer.LineText(AView, mCursor.Line), mCursor.Col,
-    TDpccEditorBuffer.TabWidth(AView.Buffer));
+    TDpccEditorBuffer.TabStops(AView.Buffer));
   Result.Caret := TDpccEditorBuffer.CharOffset(Result.Text, mCursor.Line - 1, Result.Character);
 end;
 
@@ -403,28 +406,46 @@ var
   mSite: TDpccCallSite;
   mWindow: HWND;
   mAnchor: TRect;
+  mFlow: Integer;
 begin
   Result := False;
+  // Ablaufprotokoll (LOG1): unter der Kennung des Einstiegs (Manager).
+  mFlow := TDpccFlow.Current(TDpccFlowArea.Signature);
   // Parameter-Hint abgeschaltet (ARG-046): weder bei "(" und "," noch nach dem Übernehmen.
   if (AView = nil) or (AView.Buffer = nil) or not TDpccIdeSettings.Current.ParameterHints then
   begin
+    if (AView = nil) or (AView.Buffer = nil) then
+    begin
+      TDpccFlow.Step(mFlow, TDpccFlowArea.Signature, 'Ende: keine Editoransicht');
+    end
+    else
+    begin
+      TDpccFlow.Step(mFlow, TDpccFlowArea.Signature, 'Ende: „Parameter-Hint bei ( und ,“ ist aus');
+    end;
     Exit;
   end;
   mSpot := CursorSpot(AView);
   mSite := TDpccCallScanner.Scan(mSpot.Text, mSpot.Caret);
   if not mSite.Found then
   begin
+    TDpccFlow.Step(mFlow, TDpccFlowArea.Signature, 'Ende: Cursor steht in keinem Aufruf (keine offene Klammer)');
     Close;
     Exit;
   end;
   // Schon offen für denselben Aufruf (z. B. "," gleich nach "("): nur den Parameter nachziehen.
   if FController.Active and (mSite.OpenParen = FOpenParen) and (AView = FView) then
   begin
+    if TDpccFlow.Enabled then
+    begin
+      TDpccFlow.Step(mFlow, TDpccFlowArea.Signature, Format('Ergebnis: schon offen, aktiver Parameter jetzt %d',
+        [mSite.ActiveParameter]));
+    end;
     FController.UpdateParameter(mSite.ActiveParameter);
     Exit(True);
   end;
   if not CaretAnchor(mWindow, mAnchor) then
   begin
+    TDpccFlow.Step(mFlow, TDpccFlowArea.Signature, 'Ende: kein Caret gefunden');
     Exit;
   end;
   ApplyStyle(mAnchor);
@@ -454,6 +475,19 @@ begin
     begin
       HelpArrived(AHelp, mSpot.Text);
     end);
+  if TDpccFlow.Enabled then
+  begin
+    if FPending then
+    begin
+      TDpccFlow.Step(mFlow, TDpccFlowArea.Signature, Format('Anfrage textDocument/signatureHelp: %s Zeile %d, ' +
+        'Zeichen %d, Parameter %d', [ExtractFileExt(AView.Buffer.FileName), mSpot.Line, mSpot.Character,
+        mSite.ActiveParameter]));
+    end
+    else
+    begin
+      TDpccFlow.Step(mFlow, TDpccFlowArea.Signature, 'Ende: Anfrage nicht gestellt (keine Sitzung oder Quelle aus)');
+    end;
+  end;
   ActiveChanged;
   Result := FPending;
 end;
@@ -462,10 +496,14 @@ procedure TDpccEditorSignature.HelpArrived(const AHelp: TDpccSignatureHelp; cons
 var
   mCurrent: TDpccCallSite;
   mSpot: TCursorSpot;
+  mFlow: Integer;
 begin
   FPending := False;
+  // Ablaufprotokoll (LOG1): Ende der Kette des jüngsten Einstiegs.
+  mFlow := TDpccFlow.Current(TDpccFlowArea.Signature);
   if FView = nil then
   begin
+    TDpccFlow.Step(mFlow, TDpccFlowArea.Signature, 'Ende: Antwort verworfen, Hint inzwischen geschlossen');
     Exit;
   end;
   // Seit der Anfrage weitergetippt: Parameter lokal neu zählen.
@@ -473,6 +511,7 @@ begin
   mCurrent := TDpccCallScanner.Scan(mSpot.Text, mSpot.Caret);
   if not mCurrent.Found or (mCurrent.OpenParen <> FOpenParen) then
   begin
+    TDpccFlow.Step(mFlow, TDpccFlowArea.Signature, 'Ende: Antwort verworfen, Cursor hat den Aufruf verlassen');
     Close;
     Exit;
   end;
@@ -480,7 +519,19 @@ begin
   FHint.SetPath(mCurrent.Outer, mCurrent.Name);
   FController.Show(AHelp, mCurrent.ActiveParameter);
   ShowFormat(AHelp.Format, AText);
-  Log(Format('Parameter-Hint: %d Signaturen, Parameter %d', [Length(AHelp.Signatures), mCurrent.ActiveParameter]));
+  // Seit LOG1 als Zeile der Kette (vorher eine eigene Diagnosezeile mit denselben Zahlen).
+  if TDpccFlow.Enabled then
+  begin
+    if Length(AHelp.Signatures) = 0 then
+    begin
+      TDpccFlow.Step(mFlow, TDpccFlowArea.Signature, 'Ergebnis: leer, der Server kennt an der Stelle keine Signatur');
+    end
+    else
+    begin
+      TDpccFlow.Step(mFlow, TDpccFlowArea.Signature, Format('Ergebnis: %d Signaturen, Parameter %d',
+        [Length(AHelp.Signatures), mCurrent.ActiveParameter]));
+    end;
+  end;
   ActiveChanged;
 end;
 
@@ -500,7 +551,7 @@ procedure TDpccEditorSignature.ShowFormat(const AFormat: TDpccSignatureFormat; c
 begin
   if FHint.FormatPlaceholders and AFormat.Found and (FView <> nil) and (FView.Buffer <> nil) then
   begin
-    FMarks.Show(FView.Buffer.FileName, AText, TDpccEditorBuffer.TabWidth(FView.Buffer),
+    FMarks.Show(FView.Buffer.FileName, AText, TDpccEditorBuffer.TabStops(FView.Buffer),
       TDpccSignatureFormats.Marks(AFormat));
   end
   else

@@ -50,7 +50,6 @@ type
     FServer: IDpccLspServer;
     FSession: TLspSession;
     FLastError: string;
-    FDiagnose: Boolean;
     FPhase: TDpccServerPhaseState;
     /// <summary>DetachSession schließt gerade die Verbindung: Ein Ende des Servers jetzt ist kein Absturz.</summary>
     FStopping: Boolean;
@@ -81,6 +80,9 @@ type
     /// </summary>
     function LogActions: TArray<TDpccNotificationAction>;
     procedure ReportError(const AMessage: string);
+    /// <summary>Wird protokolliert (Diagnose = 1 bzw. „Ablauf protokollieren (Log)“)? Seit LOG1 der Stand zur Laufzeit
+    /// (TDpccFlow.Enabled), nicht mehr der beim Anlegen des Managers.</summary>
+    function Diagnosing: Boolean;
     procedure Diagnose(const AMessage: string);
     /// <summary>Server läuft und die Sitzung ist initialisiert, auch während DetachSession.</summary>
     function ReadySession: TLspSession;
@@ -98,7 +100,7 @@ type
     function ServerIndexing(out APercent: Integer): Boolean;
     /// <summary>Wie ServerIndexing für den Vorgang AToken (ein Projekt der Gruppe, #2142).</summary>
     function ServerIndexingOf(const AToken: string; out APercent: Integer): Boolean;
-    /// <summary>Zeile im Diagnoseprotokoll (nur mit Diagnose = 1).</summary>
+    /// <summary>Zeile im Diagnoseprotokoll (nur mit Diagnose = 1 bzw. „Ablauf protokollieren (Log)“).</summary>
     procedure Log(const AMessage: string);
     /// <summary>Zeile im Protokoll unabhängig von Diagnose, z. B. Hänger (#501).</summary>
     procedure Report(const AMessage: string);
@@ -130,6 +132,7 @@ uses
   dpcc.UI.CodeInsight.Strings,
   dpcc.Core.Notifications.Center,
   dpcc.Core.Notifications.Sources,
+  dpcc.Core.Diagnostics.Flow,
   dpcc.IDE.CodeInsight.Manager.Paths,
   ToolsAPI;
 
@@ -163,7 +166,6 @@ begin
   FAdapters := AAdapters;
   LiveManager := Self;
   FEnabled := True;
-  FDiagnose := TDpccCodeInsightPaths.DiagnoseEnabled;
   FPhase := Default(TDpccServerPhaseState);
   FPhase.Phase := TDpccServerPhase.NotStarted;
   FThreads := TDpccThreadList.Create;
@@ -242,10 +244,15 @@ begin
   end;
 end;
 
+function TDpccCodeInsightState.Diagnosing: Boolean;
+begin
+  Result := TDpccFlow.Enabled;
+end;
+
 procedure TDpccCodeInsightState.Diagnose(const AMessage: string);
 begin
-  // Diagnose darf die IDE nie stören.
-  if FDiagnose then
+  // Diagnose darf die IDE nie stören. Seit LOG1 gilt der Schalter sofort nach OK (TDpccFlow.Enabled).
+  if TDpccFlow.Enabled then
   begin
     TDpccCodeInsightPaths.Append(AMessage);
   end;

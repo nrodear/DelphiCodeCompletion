@@ -7,6 +7,11 @@
 // Schreiben (perf1): Append reiht die Zeile mit der Uhrzeit des Aufrufs beim Schreib-Thread ein
 // (TDpccLogWriter.Shared); Pfade entfernen und Anhängen laufen dort, mehrere Zeilen gesammelt. Läuft er nicht, schreibt
 // Append wie bisher selbst. Format und Datei bleiben gleich.
+// Seit LOG1 schaltet derselbe Wert auch das Häkchen „Ablauf protokollieren (Log)“ der Seite dpcc
+// (TDpccPluginSettings.Diagnose); wirksam ist zur Laufzeit TDpccFlow.Enabled (dpcc.Core.Diagnostics.Flow), das die
+// Wurzel beim Anmelden und nach OK setzt. DiagnoseEnabled liest die Registry selbst (Wächter beim Anmelden). Weil das
+// Ablaufprotokoll viele Zeilen schreibt, ist die Datei begrenzt wie dpcc.log: ab 1 MB rotiert sie
+// (dpcc.IDE.Expert<Version>.1.log … .4.log, höchstens 5 Dateien); scheitert das Rotieren, wird weiter angehängt.
 
 interface
 
@@ -37,6 +42,10 @@ uses
 
 const
   cRegistryKey = 'Software\dpcc\IdePlugin';
+  /// <summary>Ab dieser Größe rotiert das Diagnoseprotokoll (wie dpcc.log, TDpccRotatingLog).</summary>
+  cMaxLogBytes = 1024 * 1024;
+  /// <summary>Höchstens so viele Dateien samt der aktuellen.</summary>
+  cMaxLogFiles = 5;
 
 type
   /// <summary>Diagnoselog als Ziel des Schreib-Threads (perf1).</summary>
@@ -49,14 +58,58 @@ var
   // Ziel für Append; lebt bis zur Finalisierung (eingereihte Zeilen halten es selbst).
   DiagnoseTarget: IDpccLogTarget;
 
+/// <summary>Ältere Datei Nummer AIndex zu ALog: dpcc.IDE.Expert370.log → dpcc.IDE.Expert370.1.log.</summary>
+function RotatedLog(const ALog: string; AIndex: Integer): string;
+begin
+  Result := ChangeFileExt(ALog, Format('.%d.log', [AIndex]));
+end;
+
+/// <summary>Hat ALog cMaxLogBytes erreicht: ALog → .1 → … → .(cMaxLogFiles - 1), die älteste fällt weg. Ein Fehler
+/// (Datei in einer anderen IDE offen) bleibt still; dann wird weiter angehängt.</summary>
+procedure RotateIfFull(const ALog: string);
+var
+  mIndex: Integer;
+  mOlder, mNewer: string;
+begin
+  try
+    if not TFile.Exists(ALog) or (TFile.GetSize(ALog) < cMaxLogBytes) then
+    begin
+      Exit;
+    end;
+    for mIndex := cMaxLogFiles - 1 downto 1 do
+    begin
+      mOlder := RotatedLog(ALog, mIndex);
+      if mIndex = 1 then
+      begin
+        mNewer := ALog;
+      end
+      else
+      begin
+        mNewer := RotatedLog(ALog, mIndex - 1);
+      end;
+      if TFile.Exists(mOlder) then
+      begin
+        TFile.Delete(mOlder);
+      end;
+      if TFile.Exists(mNewer) then
+      begin
+        TFile.Move(mNewer, mOlder);
+      end;
+    end;
+  except
+    // Rotieren ist Beiwerk wie das Protokoll selbst.
+  end;
+end;
+
 /// <summary>ALines mit Uhrzeit des Aufrufs und ohne Pfade an einem Stück anhängen; ein gesperrtes Protokoll stört
-/// nie.</summary>
+/// nie. Vorher rotiert eine volle Datei (LOG1).</summary>
 procedure WriteDiagnose(const ALines: TArray<TDpccLogLine>);
 var
   mBuilder: TStringBuilder;
   mLine: TDpccLogLine;
 begin
   try
+    RotateIfFull(TDpccCodeInsightPaths.DiagnoseLog);
     mBuilder := TStringBuilder.Create;
     try
       for mLine in ALines do

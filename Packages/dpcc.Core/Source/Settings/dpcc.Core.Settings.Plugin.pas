@@ -4,10 +4,12 @@
 // einen Speicher. Die IDE-Schicht speichert in HKCU\Software\dpcc\IdePlugin, Tests im Arbeitsspeicher
 // (TDpccMemorySettingsStore). Breiten in logischen Pixeln (96 dpi, #412).
 // Seit OPT2 steht hier nur noch, was wirkt:
-// - Gespeichert (OK auf der Seite „dpcc“, gezogene Breite der Liste): der Hauptschalter und die dreizehn Optionen der
-//   Seite (cPageItems in dpcc.Core.Settings.CompletionView). index.extraSourceFolders liegt in
+// - Gespeichert (OK auf der Seite „dpcc“, gezogene Breite der Liste): der Hauptschalter und die (seit LOG1) vierzehn
+//   Optionen der Seite (cPageItems in dpcc.Core.Settings.CompletionView). index.extraSourceFolders liegt in
 //   %APPDATA%\dpcc\settings.json (TDpccRoutedSettingsStore, dpcc.Core.Settings.Scopes), alle übrigen in der Registry.
 //   Seit LOOK1 auch die Darstellung der Popups (PopupLook, Text 'intense' | 'subtle' | 'plain', dpcc.Core.Style.Look).
+//   Seit LOG1 der Schalter „Ablauf protokollieren (Log)“ als DWORD Diagnose: derselbe Registry-Wert, den der Support
+//   bisher von Hand setzte (Diagnose = 1); ein so gesetzter Wert gilt weiter und erscheint auf der Seite angehakt.
 // - Nur gelesen, nie geschrieben: hints.xmlDocMaxLines (settings.json; der Server liest dieselbe Datei) und der
 //   Support-Schalter LogNames (diagnostics.log.names, Registry-DWORD).
 // - Fest verdrahtet und deshalb kein Feld mehr: Verzögerung bis zum Öffnen, Favoriten, geerbte Member gruppieren,
@@ -84,6 +86,10 @@ type
     /// <summary>index.extraSourceFolders (L2): zusätzliche Quellordner, durch ";" getrennt; Vorgabe leer. Liegt in
     /// settings.json.</summary>
     IndexExtraSourceFolders: string;
+    /// <summary>Ablauf protokollieren (LOG1, nur Registry): DWORD Diagnose, Vorgabe aus. Derselbe Wert wie das
+    /// früher nur von Hand gesetzte Diagnose = 1 (jeder Wert ungleich 0 gilt als an); schreibt die Kette jeder Aktion
+    /// ins Diagnoseprotokoll (dpcc.Core.Diagnostics.Flow).</summary>
+    Diagnose: Boolean;
     /// <summary>hints.xmlDocMaxLines: Zeilen des XMLDoc-Texts im Tooltip, 0 = alle. Nur gelesen (settings.json).
     /// </summary>
     XmlDocMaxLines: Integer;
@@ -158,6 +164,7 @@ begin
   Result.DebugHoverValues := True;
   Result.PopupLook := cDpccLookLevelDefault;
   Result.IndexExtraSourceFolders := '';
+  Result.Diagnose := False;
   Result.XmlDocMaxLines := 0;
   Result.LogNames := False;
 end;
@@ -201,6 +208,8 @@ begin
   AIo.Text('PopupLook', mPopupLook); // editor.popupLook
   PopupLook := DpccLookLevelFromId(mPopupLook, cDpccLookLevelDefault);
   AIo.Text('IndexExtraSourceFolders', IndexExtraSourceFolders); // index.extraSourceFolders (settings.json)
+  // Zuletzt wie auf der Seite (Abschnitt IDE); derselbe DWORD wie das frühere Diagnose = 1 von Hand.
+  AIo.Flag('Diagnose', Diagnose); // nur Registry, kein Schlüssel in settings.json
 end;
 
 procedure TDpccPluginSettings.Load(const AStore: IDpccSettingsStore);

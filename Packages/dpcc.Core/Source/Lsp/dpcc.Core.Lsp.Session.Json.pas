@@ -14,7 +14,8 @@ uses
   dpcc.Core.Lsp.Progress,
   dpcc.Core.Lsp.Contract,
   dpcc.Core.Projects.Contract,
-  dpcc.Core.Lsp.WorkspaceEdits;
+  dpcc.Core.Lsp.WorkspaceEdits,
+  dpcc.Core.Editor.TabStops;
 
 type
   TLspLocation = record
@@ -149,10 +150,17 @@ type
     /// <summary>Text aus contents einer Hover-Antwort: String, MarkupContent oder MarkedString-Liste.</summary>
     class function HoverText(const AHover: TJSONValue): string; static;
     /// <summary>Zeichenindex (0-basiert) zur Editorspalte (1-basiert); Tabs springen zur nächsten
-    /// Tabulatorposition.</summary>
-    class function ColumnToIndex(const ALine: string; AColumn, ATabWidth: Integer): Integer; static;
+    /// Tabulatorposition bei gleichmäßigem Abstand ATabWidth (&lt; 1 = 8).</summary>
+    class function ColumnToIndex(const ALine: string; AColumn, ATabWidth: Integer): Integer; overload; static;
+    /// <summary>Wie oben mit den Tabulatorpositionen der Editoroptionen (auch unregelmäßig, "3 5", "4 10 20";
+    /// TDpccEditorBuffer.TabStops).</summary>
+    class function ColumnToIndex(const ALine: string; AColumn: Integer; const ATabStops: TDpccTabStops): Integer;
+      overload; static;
     /// <summary>Editorspalte (1-basiert) zum Zeichenindex (0-basiert); Umkehrung von ColumnToIndex.</summary>
-    class function IndexToColumn(const ALine: string; AIndex, ATabWidth: Integer): Integer; static;
+    class function IndexToColumn(const ALine: string; AIndex, ATabWidth: Integer): Integer; overload; static;
+    /// <summary>Wie oben mit den Tabulatorpositionen der Editoroptionen.</summary>
+    class function IndexToColumn(const ALine: string; AIndex: Integer; const ATabStops: TDpccTabStops): Integer;
+      overload; static;
     /// <summary>workspaceFolders-Einträge zu Projektdateien: uri der Datei, Name ohne Endung (#648).</summary>
     class function ProjectFolders(const AProjects: TArray<string>): TJSONArray; static;
     /// <summary>Hinzugekommene und weggefallene Projekte, Groß- und Kleinschreibung egal (#648).</summary>
@@ -246,24 +254,16 @@ begin
 end;
 
 class function TLspSessionJson.ColumnToIndex(const ALine: string; AColumn, ATabWidth: Integer): Integer;
-var
-  mVisual: Integer;
 begin
-  // Spalte 1 = erstes Zeichen. Tabs springen zur nächsten Tabulatorposition.
-  Result := 0;
-  mVisual := 1;
-  while (Result < Length(ALine)) and (mVisual < AColumn) do
-  begin
-    if ALine[Result + 1] = #9 then
-    begin
-      mVisual := ((mVisual - 1) div ATabWidth + 1) * ATabWidth + 1;
-    end
-    else
-    begin
-      Inc(mVisual);
-    end;
-    Inc(Result);
-  end;
+  // Spalte 1 = erstes Zeichen. Tabs springen zur nächsten Tabulatorposition (TDpccTabStops; Weite < 1 wie 8, vorher
+  // eine Division durch null).
+  Result := TDpccTabStops.Uniform(ATabWidth).ColumnToIndex(ALine, AColumn);
+end;
+
+class function TLspSessionJson.ColumnToIndex(const ALine: string; AColumn: Integer;
+  const ATabStops: TDpccTabStops): Integer;
+begin
+  Result := ATabStops.ColumnToIndex(ALine, AColumn);
 end;
 
 class function TLspSessionJson.ShowMessageParams(const AParams: TJSONValue; out AType: Integer;
@@ -424,22 +424,24 @@ begin
 end;
 
 class function TLspSessionJson.IndexToColumn(const ALine: string; AIndex, ATabWidth: Integer): Integer;
-var
-  mIndex: Integer;
 begin
   // Wie ColumnToIndex: Tabs springen zur nächsten Tabulatorposition, hinter dem Zeilenende je Zeichen eine Spalte.
-  Result := 1;
-  for mIndex := 1 to AIndex do
+  // Wie bisher: Ohne Weite (≤ 0) zählt ein Tab eine Spalte.
+  if ATabWidth < 1 then
   begin
-    if (mIndex <= Length(ALine)) and (ALine[mIndex] = #9) and (ATabWidth > 0) then
+    if AIndex < 0 then
     begin
-      Result := ((Result - 1) div ATabWidth + 1) * ATabWidth + 1;
-    end
-    else
-    begin
-      Inc(Result);
+      Exit(1);
     end;
+    Exit(AIndex + 1);
   end;
+  Result := TDpccTabStops.Uniform(ATabWidth).IndexToColumn(ALine, AIndex);
+end;
+
+class function TLspSessionJson.IndexToColumn(const ALine: string; AIndex: Integer;
+  const ATabStops: TDpccTabStops): Integer;
+begin
+  Result := ATabStops.IndexToColumn(ALine, AIndex);
 end;
 
 class function TLspSessionJson.SymbolsOfDocument(const AResponse: TJSONValue;

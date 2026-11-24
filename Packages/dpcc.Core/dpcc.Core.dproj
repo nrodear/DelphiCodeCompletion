@@ -167,6 +167,7 @@
         <DCCReference Include="Source\Product\dpcc.Core.Product.Version.pas"/>
         <DCCReference Include="Source\Diagnostics\dpcc.Core.Diagnostics.StartTimes.pas"/>
         <DCCReference Include="Source\Diagnostics\dpcc.Core.Diagnostics.Hangs.pas"/>
+        <DCCReference Include="Source\Diagnostics\dpcc.Core.Diagnostics.Flow.pas"/>
         <DCCReference Include="Source\Commands\dpcc.Core.Commands.Palette.pas"/>
         <DCCReference Include="Source\Editor\dpcc.Core.Editor.Pairs.pas"/>
         <DCCReference Include="Source\Editor\dpcc.Core.Editor.SnapshotPolicy.pas"/>
@@ -174,6 +175,7 @@
         <DCCReference Include="Source\Editor\dpcc.Core.Editor.Guides.pas"/>
         <DCCReference Include="Source\Editor\dpcc.Core.Editor.CodeInsightKeys.pas"/>
         <DCCReference Include="Source\Editor\dpcc.Core.Editor.Navigation.pas"/>
+        <DCCReference Include="Source\Editor\dpcc.Core.Editor.TabStops.pas"/>
         <DCCReference Include="Source\Editor\dpcc.Core.Editor.Prewarm.pas"/>
         <DCCReference Include="Source\Status\dpcc.Core.Status.Contract.pas"/>
         <DCCReference Include="Source\Files\dpcc.Core.Files.Format.pas"/>

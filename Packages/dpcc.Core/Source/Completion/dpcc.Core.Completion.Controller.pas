@@ -76,6 +76,9 @@
 // aus anderen Units #475, Typkonvertierung #490, Überladungen mit anderer Signatur) unterscheiden sich im
 // Schlüssel. Ersetzt Requery die Liste, beginnt der Abgleich neu. Entfernte Einträge meldet OnLog als eine Zeile,
 // Namen nur mit LogNames.
+//
+// Ablaufprotokoll (LOG1, dpcc.Core.Diagnostics.Flow): Completed schreibt das Ergebnis unter der zuletzt begonnenen
+// Kennung der Vervollständigung (Zahl der Einträge bzw. leer und ob die Liste still schließt); ausgeschaltet nichts.
 
 interface
 
@@ -361,6 +364,7 @@ uses
   dpcc.Core.Diagnostics.MainThread,
   dpcc.Core.Diagnostics.Guard,
   dpcc.Core.Diagnostics.Timing,
+  dpcc.Core.Diagnostics.Flow,
   System.Math,
   System.StrUtils,
   dpcc.Core.Completion.Matching,
@@ -1098,13 +1102,24 @@ begin
   // Automatisch nach "[" geöffnet, aber keine Menge (#448), oder beim Tippen geöffnet (L5): still schließen.
   if (Length(FItems) = 0) and ((FTrigger <> '') or FTyped) then
   begin
+    // Ablaufprotokoll (LOG1): Ende der Kette unter der Kennung des Einstiegs.
+    TDpccFlow.Step(TDpccFlow.Current(TDpccFlowArea.Completion), TDpccFlowArea.Completion, 'Ergebnis: leer, Liste ' +
+      'still geschlossen (nach Auslösezeichen bzw. beim Tippen); Gründe der Quellen in den Zeilen davor bzw. im ' +
+      'Diagnoselog des Servers');
     Close;
     Exit;
   end;
   // Nichts gefunden: leerer Zustand statt kommentarlos zu verschwinden (#423).
   if Length(FItems) = 0 then
   begin
+    TDpccFlow.Step(TDpccFlow.Current(TDpccFlowArea.Completion), TDpccFlowArea.Completion, 'Ergebnis: leer, die ' +
+      'Liste zeigt den leeren Zustand; Gründe der Quellen in den Zeilen davor bzw. im Diagnoselog des Servers');
     Refresh(False);
+  end
+  else if TDpccFlow.Enabled then
+  begin
+    TDpccFlow.Step(TDpccFlow.Current(TDpccFlowArea.Completion), TDpccFlowArea.Completion, Format('Ergebnis: %d ' +
+      'Einträge in der Liste', [Length(FItems)]));
   end;
   // Zweites Strg+Leertaste (L3): Erst jetzt steht fest, ob die Liste leer bleibt.
   if Assigned(FOnSettled) then

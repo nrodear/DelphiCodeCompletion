@@ -18,6 +18,9 @@
 //     Manager beim Einschalten Sitzung und Server bzw. schließt beim Ausschalten seine Fenster
 //     (TDpccMasterSwitch);
 //   - die Optionsseite „dpcc“ (seit S2 ohne die Unterseiten „Snippets“ und „Server“).
+//   - das Ablaufprotokoll (LOG1, TDpccFlow): Ziel ist das Diagnoseprotokoll des Managers; „Ablauf protokollieren
+//     (Log)“ bzw. Diagnose = 1 schaltet es beim Anmelden und nach OK ohne Neustart (ApplyFlow), mit einer Zeile im
+//     Meldungsfenster samt Datei. Beim Abbau aus und ohne Ziel.
 //   - Strg+Leertaste und Strg+Umschalt+Leertaste im Editor (Fix „Completion übernimmt wieder“): Delphi 13 ruft
 //     Code Insight nur beim Manager auf, der in den Optionen für Delphi gewählt ist (Vorgabe DelphiLSP,
 //     Borland.CodeInsight.LSP.Pascal), nie beim angemeldeten dpcc-Manager. Die zwei Tasten belegt dpcc deshalb
@@ -56,6 +59,7 @@ uses
   Vcl.Dialogs,
   ToolsAPI,
   dpcc.UI.Strings,
+  dpcc.UI.Settings.Strings,
   dpcc.Core.Localization.Language,
   dpcc.Core.Editor.Navigation,
   dpcc.Core.Diagnostics.Guard,
@@ -65,6 +69,7 @@ uses
   dpcc.Core.Diagnostics.ExitWatch,
   dpcc.Core.Diagnostics.Teardown,
   dpcc.Core.Diagnostics.LogWriter,
+  dpcc.Core.Diagnostics.Flow,
   dpcc.Core.Notifications.Contract,
   dpcc.Core.Notifications.Center,
   dpcc.Core.Notifications.Sources,
@@ -81,6 +86,7 @@ uses
   dpcc.IDE.Completion.Leftovers,
   dpcc.IDE.Forms.Designer,
   dpcc.IDE.CodeInsight.Manager,
+  dpcc.IDE.CodeInsight.Manager.Paths,
   dpcc.IDE.Foundation.Watchdog;
 
 const
@@ -105,6 +111,8 @@ var
   MasterSwitch: TDpccMasterSwitch;
   // Tastenbelegung Strg+Leertaste/Strg+Umschalt+Leertaste (IOTAKeyboardServices); -1 ohne.
   KeysIndex: Integer = -1;
+  // Zuletzt angewandter Stand von „Ablauf protokollieren (Log)“ (LOG1, ApplyFlow).
+  FlowOn: Boolean;
 
 { Meldungen }
 
@@ -615,10 +623,65 @@ begin
     end);
 end;
 
+/// <summary>„Ablauf protokollieren (Log)“ (LOG1, DWORD Diagnose) anwenden, ohne Neustart: TDpccFlow ein- bzw.
+/// ausschalten (wirkt auf jede folgende Zeile, auch auf die bisherigen Diagnosezeilen des Managers). Beim Umschalten
+/// und beim Anmelden, wenn an: eine Zeile in dpcc.log und im Diagnoseprotokoll und im Meldungsfenster eine Zeile mit
+/// der Datei bzw. „aus“. AStart: beim Anmelden.</summary>
+procedure ApplyFlow(AStart: Boolean);
+const
+  cStates: array[Boolean] of string = ('aus', 'an');
+var
+  mOn: Boolean;
+  mWhen: string;
+begin
+  mOn := TDpccIdeSettings.Current.Diagnose;
+  TDpccFlow.Enabled := mOn;
+  if (mOn = FlowOn) and not (AStart and mOn) then
+  begin
+    Exit;
+  end;
+  FlowOn := mOn;
+  if AStart then
+  begin
+    mWhen := 'beim Anmelden';
+  end
+  else
+  begin
+    mWhen := 'nach OK, ohne Neustart';
+  end;
+  TDpccGuard.Log('Ablauf protokollieren: ' + cStates[mOn] + ' (' + mWhen + ')');
+  TDpccCodeInsightPaths.Append('Ablauf protokollieren: ' + cStates[mOn] + ' (' + mWhen + ')');
+  // Nach dem laufenden Ereignis (Optionsdialog, Anmelden; dann ist auch die Sprache gesetzt); beim Entladen verwirft
+  // TDpccMainThread.Stop den Eintrag.
+  TDpccMainThread.ForceQueue(TDpccFeature.Settings,
+    procedure
+    begin
+      if mOn then
+      begin
+        MessageLine(TDpccSettingsStrings.Fmt(TDpccSettingsTextId.SettingsDiagnoseOn,
+          [TDpccCodeInsightPaths.DiagnoseLog]));
+      end
+      else
+      begin
+        MessageLine(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsDiagnoseOff));
+      end;
+    end);
+end;
+
+/// <summary>Beim Abbau: Ablaufprotokoll aus und Ziel lösen; die Methode des Ziels liegt in dieser BPL.</summary>
+procedure StopFlow;
+begin
+  TDpccFlow.Enabled := False;
+  TDpccFlow.SetSink(nil);
+  FlowOn := False;
+end;
+
 procedure SettingsChanged;
 begin
   // Klarnamen in dpcc.log nur ausdrücklich (#1478, diagnostics.log.names).
   TDpccGuard.SetLogNames(TDpccIdeSettings.Current.LogNames);
+  // Ablauf protokollieren (LOG1): sofort, ohne Neustart.
+  ApplyFlow(False);
   // Die Schalter der IDE gleicht seit IDECHECK nur noch TDpccIdeInsightSwitch ab (Start, OK, Wahl im Dialog).
   case MasterSwitch.Update(TDpccIdeSettings.Current.Enabled) of
     TDpccMasterSwitchChange.TurnedOn:
@@ -678,6 +741,14 @@ begin
   // Zeitlimit der Datenquellen seit S3 fest (Seite „Robustheit“ weg).
   TDpccTimeLimit.LimitMs := TDpccTimeLimit.cDefaultMs;
   TDpccGuard.SetLogNames(TDpccIdeSettings.Current.LogNames);
+  // Ablaufprotokoll (LOG1): Zeilen wie jede Diagnosezeile über den Schreib-Thread; an, wenn Diagnose gesetzt ist.
+  TDpccFlow.SetSink(
+    procedure(const ALine: string)
+    begin
+      TDpccCodeInsightPaths.Append(ALine);
+    end);
+  FlowOn := False;
+  ApplyFlow(True);
   TDpccGuard.OnWarning := GuardWarning;
   TDpccGuard.RotatingLog.OnError := LogError;
   InstallLanguage;
@@ -767,6 +838,8 @@ begin
         mStopped := TDpccTimeLimit.StopAll(TDpccShutdown.cStopMs);
       end);
     mTeardown.Step('Leftovers', FreeLeftovers);
+    // Nach Manager und Threads: Keiner schreibt mehr Ablaufzeilen (LOG1).
+    mTeardown.Step('Flow', StopFlow);
   finally
     TDpccGuard.Log(Format('dpcc entladen in %d ms; Hintergrund-Threads beendet: %s; Fehler beim Abbau: %s',
       [TThread.GetTickCount64 - mStartedAt, BoolToStr(mStopped, True), mTeardown.Summary]));

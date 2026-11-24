@@ -104,6 +104,7 @@
         <DCCReference Include="..\Packages\dpcc.Core\Source\Lsp\dpcc.Core.Lsp.WorkspaceEdits.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Lsp\dpcc.Core.Lsp.Adapters.InProcess.pas"/>
         <DCCReference Include="IDE\dpcc.Core.Lsp.Adapters.InProcess.Tests.pas"/>
+        <DCCReference Include="IDE\dpcc.Core.Lsp.GotoBothWays.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Completion\dpcc.Core.Completion.Contract.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Completion\Internals\dpcc.Core.Completion.Internals.Async.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Completion\dpcc.Core.Completion.Composite.pas"/>
@@ -144,6 +145,8 @@
         <DCCReference Include="IDE\dpcc.Core.Editor.CloseRules.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Editor\dpcc.Core.Editor.Navigation.pas"/>
         <DCCReference Include="IDE\dpcc.Core.Editor.Navigation.Tests.pas"/>
+        <DCCReference Include="..\Packages\dpcc.Core\Source\Editor\dpcc.Core.Editor.TabStops.pas"/>
+        <DCCReference Include="IDE\dpcc.Core.Editor.TabStops.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Editor\dpcc.Core.Editor.Prewarm.pas"/>
         <DCCReference Include="IDE\dpcc.Core.Editor.Prewarm.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Documentation\dpcc.Core.Documentation.Contract.pas"/>
@@ -252,6 +255,8 @@
         <DCCReference Include="..\Packages\dpcc.Core\Source\Diagnostics\dpcc.Core.Diagnostics.StartTimes.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Diagnostics\dpcc.Core.Diagnostics.Hangs.pas"/>
         <DCCReference Include="IDE\dpcc.Core.Diagnostics.Hangs.Tests.pas"/>
+        <DCCReference Include="..\Packages\dpcc.Core\Source\Diagnostics\dpcc.Core.Diagnostics.Flow.pas"/>
+        <DCCReference Include="IDE\dpcc.Core.Diagnostics.Flow.Tests.pas"/>
         <DCCReference Include="Application\Shell\Shell.Composition.Completion.Tests.pas"/>
         <DCCReference Include="Application\Shell\Shell.Composition.InProcess.Tests.pas"/>
         <DCCReference Include="Application\Shell\Shell.Composition.CompletionCapabilities.Tests.pas"/>

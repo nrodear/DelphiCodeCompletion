@@ -5,7 +5,8 @@
 // `dpcc.UI.Strings` ändert, die fast der ganze Kern verwendet; dort bleiben gemeinsame Texte.
 // Seit OPT1 nur noch die Texte der einen Seite „dpcc“: Hauptschalter, vier Abschnitte, dreizehn Optionen (seit LOOK1
 // mit „Darstellung der Popups“), zwei Knöpfe
-// und die Meldungen von „Index neu aufbauen“; seit IDECHECK der Abschnitt „IDE“ mit „Jetzt prüfen“. Texte der Reiter, des Baums, der Suche, des Filters, der
+// und die Meldungen von „Index neu aufbauen“; seit IDECHECK der Abschnitt „IDE“ mit „Jetzt prüfen“, seit LOG1 dort
+// „Ablauf protokollieren (Log)“ samt Hint und den Zeilen im Meldungsfenster. Texte der Reiter, des Baums, der Suche, des Filters, der
 // Geändert-Markierung, der experimentellen Funktionen, der Favoritenliste und der fest verdrahteten Optionen sind
 // entfallen.
 
@@ -31,7 +32,10 @@ type
     // IDE: Betriebsart und Schalter der IDE (IDECHECK).
     SettingsSectionIde, SettingsCheckIde,
     // „Index neu aufbauen“ läuft im Hintergrund (Knopf grau); von der Sitzung abgelehnt (Knopf frei).
-    SettingsIndexRebuildRunning, SettingsIndexRebuildRejected);
+    SettingsIndexRebuildRunning, SettingsIndexRebuildRejected,
+    // Abschnitt IDE: „Ablauf protokollieren (Log)“ (LOG1), Hint am Schalter mit der Datei, Zeilen im Meldungsfenster
+    // beim Ein- und Ausschalten.
+    SettingsDiagnose, SettingsDiagnoseHint, SettingsDiagnoseFile, SettingsDiagnoseOn, SettingsDiagnoseOff);
 
   TDpccSettingsStrings = class
   public
@@ -81,7 +85,14 @@ const
      'IDE',
      'Jetzt prüfen',
      'Index wird neu aufgebaut: Sitzung wird angehalten, Caches werden gelöscht …',
-     'Index neu aufbauen ist gerade nicht möglich (läuft noch oder dpcc wird beendet).'),
+     'Index neu aufbauen ist gerade nicht möglich (läuft noch oder dpcc wird beendet).',
+     'Ablauf protokollieren (Log)',
+     'Schreibt jeden Schritt von Strg+Klick, Vervollständigung, Hover und Parameterhilfe ins Diagnoseprotokoll ' +
+     'neben dem Plugin, ohne Quelltext außer dem Wort an der Stelle. Wirkt nach OK ohne Neustart.',
+     'Protokolldatei: %s',
+     'dpcc: Der Ablauf wird protokolliert in %s. Ausschalten: Tools › Optionen › Drittanbieter › dpcc, „Ablauf ' +
+     'protokollieren (Log)“.',
+     'dpcc: Ablaufprotokoll aus.'),
     ('Code Insight by dpcc (switches the IDE''s Code Insight provider to dpcc; off = DelphiLSP)',
      'Completion',
      'When accepting',
@@ -115,7 +126,14 @@ const
      'IDE',
      'Check now',
      'Rebuilding index: stopping the session, deleting caches …',
-     'Cannot rebuild the index right now (still running or dpcc is shutting down).'));
+     'Cannot rebuild the index right now (still running or dpcc is shutting down).',
+     'Log the flow (log file)',
+     'Writes every step of Ctrl+click, completion, hover and parameter hints to the diagnostic log next to the ' +
+     'plugin, without source code except the word at the position. Takes effect after OK without a restart.',
+     'Log file: %s',
+     'dpcc: The flow is logged to %s. To turn it off: Tools › Options › Third Party › dpcc, “Log the flow (log ' +
+     'file)”.',
+     'dpcc: Flow log off.'));
 
 { TDpccSettingsStrings }
 

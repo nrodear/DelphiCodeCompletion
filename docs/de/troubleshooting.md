@@ -106,6 +106,7 @@ ist. Nur wenn dort dpcc gewählt ist, springt dpcc (siehe
 | dpcc findet die Unit nicht oder kann den Namen nicht eindeutig auflösen (mehrdeutige Überladung, `with` mit unbekanntem Typ). Meldung „Unit X nicht gefunden“ bzw. „„Name“ nicht aufgelöst“. | Erwartet. Suchpfade prüfen; siehe [Die Liste ist leer oder unvollständig](#die-liste-ist-leer-oder-unvollständig). |
 | Der Index wird noch aufgebaut (Zusatz „Der Index wird noch aufgebaut.“), dpcc startet noch oder die Antwort dauerte länger als 10 Sekunden („keine Antwort binnen 10 s“). Nach 250 ms springt dpcc selbst, aber nur bis dahin und nur, solange der Cursor im selben Bezeichner bleibt. | Warten und noch einmal versuchen. |
 | Keine Meldung im Meldungsfenster. | `dpcc.log` nennt jeden Sprung ohne Ziel in einer Zeile `Gehe zu Definition: <Ausgang> nach <n> ms, <Datei> <Zeile>:<Spalte> (Maus\|Cursor)`, auch verworfene späte Antworten („Cursor bewegt“, „andere Datei aktiv“, „neuerer Sprungwunsch“, „zu spät“). |
+| Strg+Klick auf eine Verwendung springt zur Deklaration, Strg+Klick auf die Deklaration aber nicht zur Implementierung. | „Ablauf protokollieren (Log)“ einschalten, den Sprung wiederholen und die Kette schicken (siehe [Ablaufprotokoll](#ablaufprotokoll)): Sie zeigt das Urteil von `OnTarget` und ob `definition` gefragt wurde. |
 | Ein Parameter-Hint von dpcc mit mehreren Überladungen ist offen. | Seit dieser Fassung wechselt dort Strg+Alt+↑/↓ die Überladung; Alt+↑ geht an die IDE. |
 | Der Tooltip von dpcc verdeckt das Wort. | Strg gedrückt halten: Maus und Klick gehen dann durch den Tooltip an den Editor. |
 
@@ -183,15 +184,63 @@ dem Weitergeben prüfen.
 
 Mehrere IDE-Instanzen teilen sich den Ordner; eine Sperre verhindert, dass sie sich gegenseitig stören.
 
-### Diagnoseprotokoll
+### Ablaufprotokoll
 
-Für genaue Fehlersuche protokolliert dpcc die Aufrufe der IDE an seinen Code-Insight-Manager:
+Für genaue Fehlersuche schreibt dpcc den Ablauf jeder Aktion in ein eigenes Protokoll (früher „Diagnoseprotokoll“):
+für Strg+Klick bzw. „Deklaration suchen“, Vervollständigung, Hover und Parameterhilfe je Schritt eine Zeile, vom
+Aufruf der IDE bis zum Ergebnis. Alle Zeilen einer Aktion tragen dieselbe Kennung (`#12 Sprung: …`,
+`#13 Vervollständigung: …`); die letzte Zeile einer Kette sagt, wo und warum sie endet. Dazu stehen dort wie bisher
+die übrigen Aufrufe der IDE an den Code-Insight-Manager.
 
-1. Unter `HKCU\Software\dpcc\IdePlugin` den DWORD-Wert `Diagnose` = 1 anlegen.
-2. Die IDE neu starten.
-3. Das Protokoll liegt neben der Plugin-BPL: `Output\Win32\Debug\Bpl\dpcc.IDE.Expert370.log`.
+Einschalten:
 
-Pfade und der Benutzername sind darin ersetzt. Zum Abschalten den Wert löschen oder auf 0 setzen.
+1. **Tools › Optionen › Drittanbieter › dpcc**, Abschnitt **IDE**: „Ablauf protokollieren (Log)“ anhaken und mit OK
+   bestätigen. Das wirkt sofort, ohne Neustart. Das Meldungsfenster (Gruppe dpcc) nennt die Datei („dpcc: Der Ablauf
+   wird protokolliert in …“), der Hint am Schalter ebenso.
+2. Oder wie bisher von Hand: unter `HKCU\Software\dpcc\IdePlugin` den DWORD-Wert `Diagnose` = 1 anlegen und die IDE
+   neu starten. Es ist derselbe Wert; die Seite zeigt ihn angehakt.
+
+| | |
+|---|---|
+| Ort | neben der Plugin-BPL: `dpcc.IDE.Expert290.log` (Delphi 12) bzw. `dpcc.IDE.Expert370.log` (Delphi 13), etwa `Output\Win32\Debug\Bpl\dpcc.IDE.Expert370.log` |
+| Ältere Dateien | `dpcc.IDE.Expert370.1.log` bis `….4.log`; höchstens 5 Dateien zu je 1 MB |
+| Inhalt | je Schritt eine Zeile mit Uhrzeit: Einstieg der IDE, jeder frühe Ausstieg mit Grund, Antworten des Servers, Ergebnis an die IDE. Dateien nur mit Namen, Stellen als Zeile:Spalte |
+| Nie enthalten | Ordner und Benutzername (ersetzt), Quelltext außer dem einen Wort an der Stelle |
+
+Beispiel: Strg+Klick auf den Namen einer Methode in der Klasse (Zeile 12), Sprung zur Implementierung (Zeile 40):
+
+```
+10:15:02.114 #7 Sprung: Eintritt IOTACodeInsightManager.GotoDefinition(Index -1), Datei Haupt.pas
+10:15:02.115 #7 Sprung: Stelle der IDE keine (nur Index), Strg True, Cursor 12:15 (Editorspalte 15), Maus über Bezeichner 12:16, gefragt 12:16 (Maus)
+10:15:02.115 #7 Sprung: Stelle Haupt.pas 12:16 (Maus), Wort „Rechne“
+10:15:02.118 #7 Sprung: declaration: Haupt.pas 12:15 nach 3 ms
+10:15:02.118 #7 Sprung: OnTarget ja (Datei gleich; Zeile ja, 12 | 12; Stelle im Wort ja, Spalte 16, Ziel ab 15)
+10:15:02.121 #7 Sprung: definition: Haupt.pas 40:20
+10:15:02.121 #7 Sprung: Antwort der Sitzung nach 6 ms: Haupt.pas 40:20
+10:15:02.121 #7 Sprung: Ergebnis an die IDE: True, Haupt.pas Zeile 40; gleich der Ausgangsstelle: nein
+```
+
+Springt die Deklaration nicht, zeigt die Kette den Schritt, an dem es hängt: `OnTarget nein (Datei verschieden …)`
+mit „definition nicht gefragt“ (die IDE und der Server schreiben die Datei verschieden), `definition: leer` oder eine
+`definition`, die wieder auf die Deklaration zeigt, und zuletzt `gleich der Ausgangsstelle: ja (die IDE bleibt in
+derselben Zeile)`. Ob der Server ein Paar aus Deklaration und Implementierung gefunden hat, steht im
+[Diagnoselog des Servers](#diagnoselog-des-servers) in der Zeile `declaration` bzw. `definition` derselben Uhrzeit:
+`pair=found pairChosen=implementation` oder `pair=none:<Grund>` mit `pairSame` (Fundstellen der Routine) und
+`pairVariant` (davon mit passenden Parametertypen). Gründe: `noUnit` (Unit des Ziels nicht im Index), `noSymbol`
+(Routine dort nicht gefunden), `single` (nur eine Fundstelle, keine zweite Hälfte), `params` (mehrere Fundstellen,
+aber die Parametertypen passen nicht zusammen).
+
+Was mitschicken:
+
+1. „Ablauf protokollieren (Log)“ einschalten (OK).
+2. Die Aktion einmal ausführen, etwa Strg+Klick auf die Deklaration.
+3. Die Zeilen dieser Kennung aus dem Ablaufprotokoll schicken, dazu `dpcc.log` und das Diagnoselog des Servers vom
+   selben Tag. Vor dem Weitergeben ansehen: Dateinamen und das Wort an der Stelle stehen im Klartext.
+4. Den Schalter wieder ausschalten.
+
+Abschalten: Häkchen entfernen und OK (wirkt sofort) bzw. den Registry-Wert löschen oder auf 0 setzen. Die Messung der
+langsamsten Aufrufe beim Entladen und die Hänger ohne dpcc-Aktion (siehe unten) folgen dem Schalter erst nach dem
+nächsten Start der IDE.
 
 ### Hänger und langsame Aktionen
 
@@ -211,9 +260,9 @@ höchstens 5 Hänger pro Minute einzeln (`… nicht einzeln protokolliert, zusam
 dpcc-Aktion (etwa beim Compilieren), schreibt dpcc nichts. Modale Dialoge zählen nicht als Hänger, ebenso Zeit, in der
 die IDE im Debugger angehalten war.
 
-Mit `Diagnose` = 1 (siehe oben) stehen zusätzlich Hänger ohne dpcc-Aktion als `… ohne dpcc-Aktivität` im
-Diagnoseprotokoll, und beim Entladen folgen dort die 10 langsamsten Aufrufe, Server-Anfragen und Abfragen der
-Vervollständigung.
+Mit `Diagnose` = 1 bzw. „Ablauf protokollieren (Log)“ beim Start der IDE (siehe oben) stehen zusätzlich Hänger ohne
+dpcc-Aktion als `… ohne dpcc-Aktivität` im Ablaufprotokoll, und beim Entladen folgen dort die 10 langsamsten Aufrufe,
+Server-Anfragen und Abfragen der Vervollständigung.
 
 ### Diagnoselog des Servers
 

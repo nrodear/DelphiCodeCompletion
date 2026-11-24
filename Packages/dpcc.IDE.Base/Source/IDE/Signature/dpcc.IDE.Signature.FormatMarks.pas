@@ -22,7 +22,8 @@ uses
   ToolsAPI,
   ToolsAPI.Editor,
   dpcc.Core.Style.Color,
-  dpcc.Core.Signature.Format;
+  dpcc.Core.Signature.Format,
+  dpcc.Core.Editor.TabStops;
 
 type
   TDpccIdeFormatMarks = class
@@ -38,7 +39,7 @@ type
     FIndex: Integer;
     FFileName: string;
     FLines: TArray<string>;
-    FTabWidth: Integer;
+    FTabStops: TDpccTabStops;
     FByLine: TDictionary<Integer, TArray<TDpccFormatMark>>;
     procedure PaintMarks(const ARect: TRect; const AContext: INTACodeEditorPaintContext; const AText: string;
       const AMarks: TArray<TDpccFormatMark>; ABack: TDpccColor);
@@ -48,8 +49,10 @@ type
   public
     constructor Create;
     destructor Destroy; override;
-    /// <summary>Färbt AMarks in AFileName; AText ist der Stand des Puffers, zu dem sie gehören.</summary>
-    procedure Show(const AFileName, AText: string; ATabWidth: Integer; const AMarks: TArray<TDpccFormatMark>);
+    /// <summary>Färbt AMarks in AFileName; AText ist der Stand des Puffers, zu dem sie gehören, ATabStops die
+    /// Tabulatorpositionen seiner Ansicht (TDpccEditorBuffer.TabStops).</summary>
+    procedure Show(const AFileName, AText: string; const ATabStops: TDpccTabStops;
+      const AMarks: TArray<TDpccFormatMark>);
     procedure Clear;
   end;
 
@@ -128,7 +131,7 @@ begin
   end;
 end;
 
-procedure TDpccIdeFormatMarks.Show(const AFileName, AText: string; ATabWidth: Integer;
+procedure TDpccIdeFormatMarks.Show(const AFileName, AText: string; const ATabStops: TDpccTabStops;
   const AMarks: TArray<TDpccFormatMark>);
 var
   mMark: TDpccFormatMark;
@@ -138,7 +141,7 @@ begin
   mPainted := FByLine.Count > 0;
   FByLine.Clear;
   FFileName := AFileName;
-  FTabWidth := ATabWidth;
+  FTabStops := ATabStops;
   FLines := nil;
   if Length(AMarks) > 0 then
   begin
@@ -193,9 +196,9 @@ begin
     end;
     for mMark in AMarks do
     begin
-      mFirst := AContext.EditorState.GetCharacterPosPx(TLspSession.IndexToColumn(AText, mMark.Start, FTabWidth),
+      mFirst := AContext.EditorState.GetCharacterPosPx(TLspSession.IndexToColumn(AText, mMark.Start, FTabStops),
         AContext.EditorLineNum);
-      mLast := AContext.EditorState.GetCharacterPosPx(TLspSession.IndexToColumn(AText, mMark.Stop, FTabWidth),
+      mLast := AContext.EditorState.GetCharacterPosPx(TLspSession.IndexToColumn(AText, mMark.Stop, FTabStops),
         AContext.EditorLineNum);
       TDpccIdeStyle.Blend(mDC, TRect.Create(mFirst.Left, ARect.Top, Max(mLast.Left, mFirst.Left + 1), ARect.Bottom),
         COLORREF(ColorToRGB(TColor(mColors.Placeholders[mMark.Slot]))), mAlpha);

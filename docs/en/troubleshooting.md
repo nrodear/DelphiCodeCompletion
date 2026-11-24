@@ -109,6 +109,7 @@ is selected there does dpcc jump (see [Usage](usage.md#when-dpcc-is-selected-as-
 | dpcc does not find the unit or cannot resolve the name uniquely (ambiguous overload, `with` with an unknown type). Message “unit X not found” or “"Name" could not be resolved”. | Expected. Check the search paths; see [The list is empty or incomplete](#the-list-is-empty-or-incomplete). |
 | The index is still being built (addition “The index is still being built.”), dpcc is still starting or the answer took longer than 10 seconds (“no answer from dpcc within 10 s”). After 250 ms dpcc jumps by itself, but only until then and only while the cursor stays in the same identifier. | Wait and try again. |
 | No message in the Messages window. | `dpcc.log` records every jump without a target in one line `Gehe zu Definition: <outcome> nach <n> ms, <file> <line>:<column> (Maus\|Cursor)` (log lines are not translated), including discarded late answers (“Cursor bewegt”, “andere Datei aktiv”, “neuerer Sprungwunsch”, “zu spät”). |
+| Ctrl+click on a use jumps to the declaration, but Ctrl+click on the declaration does not jump to the implementation. | Switch on “Log the flow (log file)”, repeat the jump and send the chain (see [Flow log](#flow-log)): it shows the verdict of `OnTarget` and whether `definition` was asked. |
 | A dpcc parameter hint with several overloads is open. | Since this version, Ctrl+Alt+↑/↓ switches the overload there; Alt+↑ goes to the IDE. |
 | The dpcc tooltip covers the word. | Hold down Ctrl: mouse and click then go through the tooltip to the editor. |
 
@@ -185,15 +186,62 @@ set under `HKCU\Software\dpcc\IdePlugin`. The log is then no longer anonymous; c
 
 Several IDE instances share the folder; a lock prevents them from interfering with each other.
 
-### Diagnostic log
+### Flow log
 
-For detailed troubleshooting, dpcc logs the IDE's calls to its Code Insight manager:
+For detailed troubleshooting, dpcc writes the flow of every action to a log of its own (formerly “diagnostic log”):
+for Ctrl+click or “Find Declaration”, completion, hover and parameter hints one line per step, from the IDE's call to
+the result. All lines of one action carry the same ID (`#12 Sprung: …`, `#13 Vervollständigung: …`; the log lines
+are in German); the last line of a chain says where and why it ends. As before, the log also contains the IDE's other
+calls to the Code Insight manager.
 
-1. Create the DWORD value `Diagnose` = 1 under `HKCU\Software\dpcc\IdePlugin`.
-2. Restart the IDE.
-3. The log is next to the plugin BPL: `Output\Win32\Debug\Bpl\dpcc.IDE.Expert370.log`.
+To switch it on:
 
-Paths and the user name are replaced in it. To switch it off, delete the value or set it to 0.
+1. **Tools › Options › Third Party › dpcc**, section **IDE**: check “Log the flow (log file)” and confirm with OK.
+   This takes effect immediately, without a restart. The Messages window (group dpcc) names the file (“dpcc: The flow
+   is logged to …”), so does the hint on the check box.
+2. Or by hand as before: create the DWORD value `Diagnose` = 1 under `HKCU\Software\dpcc\IdePlugin` and restart the
+   IDE. It is the same value; the page shows it as checked.
+
+| | |
+|---|---|
+| Location | next to the plugin BPL: `dpcc.IDE.Expert290.log` (Delphi 12) or `dpcc.IDE.Expert370.log` (Delphi 13), for example `Output\Win32\Debug\Bpl\dpcc.IDE.Expert370.log` |
+| Older files | `dpcc.IDE.Expert370.1.log` to `….4.log`; at most 5 files of 1 MB each |
+| Contents | one line per step with the time: the IDE's entry point, every early exit with its reason, the server's answers, the result returned to the IDE. Files only by name, positions as line:column |
+| Never contained | folders and the user name (replaced), source code except the one word at the position |
+
+Example: Ctrl+click on the name of a method in the class (line 12), jump to the implementation (line 40):
+
+```
+10:15:02.114 #7 Sprung: Eintritt IOTACodeInsightManager.GotoDefinition(Index -1), Datei Haupt.pas
+10:15:02.115 #7 Sprung: Stelle der IDE keine (nur Index), Strg True, Cursor 12:15 (Editorspalte 15), Maus über Bezeichner 12:16, gefragt 12:16 (Maus)
+10:15:02.115 #7 Sprung: Stelle Haupt.pas 12:16 (Maus), Wort „Rechne“
+10:15:02.118 #7 Sprung: declaration: Haupt.pas 12:15 nach 3 ms
+10:15:02.118 #7 Sprung: OnTarget ja (Datei gleich; Zeile ja, 12 | 12; Stelle im Wort ja, Spalte 16, Ziel ab 15)
+10:15:02.121 #7 Sprung: definition: Haupt.pas 40:20
+10:15:02.121 #7 Sprung: Antwort der Sitzung nach 6 ms: Haupt.pas 40:20
+10:15:02.121 #7 Sprung: Ergebnis an die IDE: True, Haupt.pas Zeile 40; gleich der Ausgangsstelle: nein
+```
+
+If the declaration does not jump, the chain shows the step where it stops: `OnTarget nein (Datei verschieden …)` with
+“definition nicht gefragt” (the IDE and the server spell the file differently), `definition: leer`, or a `definition`
+that points back to the declaration, and finally `gleich der Ausgangsstelle: ja (die IDE bleibt in derselben Zeile)`
+(the IDE stays on the same line). Whether the server found a pair of declaration and implementation is in the
+[server diagnostic log](#server-diagnostic-log), in the `declaration` or `definition` line at the same time:
+`pair=found pairChosen=implementation` or `pair=none:<reason>` with `pairSame` (places of the routine) and
+`pairVariant` (of those, with matching parameter types). Reasons: `noUnit` (unit of the target not in the index),
+`noSymbol` (routine not found there), `single` (only one place, no second half), `params` (several places, but the
+parameter types do not match).
+
+What to send:
+
+1. Switch on “Log the flow (log file)” (OK).
+2. Perform the action once, for example Ctrl+click on the declaration.
+3. Send the lines with this ID from the flow log, plus `dpcc.log` and the server diagnostic log of the same day.
+   Look at them before passing them on: file names and the word at the position are in plain text.
+4. Switch it off again.
+
+To switch it off: uncheck and OK (immediately) or delete the registry value or set it to 0. Measuring the slowest
+calls on unload and the hangs without a dpcc action (see below) follow the switch only after the next IDE start.
 
 ### Hangs and slow actions
 
@@ -213,8 +261,9 @@ The lines are throttled: at most one line per action and minute (`dazu n weitere
 action (for example while compiling), dpcc writes nothing. Modal dialogs do not count as hangs, nor does time in which
 the IDE was stopped in a debugger.
 
-With `Diagnose` = 1 (see above), hangs without a dpcc action also appear in the diagnostic log as
-`… ohne dpcc-Aktivität`, and on unload it lists the 10 slowest calls, server requests and completion queries.
+With `Diagnose` = 1 or “Log the flow (log file)” at IDE start (see above), hangs without a dpcc action also appear in
+the flow log as `… ohne dpcc-Aktivität`, and on unload it lists the 10 slowest calls, server requests and completion
+queries.
 
 ### Server diagnostic log
 

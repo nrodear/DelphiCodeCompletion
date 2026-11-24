@@ -10,12 +10,12 @@ The options are under **Tools › Options › Third Party › dpcc**. This is a 
 
 - The master switch is at the top, followed by the sections **Completion**, **When accepting**, **Parameter hint
   and tooltip**, **Index** and **IDE**.
-- If the master switch is off, all options below it and the “Reset history” button are grayed out. “Rebuild index”
-  and “Check now” remain available.
+- If the master switch is off, all options below it and the “Reset history” button are grayed out. “Rebuild index”,
+  “Check now” and “Log the flow (log file)” remain available.
 - “Show values while debugging” is grayed out as long as “Own tooltip when hovering identifiers” is off.
 
 Settings are saved with **OK**. Exceptions: “Reset history” and “Rebuild index” take effect immediately, “Check
-now” only reads.
+now” only reads. “Log the flow (log file)” takes effect after OK without a restart.
 
 Some former options are no longer on the page and have fixed values (see [Fixed values](#fixed-values)).
 
@@ -81,6 +81,7 @@ decides the colors.
 | Option | Registry value | Key | Default | Effect |
 |---|---|---|---|---|
 | Button “Check now” | – | – | – | Up to four lines to its right: mode and provider, whether a change is still waiting for Delphi to restart, what dpcc has set in the IDE, and the result of the check (for example “1 difference: Auto Code Completions”). Read when the page opens; the button reads again. Only reads, changes nothing; does not depend on the master switch. See [What dpcc changes in the IDE](#what-dpcc-changes-in-the-ide). |
+| Log the flow (log file) | `Diagnose` | – | off | For every action (Ctrl+click or “Find Declaration”, completion, hover, parameter hints) writes each step from the IDE's call to the result into the diagnostic log next to the plugin BPL. No source code except the word at the position. The same DWORD as the former manually set `Diagnose` = 1: a value set that way shows as checked. Takes effect immediately after OK, without a restart; the Messages window then names the file, so does the hint on the check box. Does not depend on the master switch. See [Troubleshooting](troubleshooting.md#flow-log). |
 
 ## Fixed values
 
@@ -134,12 +135,15 @@ These options are no longer on the page. They have fixed values, the former defa
   former hidden module switch `debug.enabled` (registry value `DebugEnabled`) no longer turns it off.
 - dpcc no longer writes the settings history `%APPDATA%\dpcc\settings-history.json`. An existing file stays in
   place and can be deleted.
+- New in the **IDE** section: “Log the flow (log file)”. It switches the same diagnostic log as the registry value
+  `Diagnose` = 1 that used to be set by hand only, now without a restart. Since then OK also writes `Diagnose`; if you
+  set the value by hand, the check box shows as checked.
 
 ## Storage
 
 | Location | Contents |
 |---|---|
-| `HKCU\Software\dpcc\IdePlugin` | all options on the page except `index.extraSourceFolders`. Switches and numbers as DWORD (switches 0/1), choices as text (`CompletionListMode`: `filter`, `all`, `rest`; `PopupLook`: `intense`, `subtle`, `plain`). Also the markers for the IDE switches (below) and `PathOverrideBackup` from `Tools\IdePath.ps1`. Read only, never written: the support switch `LogNames` (see [Troubleshooting](troubleshooting.md)). Old values of the fixed and the removed options stay in place but have no effect; dpcc no longer writes them. |
+| `HKCU\Software\dpcc\IdePlugin` | all options on the page except `index.extraSourceFolders`. Switches and numbers as DWORD (switches 0/1), choices as text (`CompletionListMode`: `filter`, `all`, `rest`; `PopupLook`: `intense`, `subtle`, `plain`). Also the markers for the IDE switches (below) and `PathOverrideBackup` from `Tools\IdePath.ps1`. Read only, never written: the support switch `LogNames` (see [Troubleshooting](troubleshooting.md)). `Diagnose` (“Log the flow (log file)”) is now one of the page's values; OK writes it as 0 or 1, a value set by hand still applies. Old values of the fixed and the removed options stay in place but have no effect; dpcc no longer writes them. |
 | `%APPDATA%\dpcc\settings.json` | `index.extraSourceFolders` (from the page) and `hints.xmlDocMaxLines` (adjustable only in the file). The in-process server reads the file itself and watches it. dpcc only reads `hints.xmlDocMaxLines` and never writes the key; if it is missing from the file, a registry value `XmlDocMaxLines` from an older version applies, otherwise 0. dpcc does not touch other keys in the file. An old value `hints.xmlDocExpand` or `hints.xmlDocFull` has no effect. |
 | `%APPDATA%\dpcc\settings-history.json` | only from older versions: earlier states of the settings. dpcc no longer writes or reads the file; it can be deleted. |
 | `%APPDATA%\dpcc\usage.json` | history of the learned ranking |

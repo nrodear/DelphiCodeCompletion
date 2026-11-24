@@ -190,6 +190,9 @@ type
     /// <summary>Bezeichner am Cursor beim Fragen, wie AtWordStart/AtWordEnd.</summary>
     CaretWordStart: Integer;
     CaretWordEnd: Integer;
+    /// <summary>Kennung der Aktion im Ablaufprotokoll (LOG1, dpcc.Core.Diagnostics.Flow); 0 = nicht protokolliert.
+    /// </summary>
+    FlowId: Integer;
   end;
 
   /// <summary>Zustand beim Eintreffen der nachgereichten Antwort; CaretLine &lt; 1 ohne Editoransicht.</summary>
@@ -208,7 +211,7 @@ type
   TDpccLateGoto = record
   public
     /// <summary>Passt das Ziel (AFound) noch zum Zustand ANow? Reihenfolge der Prüfung: Ziel, Generation, Alter vom
-    /// Klick bis zur Ankunft der Antwort (höchstens AMaxAgeMs), Datei (ohne Groß-/Kleinschreibung), Cursor (im
+    /// Klick bis zur Ankunft der Antwort (höchstens AMaxAgeMs), Datei (TTextUris.SamePath), Cursor (im
     /// Bezeichner der Klickstelle oder in dem der Ausgangsstelle; ohne Bezeichner genau an der Stelle).</summary>
     class function Verdict(const AOrigin: TDpccGotoOrigin; const ANow: TDpccGotoNow; AFound: Boolean;
       AMaxAgeMs: Cardinal): TDpccGotoVerdict; static;
@@ -243,7 +246,7 @@ type
     ['{2E7A1C64-58B3-4F0E-A9D2-6C1B8E4F3A97}']
     /// <summary>ANote ablegen (StoredMs = ANowMs); verfallene und überzählige (die ältesten) fallen weg.</summary>
     procedure Add(const ANote: TDpccNoTargetNote; ANowMs: UInt64);
-    /// <summary>Grund zur Stelle AFileName (ohne Groß-/Kleinschreibung), ALine, ACharacter abholen und entfernen; bei
+    /// <summary>Grund zur Stelle AFileName (TTextUris.SamePath), ALine, ACharacter abholen und entfernen; bei
     /// AMethod &lt;&gt; '' nur Einträge ohne oder mit dieser Methode. Mehrere passende: der aussagekräftigste
     /// (TDpccNoTarget.Better). False, wenn keiner vorliegt oder alle verfallen sind.</summary>
     function Take(const AMethod, AFileName: string; ALine, ACharacter: Integer; ANowMs: UInt64;
@@ -327,6 +330,7 @@ implementation
 
 uses
   System.Hash,
+  dpcc.Text.Uris,
   dpcc.Core.Diagnostics.Shutdown;
 
 function IsNameChar(AChar: Char): Boolean;
@@ -490,7 +494,7 @@ begin
   begin
     Exit(TDpccGotoVerdict.TooOld);
   end;
-  if (ANow.FileName = '') or not SameText(ANow.FileName, AOrigin.FileName) then
+  if (ANow.FileName = '') or not TTextUris.SamePath(ANow.FileName, AOrigin.FileName) then
   begin
     Exit(TDpccGotoVerdict.OtherFile);
   end;
@@ -674,7 +678,9 @@ begin
     for mIndex := High(FEntries) downto 0 do
     begin
       mEntry := FEntries[mIndex];
-      if (mEntry.Line <> ALine) or (mEntry.Character <> ACharacter) or not SameText(mEntry.FileName, AFileName) then
+      // Der Pfad der Benachrichtigung kommt aus der URI des Servers, AFileName von der Sitzung: Vergleich wie OnTarget.
+      if (mEntry.Line <> ALine) or (mEntry.Character <> ACharacter) or
+        not TTextUris.SamePath(mEntry.FileName, AFileName) then
       begin
         Continue;
       end;

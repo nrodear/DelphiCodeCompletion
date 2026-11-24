@@ -9,9 +9,15 @@
 //     dem Namen der Implementierung, zurück zur Deklaration. So wechselt
 //     dieselbe Taste zwischen beiden.
 // Bei Überladungen gehören nur Deklaration und Implementierung derselben
-// Variante (gleiche Parametertypen) zusammen; steht der Cursor auf einer
+// Variante (gleiche Parametertypen, dazu der Ergebnistyp, wo beide einen
+// haben: class operator Implicit) zusammen; steht der Cursor auf einer
 // Routine der Datei, gilt deren Variante. Vorher galt immer die erste
-// Überladung (Hover auf der zweiten zeigte die erste).
+// Überladung (Hover auf der zweiten zeigte die erste). Typen vergleicht das
+// ohne Leerzeichen, Groß/Klein und Unit-Qualifizierung (System.Integer =
+// Integer, TList<System.Integer> = TList<Integer>). Findet sich so kein
+// Gegenstück, paart es unter den gleichnamigen Routinen des Containers
+// eindeutig nach Parameterzahl und -namen, zuletzt nach der Reihenfolge der
+// übrigen (nur bei gleich vielen Deklarationen und Rümpfen); sonst kein Paar.
 // Unit-Namen (z. B. in uses) führen an den Anfang der Unit-Datei.
 // textDocument/typeDefinition springt von Variablen, Feldern, Parametern,
 // Properties und Funktionen zur Deklaration ihres Typs.
@@ -24,6 +30,10 @@
 // und ob der Index noch aufgebaut wird. Derselbe Grund steht im Diagnoselog (statt empty:unspecified), der Name dort
 // nur als Kennzahl (#647). Führt die Auflösung nur in Ersatz-Units der IDE (Package ohne Quelltext im Index), lädt
 // sie zuerst die echte Quelle über EnsureUnit nach; vorher verdeckte die Ersatz-Unit sie still.
+// Paar Deklaration/Implementierung im Diagnoselog (LOG1, nur Codes und Zahlen): pair=found:types|sole|names|order
+// (Weg des Paars) mit pairChosen (declaration bzw. implementation) oder pair=none:noUnit|noSymbol|single|params
+// mit pairSame und pairVariant; so ist
+// ablesbar, warum ein Strg+Klick auf der Deklaration nicht zur Implementierung führt.
 
 interface
 
@@ -207,7 +217,85 @@ begin
      ((APosition.Line = ARange.EndPos.Line) and (APosition.Character <= ARange.EndPos.Character)));
 end;
 
-/// <summary>Gleiche Parametertypen (Groß-/Kleinschreibung egal): dieselbe Variante einer Überladung.</summary>
+/// <summary>Zeichen eines Namens in einem Typtext (auch "&amp;" vor reservierten Wörtern und Zeichen jenseits von
+/// ASCII).</summary>
+function IsTypeChar(AChar: Char): Boolean;
+begin
+  Result := CharInSet(AChar, ['A'..'Z', 'a'..'z', '0'..'9', '_', '&']) or (Ord(AChar) > 127);
+end;
+
+/// <summary>Erste Stelle ab AIndex in AText, die kein Leerzeichen oder Umbruch ist (Length + 1 am Ende).</summary>
+function SkipBlanks(const AText: string; AIndex: Integer): Integer;
+begin
+  Result := AIndex;
+  while (Result <= Length(AText)) and (AText[Result] <= ' ') do
+  begin
+    Inc(Result);
+  end;
+end;
+
+/// <summary>Typtext zum Vergleich von Parameter- und Ergebnistypen: ohne Leerzeichen und "&amp;", groß geschrieben
+/// und ohne Unit-Qualifizierung je Name (System.Integer → INTEGER, TList&lt;System.Integer&gt; → TLIST&lt;INTEGER&gt;,
+/// array of System.Byte → ARRAYOFBYTE). Generische Argumente und ihre Reihenfolge bleiben erhalten; Aliasse
+/// (string/UnicodeString) löst das nicht auf.</summary>
+function NormalTypeText(const AType: string): string;
+var
+  mBuilder: TStringBuilder;
+  mIndex, mStart, mNext: Integer;
+  mName: string;
+begin
+  mBuilder := TStringBuilder.Create;
+  try
+    mIndex := 1;
+    while mIndex <= Length(AType) do
+    begin
+      if not IsTypeChar(AType[mIndex]) then
+      begin
+        // Satzzeichen (<, >, Komma, ^) bleiben, Leerzeichen und Umbrüche fallen weg.
+        if AType[mIndex] > ' ' then
+        begin
+          mBuilder.Append(AType[mIndex]);
+        end;
+        Inc(mIndex);
+        Continue;
+      end;
+      // Ein Name, ggf. qualifiziert (System.Generics.Collections.TList): nur der letzte Teil zählt.
+      while True do
+      begin
+        mStart := mIndex;
+        while (mIndex <= Length(AType)) and IsTypeChar(AType[mIndex]) do
+        begin
+          Inc(mIndex);
+        end;
+        mName := Copy(AType, mStart, mIndex - mStart);
+        mNext := SkipBlanks(AType, mIndex);
+        if (mNext > Length(AType)) or (AType[mNext] <> '.') then
+        begin
+          Break;
+        end;
+        mNext := SkipBlanks(AType, mNext + 1);
+        if (mNext > Length(AType)) or not IsTypeChar(AType[mNext]) then
+        begin
+          Break;
+        end;
+        mIndex := mNext;
+      end;
+      mBuilder.Append(StringReplace(mName, '&', '', [rfReplaceAll]));
+    end;
+    Result := AnsiUpperCase(mBuilder.ToString);
+  finally
+    mBuilder.Free;
+  end;
+end;
+
+/// <summary>Gleiche Typen nach NormalTypeText (Groß-/Kleinschreibung, Leerzeichen und Unit-Qualifizierung egal).
+/// </summary>
+function SameTypeText(const A, B: string): Boolean;
+begin
+  Result := SameText(A, B) or (NormalTypeText(A) = NormalTypeText(B));
+end;
+
+/// <summary>Gleiche Parametertypen (SameTypeText je Parameter): dieselbe Variante einer Überladung.</summary>
 function SameParams(const A, B: TArray<string>): Boolean;
 var
   mIndex: Integer;
@@ -219,11 +307,29 @@ begin
   end;
   for mIndex := 0 to High(A) do
   begin
-    if not SameText(A[mIndex], B[mIndex]) then
+    if not SameTypeText(A[mIndex], B[mIndex]) then
     begin
       Exit(False);
     end;
   end;
+end;
+
+/// <summary>Ergebnistyp einer Funktion samt Typargumenten (TList&lt;Integer&gt;); '' bei Prozeduren, Konstruktoren
+/// und Rümpfen ohne Ergebnistyp ("function TFoo.Rechne;").</summary>
+function ResultTypeOf(const ATypeName, ATypeArgs: string): string;
+begin
+  Result := ATypeName;
+  if (Result <> '') and (ATypeArgs <> '') then
+  begin
+    Result := Result + '<' + ATypeArgs + '>';
+  end;
+end;
+
+/// <summary>Gleicher Ergebnistyp, wo beide einen haben: Ein Rumpf ohne Ergebnistyp (bei nicht überladenen Routinen
+/// erlaubt) passt zu jedem.</summary>
+function SameResult(const A, B: string): Boolean;
+begin
+  Result := (A = '') or (B = '') or SameTypeText(A, B);
 end;
 
 function Target(const AFileName: string; const ARange, ASelectionRange: TTextRange): TDefinitionTarget;
@@ -306,57 +412,536 @@ begin
       Result.Range := mSymbol.Range;
       Result.SelectionRange := mSymbol.SelectionRange;
       Result.ParamTypes := mSymbol.ParamTypes;
+      // Ergebnistyp für die Variante (class operator Implicit, der sich nur darin unterscheidet).
+      Result.TypeName := mSymbol.TypeName;
+      Result.TypeArgs := mSymbol.TypeArgs;
       Exit;
     end;
   end;
 end;
 
-/// <summary>Parametertypen der gemeinten Variante: die der Routine unter dem Cursor in AHere, sonst die von
-/// AResolved.</summary>
-function VariantParams(AHere: TUnitIndex; const AResolved: TResolvedSymbol;
-  const APosition: TTextPosition): TArray<string>;
+type
+  /// <summary>Gemeinte Variante einer Routine: Parameter- und Ergebnistyp der Routine unter dem Cursor (sonst des
+  /// aufgelösten Symbols) und ihre Stelle, um sie unter den gleichnamigen Fundstellen wiederzufinden.</summary>
+  TRoutineWanted = record
+    ParamTypes: TArray<string>;
+    ResultType: string;
+    FileName: string;
+    Start: TTextPosition;
+  end;
+
+const
+  /// <summary>Wege, auf denen RoutinePair ein Paar findet (Diagnoselog pair=found:Weg): gleiche Typen, die einzigen
+  /// zwei Fundstellen, gleiche Parameterzahl und -namen, Reihenfolge der übrigen.</summary>
+  cPairTypes = 'types';
+  cPairSole = 'sole';
+  cPairNames = 'names';
+  cPairOrder = 'order';
+  /// <summary>Art eines Parameters vor seinem Namen.</summary>
+  cParamModifiers: array[0..3] of string = ('const', 'var', 'out', 'constref');
+
+/// <summary>Gemeinte Variante: die Routine unter dem Cursor in AHere, sonst AResolved.</summary>
+function WantedOf(const AHere: TUnitIndex; const AResolved: TResolvedSymbol;
+  const APosition: TTextPosition): TRoutineWanted;
 var
   mSymbol: TIndexSymbol;
 begin
+  Result := Default(TRoutineWanted);
   for mSymbol in AHere.Symbols do
   begin
     if (mSymbol.Kind in cRoutineKinds) and SameText(mSymbol.Name, AResolved.Name) and
       Within(APosition, mSymbol.SelectionRange) then
     begin
-      Exit(mSymbol.ParamTypes);
+      Result.ParamTypes := mSymbol.ParamTypes;
+      Result.ResultType := ResultTypeOf(mSymbol.TypeName, mSymbol.TypeArgs);
+      Result.FileName := AHere.SymbolFile(mSymbol);
+      Result.Start := mSymbol.SelectionRange.StartPos;
+      Exit;
     end;
   end;
-  Result := AResolved.ParamTypes;
+  Result.ParamTypes := AResolved.ParamTypes;
+  Result.ResultType := ResultTypeOf(AResolved.TypeName, AResolved.TypeArgs);
+  Result.FileName := AResolved.FileName;
+  Result.Start := AResolved.SelectionRange.StartPos;
 end;
 
-/// <summary>Fundstellen der Routine AResolved in AOwner: erst die Variante mit AParams, ohne zweite Fundstelle
-/// das einzige Paar ohne Überladungen (die Implementierung darf ihre Parameter weglassen). False ohne Paar.
-/// </summary>
-function RoutinePair(AOwner: TUnitIndex; const AResolved: TResolvedSymbol; const AParams: TArray<string>;
-  out AVariant: TArray<TIndexSymbol>): Boolean;
+/// <summary>Dieselbe Variante: gleiche Parametertypen und, wo beide einen haben, gleicher Ergebnistyp.</summary>
+function SameVariant(const ASymbol: TIndexSymbol; const AParamTypes: TArray<string>;
+  const AResultType: string): Boolean;
+begin
+  Result := SameParams(ASymbol.ParamTypes, AParamTypes) and
+    SameResult(ResultTypeOf(ASymbol.TypeName, ASymbol.TypeArgs), AResultType);
+end;
+
+/// <summary>Routinen in AOwner mit Name und Container von AResolved, in der Reihenfolge des Index.</summary>
+function SameRoutines(const AOwner: TUnitIndex; const AResolved: TResolvedSymbol): TArray<TIndexSymbol>;
 var
   mSymbol: TIndexSymbol;
-  mSame: TArray<TIndexSymbol>;
 begin
-  mSame := nil;
-  AVariant := nil;
+  Result := nil;
   for mSymbol in AOwner.Symbols do
   begin
     if (mSymbol.Kind in cRoutineKinds) and SameText(mSymbol.Container, AResolved.Container) and
       SameText(mSymbol.Name, AResolved.Name) then
     begin
-      mSame := mSame + [mSymbol];
-      if SameParams(mSymbol.ParamTypes, AParams) then
+      Result := Result + [mSymbol];
+    end;
+  end;
+end;
+
+/// <summary>AText an ASeparator geteilt, aber nicht in runden oder eckigen Klammern und nicht in Strings.</summary>
+function SplitTopLevel(const AText: string; ASeparator: Char): TArray<string>;
+var
+  mIndex, mDepth, mStart: Integer;
+  mQuoted: Boolean;
+begin
+  Result := nil;
+  mDepth := 0;
+  mQuoted := False;
+  mStart := 1;
+  for mIndex := 1 to Length(AText) do
+  begin
+    if AText[mIndex] = '''' then
+    begin
+      mQuoted := not mQuoted;
+    end
+    else if not mQuoted then
+    begin
+      if CharInSet(AText[mIndex], ['(', '[']) then
       begin
-        AVariant := AVariant + [mSymbol];
+        Inc(mDepth);
+      end
+      else if CharInSet(AText[mIndex], [')', ']']) then
+      begin
+        if mDepth > 0 then
+        begin
+          Dec(mDepth);
+        end;
+      end
+      else if (AText[mIndex] = ASeparator) and (mDepth = 0) then
+      begin
+        Result := Result + [Copy(AText, mStart, mIndex - mStart)];
+        mStart := mIndex + 1;
       end;
     end;
+  end;
+  Result := Result + [Copy(AText, mStart, MaxInt)];
+end;
+
+/// <summary>Kopf ASignature bis zur Parameterliste: True, wenn der Name dort qualifiziert ist (procedure TFoo.Bar,
+/// TFoo&lt;T&gt;.Bar: ein Rumpf). AParamsAt = Stelle der öffnenden Klammer der Parameter, 0 ohne Parameterliste.
+/// Typparameter in spitzen Klammern (auch mit Einschränkungen "T: class") zählen nicht.</summary>
+function ScanHead(const ASignature: string; out AParamsAt: Integer): Boolean;
+var
+  mIndex, mDepth: Integer;
+begin
+  Result := False;
+  AParamsAt := 0;
+  mDepth := 0;
+  for mIndex := 1 to Length(ASignature) do
+  begin
+    case ASignature[mIndex] of
+      '<':
+        Inc(mDepth);
+      '>':
+        if mDepth > 0 then
+        begin
+          Dec(mDepth);
+        end;
+      '.':
+        if mDepth = 0 then
+        begin
+          Result := True;
+        end;
+      '(':
+        if mDepth = 0 then
+        begin
+          AParamsAt := mIndex;
+          Exit;
+        end;
+      ':', ';', '=':
+        if mDepth = 0 then
+        begin
+          Exit;
+        end;
+    end;
+  end;
+end;
+
+/// <summary>Trägt der Kopf ASignature hinter einem Semikolon die Direktive AWord (forward, external …)?</summary>
+function HasHeadDirective(const ASignature, AWord: string): Boolean;
+var
+  mParts: TArray<string>;
+  mIndex: Integer;
+  mPart: string;
+begin
+  mParts := SplitTopLevel(ASignature, ';');
+  for mIndex := 1 to High(mParts) do
+  begin
+    mPart := Trim(mParts[mIndex]);
+    if StartsText(AWord, mPart) and ((Length(mPart) = Length(AWord)) or
+      not IsTypeChar(mPart[Length(AWord) + 1])) then
+    begin
+      Exit(True);
+    end;
+  end;
+  Result := False;
+end;
+
+/// <summary>Rumpf (Implementierung) statt Deklaration? Methoden: Kopf mit qualifiziertem Namen (TFoo.Bar). Freie
+/// Routinen: außerhalb des interface und ohne forward bzw. external. AKnown False ohne Kopf im Index.</summary>
+function IsRoutineBody(const ASymbol: TIndexSymbol; out AKnown: Boolean): Boolean;
+var
+  mSignature: string;
+  mParamsAt: Integer;
+begin
+  mSignature := ASymbol.Signature;
+  AKnown := Trim(mSignature) <> '';
+  if not AKnown then
+  begin
+    Exit(False);
+  end;
+  if ASymbol.Container <> '' then
+  begin
+    Exit(ScanHead(mSignature, mParamsAt));
+  end;
+  Result := not ASymbol.InInterface and not ASymbol.HasDirective('forward') and
+    not ASymbol.HasDirective('external') and not HasHeadDirective(mSignature, 'forward') and
+    not HasHeadDirective(mSignature, 'external');
+end;
+
+/// <summary>Text der Parameterliste im Kopf ASignature ohne die Klammern; '' ohne Parameterliste. False, wenn die
+/// Liste nicht endet (Kopf im Index gekürzt).</summary>
+function ParamListOf(const ASignature: string; out AContent: string): Boolean;
+var
+  mStart, mIndex, mDepth: Integer;
+  mQuoted: Boolean;
+begin
+  AContent := '';
+  ScanHead(ASignature, mStart);
+  if mStart = 0 then
+  begin
+    Exit(True);
+  end;
+  mDepth := 0;
+  mQuoted := False;
+  for mIndex := mStart to Length(ASignature) do
+  begin
+    if ASignature[mIndex] = '''' then
+    begin
+      mQuoted := not mQuoted;
+    end
+    else if not mQuoted and CharInSet(ASignature[mIndex], ['(', '[']) then
+    begin
+      Inc(mDepth);
+    end
+    else if not mQuoted and CharInSet(ASignature[mIndex], [')', ']']) then
+    begin
+      Dec(mDepth);
+      if mDepth = 0 then
+      begin
+        AContent := Copy(ASignature, mStart + 1, mIndex - mStart - 1);
+        Exit(True);
+      end;
+    end;
+  end;
+  Result := False;
+end;
+
+/// <summary>AText ohne führende Attribute ([Ref]) und ohne führende Parameterart (const, var, out, constref).
+/// </summary>
+function WithoutParamPrefix(const AText: string): string;
+var
+  mClose, mSpace, mRound: Integer;
+begin
+  Result := Trim(AText);
+  // Zwei Runden: "const [ref] A" und "[ref] const A".
+  for mRound := 1 to 2 do
+  begin
+    while (Result <> '') and (Result[1] = '[') do
+    begin
+      mClose := Pos(']', Result);
+      if mClose = 0 then
+      begin
+        Break;
+      end;
+      Result := Trim(Copy(Result, mClose + 1, MaxInt));
+    end;
+    mSpace := Pos(' ', Result);
+    if (mSpace > 0) and (IndexText(Copy(Result, 1, mSpace - 1), cParamModifiers) >= 0) then
+    begin
+      Result := Trim(Copy(Result, mSpace + 1, MaxInt));
+    end;
+  end;
+end;
+
+/// <summary>Parameterzahl und -namen aus dem Kopf (Signature) als Schlüssel "2:A,B" (groß geschrieben); False ohne
+/// lesbaren Kopf. Ohne Parameterliste "0:".</summary>
+function ParamNamesKey(const ASymbol: TIndexSymbol; out AKey: string): Boolean;
+var
+  mSignature, mContent, mGroup, mText, mName, mNames: string;
+  mColon, mCount: Integer;
+begin
+  AKey := '';
+  mSignature := ASymbol.Signature;
+  Result := (Trim(mSignature) <> '') and ParamListOf(mSignature, mContent);
+  if not Result then
+  begin
+    Exit;
+  end;
+  mCount := 0;
+  mNames := '';
+  if Trim(mContent) <> '' then
+  begin
+    for mGroup in SplitTopLevel(mContent, ';') do
+    begin
+      mText := WithoutParamPrefix(mGroup);
+      mColon := Pos(':', mText);
+      if mColon > 0 then
+      begin
+        mText := Copy(mText, 1, mColon - 1);
+      end;
+      for mName in mText.Split([',']) do
+      begin
+        if Trim(mName) = '' then
+        begin
+          Continue;
+        end;
+        if mNames <> '' then
+        begin
+          mNames := mNames + ',';
+        end;
+        mNames := mNames + AnsiUpperCase(StringReplace(Trim(mName), '&', '', [rfReplaceAll]));
+        Inc(mCount);
+      end;
+    end;
+  end;
+  AKey := IntToStr(mCount) + ':' + mNames;
+end;
+
+/// <summary>Rückfall, wenn die Typen für ASame[AWanted] kein eindeutiges Gegenstück finden: Deklarationen und Rümpfe
+/// der gleichnamigen Routinen ASame (desselben Containers) paaren, je Stufe nur gegenseitig eindeutig: zuerst gleiche
+/// Typen (das nimmt andere Varianten aus dem Spiel), dann gleiche Parameterzahl und -namen, zuletzt die Reihenfolge
+/// der übrigen, aber nur bei gleich vielen ungepaarten Deklarationen und Rümpfen. Lieber kein Paar als ein falsches:
+/// False, wenn ein Kopf fehlt oder ASame[AWanted] ungepaart bleibt. ADeclaration und ABody sind Nummern in ASame,
+/// AWay der Weg des Paars (cPairTypes, cPairNames, cPairOrder).</summary>
+function PairByStages(const ASame: TArray<TIndexSymbol>; AWanted: Integer; out ADeclaration, ABody: Integer;
+  out AWay: string): Boolean;
+var
+  mBody: TArray<Boolean>;
+  mPartner: TArray<Integer>;
+  mWays, mKeys: TArray<string>;
+  mIndex, mOther, mCount: Integer;
+  mKnown: Boolean;
+  mDeclarations, mBodies: TArray<Integer>;
+
+  /// <summary>Passen ASame[A] und ASame[B] in Stufe AStage (0 Typen, 1 Parameterzahl und -namen)?</summary>
+  function Matches(AStage, A, B: Integer): Boolean;
+  begin
+    if AStage = 0 then
+    begin
+      Result := SameVariant(ASame[A], ASame[B].ParamTypes, ResultTypeOf(ASame[B].TypeName, ASame[B].TypeArgs));
+    end
+    else
+    begin
+      Result := (mKeys[A] <> '') and (mKeys[A] = mKeys[B]);
+    end;
+  end;
+
+  /// <summary>Das einzige ungepaarte Gegenstück zu ASame[A] auf der anderen Seite in Stufe AStage; -1 ohne oder bei
+  /// mehreren.</summary>
+  function OnlyCandidate(AStage, A: Integer): Integer;
+  var
+    mCandidate: Integer;
+  begin
+    Result := -1;
+    for mCandidate := 0 to High(ASame) do
+    begin
+      if (mBody[mCandidate] <> mBody[A]) and (mPartner[mCandidate] < 0) and Matches(AStage, A, mCandidate) then
+      begin
+        if Result >= 0 then
+        begin
+          Exit(-1);
+        end;
+        Result := mCandidate;
+      end;
+    end;
+  end;
+
+  /// <summary>Stufe AStage wiederholen, bis sich nichts mehr ändert; jedes neue Paar heißt AStageWay.</summary>
+  procedure RunStage(AStage: Integer; const AStageWay: string);
+  var
+    mChanged: Boolean;
+    mDeclaration, mCandidate: Integer;
+  begin
+    repeat
+      mChanged := False;
+      for mDeclaration := 0 to High(ASame) do
+      begin
+        if mBody[mDeclaration] or (mPartner[mDeclaration] >= 0) then
+        begin
+          Continue;
+        end;
+        mCandidate := OnlyCandidate(AStage, mDeclaration);
+        if (mCandidate >= 0) and (OnlyCandidate(AStage, mCandidate) = mDeclaration) then
+        begin
+          mPartner[mDeclaration] := mCandidate;
+          mPartner[mCandidate] := mDeclaration;
+          mWays[mDeclaration] := AStageWay;
+          mWays[mCandidate] := AStageWay;
+          mChanged := True;
+        end;
+      end;
+    until not mChanged;
+  end;
+
+begin
+  Result := False;
+  ADeclaration := -1;
+  ABody := -1;
+  AWay := '';
+  if (AWanted < 0) or (AWanted > High(ASame)) then
+  begin
+    Exit;
+  end;
+  mCount := Length(ASame);
+  SetLength(mBody, mCount);
+  SetLength(mPartner, mCount);
+  SetLength(mWays, mCount);
+  SetLength(mKeys, mCount);
+  for mIndex := 0 to mCount - 1 do
+  begin
+    mBody[mIndex] := IsRoutineBody(ASame[mIndex], mKnown);
+    // Ohne Kopf keine sichere Trennung von Deklaration und Rumpf.
+    if not mKnown then
+    begin
+      Exit;
+    end;
+    mPartner[mIndex] := -1;
+    if not ParamNamesKey(ASame[mIndex], mKeys[mIndex]) then
+    begin
+      mKeys[mIndex] := '';
+    end;
+  end;
+  RunStage(0, cPairTypes);
+  RunStage(1, cPairNames);
+  // Reihenfolge: nur, wenn auf beiden Seiten gleich viele übrig sind.
+  mDeclarations := nil;
+  mBodies := nil;
+  for mIndex := 0 to mCount - 1 do
+  begin
+    if mPartner[mIndex] >= 0 then
+    begin
+      Continue;
+    end;
+    if mBody[mIndex] then
+    begin
+      mBodies := mBodies + [mIndex];
+    end
+    else
+    begin
+      mDeclarations := mDeclarations + [mIndex];
+    end;
+  end;
+  if (Length(mDeclarations) > 0) and (Length(mDeclarations) = Length(mBodies)) then
+  begin
+    for mIndex := 0 to High(mDeclarations) do
+    begin
+      mOther := mBodies[mIndex];
+      mPartner[mDeclarations[mIndex]] := mOther;
+      mPartner[mOther] := mDeclarations[mIndex];
+      mWays[mDeclarations[mIndex]] := cPairOrder;
+      mWays[mOther] := cPairOrder;
+    end;
+  end;
+  if mPartner[AWanted] < 0 then
+  begin
+    Exit;
+  end;
+  if mBody[AWanted] then
+  begin
+    ABody := AWanted;
+    ADeclaration := mPartner[AWanted];
+  end
+  else
+  begin
+    ADeclaration := AWanted;
+    ABody := mPartner[AWanted];
+  end;
+  AWay := mWays[AWanted];
+  Result := True;
+end;
+
+/// <summary>Nummer der gemeinten Routine AWanted in ASame (gleiche Datei und Anfang des Namens); -1 ohne.</summary>
+function IndexOfWanted(const AOwner: TUnitIndex; const ASame: TArray<TIndexSymbol>;
+  const AWanted: TRoutineWanted): Integer;
+var
+  mIndex: Integer;
+begin
+  for mIndex := 0 to High(ASame) do
+  begin
+    if (ASame[mIndex].SelectionRange.StartPos.Line = AWanted.Start.Line) and
+      (ASame[mIndex].SelectionRange.StartPos.Character = AWanted.Start.Character) and
+      SameText(AOwner.SymbolFile(ASame[mIndex]), AWanted.FileName) then
+    begin
+      Exit(mIndex);
+    end;
+  end;
+  Result := -1;
+end;
+
+/// <summary>Fundstellen der Routine AResolved in AOwner und der Weg des Paars in AWay:
+/// - types: genau zwei Fundstellen mit Parameter- und Ergebnistyp von AWanted (Typen ohne Leerzeichen, Groß/Klein
+///   und Unit-Qualifizierung verglichen; der Ergebnistyp nur, wo beide einen haben);
+/// - sole: sonst bei genau zwei gleichnamigen Fundstellen diese beiden (ohne Überladungen darf die Implementierung
+///   Parameter und Ergebnistyp weglassen);
+/// - names, order (oder types): sonst PairByStages unter den gleichnamigen Routinen des Containers, Deklaration
+///   zuerst. Mehr als zwei Fundstellen gleicher Typen ohne eindeutiges Paar: wie bisher die erste und die letzte.
+/// False ohne Paar.</summary>
+function RoutinePair(const AOwner: TUnitIndex; const AResolved: TResolvedSymbol; const AWanted: TRoutineWanted;
+  out AVariant: TArray<TIndexSymbol>; out AWay: string): Boolean;
+var
+  mSymbol: TIndexSymbol;
+  mSame: TArray<TIndexSymbol>;
+  mWanted, mDeclaration, mBody: Integer;
+  mWay: string;
+begin
+  AVariant := nil;
+  AWay := '';
+  mSame := SameRoutines(AOwner, AResolved);
+  for mSymbol in mSame do
+  begin
+    if SameVariant(mSymbol, AWanted.ParamTypes, AWanted.ResultType) then
+    begin
+      AVariant := AVariant + [mSymbol];
+    end;
+  end;
+  if Length(AVariant) = 2 then
+  begin
+    AWay := cPairTypes;
+    Exit(True);
   end;
   if (Length(AVariant) < 2) and (Length(mSame) = 2) then
   begin
     AVariant := mSame;
+    AWay := cPairSole;
+    Exit(True);
   end;
-  Result := Length(AVariant) >= 2;
+  // Keine oder mehrere Fundstellen gleicher Typen: eindeutig über Stufen paaren.
+  mWanted := IndexOfWanted(AOwner, mSame, AWanted);
+  if (mWanted >= 0) and PairByStages(mSame, mWanted, mDeclaration, mBody, mWay) then
+  begin
+    AVariant := [mSame[mDeclaration], mSame[mBody]];
+    AWay := mWay;
+    Exit(True);
+  end;
+  if Length(AVariant) > 2 then
+  begin
+    AWay := cPairTypes;
+    Exit(True);
+  end;
+  AVariant := nil;
+  Result := False;
 end;
 
 /// <summary>Steht eine der Fundstellen AVariant in einer anderen Datei als AFileName (Include-Datei)?</summary>
@@ -375,8 +960,47 @@ begin
   Result := False;
 end;
 
+/// <summary>Diagnoselog (#647, LOG1; nur Codes und Zahlen): warum RoutinePair in AOwner kein Paar fand. pair=none:
+/// noSymbol (die Routine steht dort nicht), single (nur eine Fundstelle: keine zweite Hälfte im Index) oder params
+/// (mehrere Fundstellen, aber weder zwei mit Parameter- und Ergebnistyp von AWanted noch ein eindeutiges Paar nach
+/// Namen oder Reihenfolge), dazu pairSame und pairVariant.</summary>
+procedure NoteNoPair(const AOwner: TUnitIndex; const AResolved: TResolvedSymbol; const AWanted: TRoutineWanted);
+var
+  mSymbol: TIndexSymbol;
+  mSame, mVariant: Integer;
+begin
+  mSame := 0;
+  mVariant := 0;
+  // Dieselbe Auswahl wie RoutinePair, nur gezählt.
+  for mSymbol in SameRoutines(AOwner, AResolved) do
+  begin
+    Inc(mSame);
+    if SameVariant(mSymbol, AWanted.ParamTypes, AWanted.ResultType) then
+    begin
+      Inc(mVariant);
+    end;
+  end;
+  if mSame = 0 then
+  begin
+    TRequestDiagnostics.Note('pair', 'none:noSymbol');
+  end
+  else if mSame = 1 then
+  begin
+    TRequestDiagnostics.Note('pair', 'none:single');
+  end
+  else
+  begin
+    TRequestDiagnostics.Note('pair', 'none:params');
+  end;
+  TRequestDiagnostics.Note('pairSame', mSame);
+  TRequestDiagnostics.Note('pairVariant', mVariant);
+end;
+
 /// <summary>Ziel einer Routine: Deklaration und Implementierung derselben Variante. Steht der Cursor auf einer
 /// Routine dieser Datei (Deklaration oder Implementierung), gilt deren Variante. Ohne Paar das Symbol selbst.
+/// Im Diagnoselog des Servers (nur bei offenem Bereich) steht, ob und auf welchem Weg ein Paar gefunden wurde
+/// (pair=found:types|sole|names|order, pairChosen=declaration|implementation) und sonst warum nicht (NoteNoPair,
+/// pair=none:noUnit ohne Unit im Index).
 /// </summary>
 function RoutineTargets(AResolver: TNameResolver; const AIndex: ISymbolIndex; const AQuery: TDefinitionQuery;
   const AResolved: TResolvedSymbol): TArray<TDefinitionTarget>;
@@ -384,23 +1008,42 @@ var
   mHere, mOwnerUnit: TUnitIndex;
   mVariant: TArray<TIndexSymbol>;
   mFirst, mLast, mChosen: TIndexSymbol;
-  mFound: Boolean;
+  mFound, mToDeclaration: Boolean;
+  mWanted: TRoutineWanted;
+  mWay: string;
 begin
   Result := [Target(AResolved.FileName, AResolved.Range, AResolved.SelectionRange)];
   mHere := AResolver.ExtractedUnit(AQuery.Tree, AQuery.FileName);
   mOwnerUnit := mHere;
+  mWanted := WantedOf(mHere, AResolved, AQuery.Position);
   mFound := SameText(AResolved.FileName, AQuery.FileName) or TIndexFiles.UnitOf(AIndex, AResolved.FileName,
     mOwnerUnit);
-  if not mFound or not RoutinePair(mOwnerUnit, AResolved, VariantParams(mHere, AResolved, AQuery.Position),
-    mVariant) then
+  if not mFound or not RoutinePair(mOwnerUnit, AResolved, mWanted, mVariant, mWay) then
   begin
     // Include-Dateien (NAV): Der Baum der offenen Datei kennt Deklarationen aus $I-Dateien nicht, ihr Eintrag im
     // Index schon. Nur ein Paar, das in eine andere Datei führt: Zeilen der eigenen Datei stehen im Baum aktueller.
     if not (SameText(AResolved.FileName, AQuery.FileName) and
       TIndexFiles.UnitOf(AIndex, AQuery.FileName, mOwnerUnit) and
-      RoutinePair(mOwnerUnit, AResolved, VariantParams(mHere, AResolved, AQuery.Position), mVariant) and
+      RoutinePair(mOwnerUnit, AResolved, mWanted, mVariant, mWay) and
       ReachesOtherFile(mOwnerUnit, mVariant, AQuery.FileName)) then
     begin
+      // Diagnoselog (LOG1): Gezählt wird in der Unit, in der RoutinePair zuerst suchte (bei derselben Datei der Baum,
+      // sonst die Unit des Ziels im Index).
+      if TRequestDiagnostics.IsOpen then
+      begin
+        if not mFound then
+        begin
+          TRequestDiagnostics.Note('pair', 'none:noUnit');
+        end
+        else if SameText(AResolved.FileName, AQuery.FileName) then
+        begin
+          NoteNoPair(mHere, AResolved, mWanted);
+        end
+        else
+        begin
+          NoteNoPair(mOwnerUnit, AResolved, mWanted);
+        end;
+      end;
       Exit;
     end;
   end;
@@ -414,12 +1057,27 @@ begin
   end;
   // Mit Include-Dateien (#500) kann jede Fundstelle in einer anderen Datei stehen.
   mChosen := mLast;
-  if AQuery.Declaration or (SameText(mOwnerUnit.SymbolFile(mLast), AQuery.FileName) and
-    Within(AQuery.Position, mLast.SelectionRange)) then
+  mToDeclaration := AQuery.Declaration or (SameText(mOwnerUnit.SymbolFile(mLast), AQuery.FileName) and
+    Within(AQuery.Position, mLast.SelectionRange));
+  if mToDeclaration then
   begin
     mChosen := mFirst;
   end;
   Result := [Target(mOwnerUnit.SymbolFile(mChosen), mChosen.Range, mChosen.SelectionRange)];
+  // Diagnoselog (LOG1): Paar gefunden und welche Hälfte das Ziel ist.
+  if TRequestDiagnostics.IsOpen then
+  begin
+    TRequestDiagnostics.Note('pair', 'found:' + mWay);
+    TRequestDiagnostics.Note('pairVariant', Integer(Length(mVariant)));
+    if mToDeclaration then
+    begin
+      TRequestDiagnostics.Note('pairChosen', 'declaration');
+    end
+    else
+    begin
+      TRequestDiagnostics.Note('pairChosen', 'implementation');
+    end;
+  end;
 end;
 
 class function TLspDefinition.TargetsOf(AResolver: TNameResolver; const AIndex: ISymbolIndex;
