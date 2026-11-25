@@ -36,6 +36,9 @@
 //   Fensterhandle. Stop (Entladen, nach TDpccShutdown.Signal) beendet ihn
 //   begrenzt (TDpccShutdown.WaitForThreads), bevor Fenster und Protokoll weg
 //   sind; endet er nicht rechtzeitig, gibt er sich selbst frei.
+// - Gleitkomma-Einstellung (FPU1, TDpccIdeFpuWatch, nur lesend): beim Start eine Zeile mit Default8087CW und dem
+//   Steuerwort des Hauptthreads; danach prüft jede Antwort des Fensters (Hauptthread, etwa alle 50 ms) beide Werte
+//   und schreibt nur bei einer Änderung eine Zeile. Stop setzt den Zustand zurück.
 
 interface
 
@@ -65,7 +68,8 @@ uses
   dpcc.Core.Diagnostics.Hangs,
   dpcc.Core.Diagnostics.PluginTimings,
   dpcc.Core.Diagnostics.Timing,
-  dpcc.IDE.CodeInsight.Manager.Paths;
+  dpcc.IDE.CodeInsight.Manager.Paths,
+  dpcc.IDE.Foundation.FpuWatch;
 
 const
   cWM_DPCC_PING = WM_APP + $4A1;
@@ -280,6 +284,8 @@ begin
             // Zuletzt die Nummer: Der Thread liest danach FPongAt.
             AtomicExchange(mThread.FPong, Integer(AMessage.WParam));
           end;
+          // Gleitkomma-Einstellung (FPU1): zwei Lesezugriffe; eine Zeile nur, wenn sich etwas geändert hat.
+          TDpccIdeFpuWatch.Check;
         end;
       cWM_DPCC_STARTUP:
         begin
@@ -325,6 +331,8 @@ begin
   TDpccGuard.Log(Format('Wächter des Hauptthreads an: Takt %d ms, Hänger ab %d ms, Dauer ab %d ms, ' +
     'Warten auf den Server ab %d ms; Diagnose: %s', [cPeriodMs, TDpccHangMonitor.cDefaultThresholdMs,
     TDpccSlowLog.cActivityMs, TDpccSlowLog.cWaitMs, BoolToStr(DiagnoseOn, True)]));
+  // Gleitkomma-Einstellung beim Start (FPU1), nur lesend; danach prüft das Fenster bei jeder Antwort.
+  TDpccIdeFpuWatch.Start;
 end;
 
 /// <summary>Diagnosemodus, beim Entladen: die langsamsten Aufrufe, Anfragen und Abfragen ins Diagnoselog.</summary>
@@ -393,6 +401,8 @@ begin
       TDpccQueryTimings.Enabled := False;
     end;
     DiagnoseOn := False;
+    // Gleitkomma-Einstellung (FPU1): ab hier prüft das Fenster nichts mehr; neu geladen beginnt es von vorn.
+    TDpccIdeFpuWatch.Stop;
     // Nach dem Thread: Eine späte Nachricht an ein freigegebenes Fenster scheitert nur (PostMessage).
     FreeAndNil(PingWindow);
   end;

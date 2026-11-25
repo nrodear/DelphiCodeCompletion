@@ -220,6 +220,8 @@ uses
   dpcc.Core.Diagnostics.Hangs.Tests in 'IDE\dpcc.Core.Diagnostics.Hangs.Tests.pas',
   dpcc.Core.Diagnostics.Flow in '..\Packages\dpcc.Core\Source\Diagnostics\dpcc.Core.Diagnostics.Flow.pas',
   dpcc.Core.Diagnostics.Flow.Tests in 'IDE\dpcc.Core.Diagnostics.Flow.Tests.pas',
+  dpcc.Core.Diagnostics.FpuState in '..\Packages\dpcc.Core\Source\Diagnostics\dpcc.Core.Diagnostics.FpuState.pas',
+  dpcc.Core.Diagnostics.FpuState.Tests in 'IDE\dpcc.Core.Diagnostics.FpuState.Tests.pas',
   Shell.Composition.Completion.Tests in 'Application\Shell\Shell.Composition.Completion.Tests.pas',
   Shell.Composition.InProcess.Tests in 'Application\Shell\Shell.Composition.InProcess.Tests.pas',
   Shell.Composition.CompletionCapabilities.Tests in 'Application\Shell\Shell.Composition.CompletionCapabilities.Tests.pas',

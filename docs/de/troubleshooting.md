@@ -172,6 +172,33 @@ nicht mehr von selbst neu (siehe [Der Server ist abgestürzt](#der-server-ist-ab
   er beendet, bis die IDE neu gestartet wird.
 - Die Ursache steht im Protokoll.
 
+## Die IDE stürzt mit Stapelüberlauf in clr.dll ab
+
+Bild: Die IDE beendet sich mit einem Stapelüberlauf (Stack Overflow); das Absturzabbild zeigt `clr.dll` und einen
+Hintergrund-Thread der IDE (etwa Error Insight), der .NET-Code aufruft. In einem untersuchten Fall war die
+Gleitkomma-Einstellung der Grund: Im x87-Steuerwort war die Ausnahme „Invalid“ nicht maskiert, die Vorgabe
+`System.Default8087CW` der gemeinsamen RTL stand auf `$137A` statt auf `$033F` (Vorgabe der Delphi-RTL, alle
+Ausnahmen maskiert). Wer sie verstellt (die IDE, ein Experte, ein Package), zeigt das Abbild nicht.
+
+dpcc ändert diese Einstellung nie. Es liest sie nur und schreibt dazu ins `dpcc.log`:
+
+| Zeile | Bedeutung |
+|---|---|
+| `Gleitkomma beim Start: Vorgabe $033F (alle maskiert); Hauptthread $033F (alle maskiert); MXCSR Vorgabe $1F80, Hauptthread $1F80` | Stand beim Anmelden von dpcc: Vorgabe des Prozesses und Steuerwort des Hauptthreads mit den nicht maskierten Ausnahmen, dazu die SSE-Einstellung (MXCSR) nur als Hex. |
+| `Gleitkomma geändert nach 95 s (Meldung 1 von höchstens 20): Vorgabe $033F (alle maskiert) → $137A (nicht maskiert: Invalid, ZeroDivide); Hauptthread unverändert $033F (alle maskiert)` | Seit dem Anmelden hat jemand die Einstellung geändert; alter → neuer Wert, getrennt für Vorgabe und Hauptthread. „Masken gleich“ heißt: Nur Genauigkeit oder Rundung sind anders. |
+
+Geprüft wird im Takt des Wächters des Hauptthreads (etwa alle 50 ms, zwei Lesezugriffe). Eine Zeile entsteht nur bei
+einer Änderung, höchstens 20 je Sitzung; die letzte endet mit „weitere Änderungen werden nicht mehr gemeldet“. Mit
+eingeschaltetem [Ablaufprotokoll](#ablaufprotokoll) steht die Änderungszeile auch dort.
+
+Steht in einer dieser Zeilen „nicht maskiert: Invalid“:
+
+1. Die Uhrzeit der Änderungszeile mit dem vergleichen, was gerade geschah (Package geladen, Projekt geöffnet, Tests
+   gestartet).
+2. Andere Experten und Design-Packages (etwa TestInsight) testweise abschalten, die IDE neu starten und die Startzeile
+   erneut ansehen. Bleibt danach alles bei `$033F (alle maskiert)`, kommt die Änderung von einem der abgeschalteten.
+3. Die Zeilen zusammen mit dem Absturzabbild an den Hersteller dieses Experten bzw. an Embarcadero geben.
+
 ## Protokolle
 
 ### dpcc.log

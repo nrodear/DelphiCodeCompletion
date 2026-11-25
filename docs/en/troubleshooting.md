@@ -175,6 +175,34 @@ server has crashed twice with the same cause within 10 minutes, and dpcc no long
   restarted.
 - The cause is in the log.
 
+## The IDE crashes with a stack overflow in clr.dll
+
+Symptom: the IDE terminates with a stack overflow; the crash dump shows `clr.dll` and a background thread of the IDE
+(such as Error Insight) calling .NET code. In one case that was examined, the floating-point setting was the reason:
+the “Invalid” exception was unmasked in the x87 control word, and `System.Default8087CW` of the shared RTL was `$137A`
+instead of `$033F` (the Delphi RTL default, all exceptions masked). The dump does not show who changed it (the IDE, an
+expert, a package).
+
+dpcc never changes this setting. It only reads it and writes these lines to `dpcc.log` (log lines are always in
+German):
+
+| Line | Meaning |
+|---|---|
+| `Gleitkomma beim Start: Vorgabe $033F (alle maskiert); Hauptthread $033F (alle maskiert); MXCSR Vorgabe $1F80, Hauptthread $1F80` | State when dpcc registers: the process default (“Vorgabe”) and the main thread's control word (“Hauptthread”) with the unmasked exceptions (“nicht maskiert: …”, or “alle maskiert” = all masked), plus the SSE setting (MXCSR) as hex only. |
+| `Gleitkomma geändert nach 95 s (Meldung 1 von höchstens 20): Vorgabe $033F (alle maskiert) → $137A (nicht maskiert: Invalid, ZeroDivide); Hauptthread unverändert $033F (alle maskiert)` | Something changed the setting after dpcc registered (seconds since then); old → new value, separately for the default and the main thread. “Masken gleich” means only precision or rounding differ. |
+
+The check runs on the main-thread watchdog's cycle (about every 50 ms, two reads). A line is written only when
+something changed, at most 20 per session; the last one ends with “weitere Änderungen werden nicht mehr gemeldet” (no
+further changes will be reported). With the [flow log](#flow-log) switched on, the change line also goes there.
+
+If one of these lines says “nicht maskiert: Invalid”:
+
+1. Compare the time of the change line with what happened at that moment (package loaded, project opened, tests
+   started).
+2. Switch off other experts and design packages (such as TestInsight) for a test, restart the IDE and look at the
+   start line again. If everything stays at `$033F (alle maskiert)`, the change comes from one of those switched off.
+3. Pass the lines together with the crash dump to the maker of that expert or to Embarcadero.
+
 ## Logs
 
 ### dpcc.log

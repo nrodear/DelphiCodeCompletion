@@ -168,6 +168,7 @@
         <DCCReference Include="Source\Diagnostics\dpcc.Core.Diagnostics.StartTimes.pas"/>
         <DCCReference Include="Source\Diagnostics\dpcc.Core.Diagnostics.Hangs.pas"/>
         <DCCReference Include="Source\Diagnostics\dpcc.Core.Diagnostics.Flow.pas"/>
+        <DCCReference Include="Source\Diagnostics\dpcc.Core.Diagnostics.FpuState.pas"/>
         <DCCReference Include="Source\Commands\dpcc.Core.Commands.Palette.pas"/>
         <DCCReference Include="Source\Editor\dpcc.Core.Editor.Pairs.pas"/>
         <DCCReference Include="Source\Editor\dpcc.Core.Editor.SnapshotPolicy.pas"/>

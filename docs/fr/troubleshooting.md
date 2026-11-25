@@ -183,6 +183,36 @@ dpcc ne le redémarre plus de lui-même (voir [Le serveur a planté](#le-serveur
   redémarre et le comptage repart de zéro. Avec **No** (non), il reste arrêté jusqu'au redémarrage de l'IDE.
 - La cause figure dans le journal.
 
+## L'IDE plante avec un dépassement de pile dans clr.dll
+
+Symptôme : l'IDE se termine sur un dépassement de pile (stack overflow) ; le vidage mémoire montre `clr.dll` et un
+thread d'arrière-plan de l'IDE (par exemple Error Insight) qui appelle du code .NET. Dans un cas examiné, la cause était
+le réglage de la virgule flottante : l'exception « Invalid » n'était pas masquée dans le mot de contrôle x87, et
+`System.Default8087CW` de la RTL partagée valait `$137A` au lieu de `$033F` (valeur par défaut de la RTL Delphi, toutes
+les exceptions masquées). Le vidage ne dit pas qui l'a modifié (l'IDE, un expert, un package).
+
+dpcc ne modifie jamais ce réglage. Il se contente de le lire et écrit ces lignes dans `dpcc.log` (les lignes du journal
+sont toujours en allemand) :
+
+| Ligne | Signification |
+|---|---|
+| `Gleitkomma beim Start: Vorgabe $033F (alle maskiert); Hauptthread $033F (alle maskiert); MXCSR Vorgabe $1F80, Hauptthread $1F80` | État à l'inscription de dpcc : valeur par défaut du processus (« Vorgabe ») et mot de contrôle du thread principal (« Hauptthread ») avec les exceptions non masquées (« nicht maskiert: … », ou « alle maskiert » = toutes masquées), plus le réglage SSE (MXCSR) en hexadécimal seulement. |
+| `Gleitkomma geändert nach 95 s (Meldung 1 von höchstens 20): Vorgabe $033F (alle maskiert) → $137A (nicht maskiert: Invalid, ZeroDivide); Hauptthread unverändert $033F (alle maskiert)` | Le réglage a changé après l'inscription de dpcc (secondes depuis celle-ci) ; ancienne → nouvelle valeur, séparément pour la valeur par défaut et le thread principal. « Masken gleich » signifie que seules la précision ou l'arrondi diffèrent. |
+
+La vérification suit le rythme du surveillant du thread principal (environ toutes les 50 ms, deux lectures). Une ligne
+n'est écrite qu'en cas de changement, au plus 20 par session ; la dernière se termine par « weitere Änderungen werden
+nicht mehr gemeldet » (les changements suivants ne sont plus signalés). Si le
+[journal du déroulement](#journal-du-déroulement) est activé, la ligne de changement y figure aussi.
+
+Si l'une de ces lignes indique « nicht maskiert: Invalid » :
+
+1. Comparer l'heure de la ligne de changement avec ce qui se passait à ce moment (package chargé, projet ouvert, tests
+   lancés).
+2. Désactiver à titre d'essai les autres experts et packages de conception (par exemple TestInsight), redémarrer l'IDE
+   et relire la ligne de démarrage. Si tout reste à `$033F (alle maskiert)`, le changement vient de l'un de ceux qui
+   ont été désactivés.
+3. Transmettre les lignes avec le vidage mémoire à l'éditeur de cet expert ou à Embarcadero.
+
 ## Journaux
 
 ### dpcc.log

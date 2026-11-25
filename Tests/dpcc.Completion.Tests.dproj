@@ -259,6 +259,8 @@
         <DCCReference Include="IDE\dpcc.Core.Diagnostics.Hangs.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Diagnostics\dpcc.Core.Diagnostics.Flow.pas"/>
         <DCCReference Include="IDE\dpcc.Core.Diagnostics.Flow.Tests.pas"/>
+        <DCCReference Include="..\Packages\dpcc.Core\Source\Diagnostics\dpcc.Core.Diagnostics.FpuState.pas"/>
+        <DCCReference Include="IDE\dpcc.Core.Diagnostics.FpuState.Tests.pas"/>
         <DCCReference Include="Application\Shell\Shell.Composition.Completion.Tests.pas"/>
         <DCCReference Include="Application\Shell\Shell.Composition.InProcess.Tests.pas"/>
         <DCCReference Include="Application\Shell\Shell.Composition.CompletionCapabilities.Tests.pas"/>

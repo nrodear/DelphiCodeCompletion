@@ -123,6 +123,7 @@ contains
   dpcc.Core.Diagnostics.StartTimes in 'Source\Diagnostics\dpcc.Core.Diagnostics.StartTimes.pas',
   dpcc.Core.Diagnostics.Hangs in 'Source\Diagnostics\dpcc.Core.Diagnostics.Hangs.pas',
   dpcc.Core.Diagnostics.Flow in 'Source\Diagnostics\dpcc.Core.Diagnostics.Flow.pas',
+  dpcc.Core.Diagnostics.FpuState in 'Source\Diagnostics\dpcc.Core.Diagnostics.FpuState.pas',
   dpcc.Core.Commands.Palette in 'Source\Commands\dpcc.Core.Commands.Palette.pas',
   dpcc.Core.Editor.Pairs in 'Source\Editor\dpcc.Core.Editor.Pairs.pas',
   dpcc.Core.Editor.SnapshotPolicy in 'Source\Editor\dpcc.Core.Editor.SnapshotPolicy.pas',

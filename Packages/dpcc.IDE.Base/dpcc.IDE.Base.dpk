@@ -103,6 +103,7 @@ contains
   dpcc.IDE.Hover.HelpInsightHide in 'Source\IDE\Hover\dpcc.IDE.Hover.HelpInsightHide.pas',
   dpcc.IDE.Foundation.InsightSwitch in 'Source\IDE\Foundation\dpcc.IDE.Foundation.InsightSwitch.pas',
   dpcc.IDE.Foundation.IdeSettingsCheck in 'Source\IDE\Foundation\dpcc.IDE.Foundation.IdeSettingsCheck.pas',
+  dpcc.IDE.Foundation.FpuWatch in 'Source\IDE\Foundation\dpcc.IDE.Foundation.FpuWatch.pas',
   dpcc.IDE.Foundation.Watchdog in 'Source\IDE\Foundation\dpcc.IDE.Foundation.Watchdog.pas',
   dpcc.IDE.Forms.Designer in 'Source\IDE\Forms\dpcc.IDE.Forms.Designer.pas';
 

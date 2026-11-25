@@ -153,6 +153,7 @@
         <DCCReference Include="Source\IDE\Hover\dpcc.IDE.Hover.HelpInsightHide.pas"/>
         <DCCReference Include="Source\IDE\Foundation\dpcc.IDE.Foundation.InsightSwitch.pas"/>
         <DCCReference Include="Source\IDE\Foundation\dpcc.IDE.Foundation.IdeSettingsCheck.pas"/>
+        <DCCReference Include="Source\IDE\Foundation\dpcc.IDE.Foundation.FpuWatch.pas"/>
         <DCCReference Include="Source\IDE\Foundation\dpcc.IDE.Foundation.Watchdog.pas"/>
         <DCCReference Include="Source\IDE\Forms\dpcc.IDE.Forms.Designer.pas"/>
         <BuildConfiguration Include="Base">
