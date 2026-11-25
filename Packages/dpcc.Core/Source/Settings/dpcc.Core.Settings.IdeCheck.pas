@@ -18,22 +18,23 @@
 //     (Borland.CodeInsight.LSP.Pascal = DelphiLSP, dpcc.CodeInsight = dpcc, die IDString des Managers);
 //   - DelphiLSP: Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal, unter 12 und 13 gleich (Delphi 12
 //     hatte auf dem Prüfrechner gar kein Borland.EditOptions.Pascal; den früheren Ersatz "Ort der Version"
-//     Borland.EditOptions.Pascal unter 23.0 gibt es seit D12-PREP nicht mehr);
-//   - dpcc (DpccKeys, Auftrag D12KEY):
-//       Delphi 12 (BDS 23.0): immer Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal, auch wenn dpcc
-//       der Anbieter ist. Gemessen auf dem Prüfrechner: Delphi 12 liest Help Insight, Declaration Information und
-//       ToolTip Watches dort, unabhängig vom gewählten Manager; Borland.EditOptions.Pascal (das Option Set, das
-//       GetOptionSetName des dpcc-Managers nennt) schreibt und liest Delphi 12 nie, unter 23.0 trug der Schlüssel
-//       nur die drei Werte, die dpcc selbst dort angelegt hatte, und Help Insight blieb trotz False dort an.
-//       Delphi 13 (BDS 37.0) und unbekannte Version: Welcher Ort mit dpcc als Anbieter gilt, ist nicht belegt. Unter
-//       37.0 schreibt die IDE beide Schlüssel voll (je 42 Werte), und coreide/delphicoreide kennen beide Namen
-//       ("Borland.EditOptions." + Option Set bzw. "Code Insight\Borland.EditOptions.Pascal"). Deshalb robust: jeder
+//     Borland.EditOptions.Pascal unter 23.0 gibt es seit D12-PREP nicht mehr; das gilt nur für die Prüfung in der
+//     Betriebsart IDE, nicht für DpccKeys);
+//   - dpcc (DpccKeys, Aufträge D12KEY und HI1): unter Delphi 12 (BDS 23.0), Delphi 13 (BDS 37.0) und unbekannter
+//       Version gleich. Welcher Ort mit dpcc als Anbieter gilt, ist nicht sicher belegt: Unter 37.0 schreibt die IDE
+//       beide Schlüssel voll (je 42 Werte), und coreide/delphicoreide kennen beide Namen ("Borland.EditOptions." +
+//       Option Set bzw. "Code Insight\Borland.EditOptions.Pascal"). Unter 23.0 war auf dem Prüfrechner nur der Ort
+//       von DelphiLSP gefüllt; die Annahme aus D12KEY, Delphi 12 lese Help Insight nur dort, hat sich nicht
+//       bestätigt (Help Insight blieb auch mit False dort an). Deshalb robust und ohne Sonderregel je Version: jeder
 //       vorhandene der beiden Orte (Borland.EditOptions.Pascal, dann der Ort von DelphiLSP) wird gesetzt und
-//       geprüft; ein fehlender wird nicht angelegt. Nur wenn keiner da ist, gilt der Ort von DelphiLSP (wie unter
-//       23.0), sonst bliebe die Betriebsart dpcc ohne Wirkung.
-//     Merker an einem Ort, der danach nicht mehr dazugehört (unter 23.0 die alten Merker für
-//     Borland.EditOptions.Pascal), werden beim nächsten Plan an ihrem eigenen Ort zurückgedreht (nur, was noch so
-//     steht, wie dpcc es schrieb) und entfallen; sie berühren nie den Ort von DelphiLSP (CleanedNames).
+//       geprüft; ein fehlender wird nicht angelegt. Nur wenn keiner da ist, gilt der Ort von DelphiLSP, sonst bliebe
+//       die Betriebsart dpcc ohne Wirkung. Unabhängig von der Registry verbirgt die IDE-Schicht das Fenster von Help
+//       Insight zur Laufzeit (dpcc.Core.Editor.HelpInsightRule, dpcc.IDE.Hover.HelpInsightHide).
+//     Merker an einem Ort unter Code Insight, der nicht (mehr) zu DpccKeys gehört, werden beim nächsten Plan an
+//     ihrem eigenen Ort zurückgedreht (nur, was noch so steht, wie dpcc es schrieb) und entfallen (CleanedNames).
+//     Seit HI1 gehört Borland.EditOptions.Pascal auch unter 23.0 dazu, sobald es den Schlüssel gibt: Die alten
+//     Merker dafür (vor D12KEY) gelten dann wieder als eigene Merker der Betriebsart dpcc und werden nicht mehr
+//     gegen das neue Schreiben aufgeräumt.
 //   - InsightGlobalOptions: AutoInvokeCompletionOnParameterInsight.
 // Ein fehlender Wert gilt mit der Vorgabe der IDE (an bzw. -1); fehlt der geprüfte Schlüssel ganz, ist das kein
 // Fehler, sondern ein Hinweis „Schlüssel fehlt (IDE-Vorgabe)“. Evaluate prüft nur und liefert Befunde (für das
@@ -148,8 +149,8 @@ type
     /// <summary>Geprüfter Ort der Code-Insight-Schalter (relativ zum Basisschlüssel).</summary>
     ActiveKey: string;
     ActiveKeyMissing: Boolean;
-    /// <summary>Alle geprüften Orte der Code-Insight-Schalter; mit Hauptschalter an DpccKeys (unter 37.0 bis zu
-    /// zwei), sonst nur ActiveKey.</summary>
+    /// <summary>Alle geprüften Orte der Code-Insight-Schalter; mit Hauptschalter an DpccKeys (unter 23.0 und 37.0
+    /// bis zu zwei), sonst nur ActiveKey.</summary>
     CheckedKeys: TArray<string>;
     Findings: TArray<TDpccIdeFinding>;
     function Count(ASeverity: TDpccIdeSeverity): Integer;
@@ -202,8 +203,9 @@ type
     SetNames: TArray<string>;
     RestoredNames: TArray<string>;
     KeptNames: TArray<string>;
-    /// <summary>Wertnamen, die dpcc an einem Ort zurückgedreht hat, der nicht mehr zu DpccKeys gehört (alte Merker,
-    /// unter 23.0 Borland.EditOptions.Pascal).</summary>
+    /// <summary>Wertnamen, die dpcc an einem Ort unter Code Insight zurückgedreht hat, der nicht (mehr) zu DpccKeys
+    /// gehört (alte Merker an einem Ort, den es nicht mehr gibt oder der kein Ort der Betriebsart dpcc ist).
+    /// </summary>
     CleanedNames: TArray<string>;
     /// <summary>Der Anbieter wurde umgestellt: wirkt nach dem Neustart von Delphi.</summary>
     ProviderChanged: Boolean;
@@ -228,12 +230,10 @@ type
     cCodeInsightRoot = 'Code Insight';
     cEditOptionsPrefix = 'Borland.EditOptions.';
     cLspKey = 'Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal';
-    /// <summary>Option Set, das GetOptionSetName des dpcc-Managers nennt. Unter Delphi 12 liest die IDE es nicht
-    /// (dort gilt cLspKey); unter Delphi 13 einer der Orte von DpccKeys.</summary>
+    /// <summary>Option Set, das GetOptionSetName des dpcc-Managers nennt; unter Delphi 12 und 13 einer der Orte von
+    /// DpccKeys, wenn es den Schlüssel gibt (HI1; die Sonderregel cAllKeysVersion für Delphi 12 ist entfallen).
+    /// </summary>
     cPascalKey = 'Code Insight\Borland.EditOptions.Pascal';
-    /// <summary>Erste Hauptversion, für die DpccKeys alle vorhandenen Orte nimmt (Delphi 13, BDS 37.0); darunter
-    /// (Delphi 12, BDS 23.0) nur cLspKey.</summary>
-    cAllKeysVersion = 37;
     cGlobalKey = 'InsightGlobalOptions';
     cAutoCodeCompletions = 'Auto Code Completions';
     cAutoInvokeDelay = 'Auto Invoke Delay';
@@ -256,9 +256,9 @@ type
     class function CodeInsightValueNames: TArray<string>; static;
     /// <summary>Ort, den die IDE für den gewählten Anbieter liest (siehe Kopf der Unit).</summary>
     class function ActiveKey(const AInput: TDpccIdeCheckInput): string; static;
-    /// <summary>Orte der Code-Insight-Schalter in der Betriebsart dpcc (siehe Kopf der Unit): unter Delphi 12 nur
-    /// cLspKey, auch wenn er fehlt; ab Delphi 13 (und bei unbekannter Version) jeder vorhandene aus cPascalKey und
-    /// cLspKey, ohne einen davon nur cLspKey. Nie leer.</summary>
+    /// <summary>Orte der Code-Insight-Schalter in der Betriebsart dpcc (siehe Kopf der Unit): unter Delphi 12, 13 und
+    /// unbekannter Version jeder vorhandene aus cPascalKey und cLspKey, ohne einen davon nur cLspKey. Nie leer.
+    /// </summary>
     class function DpccKeys(const AInput: TDpccIdeCheckInput): TArray<string>; static;
     /// <summary>Prüfen ohne zu ändern: mit Hauptschalter an gegen Targets, sonst die Regeln für DelphiLSP.
     /// </summary>
@@ -770,7 +770,8 @@ begin
       end
       else
       begin
-        // Mehrere geprüfte Orte (unter 37.0): Ort zum Wert nennen, sonst stünde derselbe Wert zweimal da.
+        // Mehrere geprüfte Orte (unter 23.0 und 37.0 möglich): Ort zum Wert nennen, sonst stünde derselbe Wert
+        // zweimal da.
         mAt := '';
         if Length(CheckedKeys) > 1 then
         begin
@@ -857,7 +858,7 @@ begin
   Result := nil;
   case TDpccIdeCheck.ProviderOf(AInput.ProviderId) of
     TDpccIdeProvider.Dpcc:
-      // Die Orte der Betriebsart dpcc (unter 23.0 der Ort von DelphiLSP, unter 37.0 der erste vorhandene).
+      // Die Orte der Betriebsart dpcc (unter 23.0 und 37.0 der erste vorhandene).
       Result := TDpccIdeCheck.DpccKeys(AInput);
     TDpccIdeProvider.Other:
       begin
@@ -873,19 +874,10 @@ begin
 end;
 
 class function TDpccIdeCheck.DpccKeys(const AInput: TDpccIdeCheckInput): TArray<string>;
-var
-  mVersion: Integer;
 begin
   Result := nil;
-  mVersion := TDpccCodeInsightKeys.MajorVersion(AInput.BaseKey);
-  if (mVersion > 0) and (mVersion < cAllKeysVersion) then
-  begin
-    // Delphi 12: immer der Ort von DelphiLSP, auch mit dpcc als Anbieter und auch wenn er fehlt (gemessen, siehe Kopf
-    // der Unit); Borland.EditOptions.Pascal liest Delphi 12 nicht.
-    AddName(Result, cLspKey);
-    Exit;
-  end;
-  // Ab Delphi 13 (und ohne bekannte Version): welcher Ort gilt, ist nicht belegt; jeder vorhandene, keinen anlegen.
+  // Delphi 12 wie Delphi 13 (HI1, auch ohne bekannte Version): welcher Ort gilt, ist nicht belegt; jeder vorhandene,
+  // keinen anlegen.
   if AInput.HasKey(cPascalKey) then
   begin
     AddName(Result, cPascalKey);
@@ -896,7 +888,7 @@ begin
   end;
   if Length(Result) = 0 then
   begin
-    // Keiner da (Optionen nie gespeichert): der Ort von DelphiLSP wie unter 23.0, sonst wirkte dpcc gar nicht.
+    // Keiner da (Optionen nie gespeichert): der Ort von DelphiLSP, sonst wirkte dpcc gar nicht.
     AddName(Result, cLspKey);
   end;
 end;
@@ -1080,7 +1072,7 @@ begin
   Result := nil;
   Result := Result + [NewTarget(TDpccIdeCheck.cSourceOptionsKey, TDpccIdeCheck.cProviderValue,
     TDpccIdeCheck.cDpccId, TDpccIdeValueKind.Text, TIdeCheckText.CaptionProvider, TIdeCheckText.ReasonProvider)];
-  // Je Ort der Betriebsart dpcc dieselben Schalter (unter 23.0 nur der Ort von DelphiLSP, siehe Kopf der Unit).
+  // Je Ort der Betriebsart dpcc dieselben Schalter (jeder vorhandene, siehe Kopf der Unit).
   for mKey in TDpccIdeCheck.DpccKeys(AInput) do
   begin
     Result := Result + [NewTarget(mKey, TDpccIdeCheck.cAutoCodeCompletions, 'True', TDpccIdeValueKind.Flag,
@@ -1182,8 +1174,10 @@ begin
   Result := SameText(AKey, TDpccIdeCheck.cSourceOptionsKey) and SameText(AName, TDpccIdeCheck.cProviderValue);
 end;
 
-/// <summary>Merker an einem Ort unter Code Insight, der nicht (mehr) zu DpccKeys gehört, etwa unter 23.0 die alten
-/// Merker für Borland.EditOptions.Pascal (vor D12KEY).</summary>
+/// <summary>Merker an einem Ort unter Code Insight, der nicht (mehr) zu DpccKeys gehört. Seit HI1 hängt das wie
+/// DpccKeys nicht mehr von der Version ab: Ein Merker für Borland.EditOptions.Pascal ist unter 23.0 nur dann alt, wenn
+/// es den Schlüssel nicht gibt; sonst gehört er zu den Orten, an denen dpcc jetzt schreibt, und wird nicht gegen das
+/// neue Schreiben aufgeräumt.</summary>
 function IsOrphan(const AInput: TDpccIdeCheckInput; const AMarker: TDpccIdeMarker): Boolean;
 var
   mKey: string;

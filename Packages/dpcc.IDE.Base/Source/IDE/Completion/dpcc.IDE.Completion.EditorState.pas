@@ -170,6 +170,7 @@ uses
   dpcc.IDE.Foundation.Settings,
   dpcc.IDE.Foundation.Navigation,
   dpcc.IDE.Foundation.EditorBuffer,
+  dpcc.IDE.Hover.HelpInsightHide,
   dpcc.UI.Completion.Strings;
 
 const
@@ -384,6 +385,9 @@ end;
 procedure TDpccEditorCompletionState.ActiveChanged;
 begin
   FTimer.Enabled := FController.Active;
+  // Help Insight der IDE verdeckt sonst die Liste (HI1): Solange sie aktiv ist, verbirgt dpcc das Fenster auch bei
+  // ausgeschaltetem eigenem Tooltip; beim Öffnen einmal nachsehen, ob es schon sichtbar ist.
+  TDpccHelpInsightHide.PopupChanged(FController.Active);
   if FController.Active then
   begin
     InstallKeyHook;

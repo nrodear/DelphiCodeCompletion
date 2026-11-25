@@ -28,6 +28,10 @@ type
     class function Run(const ASettings: TDpccPluginSettings): TDpccIdeCheckResult; static;
     /// <summary>Statuszeilen für die Optionsseite (Abschnitt „IDE“).</summary>
     class function Status(const ASettings: TDpccPluginSettings): string; static;
+    /// <summary>Diagnose (HI1), nur gelesen: Wert "Help Insight" an den Orten
+    /// TDpccHelpInsightRule.DiagnosisKeys der laufenden IDE-Version als eine Zeile fürs Protokoll; ein fehlender
+    /// Schlüssel oder Wert ist als solcher benannt.</summary>
+    class function HelpInsightLine: string; static;
   end;
 
 implementation
@@ -39,6 +43,7 @@ uses
   System.Win.Registry,
   ToolsAPI,
   dpcc.Core.Diagnostics.Guard,
+  dpcc.Core.Editor.HelpInsightRule,
   dpcc.IDE.Foundation.Settings;
 
 class function TDpccIdeSettingsCheck.BaseKey: string;
@@ -211,6 +216,72 @@ end;
 class function TDpccIdeSettingsCheck.Status(const ASettings: TDpccPluginSettings): string;
 begin
   Result := TDpccIdeContext.StatusText(Read(ASettings));
+end;
+
+/// <summary>"Help Insight" unter ABase\AKey, nur gelesen.</summary>
+function ReadHelpInsight(ARegistry: TRegistry; const ABase, AKey: string): TDpccHelpInsightRegEntry;
+var
+  mKeyExists, mValueExists: Boolean;
+  mValue: string;
+begin
+  mKeyExists := False;
+  mValueExists := False;
+  mValue := '';
+  try
+    mKeyExists := ARegistry.OpenKeyReadOnly(ABase + '\' + AKey);
+    if mKeyExists then
+    begin
+      try
+        mValueExists := ARegistry.ValueExists(TDpccHelpInsightRule.cValueName);
+        if mValueExists then
+        begin
+          case ARegistry.GetDataType(TDpccHelpInsightRule.cValueName) of
+            rdString, rdExpandString:
+              mValue := ARegistry.ReadString(TDpccHelpInsightRule.cValueName);
+            rdInteger:
+              mValue := IntToStr(ARegistry.ReadInteger(TDpccHelpInsightRule.cValueName));
+          else
+            mValue := '(anderer Typ)';
+          end;
+        end;
+      finally
+        ARegistry.CloseKey;
+      end;
+    end;
+  except
+    // Ohne Leserecht: als gelesen gilt, was bis dahin da war; die Zeile nennt den Fehler.
+    on E: ERegistryException do
+    begin
+      mValueExists := mKeyExists;
+      mValue := '(nicht lesbar: ' + TDpccGuard.ErrorText(E) + ')';
+    end;
+  end;
+  Result := TDpccHelpInsightRegEntry.Create(AKey, mKeyExists, mValueExists, mValue);
+end;
+
+class function TDpccIdeSettingsCheck.HelpInsightLine: string;
+var
+  mBase, mKey: string;
+  mRegistry: TRegistry;
+  mEntries: TArray<TDpccHelpInsightRegEntry>;
+begin
+  mBase := BaseKey;
+  mEntries := nil;
+  if mBase <> '' then
+  begin
+    // Nur lesen (KEY_READ), wie Read.
+    mRegistry := TRegistry.Create(KEY_READ);
+    try
+      mRegistry.RootKey := HKEY_CURRENT_USER;
+      for mKey in TDpccHelpInsightRule.DiagnosisKeys do
+      begin
+        mEntries := mEntries + [ReadHelpInsight(mRegistry, mBase, mKey)];
+      end;
+    finally
+      mRegistry.Free;
+    end;
+  end;
+  Result := TDpccHelpInsightRule.RegistryLine(mBase, mEntries);
 end;
 
 end.

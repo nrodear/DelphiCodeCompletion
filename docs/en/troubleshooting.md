@@ -134,6 +134,11 @@ preceded by a line `declaration start` or `definition start`.
 
 - The IDE reads its switches only at its next start. dpcc switches off Help Insight, tooltip symbol insight and,
   while debugging, tooltip expression evaluation as soon as it is the Code Insight provider. Restart Delphi.
+- In addition, dpcc hides the IDE's Help Insight window (for example “TQRCustomBand Type”) at runtime as soon as it
+  appears: always with the own tooltip on, otherwise while dpcc's list is open. No restart is needed for this, also
+  under Delphi 12, where the registry value alone does not reliably take effect. With dpcc off, the IDE's window
+  stays. The log has “Help Insight der IDE: Fenster THelpInsightWindow verborgen …” at the first hide and
+  “Help Insight in der Registry (…)” with the values read at startup.
 - The dpcc page shows the state in the **IDE** section (“Check now”).
 - If you want to keep the IDE's tooltip, switch off “Own tooltip when hovering identifiers” or “Show values while
   debugging”.

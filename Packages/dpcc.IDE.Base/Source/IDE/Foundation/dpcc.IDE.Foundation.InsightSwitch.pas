@@ -27,6 +27,10 @@
 // Start: Nach einem Wechsel meldet dpcc einmal „wirkt nach dem Neustart von Delphi“ im Meldungsfenster.
 // Error Insight fasst dpcc nicht an (der frühere Knopf dafür war entfallen, der Code ohne Aufrufer; seit IDECHECK
 // entfernt); die Prüfung meldet es nur.
+// Help Insight (HI1): Die Orte der Betriebsart dpcc sind unter Delphi 12 und 13 gleich (jeder vorhandene aus
+// Borland.EditOptions.Pascal und dem Ort von DelphiLSP, TDpccIdeCheck.DpccKeys). Weil der Registry-Wert unter
+// Delphi 12 nicht sicher wirkt, verbirgt dpcc.IDE.Hover.HelpInsightHide das Fenster zusätzlich zur Laufzeit; beim
+// Start steht der gelesene Wert "Help Insight" je Ort als eine Zeile im Protokoll (ApplyAtStart).
 
 interface
 
@@ -312,6 +316,16 @@ class procedure TDpccIdeInsightSwitch.ApplyAtStart;
 var
   mInput: TDpccIdeCheckInput;
 begin
+  // Diagnose (HI1): "Help Insight" an den Orten von DelphiLSP, dpcc und HTML, wie die IDE sie beim Start vorfand
+  // (vor dem Abgleich; nur gelesen). Ein Fehler hier kostet nur diese Zeile, nie den Abgleich.
+  try
+    TDpccGuard.Log(TDpccIdeSettingsCheck.HelpInsightLine + ' (beim Start, vor dem Abgleich)');
+  except
+    on E: Exception do
+    begin
+      TDpccGuard.Log('Help Insight in der Registry: nicht gelesen: ' + TDpccGuard.ErrorText(E));
+    end;
+  end;
   // Ohne ausdrücklichen Anbieter: AtExit folgt dann dem, was in der Registry steht (wählt der Nutzer im Dialog der
   // IDE DelphiLSP, schreibt dpcc beim Beenden den Anbieter nicht wieder auf dpcc).
   Apply(TDpccIdeContextTrigger.Start, '', True);

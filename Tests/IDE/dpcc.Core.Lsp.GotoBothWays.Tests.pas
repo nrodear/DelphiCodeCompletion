@@ -15,7 +15,9 @@
 // LSP, -1 ohne Ziel, -2 bei Ausnahme) und dazu an jeder Stelle die rohen Antworten auf declaration und definition
 // samt Urteil von OnTarget. Daran ist abzulesen, ob der Server oder die Seite der IDE abweicht.
 // Jeder Test startet einen eigenen Server (der Leckmonitor misst je Test); der erste Lauf im [SetupFixture] ist
-// ungemessen. Alle Dateien liegen in einem eigenen Ordner unter %TEMP% und werden am Ende gelöscht.
+// ungemessen. Jeder Test baut ihn am Ende selbst wieder ab (CheckPairs, LEAK1): Der Indexaufbau läuft sonst über das
+// Testende hinaus, und was er zwischen Test und TearDown freigibt, zählte der Leckmonitor als Leck.
+// Alle Dateien liegen in einem eigenen Ordner unter %TEMP% und werden am Ende gelöscht.
 
 interface
 
@@ -87,7 +89,8 @@ type
     /// Ergebnis anhängen; geprüft wird erst in CheckPairs.</summary>
     procedure AddPair(const AName, ADeclMarker, AImplMarker: string); overload;
     procedure AddPair(const AName, ADeclMarker, AImplMarker: string; AClick: TGotoClick); overload;
-    /// <summary>Alle Paare zusammen prüfen: Die Meldung zeigt jede Richtung jedes Paars.</summary>
+    /// <summary>Alle Paare zusammen prüfen: Die Meldung zeigt jede Richtung jedes Paars. Baut den Server vor der
+    /// Prüfung ab (Stop), damit keine Arbeit des Servers über das Testende hinaus läuft.</summary>
     procedure CheckPairs;
     /// <summary>Einfache Methode im Ordner AFolder, von der IDE als AUnitFile übergeben: OnTarget erkennt den
     /// Zielpfad des Servers als dieselbe Datei, und der Sprung wechselt in beide Richtungen.</summary>
@@ -735,6 +738,8 @@ procedure TGotoBothWaysTests.CheckPairs;
 var
   mDetails: string;
   mProbe: TGotoProbe;
+  mExpected: string;
+  mActual: string;
 begin
   mDetails := FErrors;
   // Die rohen Antworten nur bei einer Abweichung: Sie kosten je Stelle zwei weitere Anfragen.
@@ -745,7 +750,15 @@ begin
       mDetails := mDetails + ' | ' + ProbeText(mProbe);
     end;
   end;
-  Assert.AreEqual(FExpected, FActual, 'Zeilen 0-basiert, -1 ohne Ziel' + mDetails);
+  mExpected := FExpected;
+  mActual := FActual;
+  // Server noch im Test abbauen (LEAK1), wie dpcc.Core.Lsp.Adapters.InProcess.Tests: Stop wartet auf Server-, Index-
+  // und Lese-Thread. Lief der Server bis ins TearDown weiter, arbeitete sein Indexaufbau über das Testende hinaus und
+  // gab zwischen der letzten Messung von PostTest und der ersten von PreTearDown Speicher frei. Diese Lücke misst der
+  // Leckmonitor nicht; die Freigabe fehlte in der Summe und erschien als Leck (genau ihre Größe, je nach Zeitpunkt
+  // des Aufbaus bis über 1 MB). Danach ist StopServer im TearDown ohne Wirkung.
+  Stop;
+  Assert.AreEqual(mExpected, mActual, 'Zeilen 0-basiert, -1 ohne Ziel' + mDetails);
 end;
 
 procedure TGotoBothWaysTests.CheckPathForm(const AFolder, AUnitFile: string);

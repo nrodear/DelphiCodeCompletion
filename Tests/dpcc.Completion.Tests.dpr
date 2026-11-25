@@ -133,6 +133,8 @@ uses
   dpcc.Core.Editor.CodeInsightKeys in '..\Packages\dpcc.Core\Source\Editor\dpcc.Core.Editor.CodeInsightKeys.pas',
   dpcc.Core.Settings.IdeCheck in '..\Packages\dpcc.Core\Source\Settings\dpcc.Core.Settings.IdeCheck.pas',
   dpcc.Core.Settings.IdeCheck.Tests in 'IDE\dpcc.Core.Settings.IdeCheck.Tests.pas',
+  dpcc.Core.Editor.HelpInsightRule in '..\Packages\dpcc.Core\Source\Editor\dpcc.Core.Editor.HelpInsightRule.pas',
+  dpcc.Core.Editor.HelpInsightRule.Tests in 'IDE\dpcc.Core.Editor.HelpInsightRule.Tests.pas',
   dpcc.Core.Lsp.SessionLifecycle in '..\Packages\dpcc.Core\Source\Lsp\dpcc.Core.Lsp.SessionLifecycle.pas',
   dpcc.Core.Lsp.SessionLifecycle.Tests in 'IDE\dpcc.Core.Lsp.SessionLifecycle.Tests.pas',
   dpcc.Core.Lsp.SessionStart in '..\Packages\dpcc.Core\Source\Lsp\dpcc.Core.Lsp.SessionStart.pas',

@@ -100,6 +100,7 @@ contains
   dpcc.IDE.Completion.Placeholders in 'Source\IDE\Completion\dpcc.IDE.Completion.Placeholders.pas',
   dpcc.IDE.Hover.DebugValue in 'Source\IDE\Hover\dpcc.IDE.Hover.DebugValue.pas',
   dpcc.IDE.Hover.Editor in 'Source\IDE\Hover\dpcc.IDE.Hover.Editor.pas',
+  dpcc.IDE.Hover.HelpInsightHide in 'Source\IDE\Hover\dpcc.IDE.Hover.HelpInsightHide.pas',
   dpcc.IDE.Foundation.InsightSwitch in 'Source\IDE\Foundation\dpcc.IDE.Foundation.InsightSwitch.pas',
   dpcc.IDE.Foundation.IdeSettingsCheck in 'Source\IDE\Foundation\dpcc.IDE.Foundation.IdeSettingsCheck.pas',
   dpcc.IDE.Foundation.Watchdog in 'Source\IDE\Foundation\dpcc.IDE.Foundation.Watchdog.pas',

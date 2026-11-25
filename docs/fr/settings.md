@@ -59,7 +59,7 @@ dans le registre, mais dans `settings.json` (voir [Stockage](#stockage)).
 | Option | Valeur de registre | Clé | Par défaut | Effet |
 |---|---|---|---|---|
 | Parameter hint on “(” and “,” (aide aux paramètres sur « ( » et « , ») | `ParameterHints` | `completion.parameterHints` | activé | Désactivé : pas d'aide aux paramètres de dpcc, pas même via Ctrl+Maj+Espace. L'ouverture automatique sur « ( » et « , » n'atteint dpcc que si l'IDE appelle dpcc comme fournisseur (voir [Utilisation](usage.md#interaction-avec-delphilsp)). |
-| Own tooltip when hovering identifiers (infobulle propre au survol des identificateurs) | `HoverTooltip` | `editor.hoverTooltip` | activé | Infobulle de dpcc. Tant qu'elle est activée, dpcc désactive, dans le mode dpcc, Help Insight et l'infobulle Symbol Insight de l'IDE (`Help Insight`, `Declaration Information`). Verrouillé tant que l'interrupteur principal est désactivé. |
+| Own tooltip when hovering identifiers (infobulle propre au survol des identificateurs) | `HoverTooltip` | `editor.hoverTooltip` | activé | Infobulle de dpcc. Tant qu'elle est activée, dpcc désactive, dans le mode dpcc, Help Insight et l'infobulle Symbol Insight de l'IDE (`Help Insight`, `Declaration Information`) et masque immédiatement, sans redémarrage, une fenêtre Help Insight qui apparaît quand même. Verrouillé tant que l'interrupteur principal est désactivé. |
 | Show values while debugging (turns off the IDE's value tooltip) (afficher les valeurs pendant le débogage ; désactive l'infobulle de valeur de l'IDE) | `DebugHoverValues` | `debug.hoverValues` | activé | En retrait sous l'infobulle. Lorsque le programme est arrêté, la valeur de l'expression figure en haut de l'infobulle ; dpcc désactive alors l'évaluation d'expressions dans l'infobulle de l'IDE (`ToolTip Watches`). Qui veut l'infobulle de valeur de l'IDE désactive cette option. Verrouillé tant que « Own tooltip … » est désactivé. |
 | Popup appearance: (apparence des fenêtres contextuelles) | `PopupLook` | `editor.popupLook` | Subtle | « Intense » (`intense`, intense), « Subtle » (`subtle`, discret), « Plain » (`plain`, sobre). Détermine l'intensité des couleurs des fenêtres de dpcc : liste de complétion, infobulle et aide aux paramètres, ainsi que les marques d'espaces réservés dans l'éditeur. Ce que change chaque niveau est décrit sous [Apparence des fenêtres contextuelles](#apparence-des-fenêtres-contextuelles). Après OK, s'applique dès la prochaine ouverture d'une fenêtre. Une valeur inconnue dans le registre compte comme Subtle. Verrouillé tant que l'interrupteur principal est désactivé. |
 
@@ -214,9 +214,9 @@ démarrage de l'IDE. dpcc les y lit et les y écrit, indépendamment de la versi
 ### Réglages dans le mode dpcc
 
 Emplacement, sauf indication contraire : les emplacements du mode dpcc sous `HKCU\<base>\Code Insight` (voir
-[Emplacements des clés selon la version](#emplacements-des-clés-selon-la-version)). Sous Delphi 12, c'est toujours
-`Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` ; sous Delphi 13, chacun de `Borland.EditOptions.Pascal` et
-`Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` qui existe.
+[Emplacements des clés selon la version](#emplacements-des-clés-selon-la-version)). Sous Delphi 12 comme sous
+Delphi 13, c'est chacun de `Borland.EditOptions.Pascal` et `Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` qui
+existe.
 
 | Option de l'IDE | Valeur de registre | Attendu | Quand | Raison |
 |---|---|---|---|---|
@@ -225,7 +225,7 @@ Emplacement, sauf indication contraire : les emplacements du mode dpcc sous `HK
 | Auto invoke (appel automatique) | `Auto Invoke` | `True` | toujours | Désactivé : l'IDE n'appelle pas d'elle-même la complétion après « . ». |
 | Code completion: Delay (complétion de code : délai) | `Auto Invoke Delay` | `-1` | toujours | À partir de 0, l'IDE ouvre en plus sa propre liste pendant la saisie. |
 | Code parameters: Auto invoke (paramètres : appel automatique) | `Auto Code Parameters` | `True` | toujours | Désactivé : l'aide aux paramètres ne s'ouvre pas d'elle-même sur « ( » et « , ». |
-| Tooltip help insight (infobulle Help Insight) | `Help Insight` | `False` | « Own tooltip … » activé | Sinon l'IDE affiche Help Insight à côté de l'infobulle de dpcc. |
+| Tooltip help insight (infobulle Help Insight) | `Help Insight` | `False` | « Own tooltip … » activé | Sinon l'IDE affiche Help Insight à côté de l'infobulle de dpcc. En plus, dpcc masque la fenêtre à l'exécution (voir ci-dessous). |
 | Tooltip symbol insight (infobulle Symbol Insight) | `Declaration Information` | `False` | « Own tooltip … » activé | Sinon l'IDE affiche son infobulle à côté de celle de dpcc. |
 | Tooltip expression evaluation (évaluation d'expressions dans l'infobulle) | `ToolTip Watches` | `False` | infobulle et « Show values while debugging » activés | Sinon deux infobulles de valeur pendant le débogage. |
 | Ouvrir la complétion avec Parameter Insight | `AutoInvokeCompletionOnParameterInsight` (sous `InsightGlobalOptions`) | `False` | toujours | Sinon l'IDE ouvre en plus sa liste avec l'aide aux paramètres. |
@@ -233,6 +233,16 @@ Emplacement, sauf indication contraire : les emplacements du mode dpcc sous `HK
 Une valeur manquante s'applique avec la valeur par défaut de l'IDE (options activées, délai -1). Si elle convient
 déjà, dpcc n'écrit rien. Les noms d'options sont ceux de l'IDE anglaise, abrégés ; seule la valeur de registre fait
 foi.
+
+Help Insight à l'exécution : indépendamment de la valeur de registre, dpcc masque la fenêtre Help Insight de l'IDE dès
+qu'elle devient visible, tant que dpcc est activé et que soit « Own tooltip … » est activé (alors toujours), soit la
+liste de complétion de dpcc est ouverte (alors aussi avec l'infobulle propre désactivée, pour que la fenêtre ne
+recouvre pas la liste). Cela prend effet immédiatement, sans redémarrer Delphi ; dpcc désactivé, Help Insight de
+l'IDE reste intact. Le premier masquage de chaque session figure dans le journal (« Help Insight der IDE: Fenster
+THelpInsightWindow verborgen … »), avec « Log the flow (log file) » chaque masquage avec sa raison. Au démarrage, le
+journal contient aussi une ligne « Help Insight in der Registry (…) » avec la valeur lue à l'emplacement de
+DelphiLSP, dans `Borland.EditOptions.Pascal` et dans `Borland.EditOptions.HTML` (les lignes du journal sont toujours
+en allemand).
 
 ### Vérification dans le mode IDE
 
@@ -251,16 +261,16 @@ Avec DelphiLSP, dpcc vérifie au démarrage, mais ne modifie rien. Le résultat 
 | | Delphi 12 (BDS 23.0) | Delphi 13 (BDS 37.0) |
 |---|---|---|
 | Mode IDE (DelphiLSP) | `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` | `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` |
-| Mode dpcc | `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` | chacun de `Code Insight\Borland.EditOptions.Pascal` et `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` qui existe |
+| Mode dpcc | chacun de `Code Insight\Borland.EditOptions.Pascal` et `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` qui existe | chacun de `Code Insight\Borland.EditOptions.Pascal` et `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` qui existe |
 
-Delphi 12 lit toujours Help Insight, Declaration Information et ToolTip Watches à l'emplacement de DelphiLSP, même
-quand dpcc est le fournisseur ; il ne lit pas `Borland.EditOptions.Pascal` (le jeu d'options nommé par le
-gestionnaire dpcc). Des versions antérieures y écrivaient sous Delphi 12, et Help Insight restait actif. dpcc nettoie
-ces marqueurs au démarrage suivant : il n'y supprime que les valeurs qu'il a créées lui-même et qui sont inchangées
-(journal : « aufgeräumt (alter Ort) »), sans toucher à l'emplacement de DelphiLSP.
-Pour Delphi 13, on ne sait pas avec certitude quel emplacement l'IDE lit avec dpcc comme fournisseur. dpcc règle et
-vérifie donc chacun des deux emplacements qui existe et n'en crée aucun qui manque ; s'ils manquent tous les deux, il
-prend l'emplacement de DelphiLSP.
+Ni pour Delphi 12 ni pour Delphi 13, on ne sait avec certitude quel emplacement l'IDE lit avec dpcc comme
+fournisseur ; sous Delphi 12, Help Insight restait actif même avec `False` à l'emplacement de DelphiLSP. dpcc traite
+donc les deux versions de la même façon : il règle et vérifie chacun des deux emplacements qui existe et n'en crée
+aucun qui manque ; s'ils manquent tous les deux, il prend l'emplacement de DelphiLSP. Les anciens marqueurs pour
+`Borland.EditOptions.Pascal` sous Delphi 12 comptent ainsi de nouveau comme marqueurs propres de dpcc et ne sont plus
+nettoyés comme « ancien emplacement » ; « aufgeräumt (alter Ort) » n'apparaît plus que pour un marqueur à un
+emplacement qui n'est pas un emplacement du mode dpcc. En plus, dpcc masque la fenêtre Help Insight à l'exécution
+(voir [Réglages dans le mode dpcc](#réglages-dans-le-mode-dpcc)).
 Si la clé vérifiée manque entièrement, le
 résultat indique « key missing (IDE default) » (clé manquante, valeur par défaut de l'IDE) ; ce n'est pas une erreur.
 La ligne du journal ressemble à « IDE-Einstellungen: 1 Abweichung: Auto Code Completions; Anbieter

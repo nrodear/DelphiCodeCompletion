@@ -9,8 +9,10 @@
 //     Taste (außer Umschalt, Strg, Alt allein), Mausklick, Scrollen, Größenänderung, IDE inaktiv (ein Wächter
 //     prüft das, solange der Tooltip offen ist, #414).
 // Die IDE zeigt dann keinen eigenen Tooltip: GetHintText und GetHelpInsightHtml liefern '' (Manager), Help
-// Insight schaltet dpcc.IDE.Foundation.InsightSwitch ab. Bedient dpcc die Datei nicht (Hauptschalter, Server
-// fehlt, Sicherung), übernimmt die IDE und der dpcc-Tooltip bleibt zu.
+// Insight schaltet dpcc.IDE.Foundation.InsightSwitch in der Registry ab, und ein trotzdem sichtbar werdendes Fenster
+// von Help Insight verbirgt dpcc.IDE.Hover.HelpInsightHide zur Laufzeit (HI1; Nachprüfung auch hier in
+// OtherPopupOpen, damit es nicht als anderes Popup den Tooltip verhindert). Bedient dpcc die Datei nicht
+// (Hauptschalter, Server fehlt, Sicherung), übernimmt die IDE und der dpcc-Tooltip bleibt zu.
 // Delphi 12 (#281): Tastatur-Ereignisse des Code-Editors gibt es erst ab Delphi 13 (INTACodeEditorEvents370).
 // Dort schließt der Tooltip über den Tastatur-Hook, solange er sichtbar ist.
 // Debuggen (#891, seit S3b wieder): Ist der Prozess angehalten und debug.hoverValues an, wertet dpcc den Ausdruck
@@ -206,7 +208,8 @@ uses
   dpcc.Core.Hover.Plain,
   dpcc.IDE.Foundation.EditorBuffer,
   dpcc.IDE.Foundation.EditorStyle,
-  dpcc.IDE.Foundation.Settings;
+  dpcc.IDE.Foundation.Settings,
+  dpcc.IDE.Hover.HelpInsightHide;
 
 const
   /// <summary>Takt von WaitWorkersIdle (nur im Hintergrund).</summary>
@@ -812,6 +815,9 @@ var
 begin
   // Liste der Vervollständigung (IDE oder dpcc), Parameter-Hint, Kontextmenü über dem Editor (S3c).
   Result := False;
+  // Sicherheitsnetz (HI1): ein sichtbares Fenster von Help Insight der IDE nach der Regel verbergen, bevor die
+  // Fenster gezählt werden; so gilt es nicht als anderes Popup. Läuft auch im 100-ms-Wächter (WatchTimerTick).
+  TDpccHelpInsightHide.Sweep;
   if (FEditor = nil) or not FEditor.HandleAllocated or not GetWindowRect(FEditor.Handle, mArea) then
   begin
     Exit;

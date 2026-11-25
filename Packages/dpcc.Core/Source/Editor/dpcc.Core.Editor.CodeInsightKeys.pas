@@ -7,10 +7,12 @@
 // Delphi 12 (BDS 23.0) auf dem Prüfrechner: unter Code Insight nur
 // Borland.EditOptions.Borland.CodeInsight.LSP.Pascal, .HTML und .StyleSheet;
 // Borland.EditOptions.Pascal (das Option Set aus GetOptionSetName des
-// dpcc-Managers) nur mit den Werten, die dpcc selbst angelegt hatte, und
-// Delphi 12 liest es nicht, auch nicht mit dpcc als Anbieter (D12KEY). Welche
-// Orte dpcc in der Betriebsart dpcc je Version setzt, bestimmt
-// TDpccIdeCheck.DpccKeys (dpcc.Core.Settings.IdeCheck). Die frühere Annahme
+// dpcc-Managers) nur mit den Werten, die dpcc selbst angelegt hatte. Die
+// Annahme aus D12KEY, Delphi 12 lese es auch mit dpcc als Anbieter nicht, hat
+// sich nicht bestätigt; seit HI1 setzt dpcc unter Delphi 12 wie unter 13 jeden
+// vorhandenen der beiden Orte. Welche Orte dpcc in der Betriebsart dpcc
+// setzt, bestimmt TDpccIdeCheck.DpccKeys (dpcc.Core.Settings.IdeCheck),
+// nicht mehr die Version. Die frühere Annahme
 // (bis D12-PREP), Delphi 12 lese die Schalter von DelphiLSP unter
 // Borland.EditOptions.Pascal, traf nicht zu; VersionKey, Targets und Marker
 // sind deshalb entfernt.

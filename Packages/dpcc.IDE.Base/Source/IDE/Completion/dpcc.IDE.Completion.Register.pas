@@ -14,6 +14,9 @@
 //     Code-Insight-Anbieter (DelphiLSP → dpcc aus und eigene Änderungen zurück; dpcc → an und die nötigen Schalter
 //     der IDE gesetzt), die Wahl im Code-Insight-Dialog der IDE über den Manager (ManagerEnabled/Disabled) und beim
 //     Beenden der zuletzt gewollte Stand noch einmal;
+//   - das Verbergen des Fensters von Help Insight der IDE zur Laufzeit (HI1, TDpccHelpInsightHide): Ereignis-Hook
+//     (SetWinEventHook, Hauptthread) beim Anmelden, beim Abbau gleich nach dem Anhalten der Hauptthread-Queue
+//     gelöst (UnhookWinEvent), bevor Code der BPL entladen wird;
 //   - den Hauptschalter ohne Neustart (#407): Springt er nach einer Änderung der Einstellungen um, startet der
 //     Manager beim Einschalten Sitzung und Server bzw. schließt beim Ausschalten seine Fenster
 //     (TDpccMasterSwitch);
@@ -87,7 +90,8 @@ uses
   dpcc.IDE.Forms.Designer,
   dpcc.IDE.CodeInsight.Manager,
   dpcc.IDE.CodeInsight.Manager.Paths,
-  dpcc.IDE.Foundation.Watchdog;
+  dpcc.IDE.Foundation.Watchdog,
+  dpcc.IDE.Hover.HelpInsightHide;
 
 const
   cMessageGroup = 'dpcc';
@@ -783,6 +787,8 @@ begin
   Start('Keys', StartKeys);
   Start('Forms', StartForms);
   Start('SaveNotifier', StartSaveNotifier);
+  // Fenster von Help Insight der IDE zur Laufzeit verbergen (HI1); der Rückruf liest den Hauptschalter selbst.
+  Start('HelpInsightHide', TDpccHelpInsightHide.Start);
   // Ausgang für den Hauptschalter (#407): Stand beim Anmelden.
   MasterSwitch.Reset(TDpccIdeSettings.Current.Enabled);
   TDpccIdeSettings.OnChanged := SettingsChanged;
@@ -814,6 +820,8 @@ begin
     // Was jetzt noch wartet oder während des Abbaus eingereiht wird, liefe nach dem Entladen in nicht mehr
     // geladenem Code. Queue im Hauptthread läuft weiter sofort.
     mTeardown.Step('MainThread', TDpccMainThread.Stop);
+    // Ereignis-Hook für Help Insight (HI1) lösen: Danach ruft Windows keinen Code dieser BPL mehr.
+    mTeardown.Step('HelpInsightHide', TDpccHelpInsightHide.Stop);
     TDpccGuard.OnWarning := nil;
     TDpccGuard.OnTripped := nil;
     TDpccGuard.OnFailure := nil;

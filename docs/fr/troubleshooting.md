@@ -141,6 +141,12 @@ forme de code `name=h…`), précédée d'une ligne `declaration start` ou `defi
 - L'IDE ne lit ses réglages qu'au prochain démarrage. dpcc désactive Help Insight, l'infobulle Symbol Insight et,
   pendant le débogage, l'évaluation d'expressions dans l'infobulle dès qu'il est le fournisseur Code Insight.
   Redémarrer Delphi.
+- En plus, dpcc masque à l'exécution la fenêtre Help Insight de l'IDE (par exemple « TQRCustomBand Type ») dès
+  qu'elle apparaît : toujours avec l'infobulle propre activée, sinon tant que la liste de dpcc est ouverte. Aucun
+  redémarrage n'est nécessaire pour cela, y compris sous Delphi 12, où la valeur de registre seule n'agit pas de façon
+  fiable. dpcc désactivé, la fenêtre de l'IDE reste. Le journal contient « Help Insight der IDE: Fenster
+  THelpInsightWindow verborgen … » au premier masquage et « Help Insight in der Registry (…) » avec les valeurs lues
+  au démarrage.
 - La page dpcc affiche l'état dans la section **IDE** (« Check now », vérifier maintenant).
 - Qui veut garder l'infobulle de l'IDE désactive « Own tooltip when hovering identifiers » (infobulle propre au
   survol des identificateurs) ou « Show values while debugging » (afficher les valeurs pendant le débogage).

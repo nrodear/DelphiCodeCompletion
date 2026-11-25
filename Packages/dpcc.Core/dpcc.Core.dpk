@@ -127,6 +127,7 @@ contains
   dpcc.Core.Editor.Pairs in 'Source\Editor\dpcc.Core.Editor.Pairs.pas',
   dpcc.Core.Editor.SnapshotPolicy in 'Source\Editor\dpcc.Core.Editor.SnapshotPolicy.pas',
   dpcc.Core.Editor.CloseRules in 'Source\Editor\dpcc.Core.Editor.CloseRules.pas',
+  dpcc.Core.Editor.HelpInsightRule in 'Source\Editor\dpcc.Core.Editor.HelpInsightRule.pas',
   dpcc.Core.Editor.Guides in 'Source\Editor\dpcc.Core.Editor.Guides.pas',
   dpcc.Core.Editor.CodeInsightKeys in 'Source\Editor\dpcc.Core.Editor.CodeInsightKeys.pas',
   dpcc.Core.Editor.Navigation in 'Source\Editor\dpcc.Core.Editor.Navigation.pas',
