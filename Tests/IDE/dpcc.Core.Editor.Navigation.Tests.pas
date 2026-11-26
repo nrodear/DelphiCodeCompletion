@@ -62,8 +62,8 @@ type
     /// <summary>Je Grund aus dpcc/noTarget der passende Text, mit Name; ohne Name die allgemeine Fassung.</summary>
     [Test]
     procedure NoTargetTextsNameTheReason;
-    /// <summary>indexing = true hängt „Der Index wird noch aufgebaut.“ an; ohne Benachrichtigung „Grund
-    /// unbekannt“.</summary>
+    /// <summary>indexing = true: bei nicht aufgelöstem Namen bzw. fehlender Unit die Bitte um erneuten Klick, sonst
+    /// der Zusatz „Der Index wird noch aufgebaut.“; ohne Benachrichtigung „Grund unbekannt“.</summary>
     [Test]
     procedure NoTargetTextsIndexingAndUnknown;
     /// <summary>Startet noch, Zeitlimit, Fehler beim Öffnen: Sekunden bzw. Dateiname im Text, beide Sprachen.
@@ -336,10 +336,16 @@ end;
 
 procedure TDpccNavigationTests.NoTargetTextsIndexingAndUnknown;
 begin
-  Assert.AreEqual('Kein Sprungziel: „TFoo“ nicht aufgelöst. Der Index wird noch aufgebaut.',
+  // Nicht aufgelöst bzw. Unit nicht gefunden während des Indexaufbaus: Bitte um erneuten Klick (Nutzer, 26.11.2026).
+  Assert.AreEqual('Kein Sprung: Der Index wird noch aufgebaut. Bitte gleich erneut klicken.',
     TDpccGotoNotice.ForNoTarget(TDpccLanguage.German, NoTarget(TDpccNoTargetReason.Unresolved, 'TFoo', True)));
-  Assert.AreEqual('No jump target: unit X not found. The index is still being built.',
+  Assert.AreEqual('No jump: the index is still being built. Please click again in a moment.',
     TDpccGotoNotice.ForNoTarget(TDpccLanguage.English, NoTarget(TDpccNoTargetReason.UnitNotFound, 'X', True)));
+  // Andere Gründe behalten ihren Text, mit dem Zusatz zum Index.
+  Assert.AreEqual('Kein Sprungziel: An dieser Stelle steht kein Bezeichner. Der Index wird noch aufgebaut.',
+    TDpccGotoNotice.ForNoTarget(TDpccLanguage.German, NoTarget(TDpccNoTargetReason.NoIdentifier, '', True)));
+  Assert.AreEqual('No jump target: “TFoo” could not be resolved.',
+    TDpccGotoNotice.ForNoTarget(TDpccLanguage.English, NoTarget(TDpccNoTargetReason.Unresolved, 'TFoo', False)));
   Assert.AreEqual('Kein Sprungziel gefunden (Grund unbekannt).', TDpccGotoNotice.ForNoTarget(TDpccLanguage.German,
     NoTarget(TDpccNoTargetReason.Unknown, '', False)));
   Assert.AreEqual('Kein Sprungziel gefunden.', TDpccGotoNotice.ForNoTarget(TDpccLanguage.German,

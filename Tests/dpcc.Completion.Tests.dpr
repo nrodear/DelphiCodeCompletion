@@ -80,6 +80,8 @@ uses
   dpcc.Core.Lsp.Adapters.InProcess in '..\Packages\dpcc.Core\Source\Lsp\dpcc.Core.Lsp.Adapters.InProcess.pas',
   dpcc.Core.Lsp.Adapters.InProcess.Tests in 'IDE\dpcc.Core.Lsp.Adapters.InProcess.Tests.pas',
   dpcc.Core.Lsp.GotoBothWays.Tests in 'IDE\dpcc.Core.Lsp.GotoBothWays.Tests.pas',
+  dpcc.Core.Lsp.GotoMatrix.Fixtures in 'IDE\dpcc.Core.Lsp.GotoMatrix.Fixtures.pas',
+  dpcc.Core.Lsp.GotoMatrix.Tests in 'IDE\dpcc.Core.Lsp.GotoMatrix.Tests.pas',
   dpcc.Core.Completion.Contract in '..\Packages\dpcc.Core\Source\Completion\dpcc.Core.Completion.Contract.pas',
   dpcc.Core.Completion.Internals.Async in '..\Packages\dpcc.Core\Source\Completion\Internals\dpcc.Core.Completion.Internals.Async.pas',
   dpcc.Core.Completion.Composite in '..\Packages\dpcc.Core\Source\Completion\dpcc.Core.Completion.Composite.pas',

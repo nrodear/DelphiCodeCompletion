@@ -114,7 +114,9 @@ type
   TDpccGotoNotice = record
   public
     /// <summary>Meldung zum Grund des Servers in der Sprache ALanguage, mit Name (Unit, Bezeichner) wo vorhanden und
-    /// dem Zusatz „Der Index wird noch aufgebaut.“ bei Indexing.</summary>
+    /// dem Zusatz „Der Index wird noch aufgebaut.“ bei Indexing. Ist der Name nicht aufgelöst bzw. die Unit nicht
+    /// gefunden, solange der Index aufgebaut wird, statt „Kein Sprungziel“ die Bitte, gleich erneut zu klicken
+    /// (Entscheidung des Nutzers, 26.11.2026: kein Warten, kein Nachreichen).</summary>
     class function ForNoTarget(ALanguage: TDpccLanguage; const ANoTarget: TDpccNoTarget): string; static;
     /// <summary>Meldung der Art AKind (außer NoTarget): AArgument ist der Dateiname (OpenFailed), ASeconds die
     /// Frist (Starting, TimedOut); AIndexing hängt den Zusatz zum Index an.</summary>
@@ -221,7 +223,7 @@ type
   /// <summary>Texte der Unit in beiden Sprachen (#1458).</summary>
   TNavigationText = (ProviderNotice, OverloadKeys, NoSource, NoSourceUnnamed, UnitNotFound, UnitNotFoundUnnamed,
     Unresolved, UnresolvedUnnamed, NoIdentifier, NoDocument, InactiveBranch, OtherReason, UnknownReason, Starting,
-    NotRunning, NotOffered, TimedOut, ServerLost, OpenFailed, IndexingSuffix);
+    NotRunning, NotOffered, TimedOut, ServerLost, OpenFailed, IndexingSuffix, IndexingRetry);
 
 {$SCOPEDENUMS OFF}
 
@@ -252,7 +254,8 @@ const
      'Kein Sprung: keine Antwort von dpcc binnen %d s.',
      'Kein Sprung: Die Verbindung zum dpcc-Server ist unterbrochen.',
      'Kein Sprung: %s ließ sich nicht öffnen.',
-     'Der Index wird noch aufgebaut.'),
+     'Der Index wird noch aufgebaut.',
+     'Kein Sprung: Der Index wird noch aufgebaut. Bitte gleich erneut klicken.'),
     ('dpcc is selected as the Code Insight provider for Delphi in the IDE options. Ctrl+click and “Find ' +
      'Declaration” go through dpcc; without a target (for example in units without source) the IDE does not ' +
      'jump. Error Insight (error marks in the editor) and the other DelphiLSP services are missing then. If you ' +
@@ -278,7 +281,8 @@ const
      'No jump: no answer from dpcc within %d s.',
      'No jump: the connection to the dpcc server is lost.',
      'No jump: %s could not be opened.',
-     'The index is still being built.'));
+     'The index is still being built.',
+     'No jump: the index is still being built. Please click again in a moment.'));
 
 function IsNameChar(AChar: Char): Boolean;
 begin
@@ -408,6 +412,12 @@ end;
 
 class function TDpccGotoNotice.ForNoTarget(ALanguage: TDpccLanguage; const ANoTarget: TDpccNoTarget): string;
 begin
+  // Während des Indexaufbaus fehlen Namen und Units oft nur vorläufig: zum erneuten Klick auffordern.
+  if ANoTarget.Indexing and (ANoTarget.Reason in [TDpccNoTargetReason.Unresolved,
+    TDpccNoTargetReason.UnitNotFound]) then
+  begin
+    Exit(NavText(ALanguage, TNavigationText.IndexingRetry));
+  end;
   case ANoTarget.Reason of
     TDpccNoTargetReason.NoSource:
       Result := NamedText(ALanguage, TNavigationText.NoSource, TNavigationText.NoSourceUnnamed, ANoTarget.Name);

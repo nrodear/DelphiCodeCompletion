@@ -70,15 +70,22 @@ comme d'habitude via DelphiLSP ; dpcc n'y participe pas.
 - Depuis une utilisation, dpcc saute à la déclaration (pour les méthodes, celle de la classe ou de la section
   interface). Si la position est déjà sur la déclaration elle-même, il va à l'implémentation, et de là en retour.
   Pour les surcharges, c'est la variante avec les mêmes types de paramètres qui compte.
-- Cibles : à travers les unités, noms d'unités dans `uses` (début du fichier), variables locales et paramètres,
+- Déclarations sans corps (méthodes abstraites, méthodes d'une interface, `external`) : Ctrl+clic reste sur place,
+  aussi pour les surcharges ; il ne saute pas vers une autre variante.
+- `inherited;` sans nom saute, comme `inherited Nom`, vers la méthode de même nom de l'ancêtre.
+- Cibles : à travers les unités, noms d'unités dans `uses` (début du fichier), noms de fichiers dans `{$I …}` ou
+  `{$INCLUDE …}` (début du fichier inclus ; `{$R …}` ne saute pas), variables locales et paramètres,
   types, champs après des expressions comme `Liste[i].X`, déclarations dans des fichiers inclus et dans des branches
   inactives (`{$IFDEF …}`), unités de la bibliothèque que dpcc charge exprès (y compris les bibliothèques de types
   Office et WinRT). Pour des unités de même nom, c'est celle du projet qui compte.
 - Pas de cible, pas de saut : unités sans source (connues seulement par les packages), unités que dpcc ne trouve pas,
   surcharges ambiguës et `with` avec un type inconnu. L'IDE ne saute alors pas ; dpcc indique la raison dans la
   fenêtre des messages (groupe dpcc, texte en anglais si l'IDE n'est pas en allemand), par exemple « unit X is only
-  available as a package (no source) », « unit X not found » ou « "Name" could not be resolved », pendant la
-  construction de l'index avec l'ajout « The index is still being built. » Le même message ne s'affiche pas plusieurs
+  available as a package (no source) », « unit X not found » ou « "Name" could not be resolved ». Si un nom ou une
+  unité ne manque que parce que l'index est encore en construction, le message est à la place « No jump: the index is
+  still being built. Please click again in a moment. » (l'index est encore en construction, cliquer à nouveau dans
+  un instant) ; dpcc n'attend alors pas et ne saute pas plus tard. Pour les autres raisons, l'ajout « The index is
+  still being built. » apparaît pendant la construction de l'index. Le même message ne s'affiche pas plusieurs
   fois de suite. Chaque saut sans cible figure aussi sur une ligne de `dpcc.log`.
 - Pour Ctrl+clic, c'est la position sous la souris qui compte, pour « Find Declaration » le curseur.
 - L'IDE attend dpcc au plus 250 ms. Si la réponse arrive plus tard, dpcc saute lui-même, à condition que le même

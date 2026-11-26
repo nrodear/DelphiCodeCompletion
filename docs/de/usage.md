@@ -69,14 +69,20 @@ daran nicht beteiligt.
 - Von einer Verwendung springt dpcc zur Deklaration (bei Methoden die in der Klasse bzw. im interface). Steht die
   Stelle schon auf der Deklaration selbst, geht es zur Implementierung, von dort wieder zurück. Bei Überladungen gilt
   die Variante mit denselben Parametertypen.
-- Ziele: über Units, Unit-Namen in `uses` (Anfang der Datei), lokale Variablen und Parameter, Typen, Felder hinter
+- Deklarationen ohne Rumpf (abstrakte Methoden, Methoden eines Interface, `external`): Strg+Klick bleibt dort stehen,
+  auch bei Überladungen; es springt nicht zu einer anderen Variante.
+- `inherited;` ohne Namen springt wie `inherited Name` zur gleichnamigen Methode im Vorfahren.
+- Ziele: über Units, Unit-Namen in `uses` (Anfang der Datei), Dateinamen in `{$I …}` bzw. `{$INCLUDE …}` (Anfang der
+  eingebundenen Datei; `{$R …}` springt nicht), lokale Variablen und Parameter, Typen, Felder hinter
   Ausdrücken wie `Liste[i].X`, Deklarationen in Include-Dateien und in nicht aktiven Zweigen (`{$IFDEF …}`), Units
   der Bibliothek, die dpcc erst dafür nachlädt (auch Office-Typbibliotheken und WinRT). Bei gleichnamigen Units gilt
   die des eigenen Projekts.
 - Kein Ziel, kein Sprung: Units ohne Quelltext (nur aus Packages bekannt), Units, die dpcc nicht findet,
   mehrdeutige Überladungen und `with` mit unbekanntem Typ. Die IDE springt dann nicht; dpcc nennt den Grund im
   Meldungsfenster (Gruppe dpcc), etwa „Unit X liegt nur als Package vor (kein Quelltext)“, „Unit X nicht gefunden“
-  oder „„Name“ nicht aufgelöst“, bei laufendem Indexaufbau mit dem Zusatz „Der Index wird noch aufgebaut.“ Dieselbe
+  oder „„Name“ nicht aufgelöst“. Fehlen Name oder Unit nur, weil der Index noch aufgebaut wird, heißt es statt dessen
+  „Kein Sprung: Der Index wird noch aufgebaut. Bitte gleich erneut klicken.“; dpcc wartet dann nicht und springt auch
+  nicht nach. Bei anderen Gründen steht während des Aufbaus der Zusatz „Der Index wird noch aufgebaut.“ Dieselbe
   Meldung erscheint nicht mehrfach hintereinander. Jeder Sprung ohne Ziel steht zudem als eine Zeile in `dpcc.log`.
 - Bei Strg+Klick gilt die Stelle unter der Maus, bei „Deklaration suchen“ der Cursor.
 - Die IDE wartet höchstens 250 ms auf dpcc. Kommt die Antwort später, springt dpcc selbst, sofern dieselbe Datei

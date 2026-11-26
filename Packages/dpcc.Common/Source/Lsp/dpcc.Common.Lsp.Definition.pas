@@ -18,7 +18,13 @@
 // Gegenstück, paart es unter den gleichnamigen Routinen des Containers
 // eindeutig nach Parameterzahl und -namen, zuletzt nach der Reihenfolge der
 // übrigen (nur bei gleich vielen Deklarationen und Rümpfen); sonst kein Paar.
-// Unit-Namen (z. B. in uses) führen an den Anfang der Unit-Datei.
+// Zwei Fundstellen ohne Rumpf (abstrakte, Interface- oder external-Überladungen) sind kein Paar: Strg+Klick bleibt
+// auf der Deklaration. TPaar und TPaar<T> derselben Unit (im Index derselbe Container) trennt die Zahl der
+// Typparameter (ContainerArity). Steht eine Methodendeklaration per {$I} im Klassenrumpf, kennt nur der Index der
+// einbindenden Unit ihren Typ (HostResolved): So führt Strg+Klick in der Include-Datei zur Implementierung.
+// Unit-Namen (z. B. in uses) führen an den Anfang der Unit-Datei, ebenso der Dateiname in {$I …}/{$INCLUDE …}
+// an den Anfang der eingebundenen Datei (IncludeTargets). "inherited;" ohne Namen führt wie "inherited Name" zur
+// gleichnamigen Methode im Vorfahren (BareInheritedAt). Beides nach Entscheidung des Nutzers vom 26.11.2026.
 // textDocument/typeDefinition springt von Variablen, Feldern, Parametern,
 // Properties und Funktionen zur Deklaration ihres Typs.
 // Strg+Klick (Auftrag NAV): Seit NAV meldet die Wurzel des Completion-Servers diese Anfragen an. Findet die
@@ -186,6 +192,7 @@ uses
   dpcc.Common.Documents.Uris,
   dpcc.Common.Lsp.Positions,
   dpcc.Common.Pascal.Contract,
+  dpcc.Common.Pascal.IncludeFiles,
   dpcc.Common.Pascal.TreeCache,
   dpcc.Common.Lsp.Internals.Cancellation,
   dpcc.Common.Dfm.Parser,
@@ -473,16 +480,164 @@ begin
     SameResult(ResultTypeOf(ASymbol.TypeName, ASymbol.TypeArgs), AResultType);
 end;
 
-/// <summary>Routinen in AOwner mit Name und Container von AResolved, in der Reihenfolge des Index.</summary>
+function IsRoutineBody(const ASymbol: TIndexSymbol; out AKnown: Boolean): Boolean; forward;
+
+/// <summary>Zahl der Typparameter in "T" bzw. "TKey,TValue"; 0 ohne.</summary>
+function TypeParamCount(const ATypeParams: string): Integer;
+var
+  mIndex: Integer;
+begin
+  if Trim(ATypeParams) = '' then
+  begin
+    Exit(0);
+  end;
+  Result := 1;
+  for mIndex := 1 to Length(ATypeParams) do
+  begin
+    if ATypeParams[mIndex] = ',' then
+    begin
+      Inc(Result);
+    end;
+  end;
+end;
+
+/// <summary>Typparameter des umgebenden Typs im Kopf eines Rumpfs (procedure TPaar&lt;T&gt;.Setze → 1,
+/// procedure TPaar.Setze → 0): die spitzen Klammern direkt vor dem letzten Punkt vor der Parameterliste.</summary>
+function HeadContainerArity(const ASignature: string): Integer;
+var
+  mIndex, mDepth, mDot, mEnd: Integer;
+begin
+  // Ende des Namens: erste "(" bzw. ":" oder ";" außerhalb spitzer Klammern.
+  mEnd := Length(ASignature);
+  mDepth := 0;
+  mDot := 0;
+  for mIndex := 1 to Length(ASignature) do
+  begin
+    case ASignature[mIndex] of
+      '<':
+        Inc(mDepth);
+      '>':
+        if mDepth > 0 then
+        begin
+          Dec(mDepth);
+        end;
+      '.':
+        if mDepth = 0 then
+        begin
+          mDot := mIndex;
+        end;
+      '(', ':', ';', '=':
+        if mDepth = 0 then
+        begin
+          mEnd := mIndex;
+          Break;
+        end;
+    end;
+  end;
+  Result := 0;
+  if (mDot <= 1) or (mDot > mEnd) or (ASignature[mDot - 1] <> '>') then
+  begin
+    Exit;
+  end;
+  // Von ">" rückwärts bis zur passenden "<", Kommas auf erster Ebene zählen.
+  mDepth := 0;
+  Result := 1;
+  for mIndex := mDot - 1 downto 1 do
+  begin
+    case ASignature[mIndex] of
+      '>':
+        Inc(mDepth);
+      '<':
+        begin
+          Dec(mDepth);
+          if mDepth = 0 then
+          begin
+            Exit;
+          end;
+        end;
+      ',':
+        if mDepth = 1 then
+        begin
+          Inc(Result);
+        end;
+    end;
+  end;
+  Result := 0;
+end;
+
+/// <summary>Typparameter des Typs, zu dem die Routine ASymbol gehört: beim Rumpf aus dem Kopf, bei der Deklaration
+/// aus dem Typ, in dessen Bereich sie steht. -1, wenn das nicht feststeht (etwa Deklaration aus einer Include-Datei).
+/// Trennt TPaar und TPaar&lt;T&gt; derselben Unit, die im Index denselben Container "TPaar" tragen.</summary>
+function ContainerArity(const AOwner: TUnitIndex; const ASymbol: TIndexSymbol): Integer;
+var
+  mKnown: Boolean;
+  mTypeName, mFile: string;
+  mType: TIndexSymbol;
+begin
+  Result := -1;
+  if ASymbol.Container = '' then
+  begin
+    Exit;
+  end;
+  if IsRoutineBody(ASymbol, mKnown) then
+  begin
+    Exit(HeadContainerArity(ASymbol.Signature));
+  end;
+  if not mKnown then
+  begin
+    Exit;
+  end;
+  mTypeName := ASymbol.Container;
+  if LastDelimiter('.', mTypeName) > 0 then
+  begin
+    mTypeName := Copy(mTypeName, LastDelimiter('.', mTypeName) + 1, MaxInt);
+  end;
+  mFile := AOwner.SymbolFile(ASymbol);
+  for mType in AOwner.Symbols do
+  begin
+    if (mType.Kind in [TIndexSymbolKind.ClassType, TIndexSymbolKind.ObjectType, TIndexSymbolKind.RecordType,
+      TIndexSymbolKind.InterfaceType, TIndexSymbolKind.HelperType]) and SameText(mType.Name, mTypeName) and
+      SameText(AOwner.SymbolFile(mType), mFile) and Within(ASymbol.SelectionRange.StartPos, mType.Range) then
+    begin
+      Exit(TypeParamCount(mType.TypeParams));
+    end;
+  end;
+end;
+
+/// <summary>Routinen in AOwner mit Name und Container von AResolved, in der Reihenfolge des Index. Gehört
+/// AResolved zu einem generischen bzw. nicht generischen Typ (TPaar&lt;T&gt; neben TPaar), nur die Routinen
+/// desselben Typs; wo das nicht feststeht, alle.</summary>
 function SameRoutines(const AOwner: TUnitIndex; const AResolved: TResolvedSymbol): TArray<TIndexSymbol>;
 var
   mSymbol: TIndexSymbol;
+  mAll: TArray<TIndexSymbol>;
+  mWanted, mArity: Integer;
 begin
-  Result := nil;
+  mAll := nil;
+  mWanted := -1;
   for mSymbol in AOwner.Symbols do
   begin
     if (mSymbol.Kind in cRoutineKinds) and SameText(mSymbol.Container, AResolved.Container) and
       SameText(mSymbol.Name, AResolved.Name) then
+    begin
+      mAll := mAll + [mSymbol];
+      if (mSymbol.SelectionRange.StartPos.Line = AResolved.SelectionRange.StartPos.Line) and
+        (mSymbol.SelectionRange.StartPos.Character = AResolved.SelectionRange.StartPos.Character) and
+        SameText(AOwner.SymbolFile(mSymbol), AResolved.FileName) then
+      begin
+        mWanted := ContainerArity(AOwner, mSymbol);
+      end;
+    end;
+  end;
+  if mWanted < 0 then
+  begin
+    Exit(mAll);
+  end;
+  Result := nil;
+  for mSymbol in mAll do
+  begin
+    mArity := ContainerArity(AOwner, mSymbol);
+    if (mArity < 0) or (mArity = mWanted) then
     begin
       Result := Result + [mSymbol];
     end;
@@ -608,6 +763,20 @@ begin
   Result := not ASymbol.InInterface and not ASymbol.HasDirective('forward') and
     not ASymbol.HasDirective('external') and not HasHeadDirective(mSignature, 'forward') and
     not HasHeadDirective(mSignature, 'external');
+end;
+
+/// <summary>Können A und B Deklaration und Implementierung derselben Routine sein? Ja, wenn genau eine ein Rumpf ist,
+/// bei freien Routinen auch, wenn genau eine im interface steht (Deklaration dort, "external" im implementation-Teil
+/// wie in Winapi.Windows). Ohne Kopf im Index (unbekannt) wie bisher ja. Nein für zwei Deklarationen ohne Rumpf
+/// (abstrakte, Interface- oder external-Überladungen).</summary>
+function DeclarationWithBody(const A, B: TIndexSymbol): Boolean;
+var
+  mKnownA, mKnownB, mBodyA, mBodyB: Boolean;
+begin
+  mBodyA := IsRoutineBody(A, mKnownA);
+  mBodyB := IsRoutineBody(B, mKnownB);
+  Result := not (mKnownA and mKnownB) or (mBodyA <> mBodyB) or
+    ((A.Container = '') and (B.Container = '') and (A.InInterface <> B.InInterface));
 end;
 
 /// <summary>Text der Parameterliste im Kopf ASignature ohne die Klammern; '' ohne Parameterliste. False, wenn die
@@ -916,12 +1085,14 @@ begin
       AVariant := AVariant + [mSymbol];
     end;
   end;
-  if Length(AVariant) = 2 then
+  if (Length(AVariant) = 2) and DeclarationWithBody(AVariant[0], AVariant[1]) then
   begin
     AWay := cPairTypes;
     Exit(True);
   end;
-  if (Length(AVariant) < 2) and (Length(mSame) = 2) then
+  // Zwei Überladungen ohne Rumpf (abstract, Interface, external) sind kein Paar: Strg+Klick bleibt stehen, statt zur
+  // anderen Überladung zu springen.
+  if (Length(AVariant) < 2) and (Length(mSame) = 2) and DeclarationWithBody(mSame[0], mSame[1]) then
   begin
     AVariant := mSame;
     AWay := cPairSole;
@@ -1002,6 +1173,29 @@ end;
 /// (pair=found:types|sole|names|order, pairChosen=declaration|implementation) und sonst warum nicht (NoteNoPair,
 /// pair=none:noUnit ohne Unit im Index).
 /// </summary>
+/// <summary>AResolved, wie die einbindende Unit AHost es kennt: Steht die Routine in der Include-Datei AFileName im
+/// Klassenrumpf ({$I …} zwischen class und end), sieht der Baum der Include-Datei allein eine freie Routine; der Index
+/// der Unit kennt ihren Typ (Container). Sonst AResolved unverändert.</summary>
+function HostResolved(const AHost: TUnitIndex; const AResolved: TResolvedSymbol;
+  const AFileName: string): TResolvedSymbol;
+var
+  mSymbol: TIndexSymbol;
+begin
+  Result := AResolved;
+  for mSymbol in AHost.Symbols do
+  begin
+    if (mSymbol.Kind in cRoutineKinds) and SameText(mSymbol.Name, AResolved.Name) and
+      (mSymbol.SelectionRange.StartPos.Line = AResolved.SelectionRange.StartPos.Line) and
+      (mSymbol.SelectionRange.StartPos.Character = AResolved.SelectionRange.StartPos.Character) and
+      SameText(AHost.SymbolFile(mSymbol), AFileName) then
+    begin
+      Result.Container := mSymbol.Container;
+      Result.SymbolKind := mSymbol.Kind;
+      Exit;
+    end;
+  end;
+end;
+
 function RoutineTargets(AResolver: TNameResolver; const AIndex: ISymbolIndex; const AQuery: TDefinitionQuery;
   const AResolved: TResolvedSymbol): TArray<TDefinitionTarget>;
 var
@@ -1024,7 +1218,7 @@ begin
     // Index schon. Nur ein Paar, das in eine andere Datei führt: Zeilen der eigenen Datei stehen im Baum aktueller.
     if not (SameText(AResolved.FileName, AQuery.FileName) and
       TIndexFiles.UnitOf(AIndex, AQuery.FileName, mOwnerUnit) and
-      RoutinePair(mOwnerUnit, AResolved, mWanted, mVariant, mWay) and
+      RoutinePair(mOwnerUnit, HostResolved(mOwnerUnit, AResolved, AQuery.FileName), mWanted, mVariant, mWay) and
       ReachesOtherFile(mOwnerUnit, mVariant, AQuery.FileName)) then
     begin
       // Diagnoselog (LOG1): Gezählt wird in der Unit, in der RoutinePair zuerst suchte (bei derselben Datei der Baum,
@@ -1433,10 +1627,232 @@ begin
   Result.Reason := cReasonUnresolved;
 end;
 
+/// <summary>Token an APosition (auch direkt dahinter, wie IdentifierAt); -1 ohne. Die Token sind nach ihrer Stelle
+/// sortiert und überlappen nicht.</summary>
+function TokenIndexAt(ATree: TSyntaxTree; const APosition: TTextPosition): Integer;
+var
+  mTokens: TArray<TPascalToken>;
+  mLow, mHigh, mMiddle: Integer;
+begin
+  mTokens := ATree.Tokens;
+  mLow := 0;
+  mHigh := Length(mTokens);
+  while mLow < mHigh do
+  begin
+    mMiddle := (mLow + mHigh) div 2;
+    if ComparePositions(mTokens[mMiddle].EndPos, APosition) < 0 then
+    begin
+      mLow := mMiddle + 1;
+    end
+    else
+    begin
+      mHigh := mMiddle;
+    end;
+  end;
+  if (mLow <= High(mTokens)) and (ComparePositions(mTokens[mLow].StartPos, APosition) <= 0) then
+  begin
+    Exit(mLow);
+  end;
+  Result := -1;
+end;
+
+/// <summary>Name der Methode (ohne Klasse), in deren Rumpf AOffset liegt: die äußerste Routine mit Punkt im Namen
+/// (procedure TFoo.Bar, wie TResolverTyping.MethodTypeName); '' außerhalb.</summary>
+function OutermostMethodName(ANode: TSyntaxNode; AOffset: Integer): string;
+var
+  mIndex: Integer;
+  mChild: TSyntaxNode;
+begin
+  Result := '';
+  for mIndex := 0 to ANode.ChildCount - 1 do
+  begin
+    mChild := ANode[mIndex];
+    if (mChild.StartOffset <= AOffset) and (AOffset < mChild.EndOffset) then
+    begin
+      if (mChild.Kind = TSyntaxKind.RoutineDecl) and (Pos('.', mChild.Name) > 0) then
+      begin
+        Exit(Copy(mChild.Name, LastDelimiter('.', mChild.Name) + 1, MaxInt));
+      end;
+      Exit(OutermostMethodName(mChild, AOffset));
+    end;
+  end;
+end;
+
+/// <summary>"inherited" ohne Namen dahinter (inherited; inherited end) an APosition: die gleichnamige Methode im
+/// Vorfahren der Klasse der umgebenden Methode, wie bei "inherited Name" (Entscheidung des Nutzers, 26.11.2026).
+/// Kind None an anderen Stellen. Bei Überladungen im Vorfahren gilt die erste.</summary>
+function BareInheritedAt(AResolver: TNameResolver; ATree: TSyntaxTree; const AFileName: string;
+  const APosition: TTextPosition): TResolvedSymbol;
+var
+  mIndex: Integer;
+  mToken: TPascalToken;
+  mName: string;
+begin
+  Result := Default(TResolvedSymbol);
+  mIndex := TokenIndexAt(ATree, APosition);
+  if mIndex < 0 then
+  begin
+    Exit;
+  end;
+  mToken := ATree.Tokens[mIndex];
+  if not mToken.IsKeyword('inherited') or
+    ((mIndex < High(ATree.Tokens)) and (ATree.Tokens[mIndex + 1].Kind = TPascalTokenKind.Identifier)) then
+  begin
+    Exit;
+  end;
+  mName := OutermostMethodName(ATree.Root, mToken.Offset);
+  if mName <> '' then
+  begin
+    Result := AResolver.ResolveChain(ATree, AFileName, [mName], mToken.Offset, True);
+  end;
+end;
+
+/// <summary>Dateiname einer Include-Direktive ({$I Name}, {$INCLUDE Name}, auch (*$I …*)) an APosition: True mit
+/// dem Namen, wenn APosition darauf steht. {$I+}/{$I-} (I/O-Prüfung) und andere Direktiven zählen nicht.</summary>
+function IncludeNameAt(ATree: TSyntaxTree; const APosition: TTextPosition; out AName: string): Boolean;
+var
+  mIndex, mStart, mEnd, mWordEnd: Integer;
+  mToken: TPascalToken;
+  mText, mWord: string;
+begin
+  Result := False;
+  AName := '';
+  mIndex := TokenIndexAt(ATree, APosition);
+  if mIndex < 0 then
+  begin
+    Exit;
+  end;
+  mToken := ATree.Tokens[mIndex];
+  if (mToken.Kind <> TPascalTokenKind.Directive) or (mToken.StartPos.Line <> mToken.EndPos.Line) or
+    (mToken.StartPos.Line <> APosition.Line) then
+  begin
+    Exit;
+  end;
+  mText := mToken.Text;
+  // Anfang hinter "{$" bzw. "(*$", Ende vor "}" bzw. "*)" (Stellen 1-basiert in mText).
+  if StartsText('{$', mText) then
+  begin
+    mStart := 3;
+  end
+  else if StartsText('(*$', mText) then
+  begin
+    mStart := 4;
+  end
+  else
+  begin
+    Exit;
+  end;
+  mEnd := Length(mText);
+  if EndsText('*)', mText) then
+  begin
+    mEnd := Length(mText) - 2;
+  end
+  else if EndsText('}', mText) then
+  begin
+    mEnd := Length(mText) - 1;
+  end;
+  mWordEnd := mStart;
+  while (mWordEnd <= mEnd) and CharInSet(mText[mWordEnd], ['A'..'Z', 'a'..'z']) do
+  begin
+    Inc(mWordEnd);
+  end;
+  mWord := Copy(mText, mStart, mWordEnd - mStart);
+  if not (SameText(mWord, 'I') or SameText(mWord, 'INCLUDE')) or (mWordEnd > mEnd) or (mText[mWordEnd] > ' ') then
+  begin
+    Exit;
+  end;
+  // Der Name: ab dem ersten Zeichen nach den Leerzeichen bis zum Ende der Direktive, ohne Leerzeichen am Ende.
+  mStart := mWordEnd;
+  while (mStart <= mEnd) and (mText[mStart] <= ' ') do
+  begin
+    Inc(mStart);
+  end;
+  while (mEnd >= mStart) and (mText[mEnd] <= ' ') do
+  begin
+    Dec(mEnd);
+  end;
+  if mEnd < mStart then
+  begin
+    Exit;
+  end;
+  // Klick auf dem Namen (oder direkt dahinter): Zeichen der Zeile ab dem Anfang des Tokens.
+  if (APosition.Character < mToken.StartPos.Character + mStart - 1) or
+    (APosition.Character > mToken.StartPos.Character + mEnd) then
+  begin
+    Exit;
+  end;
+  AName := Copy(mText, mStart, mEnd - mStart + 1);
+  Result := True;
+end;
+
+/// <summary>Ziel der Include-Direktive an APosition in AFileName: Anfang der eingebundenen Datei, wie ein Unit-Name in
+/// uses (Entscheidung des Nutzers, 26.11.2026). Zuerst die Include-Dateien der Unit im Index (dort auch über die
+/// Suchpfade gefunden), sonst neben der Datei bzw. mit ".inc"/".pas" wie der Compiler. Leer ohne.</summary>
+function IncludeTargets(const AIndex: ISymbolIndex; ATree: TSyntaxTree; const AFileName: string;
+  const APosition: TTextPosition): TArray<TDefinitionTarget>;
+var
+  mName, mPlain, mFound, mInclude: string;
+  mUnit: TUnitIndex;
+  mEmpty: TTextRange;
+begin
+  Result := nil;
+  if not IncludeNameAt(ATree, APosition, mName) then
+  begin
+    Exit;
+  end;
+  mPlain := mName;
+  if (Length(mPlain) >= 2) and (mPlain[1] = '''') and (mPlain[Length(mPlain)] = '''') then
+  begin
+    mPlain := Copy(mPlain, 2, Length(mPlain) - 2);
+  end;
+  mFound := '';
+  if (AIndex <> nil) and TIndexFiles.UnitOf(AIndex, AFileName, mUnit) then
+  begin
+    for mInclude in mUnit.Includes do
+    begin
+      if SameText(ExtractFileName(mInclude), ExtractFileName(mPlain)) or
+        ((ExtractFileExt(mPlain) = '') and (SameText(ExtractFileName(mInclude), ExtractFileName(mPlain) + '.inc') or
+        SameText(ExtractFileName(mInclude), ExtractFileName(mPlain) + '.pas'))) then
+      begin
+        mFound := mInclude;
+        Break;
+      end;
+    end;
+  end;
+  if (mFound = '') and not TIncludeFiles.FindInclude(mPlain, AFileName, nil,
+    function(const APath: string): Boolean
+    begin
+      Result := FileExists(APath);
+    end, mFound) then
+  begin
+    Exit;
+  end;
+  mEmpty := TTextRange.Create(TTextPosition.Create(0, 0), TTextPosition.Create(0, 0));
+  Result := [Target(mFound, mEmpty, mEmpty)];
+end;
+
 function TLspDefinition.ResolveTargets(AResolver: TNameResolver; ATree: TSyntaxTree; const AFileName,
   AText: string; const APosition: TTextPosition; ADeclaration: Boolean): TArray<TDefinitionTarget>;
+var
+  mInherited: TResolvedSymbol;
 begin
+  // Dateiname in {$I …}/{$INCLUDE …}: die Datei öffnen.
+  Result := IncludeTargets(FIndex, ATree, AFileName, APosition);
+  if Length(Result) > 0 then
+  begin
+    Exit;
+  end;
   Result := Targets(AResolver, FIndex, ATree, AFileName, APosition, ADeclaration);
+  // "inherited;" ohne Namen: die gleichnamige Methode des Vorfahren.
+  if Length(Result) = 0 then
+  begin
+    mInherited := BareInheritedAt(AResolver, ATree, AFileName, APosition);
+    if mInherited.Kind <> TResolvedKind.None then
+    begin
+      Result := TargetsOf(AResolver, FIndex, TDefinitionQuery.Create(ATree, AFileName, APosition, ADeclaration),
+        mInherited);
+    end;
+  end;
   // Nichts aufgelöst: vielleicht eine Deklaration aus einem nicht geltenden Zweig (NAV).
   if Length(Result) = 0 then
   begin

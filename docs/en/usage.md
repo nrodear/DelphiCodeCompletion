@@ -66,15 +66,21 @@ involved.
 - From a usage, dpcc jumps to the declaration (for methods the one in the class or in the interface section). If the
   position is already on the declaration itself, it goes to the implementation, and from there back. For overloads,
   the variant with the same parameter types counts.
-- Targets: across units, unit names in `uses` (start of the file), local variables and parameters, types, fields
+- Declarations without a body (abstract methods, interface methods, `external`): Ctrl+click stays there, also for
+  overloads; it does not jump to another variant.
+- `inherited;` without a name jumps, like `inherited Name`, to the method of the same name in the ancestor.
+- Targets: across units, unit names in `uses` (start of the file), file names in `{$I …}` or `{$INCLUDE …}` (start of
+  the included file; `{$R …}` does not jump), local variables and parameters, types, fields
   after expressions such as `List[i].X`, declarations in include files and in inactive branches (`{$IFDEF …}`),
   library units that dpcc loads just for this (also Office type libraries and WinRT). For units with the same name,
   the one of the own project counts.
 - No target, no jump: units without source (known only from packages), units dpcc does not find, ambiguous
   overloads and `with` with an unknown type. The IDE then does not jump; dpcc names the reason in the Messages
   window (group dpcc), for example “unit X is only available as a package (no source)”, “unit X not found” or
-  “"Name" could not be resolved”, while the index is being built with the addition “The index is still being
-  built.” The same message does not appear several times in a row. Every jump without a target is also one line in
+  “"Name" could not be resolved”. If a name or unit is missing only because the index is still being built, it says
+  “No jump: the index is still being built. Please click again in a moment.” instead; dpcc then neither waits nor
+  jumps later. For other reasons the addition “The index is still being built.” appears while the index is being
+  built. The same message does not appear several times in a row. Every jump without a target is also one line in
   `dpcc.log`.
 - For Ctrl+click the position under the mouse counts, for “Find Declaration” the cursor.
 - The IDE waits at most 250 ms for dpcc. If the answer comes later, dpcc jumps by itself, provided the same file is

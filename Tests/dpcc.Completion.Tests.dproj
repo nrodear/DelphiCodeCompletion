@@ -105,6 +105,8 @@
         <DCCReference Include="..\Packages\dpcc.Core\Source\Lsp\dpcc.Core.Lsp.Adapters.InProcess.pas"/>
         <DCCReference Include="IDE\dpcc.Core.Lsp.Adapters.InProcess.Tests.pas"/>
         <DCCReference Include="IDE\dpcc.Core.Lsp.GotoBothWays.Tests.pas"/>
+        <DCCReference Include="IDE\dpcc.Core.Lsp.GotoMatrix.Fixtures.pas"/>
+        <DCCReference Include="IDE\dpcc.Core.Lsp.GotoMatrix.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Completion\dpcc.Core.Completion.Contract.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Completion\Internals\dpcc.Core.Completion.Internals.Async.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Completion\dpcc.Core.Completion.Composite.pas"/>

@@ -3,7 +3,7 @@
 // Internals-Rolle Shell: Dateiänderungen. Meldungen des Clients und des eigenen Beobachters (workspace/
 // didChangeWatchedFiles) ordnet es ein: Einstellungsdateien lesen neu, Projektdateien laden ihren Ordner neu,
 // Quelltexte aktualisieren den Index (#500, #264). Ungespeicherte Stände gehen nach der Tipp-Pause in den Index
-// (#492), geänderte uses prüfen offene Units neu (#896).
+// (#492), auch ein beim Öffnen schon ungespeicherter Stand; geänderte uses prüfen offene Units neu (#896).
 // L2: Ordner außerhalb der beobachteten Wurzeln (Suchpfade anderer Repositories, Fremdquellen der Bibliothek,
 // Zusatzordner, $(BDS)) prüft der Server selbst: bei Ereignissen aus dem Editor höchstens alle 10 s, in einem
 // eigenen Thread (TShellFolderStamps). Was sich dort geändert hat, geht wie eine Meldung des Beobachters durch Handle.
@@ -66,6 +66,9 @@ type
     procedure ScanFolders;
     /// <summary>Nach der Tipp-Pause: ungespeicherten Stand in alle Ordner, die die Datei kennen.</summary>
     procedure ApplyTypedText(const AFileName, AText: string);
+    /// <summary>Kennt der Index eines Arbeitsbereichs die Pascal-Quelle AFileName mit einem anderen Stand als AText
+    /// (beim Öffnen schon ungespeichert geändert)? Nur Kopf und Prüfsumme, nichts wird eingelesen.</summary>
+    function DiffersFromIndex(const AFileName, AText: string): Boolean;
     procedure RefreshFailed(E: Exception);
     /// <summary>Ordnet eine Änderung ein: Einstellungen, Projektdatei (AReload) oder Quelltext (ASources).
     /// </summary>
@@ -87,7 +90,8 @@ type
     procedure StopRefresh;
     /// <summary>Dateiänderungen von außen: Projektdateien laden neu, Quelltexte aktualisieren den Index.</summary>
     procedure Handle(const AChanges: TArray<TFileChange>);
-    /// <summary>Dokument im Editor geändert oder geschlossen: Tipp-Pause bzw. Stand der Platte (#492).</summary>
+    /// <summary>Dokument im Editor geöffnet, geändert oder geschlossen: Tipp-Pause bzw. Stand der Platte (#492).
+    /// </summary>
     procedure DocumentEvent(AKind: TDocumentEventKind; const AFileName, AText: string);
   public const
     /// <summary>Höchstens so oft prüft der Server die Ordner außerhalb der beobachteten Wurzeln (L2).</summary>
@@ -99,6 +103,7 @@ implementation
 uses
   System.StrUtils,
   dpcc.Common.Index.Adapters.DiskFileSystem,
+  dpcc.Common.Index.Cache,
   dpcc.Common.Configuration.Contract,
   dpcc.Common.Pascal.TreeCache,
   dpcc.Text.LogMarks;
@@ -245,6 +250,34 @@ begin
   end;
 end;
 
+function TShellFileChanges.DiffersFromIndex(const AFileName, AText: string): Boolean;
+var
+  mWorkspace: TShellWorkspace;
+  mIndex: ISymbolIndex;
+  mUnit: TUnitIndex;
+  mHash: string;
+begin
+  Result := False;
+  if not TLspIndexRefresh.Applies(AFileName) then
+  begin
+    Exit;
+  end;
+  mHash := TIndexCache.HashOf(AText);
+  System.TMonitor.Enter(FServices.Workspaces.Lock);
+  try
+    for mWorkspace in FServices.Workspaces.Items do
+    begin
+      mIndex := mWorkspace.IndexStatusIndex;
+      if (mIndex <> nil) and mIndex.FindHeader(AFileName, mUnit) and (mUnit.Hash <> mHash) then
+      begin
+        Exit(True);
+      end;
+    end;
+  finally
+    System.TMonitor.Exit(FServices.Workspaces.Lock);
+  end;
+end;
+
 procedure TShellFileChanges.RefreshFailed(E: Exception);
 begin
   FServices.Logger.Warning('Index nach Tipp-Pause: ' + TLogMarks.Text(E.Message));
@@ -259,6 +292,14 @@ begin
   // L2: Arbeit im Editor ist der Anlass, die Ordner außerhalb der beobachteten Wurzeln zu prüfen.
   ScanLater;
   case AKind of
+    TDocumentEventKind.Opened:
+      // Ein schon beim Öffnen ungespeicherter Stand (Puffer der IDE vor dem Start von dpcc, Unit in einem anderen
+      // Reiter) geht nach derselben Pause in den Index; sonst führten Sprünge dorthin auf die Zeilen der Platte.
+      // Nur wenn der Text vom Stand im Index abweicht: Das Öffnen gespeicherter Dateien plant nichts.
+      if DiffersFromIndex(AFileName, AText) then
+      begin
+        FIndexRefresh.Changed(AFileName, AText);
+      end;
     TDocumentEventKind.Changed:
       begin
         FIndexRefresh.Changed(AFileName, AText);
