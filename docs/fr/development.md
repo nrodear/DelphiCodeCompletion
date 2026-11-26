@@ -22,7 +22,7 @@
 5. `Packages\dpcc.Server\dpcc.Server.dproj` (sources dans `Application\Source\Shell`)
 6. `Packages\dpcc.Core\dpcc.Core.dproj`
 7. `Packages\dpcc.UI\dpcc.UI.dproj`
-8. `Packages\dpcc.IDE.Base\dpcc.IDE.Base.dproj`
+8. `Packages\dpcc.Plugin\dpcc.Plugin.dproj`
 9. `Tests\dpcc.Completion.Tests.dproj`
 
 Ouvrir le groupe dans l'IDE, choisir Win32 et Debug, et compiler tous les projets. Les dépendances du groupe fixent
@@ -65,7 +65,7 @@ enregistre la configuration active dans le `.dproj` (`<Config Condition="'$(Conf
 avant d'enregistrer, sinon Delphi 13 compile lui aussi la configuration D12.
 
 Dans l'IDE de Delphi 12, `…\Output\Win32\D12\Bpl` doit figurer dans le PATH
-(`Tools\IdePath.ps1 -BdsVersion 23.0`), et c'est `dpcc.IDE.Base290.bpl` qui est installé ; voir
+(`Tools\IdePath.ps1 -BdsVersion 23.0`), et c'est `dpcc.Plugin290.bpl` qui est installé ; voir
 [Installation](installation.md#compiler-pour-delphi-12).
 
 **Ligne de commande :** le compilateur en ligne de commande (`dcc32`, MSBuild) est bloqué dans les éditions Community
@@ -110,7 +110,7 @@ Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --exclude:Benchmark --exitbehav
 | `Tests\Memory` | programme de mesure de la mémoire (catégorie `Benchmark`) |
 | `Tests\Support` | utilitaires : source de données fixe, surveillance des fuites |
 
-Les tests lient statiquement les DCU des paquets. Les parties utilisant la ToolsAPI (`dpcc.IDE.Base`) ne peuvent être
+Les tests lient statiquement les DCU des paquets. Les parties utilisant la ToolsAPI (`dpcc.Plugin`) ne peuvent être
 vérifiées que dans l'IDE.
 
 ### Mesurer la mémoire

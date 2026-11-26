@@ -43,11 +43,11 @@ se trouve sous `Output\Win32\Debug` (les BPL dans `Bpl`, le programme de test da
 ## Installation
 
 1. Dans l'IDE, ajouter via **Component › Install Packages…** le fichier
-   `Output\Win32\Debug\Bpl\dpcc.IDE.Base370.bpl`.
-2. `dpcc.IDE.Base370.bpl` a besoin à l'exécution des sept BPL `dpcc.Text370`, `dpcc.WinBase370`,
+   `Output\Win32\Debug\Bpl\dpcc.Plugin370.bpl`.
+2. `dpcc.Plugin370.bpl` a besoin à l'exécution des sept BPL `dpcc.Text370`, `dpcc.WinBase370`,
    `dpcc.Common370`, `dpcc.Windows370`, `dpcc.Server370`, `dpcc.Core370` et `dpcc.UI370`. Windows les recherche
    via le PATH. Le dossier `Output\Win32\Debug\Bpl` doit donc figurer dans le PATH de l'IDE.
-3. Sous Delphi 12, les fichiers s'appellent `…290.bpl` (plugin `dpcc.IDE.Base290.bpl`), le dossier est
+3. Sous Delphi 12, les fichiers s'appellent `…290.bpl` (plugin `dpcc.Plugin290.bpl`), le dossier est
    `Output\Win32\D12\Bpl`.
 
 ### Définir le PATH de l'IDE

@@ -1,11 +1,11 @@
 ﻿unit dpcc.Core.Diagnostics.PluginModules;
 
-// Die Module (BPLs), aus denen das Plugin besteht (S7b). Seit der Teilung in dpcc.Core, dpcc.UI und dpcc.IDE.Base
+// Die Module (BPLs), aus denen das Plugin besteht (S7b). Seit der Teilung in dpcc.Core, dpcc.UI und dpcc.Plugin
 // liegt der Code von dpcc in mehreren Packages; HInstance einer Unit nennt nur ihr eigenes. Wer wissen muss, ob eine
 // Klasse von dpcc stammt (Reste beim Entladen, dpcc.IDE.Completion.Leftovers) oder welche Packages ein überfälliger
 // Arbeiter-Thread festhalten muss (TDpccOverdueThreads), fragt hier.
 // Jedes Package meldet sich im initialization-Teil einer eigenen Unit an und im finalization-Teil wieder ab:
-// dpcc.Core in dieser Unit, dpcc.UI in dpcc.UI.Foundation.Module, dpcc.IDE.Base in dpcc.IDE.Foundation.Module.
+// dpcc.Core in dieser Unit, dpcc.UI in dpcc.UI.Foundation.Module, dpcc.Plugin in dpcc.IDE.Foundation.Module.
 // In einer Exe ohne Laufzeit-Packages (Tests) ist es nur das Modul der Exe.
 
 interface

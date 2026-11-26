@@ -8,7 +8,7 @@
 ;     (elevated wuerde HKCU in den Admin-Hive schreiben).
 ;   * "Known Packages" (NICHT "Known IDE Packages"/"Experts"); Wertdaten NIE
 ;     leer (leere Wertdaten = Package laedt nicht). Dort steht nur
-;     dpcc.IDE.Base<suffix>.bpl ({$DESIGNONLY}); die sieben Laufzeitpakete
+;     dpcc.Plugin<suffix>.bpl ({$DESIGNONLY}); die sieben Laufzeitpakete
 ;     ({$RUNONLY}) gehoeren nie dorthin, die IDE findet sie ueber den PATH.
 ;   * Deinstallation: Registry-Werte VOR den Dateien entfernen.
 ;   * Das Setup baut KEINE Netzverbindung auf - kein Update-Check, keine
@@ -78,7 +78,7 @@
 ; Acht BPLs je Delphi-Version, alle mit {$LIBSUFFIX AUTO}:
 ;   dpcc.Text, dpcc.WinBase, dpcc.Common, dpcc.Windows, dpcc.Server,
 ;   dpcc.Core, dpcc.UI    Laufzeitpakete ({$RUNONLY})
-;   dpcc.IDE.Base         Design-Paket ({$DESIGNONLY}), requires die sieben
+;   dpcc.Plugin           Design-Paket ({$DESIGNONLY}), requires die sieben
 ; Die dproj setzen DCC_BplOutput auf Output\$(Platform)\$(Config)\Bpl im Repo:
 ;   Delphi 13: dpcc_d13.groupproj, Win32, Konfiguration Debug -> Output\Win32\Debug\Bpl
 ;   Delphi 12: dpcc_d12.groupproj, Win32, Konfiguration D12   -> Output\Win32\D12\Bpl
@@ -87,7 +87,7 @@
 ;
 ; Ladeweg: Der Windows-Loader loest requires ueber bds.exe-Verzeichnis,
 ; System32 und PATH auf, NIE im Ordner der Design-BPL. Deshalb steht nur
-; dpcc.IDE.Base<suffix>.bpl in den Known Packages (voller Pfad), und
+; dpcc.Plugin<suffix>.bpl in den Known Packages (voller Pfad), und
 ; {app}\bpl\<version> kommt vorn in den IDE-eigenen Override
 ; HKCU\Software\Embarcadero\BDS\<bds>\Environment Variables\PATH (derselbe
 ; Eintrag, den Tools\IdePath.ps1 fuer den Entwickler-Bau setzt).
@@ -104,9 +104,12 @@
 ; Delphi 13 laedt.
 #define DpccSuffixD12 "290"
 #define DpccSuffixD13 "370"
-#define DpccIdeBplD12 "dpcc.IDE.Base" + DpccSuffixD12 + ".bpl"
-#define DpccIdeBplD13 "dpcc.IDE.Base" + DpccSuffixD13 + ".bpl"
-; Wertdaten der Known Packages = {$DESCRIPTION} aus dpcc.IDE.Base.dpk.
+#define DpccIdeBplD12 "dpcc.Plugin" + DpccSuffixD12 + ".bpl"
+#define DpccIdeBplD13 "dpcc.Plugin" + DpccSuffixD13 + ".bpl"
+; Frueherer Name des Plugins: dpcc.IDE.Base<suffix>.bpl. Fruehere Setups
+; trugen ihn unter Known Packages ein; beim Update raeumt das Setup Wert und
+; Datei ab (EntferneAltesPlugin).
+; Wertdaten der Known Packages = {$DESCRIPTION} aus dpcc.Plugin.dpk.
 #define DpccPackageDescription "dpcc - Delphi Pascal Code Completion"
 
 ; BDS-Registry-Schluessel (HKCU). Der Nummernsprung 23.0 -> 37.0 ist real.
@@ -269,7 +272,7 @@ Type: dirifempty; Name: "{userprograms}\dpcc"
 Name: "{userprograms}\Delphi Pascal Code Completion\{cm:UninstallShortcut}"; Filename: "{uninstallexe}"
 
 [Registry]
-; HKCU-Registrierung, je Version nur dpcc.IDE.Base<suffix>.bpl. Die sieben
+; HKCU-Registrierung, je Version nur dpcc.Plugin<suffix>.bpl. Die sieben
 ; Laufzeitpakete gehoeren NIE hierher ({$RUNONLY}), sie findet die IDE ueber
 ; den PATH-Override, den CurStepChanged setzt.
 ; Wertname = voller BPL-Pfad, Wertdaten = Beschreibung (NIE leer!).
@@ -380,10 +383,11 @@ end;
 
 // Gehoert der BPL-Dateiname zur dpcc-Familie? Die acht Packages mit oder
 // ohne Versionssuffix (aeltere Staende bauten die Laufzeitpakete ohne), dazu
-// dpcc.IDE.Expert, der fruehere Name des Plugins. Jede Registrierung dieser
-// Familie ausserhalb des Installationsordners ist eine Koexistenz-Gefahr:
-// dieselben Units in zwei geladenen Packages lassen die IDE beim Start
-// scheitern.
+// dpcc.IDE.Base und dpcc.IDE.Expert, fruehere Namen des Plugins. Jede
+// Registrierung dieser Familie ausserhalb des Installationsordners ist eine
+// Koexistenz-Gefahr: dieselben Units in zwei geladenen Packages lassen die
+// IDE beim Start scheitern. Die alte Plugin-BPL IM Installationsordner raeumt
+// EntferneAltesPlugin vorher still ab, sie stammt von diesem Setup.
 function IsDpccFamilyBpl(const FileName: string): Boolean;
 begin
   Result := IsPaketMitSuffix(FileName, 'dpcc.Text')
@@ -393,6 +397,7 @@ begin
     or IsPaketMitSuffix(FileName, 'dpcc.Server')
     or IsPaketMitSuffix(FileName, 'dpcc.Core')
     or IsPaketMitSuffix(FileName, 'dpcc.UI')
+    or IsPaketMitSuffix(FileName, 'dpcc.Plugin')
     or IsPaketMitSuffix(FileName, 'dpcc.IDE.Base')
     or IsPaketMitSuffix(FileName, 'dpcc.IDE.Expert');
 end;
@@ -409,6 +414,12 @@ begin
 end;
 
 function IdeBplName(const ASuffix: string): string;
+begin
+  Result := 'dpcc.Plugin' + ASuffix + '.bpl';
+end;
+
+// Frueherer Name der Plugin-BPL (siehe #define DpccIdeBplD12 oben).
+function AlterIdeBplName(const ASuffix: string): string;
 begin
   Result := 'dpcc.IDE.Base' + ASuffix + '.bpl';
 end;
@@ -800,6 +811,19 @@ begin
   RegDeleteValue(HKEY_CURRENT_USER, ADisabledKey, BplPfad(AOrdner, IdeBplName(ASuffix)));
 end;
 
+// Update von einem Setup mit dem frueheren Plugin-Namen dpcc.IDE.Base: dessen
+// Known-/Disabled-Packages-Wert und die alte BPL im Installationsordner
+// entfernen. Ohne das meldete Delphi ein fehlendes Package bzw. laede neben
+// dem neuen Plugin den alten Stand. Registry zuerst, Datei danach. Wert und
+// Datei stammen von diesem Setup, deshalb ohne Hinweis; fehlt beides, ist es
+// folgenlos.
+procedure EntferneAltesPlugin(const AOrdner, ASuffix, AKnownKey, ADisabledKey: string);
+begin
+  RegDeleteValue(HKEY_CURRENT_USER, AKnownKey, BplPfad(AOrdner, AlterIdeBplName(ASuffix)));
+  RegDeleteValue(HKEY_CURRENT_USER, ADisabledKey, BplPfad(AOrdner, AlterIdeBplName(ASuffix)));
+  EntferneDatei(BplPfad(AOrdner, AlterIdeBplName(ASuffix)));
+end;
+
 // Eine Version restlos entfernen: Registrierung, Override-Segment, Dateien,
 // Ordner.
 //
@@ -816,6 +840,7 @@ begin
   // Deinstallation. Eine registrierte, aber fehlende BPL laesst die IDE bei
   // jedem Start scheitern.
   EntferneRegistrierung(AOrdner, ASuffix, AKnownKey, ADisabledKey);
+  EntferneAltesPlugin(AOrdner, ASuffix, AKnownKey, ADisabledKey);
   EntferneOverrideSegment(AEnvKey, AOrdner);
   EntferneDatei(BplPfad(AOrdner, IdeBplName(ASuffix)));
   EntferneDatei(BplPfad(AOrdner, 'dpcc.UI' + ASuffix + '.bpl'));
@@ -840,6 +865,12 @@ end;
 procedure RichteVersionEin(const AOrdner, ASuffix, AKnownKey, ADisabledKey,
   AEnvKey: string);
 begin
+  // Das alte Plugin eines frueheren Setups zuerst, auch wenn der Override
+  // gleich scheitert: es passt nicht zu den eben ueberschriebenen
+  // Laufzeitpaketen und ist nie mehr lauffaehig. Danach gilt es auch nicht
+  // als fremde Registrierung (kein Hinweis).
+  EntferneAltesPlugin(AOrdner, ASuffix, AKnownKey, ADisabledKey);
+
   // Override VOR jeder Bereinigung: ohne ihn laedt der Paketsatz nicht, und
   // eine Entwickler-Registrierung waere dann der einzige lauffaehige Stand.
   if not SetzeOverrideSegment(AEnvKey, AOrdner) then
@@ -929,5 +960,7 @@ begin
     EntferneOverrideSegment(ENV_VARS_37, 'd13');
     EntferneRegistrierung('d12', SUFFIX_D12, KNOWN_PACKAGES_23, DISABLED_PACKAGES_23);
     EntferneRegistrierung('d13', SUFFIX_D13, KNOWN_PACKAGES_37, DISABLED_PACKAGES_37);
+    EntferneAltesPlugin('d12', SUFFIX_D12, KNOWN_PACKAGES_23, DISABLED_PACKAGES_23);
+    EntferneAltesPlugin('d13', SUFFIX_D13, KNOWN_PACKAGES_37, DISABLED_PACKAGES_37);
   end;
 end;

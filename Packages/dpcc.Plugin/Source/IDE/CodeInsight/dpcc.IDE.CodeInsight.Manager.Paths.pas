@@ -164,7 +164,7 @@ end;
 
 class function TDpccCodeInsightPaths.DiagnoseLog: string;
 const
-  cBaseName = 'dpcc.IDE.Base';
+  cBaseName = 'dpcc.Plugin';
   cLogName = 'dpcc.IDE.Expert';
 var
   mModule, mName: string;
@@ -172,7 +172,7 @@ begin
   // Neben dem Plugin, nicht im Temp-Ordner: Den hat die IDE nicht in jedem Fall gemeinsam mit uns.
   mModule := GetModuleName(HInstance);
   mName := ChangeFileExt(ExtractFileName(mModule), '.log');
-  // Der Name bleibt trotz neuem BPL-Namen (#1456): dpcc.IDE.Base370.bpl schreibt dpcc.IDE.Expert370.log.
+  // Der Name bleibt trotz neuem BPL-Namen (#1456): dpcc.Plugin370.bpl schreibt dpcc.IDE.Expert370.log.
   if SameText(Copy(mName, 1, Length(cBaseName)), cBaseName) then
   begin
     mName := cLogName + Copy(mName, Length(cBaseName) + 1, MaxInt);

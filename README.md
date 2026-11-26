@@ -44,11 +44,11 @@ unter `Output\Win32\Debug` (BPLs in `Bpl`, das Testprogramm in `Bin`). Für Delp
 ## Installieren
 
 1. In der IDE über **Komponenten › Packages installieren** die Datei
-   `Output\Win32\Debug\Bpl\dpcc.IDE.Base370.bpl` hinzufügen.
-2. `dpcc.IDE.Base370.bpl` braucht zur Laufzeit die sieben BPLs `dpcc.Text370`, `dpcc.WinBase370`,
+   `Output\Win32\Debug\Bpl\dpcc.Plugin370.bpl` hinzufügen.
+2. `dpcc.Plugin370.bpl` braucht zur Laufzeit die sieben BPLs `dpcc.Text370`, `dpcc.WinBase370`,
    `dpcc.Common370`, `dpcc.Windows370`, `dpcc.Server370`, `dpcc.Core370` und `dpcc.UI370`. Windows sucht sie
    über den PATH. Der Ordner `Output\Win32\Debug\Bpl` muss deshalb im PATH der IDE stehen.
-3. Unter Delphi 12 heißen die Dateien `…290.bpl` (Plugin `dpcc.IDE.Base290.bpl`), der Ordner ist
+3. Unter Delphi 12 heißen die Dateien `…290.bpl` (Plugin `dpcc.Plugin290.bpl`), der Ordner ist
    `Output\Win32\D12\Bpl`.
 
 ### PATH der IDE setzen

@@ -455,7 +455,7 @@ begin
     begin
       TDpccGuard.Log('Zeitlimit: Arbeiter hängt weiter; er wird bei Rückkehr freigegeben');
       // An TDpccOverdueThreads (S7b): gibt ihn frei, sobald er endet, und hält beim Entladen alle dpcc-Packages
-      // fest, solange er läuft. Sein Auftrag stammt meist aus dpcc.IDE.Base, diese Unit liegt in dpcc.Core; früher
+      // fest, solange er läuft. Sein Auftrag stammt meist aus dpcc.Plugin, diese Unit liegt in dpcc.Core; früher
       // gab er sich nur selbst frei (FreeOnTerminate), und nichts hielt den Code fest, in den er zurückkehrt.
       TDpccOverdueThreads.Adopt(mWorker, TDpccPluginModules.All);
     end;

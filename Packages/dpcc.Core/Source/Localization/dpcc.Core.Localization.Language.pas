@@ -68,7 +68,7 @@ implementation
 uses
   System.SysUtils;
 
-/// <summary>Eigene Kopien der Texte. Seit S7b melden auch Units anderer Packages (dpcc.IDE.Base) Tabellen an; ihre
+/// <summary>Eigene Kopien der Texte. Seit S7b melden auch Units anderer Packages (dpcc.Plugin) Tabellen an; ihre
 /// Texte sind Literale im Speicher jenes Packages. Eine bloße Zuweisung behielte den Verweis dorthin, und wäre jenes
 /// Package vor diesem entladen, griffe das Freigeben der Tabellen ins Leere.</summary>
 function Copied(const ATexts: array of string): TArray<string>;

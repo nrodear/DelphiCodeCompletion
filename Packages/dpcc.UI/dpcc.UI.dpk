@@ -29,9 +29,9 @@
 {$IMPLICITBUILD ON}
 {$LIBSUFFIX AUTO}
 
-// Laufzeit-Package mit der VCL-Oberfläche des Plugins (seit S7b, vorher Teil von dpcc.IDE.Base):
+// Laufzeit-Package mit der VCL-Oberfläche des Plugins (seit S7b, vorher Teil von dpcc.Plugin):
 // Completion-Liste, Hover- und Signatur-Hinweise, Optionsseite, Texte der Oberfläche. Erlaubt sind RTL,
-// VCL und dpcc.Core; kein ToolsAPI, kein DesignIntf. Die Farben der IDE setzt dpcc.IDE.Base.
+// VCL und dpcc.Core; kein ToolsAPI, kein DesignIntf. Die Farben der IDE setzt dpcc.Plugin.
 
 requires
   rtl,

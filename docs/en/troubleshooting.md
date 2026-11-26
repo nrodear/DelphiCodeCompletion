@@ -8,7 +8,7 @@
 
 Typical: at startup or during installation, the IDE reports that a package cannot be loaded.
 
-The cause is almost always the PATH. `dpcc.IDE.Base370.bpl` needs seven more BPLs, and Windows looks for them only
+The cause is almost always the PATH. `dpcc.Plugin370.bpl` needs seven more BPLs, and Windows looks for them only
 via the PATH.
 
 1. Close the IDE.

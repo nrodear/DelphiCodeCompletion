@@ -40,12 +40,12 @@ the configuration D12 (never Debug) and the output in `Output\Win32\D12`. More o
 
 ## Installing
 
-1. In the IDE, add the file `Output\Win32\Debug\Bpl\dpcc.IDE.Base370.bpl` via
+1. In the IDE, add the file `Output\Win32\Debug\Bpl\dpcc.Plugin370.bpl` via
    **Component › Install Packages…**.
-2. At run time, `dpcc.IDE.Base370.bpl` needs the seven BPLs `dpcc.Text370`, `dpcc.WinBase370`,
+2. At run time, `dpcc.Plugin370.bpl` needs the seven BPLs `dpcc.Text370`, `dpcc.WinBase370`,
    `dpcc.Common370`, `dpcc.Windows370`, `dpcc.Server370`, `dpcc.Core370` and `dpcc.UI370`. Windows looks for
    them via the PATH. The folder `Output\Win32\Debug\Bpl` must therefore be in the IDE's PATH.
-3. Under Delphi 12 the files are named `…290.bpl` (plugin `dpcc.IDE.Base290.bpl`), the folder is
+3. Under Delphi 12 the files are named `…290.bpl` (plugin `dpcc.Plugin290.bpl`), the folder is
    `Output\Win32\D12\Bpl`.
 
 ### Setting the IDE PATH

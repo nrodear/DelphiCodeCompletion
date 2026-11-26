@@ -24,7 +24,7 @@
         <Projects Include="Packages\dpcc.UI\dpcc.UI.dproj">
             <Dependencies>Packages\dpcc.Text\dpcc.Text.dproj;Packages\dpcc.WinBase\dpcc.WinBase.dproj;Packages\dpcc.Common\dpcc.Common.dproj;Packages\dpcc.Windows\dpcc.Windows.dproj;Packages\dpcc.Server\dpcc.Server.dproj;Packages\dpcc.Core\dpcc.Core.dproj</Dependencies>
         </Projects>
-        <Projects Include="Packages\dpcc.IDE.Base\dpcc.IDE.Base.dproj">
+        <Projects Include="Packages\dpcc.Plugin\dpcc.Plugin.dproj">
             <Dependencies>Packages\dpcc.Text\dpcc.Text.dproj;Packages\dpcc.WinBase\dpcc.WinBase.dproj;Packages\dpcc.Common\dpcc.Common.dproj;Packages\dpcc.Windows\dpcc.Windows.dproj;Packages\dpcc.Server\dpcc.Server.dproj;Packages\dpcc.Core\dpcc.Core.dproj;Packages\dpcc.UI\dpcc.UI.dproj</Dependencies>
         </Projects>
         <Projects Include="Tests\dpcc.Completion.Tests.dproj">
@@ -101,14 +101,14 @@
     <Target Name="dpcc_UI:Make" DependsOnTargets="dpcc_Text:Make;dpcc_WinBase:Make;dpcc_Common:Make;dpcc_Windows:Make;dpcc_Server:Make;dpcc_Core:Make">
         <MSBuild Projects="Packages\dpcc.UI\dpcc.UI.dproj" Targets="Make"/>
     </Target>
-    <Target Name="dpcc_IDE_Base" DependsOnTargets="dpcc_Text;dpcc_WinBase;dpcc_Common;dpcc_Windows;dpcc_Server;dpcc_Core;dpcc_UI">
-        <MSBuild Projects="Packages\dpcc.IDE.Base\dpcc.IDE.Base.dproj"/>
+    <Target Name="dpcc_Plugin" DependsOnTargets="dpcc_Text;dpcc_WinBase;dpcc_Common;dpcc_Windows;dpcc_Server;dpcc_Core;dpcc_UI">
+        <MSBuild Projects="Packages\dpcc.Plugin\dpcc.Plugin.dproj"/>
     </Target>
-    <Target Name="dpcc_IDE_Base:Clean" DependsOnTargets="dpcc_Text:Clean;dpcc_WinBase:Clean;dpcc_Common:Clean;dpcc_Windows:Clean;dpcc_Server:Clean;dpcc_Core:Clean;dpcc_UI:Clean">
-        <MSBuild Projects="Packages\dpcc.IDE.Base\dpcc.IDE.Base.dproj" Targets="Clean"/>
+    <Target Name="dpcc_Plugin:Clean" DependsOnTargets="dpcc_Text:Clean;dpcc_WinBase:Clean;dpcc_Common:Clean;dpcc_Windows:Clean;dpcc_Server:Clean;dpcc_Core:Clean;dpcc_UI:Clean">
+        <MSBuild Projects="Packages\dpcc.Plugin\dpcc.Plugin.dproj" Targets="Clean"/>
     </Target>
-    <Target Name="dpcc_IDE_Base:Make" DependsOnTargets="dpcc_Text:Make;dpcc_WinBase:Make;dpcc_Common:Make;dpcc_Windows:Make;dpcc_Server:Make;dpcc_Core:Make;dpcc_UI:Make">
-        <MSBuild Projects="Packages\dpcc.IDE.Base\dpcc.IDE.Base.dproj" Targets="Make"/>
+    <Target Name="dpcc_Plugin:Make" DependsOnTargets="dpcc_Text:Make;dpcc_WinBase:Make;dpcc_Common:Make;dpcc_Windows:Make;dpcc_Server:Make;dpcc_Core:Make;dpcc_UI:Make">
+        <MSBuild Projects="Packages\dpcc.Plugin\dpcc.Plugin.dproj" Targets="Make"/>
     </Target>
     <Target Name="dpcc_Completion_Tests" DependsOnTargets="dpcc_Text;dpcc_WinBase;dpcc_Common;dpcc_Windows;dpcc_Server;dpcc_Core">
         <MSBuild Projects="Tests\dpcc.Completion.Tests.dproj"/>
@@ -120,13 +120,13 @@
         <MSBuild Projects="Tests\dpcc.Completion.Tests.dproj" Targets="Make"/>
     </Target>
     <Target Name="Build">
-        <CallTarget Targets="dpcc_Text;dpcc_WinBase;dpcc_Common;dpcc_Windows;dpcc_Server;dpcc_Core;dpcc_UI;dpcc_IDE_Base;dpcc_Completion_Tests"/>
+        <CallTarget Targets="dpcc_Text;dpcc_WinBase;dpcc_Common;dpcc_Windows;dpcc_Server;dpcc_Core;dpcc_UI;dpcc_Plugin;dpcc_Completion_Tests"/>
     </Target>
     <Target Name="Clean">
-        <CallTarget Targets="dpcc_Text:Clean;dpcc_WinBase:Clean;dpcc_Common:Clean;dpcc_Windows:Clean;dpcc_Server:Clean;dpcc_Core:Clean;dpcc_UI:Clean;dpcc_IDE_Base:Clean;dpcc_Completion_Tests:Clean"/>
+        <CallTarget Targets="dpcc_Text:Clean;dpcc_WinBase:Clean;dpcc_Common:Clean;dpcc_Windows:Clean;dpcc_Server:Clean;dpcc_Core:Clean;dpcc_UI:Clean;dpcc_Plugin:Clean;dpcc_Completion_Tests:Clean"/>
     </Target>
     <Target Name="Make">
-        <CallTarget Targets="dpcc_Text:Make;dpcc_WinBase:Make;dpcc_Common:Make;dpcc_Windows:Make;dpcc_Server:Make;dpcc_Core:Make;dpcc_UI:Make;dpcc_IDE_Base:Make;dpcc_Completion_Tests:Make"/>
+        <CallTarget Targets="dpcc_Text:Make;dpcc_WinBase:Make;dpcc_Common:Make;dpcc_Windows:Make;dpcc_Server:Make;dpcc_Core:Make;dpcc_UI:Make;dpcc_Plugin:Make;dpcc_Completion_Tests:Make"/>
     </Target>
     <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
 </Project>

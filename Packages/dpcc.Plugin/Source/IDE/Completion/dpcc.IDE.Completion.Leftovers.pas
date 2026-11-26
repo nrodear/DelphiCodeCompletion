@@ -3,8 +3,8 @@
 // Letzter Schritt des Abbaus (#1233): dpcc-Komponenten, die nach dem Abbau noch an Formularen, Datenmodulen oder
 // der Anwendung der IDE hängen, freigeben, solange ihr Code noch geladen ist. Seit Rückbau R5 (Wurzel
 // dpcc.IDE.Completion.Register) ohne Module. Seit S7b liegt dpcc in drei Packages: Eigene Klassen sind die aus
-// dpcc.IDE.Base, dpcc.UI (Popups, Hinweisfenster, Optionsseite) und dpcc.Core (TDpccPluginModules). Ein Vergleich
-// mit HInstance sähe nur IDE.Base; die Fenster aus dpcc.UI blieben liegen und die IDE riefe beim Beenden ihren
+// dpcc.Plugin, dpcc.UI (Popups, Hinweisfenster, Optionsseite) und dpcc.Core (TDpccPluginModules). Ein Vergleich
+// mit HInstance sähe nur dpcc.Plugin; die Fenster aus dpcc.UI blieben liegen und die IDE riefe beim Beenden ihren
 // entladenen Code auf.
 
 interface
@@ -27,7 +27,7 @@ uses
   Vcl.Forms,
   dpcc.Core.Diagnostics.Guard,
   dpcc.Core.Diagnostics.PluginModules,
-  // Meldet dpcc.IDE.Base bei TDpccPluginModules an; hier benutzt, damit es nach dieser Unit (und nach
+  // Meldet dpcc.Plugin bei TDpccPluginModules an; hier benutzt, damit es nach dieser Unit (und nach
   // dpcc.IDE.Completion.Register, das FreeLeftovers im Abbau ruft) beendet wird.
   dpcc.IDE.Foundation.Module;
 
@@ -49,7 +49,7 @@ begin
   end;
 end;
 
-/// <summary>Stammt die Klasse von AObject aus einem dpcc-Package (IDE.Base, UI, Core)?</summary>
+/// <summary>Stammt die Klasse von AObject aus einem dpcc-Package (dpcc.Plugin, UI, Core)?</summary>
 function OwnClass(AObject: TObject): Boolean;
 begin
   Result := (AObject <> nil) and TDpccPluginModules.OwnsClass(AObject.ClassType);

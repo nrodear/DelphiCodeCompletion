@@ -34,7 +34,7 @@
 // Die Quellen liegen weiter in Application\Source\Shell. Seit S1 gibt es keinen eigenen Server-Prozess mehr
 // (Programmstart, Kommandozeile und stdin/stdout liegen in _deleteMe\_rueckbau\S1); der Server läuft nur noch im
 // IDE-Prozess.
-// Das Plugin (dpcc.IDE.Base) lädt dieses BPL; die Tests linken die DCUs (Output\$(Platform)\$(Config)\Dcu\dpcc.Server).
+// Das Plugin (dpcc.Plugin) lädt dieses BPL; die Tests linken die DCUs (Output\$(Platform)\$(Config)\Dcu\dpcc.Server).
 
 requires
   rtl,

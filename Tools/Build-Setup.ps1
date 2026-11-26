@@ -7,7 +7,7 @@
     Delphi 13: Output\Win32\Debug\Bpl (dpcc_d13.groupproj, Win32, Konfiguration Debug), Endung 370
     Delphi 12: Output\Win32\D12\Bpl   (dpcc_d12.groupproj, Win32, Konfiguration D12),   Endung 290
   Je Version acht BPLs: dpcc.Text, dpcc.WinBase, dpcc.Common, dpcc.Windows, dpcc.Server, dpcc.Core, dpcc.UI und
-  das Plugin dpcc.IDE.Base.
+  das Plugin dpcc.Plugin.
 
   Vorbedingungen. Das Skript prueft alle und bricht erst dann ab; angelegt wird bis dahin nichts:
     - ISCC.exe gefunden (PATH, -Iscc oder Standardordner von Inno Setup 6)
@@ -52,7 +52,7 @@ $BplDirD13 = [IO.Path]::GetFullPath($BplDirD13).TrimEnd('\')
 $OutDir = [IO.Path]::GetFullPath($OutDir).TrimEnd('\')
 
 $packages = @('dpcc.Text', 'dpcc.WinBase', 'dpcc.Common', 'dpcc.Windows', 'dpcc.Server', 'dpcc.Core', 'dpcc.UI',
-  'dpcc.IDE.Base')
+  'dpcc.Plugin')
 $versions = @(
   @{ Name = 'Delphi 12'; Suffix = '290'; Dir = $BplDirD12; Group = 'dpcc_d12.groupproj (Konfiguration D12)' },
   @{ Name = 'Delphi 13'; Suffix = '370'; Dir = $BplDirD13; Group = 'dpcc_d13.groupproj (Konfiguration Debug)' }

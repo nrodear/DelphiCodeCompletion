@@ -36,7 +36,7 @@ Je Version acht BPLs, alle mit `{$LIBSUFFIX AUTO}`:
 | BPL | Art |
 |---|---|
 | `dpcc.Text`, `dpcc.WinBase`, `dpcc.Common`, `dpcc.Windows`, `dpcc.Server`, `dpcc.Core`, `dpcc.UI` | Laufzeitpakete (`{$RUNONLY}`) |
-| `dpcc.IDE.Base` | Design-Paket (`{$DESIGNONLY}`), das Plugin; requires die sieben |
+| `dpcc.Plugin` | Design-Paket (`{$DESIGNONLY}`), das Plugin; requires die sieben |
 
 Das Setup nimmt beide Versionen immer zusammen auf; vor dem Setup also beide Gruppen bauen.
 
@@ -44,7 +44,7 @@ Das Setup nimmt beide Versionen immer zusammen auf; vor dem Setup also beide Gru
 
 Der Windows-Loader löst `requires` über das Verzeichnis von bds.exe, System32 und PATH auf, **nicht** im Ordner
 der Plugin-BPL, und ein `{$RUNONLY}`-Paket gehört nicht in die Known Packages. Deshalb steht dort nur
-`dpcc.IDE.Base<suffix>.bpl` (voller Pfad), und das Setup legt `{app}\bpl\<version>` vorn in den IDE-eigenen Override
+`dpcc.Plugin<suffix>.bpl` (voller Pfad), und das Setup legt `{app}\bpl\<version>` vorn in den IDE-eigenen Override
 `HKCU\Software\Embarcadero\BDS\<bds>\Environment Variables\PATH` – derselbe Eintrag, den `Tools\IdePath.ps1` für den
 eigenen Bau setzt.
 
@@ -100,8 +100,8 @@ Repo.
 
   | Version | Dateien nach | Known Packages (Wertname = voller Pfad, Daten `dpcc - Delphi Pascal Code Completion`) | PATH-Override |
   |---|---|---|---|
-  | Delphi 12 | `bpl\d12\dpcc.*290.bpl` | `HKCU\Software\Embarcadero\BDS\23.0\Known Packages`, Wert `…\bpl\d12\dpcc.IDE.Base290.bpl` | `…\BDS\23.0\Environment Variables`, Wert `PATH` |
-  | Delphi 13 | `bpl\d13\dpcc.*370.bpl` | `HKCU\Software\Embarcadero\BDS\37.0\Known Packages`, Wert `…\bpl\d13\dpcc.IDE.Base370.bpl` | `…\BDS\37.0\Environment Variables`, Wert `PATH` |
+  | Delphi 12 | `bpl\d12\dpcc.*290.bpl` | `HKCU\Software\Embarcadero\BDS\23.0\Known Packages`, Wert `…\bpl\d12\dpcc.Plugin290.bpl` | `…\BDS\23.0\Environment Variables`, Wert `PATH` |
+  | Delphi 13 | `bpl\d13\dpcc.*370.bpl` | `HKCU\Software\Embarcadero\BDS\37.0\Known Packages`, Wert `…\bpl\d13\dpcc.Plugin370.bpl` | `…\BDS\37.0\Environment Variables`, Wert `PATH` |
 
   Dazu `unins000.exe`/`unins000.dat` in `{app}`, der Eintrag unter „Apps“ von Windows und ein Startmenü-Eintrag
   `Delphi Pascal Code Completion\dpcc deinstallieren` (englisch: `Uninstall dpcc`). Die Verknüpfung
@@ -109,7 +109,7 @@ Repo.
   `dpcc` nur, wenn er dann leer ist.
 - **Anzeige**: Programmname „Delphi Pascal Code Completion (dpcc)“ (Wizard und „Apps“), Herausgeber
   „dear Technologies“, Version dreistellig (`x.y.z`). Die Paketbeschreibung in den Known Packages
-  entspricht `{$DESCRIPTION}` aus `dpcc.IDE.Base.dpk`.
+  entspricht `{$DESCRIPTION}` aus `dpcc.Plugin.dpk`.
 - **IDE-PATH-Override**: `{app}\bpl\<version>` kommt vorn in den Wert. Er ist geteilt (InterBase trägt dort z. B.
   `…\IDE_spoof;$(PATH)`): nur das eigene Segment wird bewegt, alles andere bleibt Zeichen für Zeichen. Das Segment
   wird immer entnommen und vorn eingesetzt; eine Doppelinstallation ändert den Wert nicht, und es steht vor einem
@@ -118,11 +118,16 @@ Repo.
   unberührt. Fehlt auch sie, entsteht `<segment>;$(PATH)`. Scheitert das Schreiben, meldet das Setup es (im
   Silent-Lauf im Log) und lässt die fremden Registrierungen dieser Version stehen.
 - **Koexistenz-Check, je Version**: eine Registrierung der dpcc-Familie (die acht Packages mit oder ohne
-  Versionssuffix, dazu der frühere Name `dpcc.IDE.Expert`) unter anderem Pfad – typisch der eigene Bau aus dem
+  Versionssuffix, dazu die früheren Namen `dpcc.IDE.Base` und `dpcc.IDE.Expert`) unter anderem Pfad – typisch der eigene Bau aus dem
   Repo – wird gemeldet und aus den Known Packages entfernt; beide zusammen ließen die IDE beim Start scheitern. Der
   PATH-Eintrag des eigenen Baus bleibt stehen. Geprüft wird nur der Zweig angehakter Versionen. Wer danach wieder den
   eigenen Bau nutzt, deinstalliert das Setup und trägt den Bau neu ein
   ([Installation](../docs/de/installation.md#installieren)).
+- **Update vom früheren Plugin-Namen**: Bis zur Umbenennung hieß das Plugin `dpcc.IDE.Base<suffix>.bpl`. Vor allem
+  anderen entfernt das Setup je angehakter Version den Known- und Disabled-Packages-Wert
+  `{app}\bpl\<version>\dpcc.IDE.Base<suffix>.bpl` und danach die alte Datei (`EntferneAltesPlugin`), ohne Hinweis –
+  beides stammt von einem früheren Lauf dieses Setups. Sonst meldete Delphi ein fehlendes Package oder lüde neben dem
+  neuen Plugin den alten Stand. Abwahl einer Version und Deinstallation räumen den alten Namen ebenso ab.
 - **Disabled-Packages-Bereinigung**: ein früherer „Package kann nicht geladen werden → Nein“-Eintrag für die
   installierte Plugin-BPL wird entfernt, sonst bliebe sie stumm blockiert.
 - **Auswahl auf eigener Seite**: nur gefundene Versionen, installiert wird nur das Angehakte. Wer eine zuvor
@@ -154,7 +159,7 @@ Repo.
 
 | # | Szenario | Erwartung |
 |---|---|---|
-| 1 | Rechner mit Delphi 13, ohne eigenen Bau, Konto ohne Adminrechte | kein UAC-Prompt; acht BPLs unter `%LOCALAPPDATA%\Programs\dpcc\bpl\d13\`; ein Known-Packages-Wert für `dpcc.IDE.Base370.bpl`, Daten nicht leer; `{app}\bpl\d13` vorn im PATH-Override |
+| 1 | Rechner mit Delphi 13, ohne eigenen Bau, Konto ohne Adminrechte | kein UAC-Prompt; acht BPLs unter `%LOCALAPPDATA%\Programs\dpcc\bpl\d13\`; ein Known-Packages-Wert für `dpcc.Plugin370.bpl`, Daten nicht leer; `{app}\bpl\d13` vorn im PATH-Override |
 | 2 | IDE-Start danach | dpcc lädt ohne „Package kann nicht geladen werden“; Info-Dialog nennt „dpcc <Version>“; `%LOCALAPPDATA%\dpcc\Logs\dpcc.log` enthält „dpcc angemeldet“ |
 | 3 | Setup starten, während Delphi läuft | Abbruch mit Meldung, nichts geschrieben |
 | 3a | Delphi erst bei offenem Wizard starten, dann Installieren | Stopp auf der Vorbereiten-Seite, nichts geschrieben |
@@ -162,6 +167,7 @@ Repo.
 | 4 | Rechner mit eigenem Bau (Known Packages auf `Output\…\Bpl`) | Hinweis erscheint; danach nur noch der Installationspfad registriert; IDE lädt dpcc genau einmal |
 | 5 | Plugin vorher per „Nein“ deaktiviert (Disabled Packages) | Eintrag weg, dpcc lädt wieder |
 | 6 | Dasselbe Setup zweimal | BPLs überschrieben, genau ein Known-Packages-Wert je Version, Segment genau einmal |
+| 6a | Update über ein Setup mit dem alten Plugin-Namen (`dpcc.IDE.Base<suffix>.bpl`) | kein Hinweis; danach nur der Wert `…\dpcc.Plugin<suffix>.bpl` je Version, `dpcc.IDE.Base<suffix>.bpl` weder in Known/Disabled Packages noch in `{app}\bpl\<version>`; IDE startet ohne Fehlermeldung |
 | 7 | Silent `dpccSetup-*.exe /VERYSILENT /NORESTART /LOG` | wie #1; Exit-Code 0; Hinweise nur im Log |
 | 7b | Silent mit offener IDE | Ende ohne Dialog, Exit-Code ungleich 0, Grund im Log |
 | 8 | Eine Version abwählen (Setup erneut) | Dateien, Known-/Disabled-Wert und Segment dieser Version weg |

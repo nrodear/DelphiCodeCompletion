@@ -50,7 +50,7 @@ type
     [Test]
     procedure SettleWithoutRunningThreadPinsNothing;
     /// <summary>V3: TDpccThreadList (dpcc.Core) übergibt einen überfälligen Thread mit allen angemeldeten Modulen,
-    /// also auch mit dem von dpcc.IDE.Base, dessen Code er ausführt.</summary>
+    /// also auch mit dem von dpcc.Plugin, dessen Code er ausführt.</summary>
     [Test]
     procedure ThreadListAdoptsWithAllPluginModules;
   end;
@@ -230,7 +230,7 @@ var
   mRelease: TEvent;
 begin
   mRelease := TEvent(FRelease);
-  // cModuleA spielt dpcc.IDE.Base: angemeldet wie von dpcc.IDE.Foundation.Module.
+  // cModuleA spielt dpcc.Plugin: angemeldet wie von dpcc.IDE.Foundation.Module.
   TDpccPluginModules.Add(cModuleA);
   try
     mList := TDpccThreadList.Create;
@@ -244,10 +244,10 @@ begin
     finally
       mList.Free;
     end;
-    Assert.AreEqual(1, TDpccOverdueThreads.Pending(cModuleA), 'IDE.Base');
+    Assert.AreEqual(1, TDpccOverdueThreads.Pending(cModuleA), 'dpcc.Plugin');
     Assert.AreEqual(1, TDpccOverdueThreads.Pending(HInstance), 'Core');
     Assert.IsFalse(TDpccOverdueThreads.Settle(cModuleA, 10));
-    Assert.IsTrue(IndexIn(FPinned, cModuleA) >= 0, 'IDE.Base festgehalten');
+    Assert.IsTrue(IndexIn(FPinned, cModuleA) >= 0, 'dpcc.Plugin festgehalten');
     Assert.IsTrue(IndexIn(FPinned, HInstance) >= 0, 'Core festgehalten');
     mRelease.SetEvent;
     Assert.IsTrue(TDpccOverdueThreads.Settle(HInstance, cWaitMs));

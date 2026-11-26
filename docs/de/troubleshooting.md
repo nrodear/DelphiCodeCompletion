@@ -8,7 +8,7 @@ Deutsch | [English](../en/troubleshooting.md) | [Français](../fr/troubleshootin
 
 Typisch: Die IDE meldet beim Start oder beim Installieren, dass ein Package nicht geladen werden kann.
 
-Ursache ist fast immer der PATH. `dpcc.IDE.Base370.bpl` braucht sieben weitere BPLs, und Windows sucht sie nur über
+Ursache ist fast immer der PATH. `dpcc.Plugin370.bpl` braucht sieben weitere BPLs, und Windows sucht sie nur über
 den PATH.
 
 1. Die IDE schließen.

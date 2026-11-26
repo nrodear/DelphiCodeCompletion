@@ -22,7 +22,7 @@ Deutsch | [English](../en/development.md) | [Français](../fr/development.md)
 5. `Packages\dpcc.Server\dpcc.Server.dproj` (Quellen in `Application\Source\Shell`)
 6. `Packages\dpcc.Core\dpcc.Core.dproj`
 7. `Packages\dpcc.UI\dpcc.UI.dproj`
-8. `Packages\dpcc.IDE.Base\dpcc.IDE.Base.dproj`
+8. `Packages\dpcc.Plugin\dpcc.Plugin.dproj`
 9. `Tests\dpcc.Completion.Tests.dproj`
 
 Die Gruppe in der IDE öffnen, Win32 und Debug wählen und alle Projekte bauen. Die Abhängigkeiten der Gruppe legen
@@ -64,7 +64,7 @@ Konfiguration beim Bauen (etwa `-Config D12 -Platform Win32`). Die IDE speichert
 Delphi 13 die Konfiguration D12.
 
 In der IDE von Delphi 12 gehört `…\Output\Win32\D12\Bpl` in den PATH (`Tools\IdePath.ps1 -BdsVersion 23.0`),
-installiert wird `dpcc.IDE.Base290.bpl`; siehe [Installation](installation.md#bauen-für-delphi-12).
+installiert wird `dpcc.Plugin290.bpl`; siehe [Installation](installation.md#bauen-für-delphi-12).
 
 **Kommandozeile:** Der Kommandozeilen-Compiler (`dcc32`, MSBuild) ist in den Editionen Community und Starter von
 Delphi gesperrt. Mit diesen Editionen die Gruppe in der IDE bauen.
@@ -106,7 +106,7 @@ Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --exclude:Benchmark --exitbehav
 | `Tests\Memory` | Messprogramm für den Speicher (Kategorie `Benchmark`) |
 | `Tests\Support` | Hilfen: feste Datenquelle, Leck-Überwachung |
 
-Die Tests linken die DCUs der Packages statisch. Teile mit ToolsAPI (`dpcc.IDE.Base`) lassen sich nur in der IDE
+Die Tests linken die DCUs der Packages statisch. Teile mit ToolsAPI (`dpcc.Plugin`) lassen sich nur in der IDE
 prüfen.
 
 ### Speicher messen

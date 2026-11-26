@@ -12,7 +12,7 @@ eigenen Server-Prozess gibt es nicht.
 
 ```
 IDE (bds.exe)
- ├─ dpcc.IDE.Base370.bpl      Plugin: Open Tools API, Tasten, Editor, Optionsseite
+ ├─ dpcc.Plugin370.bpl        Plugin: Open Tools API, Tasten, Editor, Optionsseite
  │    ├─ dpcc.UI370.bpl       Fenster: Liste, Tooltip, Parameterhilfe, Optionsseite
  │    └─ dpcc.Core370.bpl     Logik: LSP-Client, Ablauf, Rangfolge, Einstellungen
  │          │  LSP über JSON-RPC, zwei Speicher-Pipes
@@ -35,10 +35,10 @@ reicht die Antworten an den Client weiter, Ergebnisse kommen über eine eigene W
 | `dpcc.Server` | Text, WinBase, Common, Windows | Hülle des Completion-Servers; Quellen in `Application\Source\Shell` |
 | `dpcc.Core` | Text, WinBase, Common, Windows, Server | Logik des Plugins, ohne VCL und ToolsAPI |
 | `dpcc.UI` | Text, WinBase, Common, Windows, Server, Core; `vcl` | VCL-Oberfläche, ohne ToolsAPI |
-| `dpcc.IDE.Base` | alle obigen; `vcl`, `vclwinx`, `designide` | das Plugin; einziges Design-Time-Package |
+| `dpcc.Plugin` | alle obigen; `vcl`, `vclwinx`, `designide` | das Plugin; einziges Design-Time-Package |
 | `dpcc.Completion.Tests` | linkt die DCUs | DUnitX-Testprogramm |
 
-Alle Packages außer `dpcc.IDE.Base` sind Laufzeit-Packages (`{$RUNONLY}`). Alle acht tragen die Package-Version als
+Alle Packages außer `dpcc.Plugin` sind Laufzeit-Packages (`{$RUNONLY}`). Alle acht tragen die Package-Version als
 Endung (`{$LIBSUFFIX AUTO}`: `370` unter Delphi 13, `290` unter Delphi 12), die Namen in `requires` nicht. Die
 Reihenfolge in `dpcc_d13.groupproj` (Delphi 12: `dpcc_d12.groupproj`, ohne Tests) folgt den Abhängigkeiten.
 
@@ -47,9 +47,9 @@ Reihenfolge in `dpcc_d13.groupproj` (Delphi 12: `dpcc_d12.groupproj`, ohne Tests
 - Abhängigkeiten zeigen nur nach unten in der Tabelle.
 - `dpcc.Common` und `dpcc.Text` brauchen weder Windows-Units noch VCL.
 - `dpcc.Core` kennt weder VCL noch ToolsAPI. Was es von der IDE braucht, bekommt es über Schnittstellen und Haken,
-  die `dpcc.IDE.Base` setzt.
+  die `dpcc.Plugin` setzt.
 - `dpcc.UI` kennt die VCL, aber nicht die ToolsAPI.
-- Nur `dpcc.IDE.Base` spricht mit der IDE.
+- Nur `dpcc.Plugin` spricht mit der IDE.
 
 ## dpcc.Common
 
@@ -103,7 +103,7 @@ Abhängigkeiten bis zum Ende der IDE geladen. So springt kein Thread in entladen
 | `Settings` | Optionsseite „dpcc“ |
 | `Popup`, `Documentation` | gemeinsame Fensterbasis, Barrierefreiheit, XMLDoc-Ansicht |
 
-## dpcc.IDE.Base
+## dpcc.Plugin
 
 | Ordner | Inhalt |
 |---|---|

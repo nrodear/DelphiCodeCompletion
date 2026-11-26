@@ -12,7 +12,7 @@ deux tubes mémoire ; il n'y a pas de processus serveur distinct.
 
 ```
 IDE (bds.exe)
- ├─ dpcc.IDE.Base370.bpl      plugin : Open Tools API, touches, éditeur, page d'options
+ ├─ dpcc.Plugin370.bpl        plugin : Open Tools API, touches, éditeur, page d'options
  │    ├─ dpcc.UI370.bpl       fenêtres : liste, infobulle, aide aux paramètres, page d'options
  │    └─ dpcc.Core370.bpl     logique : client LSP, déroulement, classement, réglages
  │          │  LSP via JSON-RPC, deux tubes mémoire
@@ -36,10 +36,10 @@ d'attente dédiée.
 | `dpcc.Server` | Text, WinBase, Common, Windows | enveloppe du serveur de complétion ; sources dans `Application\Source\Shell` |
 | `dpcc.Core` | Text, WinBase, Common, Windows, Server | logique du plugin, sans VCL ni ToolsAPI |
 | `dpcc.UI` | Text, WinBase, Common, Windows, Server, Core ; `vcl` | interface VCL, sans ToolsAPI |
-| `dpcc.IDE.Base` | tous les précédents ; `vcl`, `vclwinx`, `designide` | le plugin ; seul paquet de conception |
+| `dpcc.Plugin` | tous les précédents ; `vcl`, `vclwinx`, `designide` | le plugin ; seul paquet de conception |
 | `dpcc.Completion.Tests` | lie les DCU | programme de test DUnitX |
 
-Tous les paquets sauf `dpcc.IDE.Base` sont des paquets d'exécution (`{$RUNONLY}`). Les huit portent la version de
+Tous les paquets sauf `dpcc.Plugin` sont des paquets d'exécution (`{$RUNONLY}`). Les huit portent la version de
 paquet comme suffixe (`{$LIBSUFFIX AUTO}` : `370` sous Delphi 13, `290` sous Delphi 12), les noms dans `requires`
 non. L'ordre dans `dpcc_d13.groupproj` (Delphi 12 : `dpcc_d12.groupproj`, sans tests) suit les dépendances.
 
@@ -48,9 +48,9 @@ non. L'ordre dans `dpcc_d13.groupproj` (Delphi 12 : `dpcc_d12.groupproj`, sans 
 - Les dépendances ne pointent que vers le bas dans le tableau.
 - `dpcc.Common` et `dpcc.Text` n'ont besoin ni d'unités Windows ni de la VCL.
 - `dpcc.Core` ne connaît ni la VCL ni la ToolsAPI. Ce dont il a besoin de l'IDE, il l'obtient par des interfaces et
-  des points d'accroche que `dpcc.IDE.Base` installe.
+  des points d'accroche que `dpcc.Plugin` installe.
 - `dpcc.UI` connaît la VCL, mais pas la ToolsAPI.
-- Seul `dpcc.IDE.Base` communique avec l'IDE.
+- Seul `dpcc.Plugin` communique avec l'IDE.
 
 ## dpcc.Common
 
@@ -104,7 +104,7 @@ ses dépendances chargé jusqu'à la fin de l'IDE. Ainsi, aucun thread ne saute 
 | `Settings` | page d'options « dpcc » |
 | `Popup`, `Documentation` | base commune des fenêtres, accessibilité, vue XMLDoc |
 
-## dpcc.IDE.Base
+## dpcc.Plugin
 
 | Dossier | Contenu |
 |---|---|

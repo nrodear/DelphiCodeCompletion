@@ -29,10 +29,10 @@
 {$IMPLICITBUILD ON}
 {$LIBSUFFIX AUTO}
 
-// Laufzeit-Package mit der Logik des Plugins (seit S7b, vorher Teil von dpcc.IDE.Base): LSP-Sitzung,
+// Laufzeit-Package mit der Logik des Plugins (seit S7b, vorher Teil von dpcc.Plugin): LSP-Sitzung,
 // Completion-, Hover- und Signatur-Logik, Einstellungen, Sicherung und Diagnose. Erlaubt sind die RTL
 // (System.*, Winapi.*) und die dpcc-Laufzeit-Packages; kein VCL, kein ToolsAPI, kein DesignIntf.
-// Die Oberfläche liegt in dpcc.UI, die Anbindung an die IDE in dpcc.IDE.Base.
+// Die Oberfläche liegt in dpcc.UI, die Anbindung an die IDE in dpcc.Plugin.
 
 requires
   rtl,

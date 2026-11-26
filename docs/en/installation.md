@@ -21,7 +21,7 @@ The output is in `Output\Win32\Debug`:
 
 | Folder | Contents |
 |---|---|
-| `Bpl` | the eight BPLs with the suffix `370` (package version of Delphi 13), including the plugin `dpcc.IDE.Base370.bpl` |
+| `Bpl` | the eight BPLs with the suffix `370` (package version of Delphi 13), including the plugin `dpcc.Plugin370.bpl` |
 | `Dcp` | the DCP files of the packages |
 | `Dcu` | the DCUs, one subfolder per project |
 | `Bin` | the test program `dpcc.Completion.Tests.exe` |
@@ -48,7 +48,7 @@ in [Development](development.md).
 | Group | `dpcc_d13.groupproj` | `dpcc_d12.groupproj` |
 | Configuration | Debug | D12 |
 | Output | `Output\Win32\Debug` | `Output\Win32\D12` |
-| Plugin | `dpcc.IDE.Base370.bpl` | `dpcc.IDE.Base290.bpl` |
+| Plugin | `dpcc.Plugin370.bpl` | `dpcc.Plugin290.bpl` |
 | Other BPLs | `dpcc.Text370.bpl` … `dpcc.UI370.bpl` | `dpcc.Text290.bpl` … `dpcc.UI290.bpl` |
 | IDE PATH | `…\Output\Win32\Debug\Bpl` | `…\Output\Win32\D12\Bpl` |
 | IDE registry | `HKCU\Software\Embarcadero\BDS\37.0` | `HKCU\Software\Embarcadero\BDS\23.0` |
@@ -56,17 +56,17 @@ in [Development](development.md).
 | Tests | yes | no |
 
 Install and set the PATH as below, only with the names and folders from the Delphi 12 column: in the Delphi 12
-IDE, add `Output\Win32\D12\Bpl\dpcc.IDE.Base290.bpl` (the IDE enters it under
+IDE, add `Output\Win32\D12\Bpl\dpcc.Plugin290.bpl` (the IDE enters it under
 `HKCU\Software\Embarcadero\BDS\23.0\Known Packages`) and put `…\Output\Win32\D12\Bpl` into the PATH of
 the Delphi 12 IDE.
 
 ## Installing
 
 1. In the IDE, open **Component › Install Packages…**.
-2. Choose **Add…** and open `Output\Win32\Debug\Bpl\dpcc.IDE.Base370.bpl`.
+2. Choose **Add…** and open `Output\Win32\Debug\Bpl\dpcc.Plugin370.bpl`.
 3. The IDE shows the package with the description “dpcc - Delphi Pascal Code Completion”.
 
-Only `dpcc.IDE.Base370.bpl` is installed. At run time it needs seven more BPLs (under Delphi 12 with the suffix
+Only `dpcc.Plugin370.bpl` is installed. At run time it needs seven more BPLs (under Delphi 12 with the suffix
 `290` instead of `370`):
 
 | BPL | Purpose |
@@ -81,6 +81,10 @@ Only `dpcc.IDE.Base370.bpl` is installed. At run time it needs seven more BPLs (
 
 The IDE loads these BPLs along with the plugin. However, Windows does not look for them in the folder of the plugin
 BPL but via the PATH. The folder `Output\Win32\Debug\Bpl` must therefore be in the IDE's PATH.
+
+Earlier versions were named `dpcc.IDE.Base370.bpl` or `dpcc.IDE.Base290.bpl`. If such an entry is still installed,
+remove it under **Component › Install Packages…** before adding `dpcc.Plugin370.bpl`: having both would make the IDE
+fail at startup. The setup removes the old entry by itself.
 
 ## Setting the IDE PATH
 
@@ -152,7 +156,7 @@ each).
    offered.
 
 For each version the setup copies the eight BPLs to `%LOCALAPPDATA%\Programs\dpcc\bpl\d12` or `…\bpl\d13`, registers
-`dpcc.IDE.Base290.bpl` or `dpcc.IDE.Base370.bpl` under the IDE's `Known Packages` and puts its BPL folder at the front
+`dpcc.Plugin290.bpl` or `dpcc.Plugin370.bpl` under the IDE's `Known Packages` and puts its BPL folder at the front
 of the IDE's PATH. A registration of your own build (for example from `Output\Win32\Debug\Bpl`) is replaced after a
 notice: having both would make the IDE fail at startup. If Delphi is running, the setup stops.
 

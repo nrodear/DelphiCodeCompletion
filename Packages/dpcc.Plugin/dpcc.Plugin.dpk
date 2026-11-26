@@ -1,4 +1,4 @@
-﻿package dpcc.IDE.Base;
+﻿package dpcc.Plugin;
 
 {$IFDEF IMPLICITBUILDING This IFDEF should not be used by users}
 {$ALIGN 8}
@@ -33,7 +33,7 @@
 // Code Insight-Manager für Delphi an und spricht über eine eigene LSP-Sitzung
 // mit dem Server. Win32 für die klassische IDE, Win64 für die 64-Bit-IDE
 // (#281). LIBSUFFIX AUTO hängt die Package-Version an
-// (dpcc.IDE.Base290.bpl für Delphi 12, …370.bpl für Delphi 13), damit die
+// (dpcc.Plugin290.bpl für Delphi 12, …370.bpl für Delphi 13), damit die
 // BPLs beider IDE-Versionen nebeneinander liegen können; das gilt für alle acht Packages
 // (dpcc.Text370.bpl …), die Namen in requires bleiben ohne Endung (sie meinen die .dcp).
 // Seit Schritt 2b (Server im IDE-Prozess, docs\Konzept-Completion-Schnitt.md Abschnitt 4.5; seit S1 der einzige

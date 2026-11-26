@@ -15,9 +15,9 @@
 //   geladen), wartet es auf dessen überfällige Threads noch bis
 //   cUnloadGraceMs; läuft dann noch einer, hält TDpccUnloadSafety das
 //   Package im Speicher und bittet um einen Neustart.
-// Seit S7b (dpcc.Core, dpcc.UI, dpcc.IDE.Base getrennt) gehört ein Eintrag zu
+// Seit S7b (dpcc.Core, dpcc.UI, dpcc.Plugin getrennt) gehört ein Eintrag zu
 // einer Menge von Modulen: Ein Thread aus TDpccThreadList (Core) führt Code von
-// IDE.Base aus, HInstance von Core allein hielte das falsche Package fest. Wer
+// dpcc.Plugin aus, HInstance von Core allein hielte das falsche Package fest. Wer
 // den Code eines Threads nicht kennt, übergibt TDpccPluginModules.All.
 // Dass ein dpcc-Package selbst entladen wird, sieht AddModuleUnloadProc nicht
 // sicher: FinalizePackage beendet die Units (auch diese, samt
@@ -179,8 +179,8 @@ begin
   Prune(0);
   // Das Package dieser Unit wird beendet. Gehörte sie zu einem dpcc-Package, das gerade entladen wird, hat
   // DpccOverdueModuleUnload davon nichts gesehen (FinalizePackage läuft vor dem Freigeben): Noch bis
-  // cUnloadGraceMs warten, dann alle Module der noch laufenden Threads festhalten (S7b: auch IDE.Base, wenn der
-  // Thread aus dpcc.Core stammt, seinen Code aber aus IDE.Base hat).
+  // cUnloadGraceMs warten, dann alle Module der noch laufenden Threads festhalten (S7b: auch dpcc.Plugin, wenn der
+  // Thread aus dpcc.Core stammt, seinen Code aber aus dpcc.Plugin hat).
   if ThreadsOf(0) <> nil then
   begin
     TDpccShutdown.WaitForThreads(ThreadsOf(0), cUnloadGraceMs);
@@ -349,7 +349,7 @@ begin
   Prune(AModule);
   if not Result then
   begin
-    // Nicht nur AModule: Die übrigen Module der noch laufenden Threads (etwa IDE.Base zu einem Thread aus Core)
+    // Nicht nur AModule: Die übrigen Module der noch laufenden Threads (etwa dpcc.Plugin zu einem Thread aus Core)
     // dürfen ebenso nicht aus dem Speicher.
     mModules := RunningModules(AModule);
     Result := mModules = nil;

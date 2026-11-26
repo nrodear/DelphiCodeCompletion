@@ -22,7 +22,7 @@
 5. `Packages\dpcc.Server\dpcc.Server.dproj` (sources in `Application\Source\Shell`)
 6. `Packages\dpcc.Core\dpcc.Core.dproj`
 7. `Packages\dpcc.UI\dpcc.UI.dproj`
-8. `Packages\dpcc.IDE.Base\dpcc.IDE.Base.dproj`
+8. `Packages\dpcc.Plugin\dpcc.Plugin.dproj`
 9. `Tests\dpcc.Completion.Tests.dproj`
 
 Open the group in the IDE, select Win32 and Debug, and build all projects. The dependencies of the group determine
@@ -64,7 +64,7 @@ the Project Manager under **Build Configurations**). Tools that drive the IDE pa
 configuration D12 as well.
 
 In the Delphi 12 IDE, `…\Output\Win32\D12\Bpl` belongs in the PATH (`Tools\IdePath.ps1 -BdsVersion 23.0`),
-and `dpcc.IDE.Base290.bpl` is installed; see [Installation](installation.md#building-for-delphi-12).
+and `dpcc.Plugin290.bpl` is installed; see [Installation](installation.md#building-for-delphi-12).
 
 **Command line:** The command-line compiler (`dcc32`, MSBuild) is locked in the Community and Starter editions of
 Delphi. With these editions, build the group in the IDE.
@@ -105,7 +105,7 @@ Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --exclude:Benchmark --exitbehav
 | `Tests\Memory` | memory benchmark (category `Benchmark`) |
 | `Tests\Support` | helpers: fixed data source, leak monitoring |
 
-The tests link the DCUs of the packages statically. Parts that use the ToolsAPI (`dpcc.IDE.Base`) can only be checked
+The tests link the DCUs of the packages statically. Parts that use the ToolsAPI (`dpcc.Plugin`) can only be checked
 in the IDE.
 
 ### Measuring memory

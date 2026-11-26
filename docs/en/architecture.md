@@ -12,7 +12,7 @@ server process.
 
 ```
 IDE (bds.exe)
- ├─ dpcc.IDE.Base370.bpl      plugin: Open Tools API, keys, editor, options page
+ ├─ dpcc.Plugin370.bpl        plugin: Open Tools API, keys, editor, options page
  │    ├─ dpcc.UI370.bpl       windows: list, tooltip, parameter hint, options page
  │    └─ dpcc.Core370.bpl     logic: LSP client, flow, ranking, settings
  │          │  LSP over JSON-RPC, two memory pipes
@@ -35,10 +35,10 @@ the responses on to the client, and results reach the main thread through a sepa
 | `dpcc.Server` | Text, WinBase, Common, Windows | shell of the completion server; sources in `Application\Source\Shell` |
 | `dpcc.Core` | Text, WinBase, Common, Windows, Server | plugin logic, without VCL and ToolsAPI |
 | `dpcc.UI` | Text, WinBase, Common, Windows, Server, Core; `vcl` | VCL user interface, without ToolsAPI |
-| `dpcc.IDE.Base` | all of the above; `vcl`, `vclwinx`, `designide` | the plugin; the only design-time package |
+| `dpcc.Plugin` | all of the above; `vcl`, `vclwinx`, `designide` | the plugin; the only design-time package |
 | `dpcc.Completion.Tests` | links the DCUs | DUnitX test program |
 
-All packages except `dpcc.IDE.Base` are runtime packages (`{$RUNONLY}`). All eight carry the package version as a
+All packages except `dpcc.Plugin` are runtime packages (`{$RUNONLY}`). All eight carry the package version as a
 suffix (`{$LIBSUFFIX AUTO}`: `370` under Delphi 13, `290` under Delphi 12), the names in `requires` do not. The
 order in `dpcc_d13.groupproj` (Delphi 12: `dpcc_d12.groupproj`, without tests) follows the dependencies.
 
@@ -47,9 +47,9 @@ order in `dpcc_d13.groupproj` (Delphi 12: `dpcc_d12.groupproj`, without tests) f
 - Dependencies point only downwards in the table.
 - `dpcc.Common` and `dpcc.Text` need neither Windows units nor VCL.
 - `dpcc.Core` knows neither VCL nor ToolsAPI. What it needs from the IDE it gets through interfaces and hooks that
-  `dpcc.IDE.Base` sets.
+  `dpcc.Plugin` sets.
 - `dpcc.UI` knows the VCL, but not the ToolsAPI.
-- Only `dpcc.IDE.Base` talks to the IDE.
+- Only `dpcc.Plugin` talks to the IDE.
 
 ## dpcc.Common
 
@@ -103,7 +103,7 @@ dependencies loaded until the IDE exits. This way no thread jumps into unloaded 
 | `Settings` | options page “dpcc” |
 | `Popup`, `Documentation` | shared window base, accessibility, XMLDoc view |
 
-## dpcc.IDE.Base
+## dpcc.Plugin
 
 | Folder | Contents |
 |---|---|

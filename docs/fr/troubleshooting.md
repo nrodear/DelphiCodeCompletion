@@ -8,7 +8,7 @@
 
 Cas typique : au démarrage ou lors de l'installation, l'IDE signale qu'un paquet ne peut pas être chargé.
 
-La cause est presque toujours le PATH. `dpcc.IDE.Base370.bpl` a besoin de sept autres BPL, et Windows ne les cherche
+La cause est presque toujours le PATH. `dpcc.Plugin370.bpl` a besoin de sept autres BPL, et Windows ne les cherche
 que via le PATH.
 
 1. Fermer l'IDE.

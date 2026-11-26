@@ -1,6 +1,6 @@
 ﻿unit dpcc.IDE.Completion.Register;
 
-// Wurzel von dpcc.IDE.Base seit Rückbau R5 (docs\Review\Rueckbau-Liste.md): dpcc ist nur noch Code Completion.
+// Wurzel von dpcc.Plugin seit Rückbau R5 (docs\Review\Rueckbau-Liste.md): dpcc ist nur noch Code Completion.
 // Register meldet an, was dafür nötig ist, Unregister baut es in der Finalisierung rückwärts ab:
 //   - Sicherung und Protokoll (TDpccGuard, Zeitlimit der Quellen, Sprache der Oberfläche), Hauptthread-Queue;
 //     der Schreib-Thread der Protokolle (TDpccLogWriter, perf1) startet zuerst und endet nach der Zeile
