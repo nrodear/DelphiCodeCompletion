@@ -1,11 +1,12 @@
 ﻿unit Shell.LspServer.Host.Tests;
 
-// dpcc.LspServer über Streams (Wiedergabe wie die RAD-Studio-IDE, synthetische Daten nach dem gemessenen Format):
-// initialize mit clientInfo "RAD Studio", initialized, didOpen, zweimal didChangeConfiguration mit Projekt,
-// Compiler-Befehlszeile und DLL-Namen, documentSymbol, completion (DCC_Flags, kibitzkind), resolve mit kind als
-// Zeichenkette, signatureHelp mit documentation, hover als Klartext, definition, unbekannte Methoden (-32601),
-// Anfrage-IDs negativ und groß, shutdown und exit als Anfrage mit id. Dazu ein Client ohne Dialekt (Standard-LSP),
-// das harte Ende (Eingabe zu ohne shutdown) und exit als Benachrichtigung.
+// dpcc.LspServer über Streams (Wiedergabe wie die RAD-Studio-IDE, synthetische Daten nach dem am 27.11.2026
+// gemessenen Format): initialize mit clientInfo "RAD Studio", initialized, didOpen, zweimal didChangeConfiguration mit
+// Projekt, Compiler-Befehlszeile und DLL-Namen, documentSymbol, completion (DCC_Flags, kibitzkind, sortText
+// hexadezimal), resolve mit kind als Zeichenkette (Eintrag der Liste zurück), signatureHelp mit doppelt maskierter
+// documentation, hover als HTML-Gerüst, definition, declaration und implementation als ein Location-Objekt,
+// unbekannte Methoden (-32601), Anfrage-IDs negativ und groß, shutdown und exit als Anfrage mit id. Dazu ein Client
+// ohne Dialekt (Standard-LSP), das harte Ende (Eingabe zu ohne shutdown) und exit als Benachrichtigung.
 // Projekt, Caches, Diagnoselog und globale Einstellungen liegen für die Dauer eines Tests in einem eigenen
 // Temp-Ordner (DPCC_CACHE_ROOT und APPDATA nur im Testprozess), nie im Profil des Benutzers. dpcc.json schließt
 // Such- und Bibliothekspfade aus: Der Test braucht nur die eigene Unit und liest so die RTL nicht ein.
@@ -639,9 +640,10 @@ procedure TLspServerHostTests.ReplayRadStudioSession;
 var
   mResponse, mItem, mResolve: TJSONObject;
   mStarted: UInt64;
-  mSymbols, mChildren: TJSONArray;
-  mId: Integer;
-  mText: string;
+  mSymbols, mChildren, mItems: TJSONArray;
+  mValue: TJSONValue;
+  mId, mCount, mWidth: Integer;
+  mText, mContents: string;
 begin
   WriteProject;
   StartServer;
@@ -651,7 +653,8 @@ begin
     Assert.AreEqual(1, mResponse.GetValue<Integer>('result.capabilities.textDocumentSync'), 'ganzer Text');
     Assert.IsTrue(mResponse.GetValue<Boolean>('result.capabilities.documentSymbolProvider'), 'documentSymbol');
     Assert.IsTrue(mResponse.GetValue<Boolean>('result.capabilities.completionProvider.resolveProvider'), 'resolve');
-    Assert.IsNull(mResponse.FindValue('result.capabilities.implementationProvider'), 'keine implementation');
+    Assert.IsTrue(mResponse.GetValue<Boolean>('result.capabilities.implementationProvider'),
+      'implementation über definition');
     Assert.IsNull(mResponse.FindValue('result.capabilities.experimental'), 'keine dpcc-Eigenmethoden');
   finally
     mResponse.Free;
@@ -708,10 +711,24 @@ begin
   until (mItem <> nil) or (TThread.GetTickCount64 - mStarted > cIndexWaitMs);
   try
     Assert.IsNotNull(mItem, 'Doppelt in der Liste');
-    Assert.AreEqual(2, mResponse.GetValue<Integer>('result.kibitzkind'), 'kibitzkind');
+    Assert.AreEqual(2, mResponse.GetValue<Integer>('result.kibitzkind'), 'kibitzkind nach D.');
     Assert.AreEqual('(const A: Integer): Integer;', mItem.GetValue<string>('detail'), 'detail wie DelphiLSP');
     Assert.AreEqual(Int64($35), mItem.GetValue<Int64>('DCC_Flags'), 'Funktion');
     Assert.IsNull(mItem.GetValue('data'), 'kein data');
+    mItems := mResponse.GetValue<TJSONArray>('result.items');
+    mCount := 0;
+    for mValue in mItems do
+    begin
+      if not StartsStr('k', mValue.GetValue<string>('sortText', '')) then
+      begin
+        Inc(mCount);
+      end;
+    end;
+    mWidth := Length(IntToHex(mCount - 1, 1));
+    Assert.AreEqual(StringOfChar('0', mWidth), mItems.Items[0].GetValue<string>('sortText'),
+      'sortText hexadezimal, Breite nach der Anzahl');
+    Assert.AreEqual(IntToHex(mCount - 1, mWidth), mItems.Items[mCount - 1].GetValue<string>('sortText'),
+      'letzte Nummer');
     mItem := ItemNamed(mResponse, 'FWert');
     Assert.IsNotNull(mItem, 'FWert in der Liste');
     Assert.AreEqual(': Integer;', mItem.GetValue<string>('detail'));
@@ -731,25 +748,42 @@ begin
     Assert.AreEqual('Doppelt', mResolve.GetValue<string>('result.label'), 'resolve beantwortet');
     Assert.AreEqual(2, mResolve.GetValue<Integer>('result.kind'), 'kind als Zahl');
     Assert.AreEqual('(const A: Integer): Integer;', mResolve.GetValue<string>('result.detail'));
+    Assert.AreEqual(Int64($35), mResolve.GetValue<Int64>('result.DCC_Flags'), 'DCC_Flags wie in der Liste');
+    Assert.IsNull(mResolve.FindValue('result.documentation'), 'ohne documentation wie DelphiLSP');
   finally
     mResolve.Free;
   end;
-  // Parameterhilfe: documentation in Signatur und Parameter, Parameter als Text.
+  // Parameterhilfe: documentation in Signatur und Parameter, Parameter einzeln mit Typ.
   ChangeUnit(Format(cUnit, ['  D.Doppelt('#10]), 3);
   mResponse := Call('536870922', 'textDocument/signatureHelp',
     DocumentParams(Format('{"line":%d,"character":12}', [cInsertLine])));
   try
+    Assert.AreEqual('function Doppelt(const A: Integer): Integer',
+      mResponse.GetValue<string>('result.signatures[0].label'), 'label ohne ";" und Direktiven');
     Assert.AreEqual('html', mResponse.GetValue<string>('result.signatures[0].documentation.kind'));
+    // Wörtlich \r\n und \" wie DelphiLSP (doppelt maskiert).
+    Assert.IsTrue(StartsStr('<html>\r\n<head>\r\n<META http-equiv=\"Content-Type\"',
+      mResponse.GetValue<string>('result.signatures[0].documentation.value')), 'Gerüst doppelt maskiert');
     Assert.AreEqual('const A: Integer', mResponse.GetValue<string>('result.signatures[0].parameters[0].label'));
     Assert.AreEqual('xml', mResponse.GetValue<string>('result.signatures[0].parameters[0].documentation.kind'));
   finally
     mResponse.Free;
   end;
-  // Hover als Klartext-String, Sprung zur Implementierung bzw. Deklaration.
+  // Hover als HTML-Gerüst in einem String, Sprung zur Implementierung bzw. Deklaration.
   mResponse := Call('5', 'textDocument/hover', DocumentParams(Format('{"line":%d,"character":5}', [cInsertLine])));
   try
     Assert.IsTrue(mResponse.FindValue('result.contents') is TJSONString, 'contents als String: ' + mResponse.ToJSON);
-    Assert.IsTrue(ContainsText(mResponse.GetValue<string>('result.contents'), 'Doppelt'), 'Hover nennt Doppelt');
+    mContents := mResponse.GetValue<string>('result.contents');
+    Assert.IsTrue(StartsStr('<html>'#13#10'<head>'#13#10'<META http-equiv="Content-Type" content="text/html">',
+      mContents), 'HTML mit CRLF: ' + mContents);
+    Assert.IsTrue(ContainsStr(mContents, '<div class="maincaption">function TDemo.Doppelt(const A: Integer): ' +
+      'Integer'#13#10#9#9#9#9#9'-'#13#10#9#9'<a class="codelink" href="helpinsight:/filelink:'),
+      'Kopfzeile mit Klasse und Verweis: ' + mContents);
+    Assert.IsTrue(ContainsText(mContents, '">uDemo.pas ('), 'Verweis mit Dateiname');
+    Assert.IsTrue(ContainsStr(mContents, '<DT><I>A</I></DT>'#13#10'<DD>Integer</DD>'#13#10'<DD></DD>'#13#10),
+      'Parameter auch ohne Doku');
+    Assert.IsTrue(EndsStr('</div>'#13#10'</body>'#13#10'</html>'#13#10, mContents), 'Ende des Gerüsts');
+    Assert.IsNull(mResponse.FindValue('result.range'), 'ohne range');
     Assert.IsNull(mResponse.FindValue('result.dpcc'), 'ohne dpcc-Teile');
   finally
     mResponse.Free;
@@ -757,14 +791,24 @@ begin
   mResponse := Call('6', 'textDocument/definition', DocumentParams(Format('{"line":%d,"character":5}',
     [cInsertLine])));
   try
-    Assert.AreEqual(16, mResponse.GetValue<Integer>('result[0].range.start.line'), 'Rumpf von TDemo.Doppelt');
+    Assert.IsTrue(mResponse.GetValue('result') is TJSONObject, 'ein Location-Objekt: ' + mResponse.ToJSON);
+    Assert.AreEqual(16, mResponse.GetValue<Integer>('result.range.start.line'), 'Rumpf von TDemo.Doppelt');
+    Assert.AreEqual(UnitUri, mResponse.GetValue<string>('result.uri'), 'URI wie von der IDE geöffnet');
   finally
     mResponse.Free;
   end;
   mResponse := Call('7', 'textDocument/declaration', DocumentParams(Format('{"line":%d,"character":5}',
     [cInsertLine])));
   try
-    Assert.AreEqual(8, mResponse.GetValue<Integer>('result[0].range.start.line'), 'Deklaration in der Klasse');
+    Assert.AreEqual(8, mResponse.GetValue<Integer>('result.range.start.line'), 'Deklaration in der Klasse');
+  finally
+    mResponse.Free;
+  end;
+  mResponse := Call('8', 'textDocument/implementation', DocumentParams(Format('{"line":%d,"character":5}',
+    [cInsertLine])));
+  try
+    Assert.IsNull(mResponse.FindValue('error'), 'implementation beantwortet: ' + mResponse.ToJSON);
+    Assert.AreEqual(16, mResponse.GetValue<Integer>('result.range.start.line'), 'dasselbe Ziel wie definition');
   finally
     mResponse.Free;
   end;
@@ -789,7 +833,7 @@ begin
   mResponse := Call('-2147483648', 'initialize', InitializeParams('RAD Studio'));
   mResponse.Free;
   Notify('initialized', TJSONObject.Create);
-  mResponse := Call('2147483647', 'textDocument/implementation', DocumentParams('{"line":0,"character":0}'));
+  mResponse := Call('2147483647', 'dpccprobe/unknownRequest', DocumentParams('{"line":0,"character":0}'));
   try
     Assert.AreEqual(-32601, mResponse.GetValue<Integer>('error.code'), 'nicht unterstützt');
     Assert.AreEqual('2147483647', mResponse.GetValue('id').ToJSON, 'große id unverändert');

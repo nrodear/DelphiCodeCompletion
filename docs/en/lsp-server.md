@@ -17,15 +17,16 @@ and the EXE never work at the same time.
 | Request | Result |
 |---|---|
 | `textDocument/completion`, `completionItem/resolve` | list with kind, name and signature like DelphiLSP |
-| `textDocument/hover` | declaration and documentation as plain text |
+| `textDocument/hover` | declaration and documentation; for RAD Studio as HTML like DelphiLSP (see below) |
 | `textDocument/signatureHelp` | signatures with the current parameter |
 | `textDocument/definition`, `declaration`, `typeDefinition` | jump to implementation, declaration, type |
+| `textDocument/implementation` | RAD Studio only: same target as `definition` |
 | `textDocument/documentSymbol` | structure view: sections, types with fields, properties and methods, routines |
 | `didOpen`, `didChange` (full text or ranges), `didClose` | documents in memory |
 | `workspace/didChangeConfiguration` | project data of the IDE, see below |
 
-Whatever it cannot do it answers with error -32601 (method not found), for example `textDocument/implementation` and
-`textDocument/references`. There are no code diagnostics (Error Insight stays empty) and no forwarding to
+Whatever it cannot do it answers with error -32601 (method not found), for example `textDocument/references`
+(for clients other than RAD Studio also `textDocument/implementation`). There are no code diagnostics (Error Insight stays empty) and no forwarding to
 DelphiLSP.
 
 ## Command line
@@ -147,9 +148,24 @@ folder or above.
 
 ## Clients
 
-If the client calls itself `RAD Studio` in `initialize`, the server answers in the IDE's format (full text on
-changes, completion with `kibitzkind` and `DCC_Flags`, parameter help with `documentation`, hover as plain text) and
-sends no notifications of its own. Every other client gets standard LSP.
+If the client calls itself `RAD Studio` in `initialize`, the server answers in the form of the original DelphiLSP
+and sends no notifications of its own. Every other client gets standard LSP.
+
+### Form of the answers for RAD Studio
+
+Measured on 27.11.2026 in Delphi 12 and 13 against the original DelphiLSP (inside the running IDE); the IDE's
+windows thus look as they do with the original, only the content may differ.
+
+| Request | Form |
+|---|---|
+| hover | `contents` is **one** HTML string in the Help Insight frame (`HelpInsight.css`): a heading such as `function TProbe.Twice(const A: Integer): Integer`, a link `file (line)`, then summary, parameters, returns and remarks from the XMLDoc. Earlier versions sent plain text here, which the IDE rendered as HTML (lines ran together). |
+| signatureHelp | one entry per parameter with its type (`A: Integer`, groups such as `A, B: Integer` resolved), `documentation` as HTML (`kind` html), per parameter `kind` xml |
+| definition, declaration, typeDefinition, implementation | **one** Location object (no array); open files with the same URI spelling as in `didOpen` |
+| completion | `kibitzkind` 2 after `.`, 7 without a dot, 15 in the uses clause; `sortText` hexadecimal; overloads as separate entries; `kind`, `detail` and `DCC_Flags` per symbol kind like DelphiLSP; inactive `{$IFDEF}` branches are left out |
+| completionItem/resolve | the same entry as in the list, including `DCC_Flags`, without `documentation` |
+| documentSymbol | with a uses section and its units; enums and type aliases like records (kind 23), constructors like methods (kind 6), property with its access part as `detail` |
+
+Known differences in content: the heading of the parameter help does not name the class or unit (`function Add(…)` instead of `function TProbe.Add(…)`; not visible in the IDE's parameter hint); Ctrl+click on an RTL routine jumps to its declaration, DelphiLSP to its implementation; keywords and the units of the uses clause are only in the list if the server provides them.
 
 ## See also
 

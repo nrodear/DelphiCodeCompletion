@@ -17,15 +17,16 @@ Plugins (Betriebsart Plugin) und die EXE arbeiten nie gleichzeitig.
 | Anfrage | Ergebnis |
 |---|---|
 | `textDocument/completion`, `completionItem/resolve` | Liste mit Art, Name und Signatur wie DelphiLSP |
-| `textDocument/hover` | Deklaration und Doku als Klartext |
+| `textDocument/hover` | Deklaration und Doku; für RAD Studio als HTML wie DelphiLSP (siehe unten) |
 | `textDocument/signatureHelp` | Signaturen mit aktuellem Parameter |
 | `textDocument/definition`, `declaration`, `typeDefinition` | Sprung zu Implementierung, Deklaration, Typ |
+| `textDocument/implementation` | nur für RAD Studio: dasselbe Ziel wie `definition` |
 | `textDocument/documentSymbol` | Strukturansicht: Abschnitte, Typen mit Feldern, Properties und Methoden, Routinen |
 | `didOpen`, `didChange` (ganzer Text oder Bereiche), `didClose` | Dokumente im Speicher |
 | `workspace/didChangeConfiguration` | Projektdaten der IDE, siehe unten |
 
-Was er nicht kann, beantwortet er mit dem Fehler -32601 (Methode nicht gefunden), etwa `textDocument/implementation`
-und `textDocument/references`. Es gibt keine Code-Diagnosen (Error Insight bleibt leer) und kein Weiterreichen an
+Was er nicht kann, beantwortet er mit dem Fehler -32601 (Methode nicht gefunden), etwa `textDocument/references`
+(für andere Clients als RAD Studio auch `textDocument/implementation`). Es gibt keine Code-Diagnosen (Error Insight bleibt leer) und kein Weiterreichen an
 DelphiLSP.
 
 ## Aufruf
@@ -147,9 +148,24 @@ Datei oder darüber.
 
 ## Clients
 
-Meldet sich der Client in `initialize` als `RAD Studio`, antwortet der Server im Format der IDE (ganzer Text bei
-Änderungen, Vervollständigung mit `kibitzkind` und `DCC_Flags`, Parameterhilfe mit `documentation`, Hover als
-Klartext) und schickt keine eigenen Benachrichtigungen. Jeder andere Client bekommt Standard-LSP.
+Meldet sich der Client in `initialize` als `RAD Studio`, antwortet der Server in der Form des originalen DelphiLSP
+und schickt keine eigenen Benachrichtigungen. Jeder andere Client bekommt Standard-LSP.
+
+### Form der Antworten für RAD Studio
+
+Gemessen am 27.11.2026 in Delphi 12 und 13 am originalen DelphiLSP (in der laufenden IDE); die Fenster der IDE sehen
+damit aus wie mit dem Original, nur der Inhalt kann abweichen.
+
+| Anfrage | Form |
+|---|---|
+| hover | `contents` ist **ein** HTML-String im Gerüst von Help Insight (`HelpInsight.css`): Kopfzeile wie `function TProbe.Twice(const A: Integer): Integer`, Verweis `Datei (Zeile)`, dann Zusammenfassung, Parameter, Rückgabe, Bemerkungen aus dem XMLDoc. Frühere Fassungen schickten hier Klartext, den die IDE als HTML zeigte (Zeilen liefen zusammen). |
+| signatureHelp | je Parameter ein Eintrag mit Typ (`A: Integer`, Gruppen wie `A, B: Integer` aufgelöst), `documentation` als HTML (`kind` html) bzw. je Parameter `kind` xml |
+| definition, declaration, typeDefinition, implementation | **ein** Location-Objekt (kein Array); geöffnete Dateien mit derselben URI-Schreibweise wie in `didOpen` |
+| completion | `kibitzkind` 2 nach `.`, 7 ohne Punkt, 15 in der uses-Klausel; `sortText` hexadezimal; Überladungen einzeln; `kind`, `detail` und `DCC_Flags` je Symbolart wie DelphiLSP; Zweige nicht aktiver `{$IFDEF}` fehlen |
+| completionItem/resolve | derselbe Eintrag wie in der Liste, samt `DCC_Flags`, ohne `documentation` |
+| documentSymbol | mit uses-Abschnitt und Units; Aufzählungen und Typalias wie Records (kind 23), Konstruktoren wie Methoden (kind 6), Property mit Zugriffsteil als `detail` |
+
+Bekannte Unterschiede im Inhalt: Die Kopfzeile der Parameterhilfe nennt Klasse bzw. Unit nicht (`function Add(…)` statt `function TProbe.Add(…)`; im Parameter-Hint der IDE nicht sichtbar); Strg+Klick auf eine RTL-Routine springt zur Deklaration, DelphiLSP zur Implementierung; Schlüsselwörter und die Units der uses-Klausel stehen nur in der Liste, wenn der Server sie liefert.
 
 ## Siehe auch
 

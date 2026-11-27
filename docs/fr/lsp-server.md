@@ -17,15 +17,16 @@ Plugin) et l’EXE ne fonctionnent jamais en même temps.
 | Requête | Résultat |
 |---|---|
 | `textDocument/completion`, `completionItem/resolve` | liste avec genre, nom et signature comme DelphiLSP |
-| `textDocument/hover` | déclaration et documentation en texte brut |
+| `textDocument/hover` | déclaration et documentation ; pour RAD Studio en HTML comme DelphiLSP (voir plus bas) |
 | `textDocument/signatureHelp` | signatures avec le paramètre courant |
 | `textDocument/definition`, `declaration`, `typeDefinition` | saut vers implémentation, déclaration, type |
+| `textDocument/implementation` | seulement pour RAD Studio : même cible que `definition` |
 | `textDocument/documentSymbol` | vue structure : sections, types avec champs, propriétés et méthodes, routines |
 | `didOpen`, `didChange` (texte entier ou plages), `didClose` | documents en mémoire |
 | `workspace/didChangeConfiguration` | données de projet de l’IDE, voir plus bas |
 
-Ce qu’il ne sait pas faire reçoit l’erreur -32601 (méthode introuvable), par exemple `textDocument/implementation` et
-`textDocument/references`. Il n’y a pas de diagnostics de code (Error Insight reste vide) ni de transmission à
+Ce qu’il ne sait pas faire reçoit l’erreur -32601 (méthode introuvable), par exemple `textDocument/references`
+(pour les clients autres que RAD Studio aussi `textDocument/implementation`). Il n’y a pas de diagnostics de code (Error Insight reste vide) ni de transmission à
 DelphiLSP.
 
 ## Appel
@@ -153,9 +154,24 @@ fichier ou au-dessus.
 
 ## Clients
 
-Si le client se présente comme `RAD Studio` dans `initialize`, le serveur répond au format de l’IDE (texte entier à
-chaque modification, complétion avec `kibitzkind` et `DCC_Flags`, aide aux paramètres avec `documentation`, survol
-en texte brut) et n’envoie aucune notification propre. Tout autre client reçoit du LSP standard.
+Si le client se présente comme `RAD Studio` dans `initialize`, le serveur répond sous la forme du DelphiLSP
+d’origine et n’envoie aucune notification propre. Tout autre client reçoit du LSP standard.
+
+### Forme des réponses pour RAD Studio
+
+Mesurée le 27.11.2026 dans Delphi 12 et 13 sur le DelphiLSP d’origine (dans l’IDE en cours d’exécution) ; les
+fenêtres de l’IDE ont donc le même aspect qu’avec l’original, seul le contenu peut différer.
+
+| Requête | Forme |
+|---|---|
+| hover | `contents` est **une** chaîne HTML dans le cadre de Help Insight (`HelpInsight.css`) : un titre comme `function TProbe.Twice(const A: Integer): Integer`, un lien `fichier (ligne)`, puis résumé, paramètres, valeur de retour et remarques tirés du XMLDoc. Les versions précédentes envoyaient du texte brut, que l’IDE affichait comme du HTML (les lignes se collaient). |
+| signatureHelp | une entrée par paramètre avec son type (`A: Integer`, les groupes comme `A, B: Integer` résolus), `documentation` en HTML (`kind` html), par paramètre `kind` xml |
+| definition, declaration, typeDefinition, implementation | **un** objet Location (pas de tableau) ; fichiers ouverts avec la même écriture d’URI que dans `didOpen` |
+| completion | `kibitzkind` 2 après `.`, 7 sans point, 15 dans la clause uses ; `sortText` hexadécimal ; surcharges en entrées séparées ; `kind`, `detail` et `DCC_Flags` par genre de symbole comme DelphiLSP ; les branches `{$IFDEF}` inactives sont omises |
+| completionItem/resolve | la même entrée que dans la liste, avec `DCC_Flags`, sans `documentation` |
+| documentSymbol | avec une section uses et ses unités ; énumérations et alias de type comme les records (kind 23), constructeurs comme les méthodes (kind 6), propriété avec sa partie d’accès comme `detail` |
+
+Différences de contenu connues : le titre de l’aide aux paramètres ne nomme ni la classe ni l’unité (`function Add(…)` au lieu de `function TProbe.Add(…)` ; invisible dans l’indication de paramètres de l’IDE) ; Ctrl+clic sur une routine de la RTL saute à sa déclaration, DelphiLSP à son implémentation ; les mots-clés et les unités de la clause uses ne figurent dans la liste que si le serveur les fournit.
 
 ## Voir aussi
 

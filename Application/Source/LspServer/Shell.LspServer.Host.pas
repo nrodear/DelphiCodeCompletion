@@ -11,6 +11,11 @@
 //   (Delphi-Version, Plattform, Symbole, Suchpfade, Namespaces, Bibliotheks- und Browsing-Pfade, Profil), und gibt
 //   es die .dproj, wird sie als Arbeitsbereich angelegt, sofern noch keiner sie hat. Ohne .dproj bleibt es beim
 //   Ableiten aus den geöffneten Dateien.
+// - Haken des Übersetzers in den Index des Editors: die Symbole einer Unit (kind, detail und DCC_Flags der
+//   Vervollständigung, Überladungen einzeln, Ordnung von Aufzählungswerten) und die Deklaration eines Typs nach
+//   Namen (Bits für Klassen-, Record-, Interface- und Prozedurtypen). textDocument/implementation beantwortet der
+//   Übersetzer selbst über definition (nur im Dialekt; definition läuft nebenläufig, eine Weitergabe aus einem
+//   Handler käme über den Responder mit der falschen id zurück).
 // Der Server antwortet auf initialize sofort; Projekte und Index laden im Hintergrund (wie im Plugin). Was er nicht
 // kann, beantwortet der Verteiler mit -32601 (Methode nicht gefunden); unbekannte Benachrichtigungen verwirft er.
 // ReleaseProcessState gibt nach dem Ende die prozessweiten Merker frei (wie TShellInProcessServer.Release); im
@@ -116,7 +121,8 @@ begin
   FreeAndNil(FSymbols);
   if FDialect <> nil then
   begin
-    FDialect.Lookup := nil;
+    FDialect.UnitSymbols := nil;
+    FDialect.TypeLookup := nil;
     FDialect.OnInitialize := nil;
   end;
   FDialect := nil;
@@ -141,15 +147,15 @@ begin
     end);
   mParts.Protocol.Dispatcher.RegisterNotification(TLspConfiguration.cDidChangeConfigurationMethod,
     DidChangeConfiguration);
-  // Deklaration einer Vervollständigung für detail und DCC_Flags im Format der IDE.
-  FDialect.Lookup :=
-    function(const AFileName: string; ALine, ACharacter: Integer; out ASymbol: TIndexSymbol): Boolean
+  // Symbole der Unit einer Vervollständigung für kind, detail und DCC_Flags im Format der IDE.
+  FDialect.UnitSymbols :=
+    function(const AFileName: string; out ASymbols: TArray<TIndexSymbol>): Boolean
     var
       mIndex: ISymbolIndex;
       mUnit: TUnitIndex;
-      mSymbol: TIndexSymbol;
     begin
       Result := False;
+      ASymbols := nil;
       if (FRoot = nil) or (FRoot.Parts.IndexArea = nil) then
       begin
         Exit;
@@ -159,12 +165,34 @@ begin
       begin
         Exit;
       end;
-      for mSymbol in mUnit.Symbols do
+      ASymbols := mUnit.Symbols;
+      Result := True;
+    end;
+  // Typ einer Variablen, eines Felds oder einer Property nach Namen: Klasse, Record, Interface oder Prozedurtyp.
+  FDialect.TypeLookup :=
+    function(const ATypeName: string; out ASymbol: TIndexSymbol): Boolean
+    var
+      mIndex: ISymbolIndex;
+      mLocation: TSymbolLocation;
+    begin
+      Result := False;
+      if (FRoot = nil) or (FRoot.Parts.IndexArea = nil) then
       begin
-        if (mSymbol.SelectionRange.StartPos.Line = ALine) and (mSymbol.SelectionRange.StartPos.Character = ACharacter)
-        then
+        Exit;
+      end;
+      mIndex := FRoot.Parts.IndexArea.EditorIndex;
+      if mIndex = nil then
+      begin
+        Exit;
+      end;
+      for mLocation in mIndex.FindSymbols(ATypeName) do
+      begin
+        if (mLocation.Symbol.Container = '') and not mLocation.Symbol.Unavailable and
+          (mLocation.Symbol.Kind in [TIndexSymbolKind.ClassType, TIndexSymbolKind.ObjectType,
+          TIndexSymbolKind.RecordType, TIndexSymbolKind.InterfaceType, TIndexSymbolKind.HelperType,
+          TIndexSymbolKind.EnumType, TIndexSymbolKind.TypeAlias]) then
         begin
-          ASymbol := mSymbol;
+          ASymbol := mLocation.Symbol;
           Exit(True);
         end;
       end;
