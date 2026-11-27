@@ -1,0 +1,33 @@
+﻿dpcc.LspServer.exe - LSP-Server von dpcc (Delphi Pascal Code Completion)
+
+Was es ist: dpcc als eigenständiger Language Server (LSP über stdin/stdout). In Delphi 12 und 13 tritt er an die
+Stelle von DelphiLSP.exe; die IDE behält ihre eigenen Fenster, die Antworten kommen von dpcc.
+Inhalt: win32\dpcc.LspServer.exe (32 Bit), win64\dpcc.LspServer.exe (64 Bit), diese Datei.
+Wohin: eine EXE neben das Plugin legen (Ordner von dpcc.Plugin290.bpl bzw. dpcc.Plugin370.bpl) oder die Ordner
+win64 und win32 nach %LOCALAPPDATA%\Programs\dpcc\server entpacken. Auf 64-Bit-Windows die 64-Bit-EXE nehmen;
+die 32-Bit-IDE startet sie.
+Einschalten: In Delphi unter Tools > Optionen > Drittanbieter > dpcc die Betriebsart "Server" wählen, OK. Aus der
+Betriebsart Plugin wirkt das nach dem Neustart von Delphi, aus "Aus" beim nächsten Öffnen einer Projektgruppe.
+Error Insight bleibt leer. Die 64-Bit-IDE von Delphi 13 wird nicht unterstützt.
+Version: dpcc.LspServer.exe --version
+Ablage: %LOCALAPPDATA%\dpcc.LspServer (anderer Ort: --cache-root <Ordner> oder DPCC_LSPSERVER_CACHE_ROOT).
+Mehr: docs/de/lsp-server.md in https://github.com/nrodear/DelphiCodeCompletion
+Lizenz: MIT
+
+---
+
+dpcc.LspServer.exe - LSP server of dpcc (Delphi Pascal Code Completion)
+
+What it is: dpcc as a standalone language server (LSP over stdin/stdout). In Delphi 12 and 13 it takes the place
+of DelphiLSP.exe; the IDE keeps its own windows, the answers come from dpcc.
+Contents: win32\dpcc.LspServer.exe (32 bit), win64\dpcc.LspServer.exe (64 bit), this file.
+Where to put it: place one EXE next to the plugin (folder of dpcc.Plugin290.bpl or dpcc.Plugin370.bpl) or extract
+the folders win64 and win32 to %LOCALAPPDATA%\Programs\dpcc\server. On 64-bit Windows use the 64-bit EXE; the
+32-bit IDE starts it.
+Turning it on: in Delphi, Tools > Options > Third Party > dpcc, select the mode "Server", OK. Coming from the mode
+Plugin this takes effect after restarting Delphi, coming from "Off" the next time a project group is opened.
+Error Insight stays empty. The 64-bit IDE of Delphi 13 is not supported.
+Version: dpcc.LspServer.exe --version
+Storage: %LOCALAPPDATA%\dpcc.LspServer (other location: --cache-root <folder> or DPCC_LSPSERVER_CACHE_ROOT).
+More: docs/en/lsp-server.md in https://github.com/nrodear/DelphiCodeCompletion
+License: MIT

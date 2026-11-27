@@ -44,6 +44,14 @@ type
     /// </summary>
     [Test]
     procedure MasterSwitchLocksAllOptions;
+    /// <summary>Betriebsart (Stufe 2 von dpcc.LspServer.exe): drei Optionsfelder Aus, Plugin, Server in einer Gruppe,
+    /// je mit Satz darunter (deutsch und englisch); Vorgabe Plugin; nur Plugin gibt die Optionen frei; ohne
+    /// dpcc.LspServer.exe ist Server grau mit Hinweis, mit ihr wählbar samt Ort im Hint; geladen und gespeichert über
+    /// TDpccPluginSettings.Mode.</summary>
+    [Test]
+    [TestCase('Deutsch', 'False')]
+    [TestCase('Englisch', 'True')]
+    procedure OperatingModeChoice(AEnglish: Boolean);
     /// <summary>„Werte beim Debuggen“ grau, wenn „Eigener Tooltip“ aus ist.</summary>
     [Test]
     procedure TooltipCouplesDebugValues;
@@ -89,6 +97,7 @@ uses
   Vcl.StdCtrls,
   dpcc.Core.Settings.Plugin,
   dpcc.Core.Settings.CompletionView,
+  dpcc.Core.Settings.OperatingMode,
   dpcc.UI.Strings,
   dpcc.UI.Settings.Strings,
   dpcc.UI.Settings.Page,
@@ -130,7 +139,7 @@ end;
 
 procedure TDpccSettingsPageTests.PageHasFourteenOptionsAndThreeButtonsInSections;
 const
-  cNames: array[0..17] of string = ('Enabled', 'AutoMinChars', 'CompletionListMode', 'VisibleRows', 'ListWidth',
+  cNames: array[0..17] of string = ('OperatingMode', 'AutoMinChars', 'CompletionListMode', 'VisibleRows', 'ListWidth',
     'Learning', 'ResetHistory', 'AutoParentheses', 'CommitCharacters', 'AutoUses', 'ParameterHints', 'HoverTooltip',
     'DebugHoverValues', 'PopupLook', 'IndexExtraSourceFolders', 'RebuildIndex', 'CheckIde', 'Diagnose');
   cSections: array[0..17] of TDpccPageSection = (psMaster, psCompletion, psCompletion, psCompletion, psCompletion,
@@ -198,7 +207,7 @@ begin
     Assert.AreEqual(14, mOptions, 'Optionen');
     Assert.AreEqual(3, mButtons, 'Knöpfe');
     // Art der Elemente.
-    Assert.IsTrue(mPage.ControlOf('Enabled') is TCheckBox, 'Hauptschalter');
+    Assert.IsTrue(mPage.ControlOf('OperatingMode') = mPage.ModeButton[TDpccOperatingMode.Plugin], 'Betriebsart');
     Assert.IsTrue(mPage.ControlOf('Diagnose') = mPage.DiagnoseLog, 'Ablauf protokollieren');
     Assert.IsTrue(mPage.ControlOf('PopupLook') = mPage.PopupLookChoice, 'Darstellung der Popups');
     Assert.IsTrue(mPage.ControlOf('ListWidth') = mPage.AutoWidth, 'Breite automatisch');
@@ -238,12 +247,12 @@ begin
     end;
     // Ausgeschaltet geladen: alles darunter grau, auch die Beschriftungen.
     mSettings := TDpccPluginSettings.Defaults;
-    mSettings.Enabled := False;
+    mSettings.Mode := TDpccOperatingMode.Off;
     mPage.LoadFrom(mSettings);
     for mEntry in mPage.Entries do
     begin
       // Seit LOG1 bleibt auch „Ablauf protokollieren (Log)“ bedienbar.
-      if (mEntry.Item.Name = 'Enabled') or (mEntry.Item.Name = cPageRebuildIndex) or
+      if (mEntry.Item.Name = 'OperatingMode') or (mEntry.Item.Name = cPageRebuildIndex) or
         (mEntry.Item.Name = cPageCheckIde) or (mEntry.Item.Name = 'Diagnose') then
       begin
         Assert.IsTrue(mEntry.Control.Enabled, mEntry.Item.Name + ' bleibt bedienbar');
@@ -256,16 +265,93 @@ begin
       end;
     end;
     // Klick auf den Hauptschalter gibt alles wieder frei.
-    mPage.MasterSwitch.Checked := True;
+    mPage.Mode := TDpccOperatingMode.Plugin;
     for mEntry in mPage.Entries do
     begin
       Assert.IsTrue(mEntry.Control.Enabled, mEntry.Item.Name + ' wieder an');
     end;
-    mPage.MasterSwitch.Checked := False;
+    mPage.Mode := TDpccOperatingMode.Off;
     Assert.IsFalse(mPage.ControlOf('IndexExtraSourceFolders').Enabled, 'Quellordner nach Klick grau');
     Assert.IsFalse(mPage.ResetHistory.Enabled, 'Verlauf zurücksetzen nach Klick grau');
   finally
     mPage.Free;
+  end;
+end;
+
+procedure TDpccSettingsPageTests.OperatingModeChoice(AEnglish: Boolean);
+const
+  cCaptions: array[Boolean, TDpccOperatingMode] of string = (('Aus', 'Plugin', 'Server'), ('Off', 'Plugin', 'Server'));
+var
+  mPage: TDpccSettingsPage;
+  mMode, mOther: TDpccOperatingMode;
+  mSettings: TDpccPluginSettings;
+begin
+  if AEnglish then
+  begin
+    TDpccStrings.Language := High(TDpccLanguage);
+  end
+  else
+  begin
+    TDpccStrings.Language := Low(TDpccLanguage);
+  end;
+  mPage := TDpccSettingsPage.Create(nil);
+  try
+    mPage.LoadFrom(TDpccPluginSettings.Defaults);
+    // Vorgabe nach der Installation: Plugin.
+    Assert.AreEqual(Ord(TDpccOperatingMode.Plugin), Ord(mPage.Mode), 'Vorgabe');
+    for mMode := Low(TDpccOperatingMode) to High(TDpccOperatingMode) do
+    begin
+      Assert.IsTrue(StartsText(cCaptions[AEnglish, mMode] + ' – ', mPage.ModeButton[mMode].Caption),
+        'Beschriftung: ' + mPage.ModeButton[mMode].Caption);
+      // Eine Gruppe: alle in derselben Zeile.
+      Assert.IsTrue(mPage.ModeButton[mMode].Parent = mPage.ModeButton[TDpccOperatingMode.Plugin].Parent, 'Gruppe');
+      if mMode > Low(TDpccOperatingMode) then
+      begin
+        Assert.IsTrue(mPage.ModeButton[mMode].Top > mPage.ModeButton[Pred(mMode)].Top, 'untereinander');
+      end;
+    end;
+    // Ohne dpcc.LspServer.exe: Server grau, Hinweis sichtbar und unter Server.
+    Assert.IsFalse(mPage.ModeButton[TDpccOperatingMode.Server].Enabled, 'Server ohne EXE grau');
+    Assert.IsTrue(mPage.ServerMissing.Visible, 'Hinweis ohne EXE');
+    Assert.IsTrue(ContainsText(mPage.ServerMissing.Caption, 'dpcc.LspServer.exe'), mPage.ServerMissing.Caption);
+    Assert.IsTrue(mPage.ServerMissing.Top > mPage.ModeButton[TDpccOperatingMode.Server].Top, 'Hinweis unter Server');
+    // Mit EXE: wählbar, Hint mit dem Ort, kein Hinweis.
+    mPage.ServerExe := 'X:\dpcc\server\win64\dpcc.LspServer.exe';
+    Assert.IsTrue(mPage.ModeButton[TDpccOperatingMode.Server].Enabled, 'Server mit EXE');
+    Assert.IsFalse(mPage.ServerMissing.Visible, 'kein Hinweis');
+    Assert.IsTrue(ContainsText(mPage.ModeButton[TDpccOperatingMode.Server].Hint,
+      'X:\dpcc\server\win64\dpcc.LspServer.exe'), 'Ort im Hint');
+    // Nur Plugin gibt die Optionen frei; jede Art geladen und gespeichert.
+    for mMode := Low(TDpccOperatingMode) to High(TDpccOperatingMode) do
+    begin
+      mSettings := TDpccPluginSettings.Defaults;
+      mSettings.Mode := mMode;
+      mPage.LoadFrom(mSettings);
+      Assert.AreEqual(Ord(mMode), Ord(mPage.Mode), 'geladen');
+      for mOther := Low(TDpccOperatingMode) to High(TDpccOperatingMode) do
+      begin
+        Assert.IsTrue((mOther = mMode) = mPage.ModeButton[mOther].Checked, 'genau eine gewählt');
+      end;
+      Assert.IsTrue((mMode = TDpccOperatingMode.Plugin) = mPage.ControlOf('AutoParentheses').Enabled,
+        'Optionen nur mit Plugin');
+      Assert.IsTrue(mPage.CheckIde.Enabled or not Assigned(mPage.OnIdeStatus), 'Jetzt prüfen unabhängig');
+      Assert.IsTrue(mPage.DiagnoseLog.Enabled, 'Ablauf protokollieren unabhängig');
+      mSettings := TDpccPluginSettings.Defaults;
+      mPage.SaveTo(mSettings);
+      Assert.AreEqual(Ord(mMode), Ord(mSettings.Mode), 'gespeichert');
+      Assert.IsTrue((mMode = TDpccOperatingMode.Plugin) = mSettings.Enabled, 'Enabled abgeleitet');
+    end;
+    // Gespeichertes Server ohne EXE bleibt sichtbar gewählt (nicht still verloren).
+    mPage.ServerExe := '';
+    mSettings := TDpccPluginSettings.Defaults;
+    mSettings.Mode := TDpccOperatingMode.Server;
+    mPage.LoadFrom(mSettings);
+    Assert.IsTrue(mPage.ModeButton[TDpccOperatingMode.Server].Checked, 'Server bleibt gewählt');
+    Assert.IsTrue(mPage.ModeButton[TDpccOperatingMode.Server].Enabled, 'gewählt bleibt bedienbar');
+    Assert.IsTrue(mPage.ServerMissing.Visible, 'mit Hinweis');
+  finally
+    mPage.Free;
+    TDpccStrings.Language := Low(TDpccLanguage);
   end;
 end;
 
@@ -287,7 +373,7 @@ begin
     Assert.IsFalse(mPage.DebugHoverValues.Enabled, 'Tooltip aus');
     // Hauptschalter aus sperrt auch mit eigenem Tooltip.
     mPage.HoverTooltip.Checked := True;
-    mPage.MasterSwitch.Checked := False;
+    mPage.Mode := TDpccOperatingMode.Off;
     Assert.IsFalse(mPage.DebugHoverValues.Enabled, 'Hauptschalter aus');
     // Gespeichert wird der Wert trotzdem.
     mSettings := TDpccPluginSettings.Defaults;
@@ -306,7 +392,7 @@ var
 begin
   // Alle Werte der Seite abweichend von der Vorgabe.
   mLoaded := TDpccPluginSettings.Defaults;
-  mLoaded.Enabled := False;
+  mLoaded.Mode := TDpccOperatingMode.Server;
   mLoaded.AutoMinChars := 4;
   mLoaded.CompletionListMode := 'rest';
   mLoaded.VisibleRows := 13;
@@ -336,6 +422,7 @@ begin
     mTarget.XmlDocMaxLines := 9;
     mTarget.LogNames := True;
     mPage.SaveTo(mTarget);
+    Assert.AreEqual(Ord(TDpccOperatingMode.Server), Ord(mTarget.Mode), 'Betriebsart');
     Assert.IsFalse(mTarget.Enabled, 'Enabled');
     Assert.AreEqual(4, mTarget.AutoMinChars, 'AutoMinChars');
     Assert.AreEqual('rest', mTarget.CompletionListMode, 'CompletionListMode');
@@ -415,8 +502,8 @@ begin
     Assert.AreEqual(1, mCalls, 'Aufrufe');
     Assert.IsFalse(mPage.ResetHistory.Enabled, 'nach dem Klick grau');
     // Auch Hauptschalter aus und wieder an gibt ihn nicht frei.
-    mPage.MasterSwitch.Checked := False;
-    mPage.MasterSwitch.Checked := True;
+    mPage.Mode := TDpccOperatingMode.Off;
+    mPage.Mode := TDpccOperatingMode.Plugin;
     Assert.IsFalse(mPage.ResetHistory.Enabled, 'bleibt grau');
   finally
     mPage.Free;
@@ -455,7 +542,7 @@ begin
     Assert.AreEqual(1, mCalls, 'Rückfrage Ja');
     Assert.AreEqual('neu aufgebaut', mPage.RebuildInfo.Caption, 'Meldung');
     // Hängt nicht am Hauptschalter (wie bisher).
-    mPage.MasterSwitch.Checked := False;
+    mPage.Mode := TDpccOperatingMode.Off;
     Assert.IsTrue(mPage.Rebuild.Enabled, 'Hauptschalter aus');
   finally
     mPage.Free;
@@ -599,7 +686,7 @@ begin
     Assert.AreEqual(2, mCalls, 'Jetzt prüfen liest neu');
     Assert.IsTrue(EndsText('Lauf 2', mPage.IdeStatus.Caption), 'neue Zeilen');
     // Hängt nicht am Hauptschalter (wie „Index neu aufbauen“).
-    mPage.MasterSwitch.Checked := False;
+    mPage.Mode := TDpccOperatingMode.Off;
     Assert.IsTrue(mPage.CheckIde.Enabled, 'Hauptschalter aus');
     mPage.OnIdeStatus := nil;
     Assert.IsFalse(mPage.CheckIde.Enabled, 'Haken entfernt');
@@ -700,7 +787,7 @@ begin
     mPage.SaveTo(mSettings);
     Assert.AreEqual(Ord(TDpccLookLevel.Plain), Ord(mSettings.PopupLook), 'ohne Auswahl');
     // Hängt am Hauptschalter wie alle Optionen.
-    mPage.MasterSwitch.Checked := False;
+    mPage.Mode := TDpccOperatingMode.Off;
     Assert.IsFalse(mPage.PopupLookChoice.Enabled, 'Hauptschalter aus');
     Assert.IsFalse(mEntry.Caption.Enabled, 'Beschriftung grau');
   finally
@@ -760,7 +847,7 @@ begin
     mPage.SaveTo(mSettings);
     Assert.IsTrue(mSettings.Diagnose, 'auf der Seite eingeschaltet');
     // Hängt nicht am Hauptschalter: Das Protokoll zeigt gerade dann, warum dpcc nicht zuständig ist.
-    mPage.MasterSwitch.Checked := False;
+    mPage.Mode := TDpccOperatingMode.Off;
     Assert.IsTrue(mPage.DiagnoseLog.Enabled, 'Hauptschalter aus');
   finally
     mPage.Free;
@@ -786,7 +873,7 @@ begin
   mPage := TDpccSettingsPage.Create(nil);
   try
     mPage.LoadFrom(TDpccPluginSettings.Defaults);
-    Assert.IsTrue(AEnglish = StartsText('Code Insight by', mPage.MasterSwitch.Caption), 'Sprache');
+    Assert.IsTrue(AEnglish = StartsText('Off', mPage.ModeButton[TDpccOperatingMode.Off].Caption), 'Sprache');
     for mEntry in mPage.Entries do
     begin
       // Beschriftung links neben dem Feld: endet vor dem Feld.
@@ -818,11 +905,17 @@ begin
     Assert.AreEqual(mPage.ControlOf('AutoParentheses').Left, mPage.ControlOf('ParameterHints').Left, 'Einrückung');
     Assert.AreEqual(mPage.ControlOf('Learning').Left, mPage.ControlOf('HoverTooltip').Left, 'Einrückung');
     Assert.IsTrue(mPage.DebugHoverValues.Left > mPage.HoverTooltip.Left, 'Unterpunkt eingerückt');
-    Assert.IsTrue(mPage.ControlOf('AutoParentheses').Left > mPage.MasterSwitch.Left, 'unter der Überschrift');
+    Assert.IsTrue(mPage.ControlOf('AutoParentheses').Left > mPage.ModeButton[TDpccOperatingMode.Off].Left,
+      'unter der Überschrift');
     // Passt ohne Rollen in einen Bereich üblicher Größe (bei 96 dpi etwa 640 Punkte hoch und 520 breit; seit IDECHECK
     // mit dem Abschnitt IDE, vorher 500; seit LOOK1 mit der Zeile „Darstellung der Popups“, vorher 580; seit LOG1 mit
-    // der Zeile „Ablauf protokollieren (Log)“, vorher 610).
-    Assert.IsTrue(mPage.Height <= mPage.ScaleValue(640), 'Höhe ' + IntToStr(mPage.Height));
+    // der Zeile „Ablauf protokollieren (Log)“, vorher 610; seit der Betriebsart mit drei Optionsfeldern samt
+    // erklärenden Sätzen und dem Hinweis zur fehlenden dpcc.LspServer.exe 900, vorher 640). Der Bereich der IDE rollt,
+    // wenn er kleiner ist.
+    Assert.IsTrue(mPage.Height <= mPage.ScaleValue(900), 'Höhe ' + IntToStr(mPage.Height));
+    // Die Sätze der Betriebsart brechen in der Breite der Seite um, nicht in einer schmalen Ersatzbreite.
+    Assert.IsTrue(mPage.ModeButton[TDpccOperatingMode.Server].Parent.Height <= mPage.ScaleValue(300),
+      'Zeile der Betriebsart ' + IntToStr(mPage.ModeButton[TDpccOperatingMode.Server].Parent.Height));
     // LOG1: Das Häkchen im Abschnitt IDE eingerückt wie die übrigen Optionen.
     Assert.AreEqual(mPage.ControlOf('Learning').Left, mPage.DiagnoseLog.Left, 'Einrückung Ablauf protokollieren');
     Assert.IsTrue(mPage.ResetHistory.Left + mPage.ResetHistory.Width <= mPage.ScaleValue(520),

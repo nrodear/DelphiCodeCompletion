@@ -18,7 +18,7 @@ Projektgruppe ohne Tests, siehe [Bauen für Delphi 12](installation.md#bauen-fü
 | [Einstellungen](settings.md) | Jede Option der Seite Tools › Optionen › Drittanbieter › dpcc, Ablage, was dpcc an der IDE umstellt |
 | [Index und Cache](index-cache.md) | Was im Index steht, wo der Cache liegt, Neuaufbau, Aufräumen |
 | [Fehlersuche](troubleshooting.md) | Plugin lädt nicht, Liste fehlt, doppelte Tooltips, Protokolle |
-| [LSP-Server](lsp-server.md) | dpcc.LspServer.exe: eigenständiger Language Server über stdio, Aufruf, Ablage, was er kann |
+| [LSP-Server](lsp-server.md) | dpcc.LspServer.exe: eigenständiger Language Server über stdio, Betriebsart Server, Aufruf, Ablage, was er kann |
 
 ## Für Entwickler
 
@@ -34,10 +34,12 @@ Projektgruppe ohne Tests, siehe [Bauen für Delphi 12](installation.md#bauen-fü
 | Vervollständigung | Strg+Leertaste | dpcc |
 | Parameterhilfe | Strg+Umschalt+Leertaste | dpcc |
 | Tooltip über Bezeichnern | Maus verweilt über einem Bezeichner | dpcc |
-| Liste, die nach „.“ von selbst aufgeht | Tippen von „.“ | dpcc, wenn es der Code-Insight-Anbieter ist (Hauptschalter an); sonst DelphiLSP (IDE), dann ist dpcc aus |
+| Liste, die nach „.“ von selbst aufgeht | Tippen von „.“ | dpcc, wenn es der Code-Insight-Anbieter ist (Betriebsart Plugin); sonst DelphiLSP (IDE), dann ist dpcc aus |
 
-dpcc bedient Dateien mit den Endungen `.pas`, `.dpr`, `.dpk` und `.inc`. In allen anderen Dateien und bei
-ausgeschaltetem Hauptschalter bleibt die IDE zuständig.
+Die Tabelle gilt für die Betriebsart Plugin (Vorgabe). dpcc bedient Dateien mit den Endungen `.pas`, `.dpr`, `.dpk`
+und `.inc`. In allen anderen Dateien und in der Betriebsart Aus bleibt die IDE zuständig. In der Betriebsart Server
+zeigt die IDE ihre eigenen Fenster, die Antworten kommen von `dpcc.LspServer.exe` (siehe
+[LSP-Server](lsp-server.md#betriebsart-server)).
 
 ## Lizenz
 

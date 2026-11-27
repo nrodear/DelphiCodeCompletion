@@ -45,7 +45,8 @@
 interface
 
 uses
-  dpcc.Core.Settings.Plugin;
+  dpcc.Core.Settings.Plugin,
+  dpcc.Core.Settings.OperatingMode;
 
 {$SCOPEDENUMS ON}
 
@@ -59,9 +60,10 @@ type
   /// <summary>Betriebsart: IDE = ein anderer Anbieter, dpcc aus; Dpcc = dpcc ist Anbieter und an.</summary>
   TDpccIdeMode = (Ide, Dpcc);
 
-  /// <summary>Anlass: Start von Delphi (auch Abgleich nach OK ohne Wechsel des Hauptschalters), Hauptschalter mit OK
-  /// ein- bzw. ausgeschaltet.</summary>
-  TDpccIdeContextTrigger = (Start, MasterOn, MasterOff);
+  /// <summary>Anlass: Start von Delphi (auch Abgleich nach OK ohne Wechsel des Hauptschalters), Betriebsart mit OK
+  /// gewählt: Plugin (MasterOn), Aus (MasterOff) oder Server (ServerOn; wie MasterOff, der Anbieter wird aber in
+  /// jedem Fall DelphiLSP).</summary>
+  TDpccIdeContextTrigger = (Start, MasterOn, MasterOff, ServerOn);
 
   /// <summary>Art eines Werts für den Vergleich.</summary>
   TDpccIdeValueKind = (Flag, Number, Text);
@@ -91,11 +93,16 @@ type
 
   /// <summary>Die dpcc-Einstellungen, von denen die Regeln abhängen.</summary>
   TDpccIdeDpccState = record
+    /// <summary>Betriebsart Plugin (früher Hauptschalter an).</summary>
     Enabled: Boolean;
+    /// <summary>Gespeicherte Betriebsart; zählt nur ohne Enabled (Server oder Aus).</summary>
+    Mode: TDpccOperatingMode;
     HoverTooltip: Boolean;
     DebugHoverValues: Boolean;
     AutoMinChars: Integer;
     class function From(const ASettings: TDpccPluginSettings): TDpccIdeDpccState; static;
+    /// <summary>Geltende Betriebsart: Enabled = Plugin, sonst Server, wenn so gespeichert, sonst Aus.</summary>
+    function OperatingMode: TDpccOperatingMode;
   end;
 
   /// <summary>Eingabe: Basisschlüssel, Anbieter, gelesene Werte (nur vorhandene), Schlüssel, Merker, dpcc-Stand.
@@ -190,9 +197,13 @@ type
     Mode: TDpccIdeMode;
     ProviderBefore: string;
     ProviderAfter: string;
-    /// <summary>Hauptschalter danach.</summary>
+    /// <summary>Hauptschalter danach (Betriebsart Plugin).</summary>
     Enabled: Boolean;
     EnabledChanged: Boolean;
+    /// <summary>Betriebsart danach (Aus, Plugin, Server) und ob sie sich gegenüber AInput.Dpcc ändert; mit
+    /// Speichern schreibt die IDE-Schicht sie dann.</summary>
+    OperatingMode: TDpccOperatingMode;
+    OperatingModeChanged: Boolean;
     Writes: TArray<TDpccIdeWrite>;
     /// <summary>Zu schreibende Merker (StoreName und Inhalt).</summary>
     MarkerWrites: TArray<TDpccIdeMarker>;
@@ -318,7 +329,8 @@ type
     MissingValue, SeverityOk, SeverityDeviation, SeverityHint, ReportProvider, ReportKey, ReportActualExpected,
     ReportActual, ReportReason, SummaryNone, SummaryOne, SummaryMore, SummaryHintOne, SummaryHintMore, StatusModeDpcc,
     StatusModeIde, StatusPendingDpcc, StatusPendingIde, StatusSet, StatusSetNone, NoticeSwitchedToDpcc,
-    NoticeSwitchedToIde, NoticeProviderLost, CaptionAutoInvoke, ReasonAutoInvoke);
+    NoticeSwitchedToIde, NoticeProviderLost, CaptionAutoInvoke, ReasonAutoInvoke, NoticeServerRestart,
+    NoticeServerNextStart, NoticeOffNextStart, NoticeServerOtherProvider, StatusModeServer, StatusPendingServer);
 
 const
   cTexts: array[TDpccLanguage, TIdeCheckText] of string = (
@@ -375,7 +387,18 @@ const
      'Der Code-Insight-Anbieter ist nicht mehr dpcc (in den Optionen der IDE geändert oder von der IDE ' +
        'zurückgeschrieben); dpcc ist aus. Zum Einschalten den Hauptschalter der Seite dpcc wieder setzen.',
      'Automatisch aufrufen',
-     'Aus: Die IDE ruft die Vervollständigung nach „.“ nicht von selbst auf.'),
+     'Aus: Die IDE ruft die Vervollständigung nach „.“ nicht von selbst auf.',
+     'Betriebsart Server: dpcc hat den Code-Insight-Anbieter der IDE auf DelphiLSP gestellt; wirkt nach dem ' +
+       'Neustart von Delphi. Danach startet die IDE dpcc.LspServer.exe an Stelle von DelphiLSP.exe.',
+     'Betriebsart Server: Beim nächsten Start des Code-Insight-Servers der IDE (nächstes Öffnen einer ' +
+       'Projektgruppe) startet dpcc.LspServer.exe an Stelle von DelphiLSP.exe; ein schon laufendes DelphiLSP bleibt ' +
+       'bis dahin.',
+     'Betriebsart Aus: Beim nächsten Öffnen einer Projektgruppe startet die IDE wieder das originale DelphiLSP; ein ' +
+       'schon laufendes dpcc.LspServer.exe bleibt bis dahin.',
+     'Betriebsart Server ist aus: In den Optionen der IDE ist ein anderer Code-Insight-Anbieter gewählt (%s). Zum ' +
+       'Einschalten dort DelphiLSP wählen und auf der Seite dpcc „Server“.',
+     'Betriebsart Server: Die IDE startet dpcc.LspServer.exe an Stelle von DelphiLSP.exe (Anbieter %s).',
+     'Der Anbieter wird beim nächsten Start von Delphi DelphiLSP; erst dann übernimmt dpcc.LspServer.exe.'),
     ('Code Insight provider for Delphi',
      'Code completion',
      'Code completion: Delay while typing',
@@ -429,7 +452,17 @@ const
      'The Code Insight provider is no longer dpcc (changed in the IDE options or written back by the IDE); dpcc ' +
        'is off. To turn it on, set the master switch on the dpcc page again.',
      'Auto invoke',
-     'Off: the IDE does not invoke code completion after “.” by itself.'));
+     'Off: the IDE does not invoke code completion after “.” by itself.',
+     'Mode Server: dpcc switched the IDE''s Code Insight provider to DelphiLSP; takes effect after restarting ' +
+       'Delphi. From then on the IDE starts dpcc.LspServer.exe instead of DelphiLSP.exe.',
+     'Mode Server: the next time the IDE starts its Code Insight server (next time a project group is opened), ' +
+       'dpcc.LspServer.exe starts instead of DelphiLSP.exe; a DelphiLSP that is already running stays until then.',
+     'Mode Off: the next time a project group is opened, the IDE starts the original DelphiLSP again; a ' +
+       'dpcc.LspServer.exe that is already running stays until then.',
+     'Mode Server is off: another Code Insight provider is selected in the IDE options (%s). To turn it on, ' +
+       'select DelphiLSP there and “Server” on the dpcc page.',
+     'Mode Server: the IDE starts dpcc.LspServer.exe instead of DelphiLSP.exe (provider %s).',
+     'The provider becomes DelphiLSP at the next start of Delphi; only then dpcc.LspServer.exe takes over.'));
 
 function Txt(AId: TIdeCheckText): string;
 begin
@@ -500,10 +533,28 @@ end;
 
 class function TDpccIdeDpccState.From(const ASettings: TDpccPluginSettings): TDpccIdeDpccState;
 begin
+  Result := Default(TDpccIdeDpccState);
   Result.Enabled := ASettings.Enabled;
+  Result.Mode := ASettings.Mode;
   Result.HoverTooltip := ASettings.HoverTooltip;
   Result.DebugHoverValues := ASettings.DebugHoverValues;
   Result.AutoMinChars := ASettings.AutoMinChars;
+end;
+
+function TDpccIdeDpccState.OperatingMode: TDpccOperatingMode;
+begin
+  if Enabled then
+  begin
+    Result := TDpccOperatingMode.Plugin;
+  end
+  else if Mode = TDpccOperatingMode.Server then
+  begin
+    Result := TDpccOperatingMode.Server;
+  end
+  else
+  begin
+    Result := TDpccOperatingMode.Off;
+  end;
 end;
 
 { TDpccIdeCheckInput }
@@ -1298,31 +1349,55 @@ var
   mMarker, mProviderMarker: TDpccIdeMarker;
   mBack: string;
   mHasProviderMarker, mExplicitBack: Boolean;
+  mProvider: TDpccIdeProvider;
 begin
   Result := Default(TDpccIdeContextPlan);
   Result.Trigger := ATrigger;
   Result.ProviderBefore := Trim(AInput.ProviderId);
   Result.ProviderAfter := Result.ProviderBefore;
+  mProvider := TDpccIdeCheck.ProviderOf(AInput.ProviderId);
   case ATrigger of
     TDpccIdeContextTrigger.MasterOn:
-      Result.Mode := TDpccIdeMode.Dpcc;
-    TDpccIdeContextTrigger.MasterOff:
-      Result.Mode := TDpccIdeMode.Ide;
-  else
-    begin
-      // Beim Start entscheidet der gewählte Anbieter.
-      if TDpccIdeCheck.ProviderOf(AInput.ProviderId) = TDpccIdeProvider.Dpcc then
       begin
         Result.Mode := TDpccIdeMode.Dpcc;
+        Result.OperatingMode := TDpccOperatingMode.Plugin;
+      end;
+    TDpccIdeContextTrigger.MasterOff:
+      begin
+        Result.Mode := TDpccIdeMode.Ide;
+        Result.OperatingMode := TDpccOperatingMode.Off;
+      end;
+    TDpccIdeContextTrigger.ServerOn:
+      begin
+        // Wie Aus (eigene Code-Insight-Schalter zurück), dazu die Umleitung auf dpcc.LspServer.exe; der Anbieter muss
+        // DelphiLSP sein, sonst startet die IDE gar kein DelphiLSP.exe.
+        Result.Mode := TDpccIdeMode.Ide;
+        Result.OperatingMode := TDpccOperatingMode.Server;
+      end;
+  else
+    begin
+      // Beim Start entscheidet der gewählte Anbieter: dpcc → Plugin. DelphiLSP (oder ohne Wert, Vorgabe der IDE)
+      // lässt eine gespeicherte Betriebsart Server stehen; sonst Aus (wie früher „Hauptschalter aus“).
+      if mProvider = TDpccIdeProvider.Dpcc then
+      begin
+        Result.Mode := TDpccIdeMode.Dpcc;
+        Result.OperatingMode := TDpccOperatingMode.Plugin;
       end
       else
       begin
         Result.Mode := TDpccIdeMode.Ide;
+        Result.OperatingMode := TDpccOperatingMode.Off;
+        if (AInput.Dpcc.OperatingMode = TDpccOperatingMode.Server) and
+          (mProvider in [TDpccIdeProvider.DelphiLsp, TDpccIdeProvider.Unknown]) then
+        begin
+          Result.OperatingMode := TDpccOperatingMode.Server;
+        end;
       end;
     end;
   end;
   Result.Enabled := Result.Mode = TDpccIdeMode.Dpcc;
   Result.EnabledChanged := Result.Enabled <> AInput.Dpcc.Enabled;
+  Result.OperatingModeChanged := Result.OperatingMode <> AInput.Dpcc.OperatingMode;
   mHasProviderMarker := AInput.TryGetMarker(TDpccIdeCheck.cSourceOptionsKey, TDpccIdeCheck.cProviderValue,
     mProviderMarker);
   if Result.Mode = TDpccIdeMode.Dpcc then
@@ -1352,8 +1427,10 @@ begin
   // Betriebsart IDE: alles zurückdrehen, was dpcc selbst geändert hat (nur, was noch so steht). Hauptschalter
   // ausdrücklich aus, während dpcc Anbieter ist: Der Anbieter geht in jedem Fall zurück (gemerkter Wert, sonst
   // DelphiLSP), auch wenn der Nutzer dpcc in den Optionen der IDE selbst gewählt hatte.
-  mExplicitBack := (ATrigger = TDpccIdeContextTrigger.MasterOff) and
-    (TDpccIdeCheck.ProviderOf(AInput.ProviderId) = TDpccIdeProvider.Dpcc);
+  // Betriebsart Server mit OK: Der Anbieter wird in jedem Fall DelphiLSP (auch aus einem anderen Anbieter), nicht der
+  // gemerkte Wert.
+  mExplicitBack := ((ATrigger = TDpccIdeContextTrigger.MasterOff) and (mProvider = TDpccIdeProvider.Dpcc)) or
+    ((ATrigger = TDpccIdeContextTrigger.ServerOn) and (mProvider in [TDpccIdeProvider.Dpcc, TDpccIdeProvider.Other]));
   for mMarker in AInput.Markers do
   begin
     if mExplicitBack and IsProviderValue(mMarker.Key, mMarker.Name) then
@@ -1368,7 +1445,8 @@ begin
   if mExplicitBack then
   begin
     mBack := TDpccIdeCheck.cDelphiLspId;
-    if mHasProviderMarker and mProviderMarker.OriginalExists and (Trim(mProviderMarker.Original) <> '') and
+    if (ATrigger = TDpccIdeContextTrigger.MasterOff) and mHasProviderMarker and mProviderMarker.OriginalExists and
+      (Trim(mProviderMarker.Original) <> '') and
       (TDpccIdeCheck.ProviderOf(mProviderMarker.Original) <> TDpccIdeProvider.Dpcc) then
     begin
       mBack := Trim(mProviderMarker.Original);
@@ -1378,10 +1456,31 @@ begin
     Result.ProviderAfter := mBack;
     Result.ProviderChanged := True;
   end;
-  if Result.ProviderChanged then
+  if Result.ProviderChanged and (Result.OperatingMode = TDpccOperatingMode.Server) and
+    (TDpccIdeCheck.ProviderOf(Result.ProviderAfter) = TDpccIdeProvider.DelphiLsp) then
+  begin
+    Result.Notice := Txt(TIdeCheckText.NoticeServerRestart);
+  end
+  else if Result.ProviderChanged then
   begin
     Result.Notice := Format(Txt(TIdeCheckText.NoticeSwitchedToIde),
       [ProviderName(TDpccIdeCheck.ProviderOf(Result.ProviderAfter), Result.ProviderAfter)]);
+  end
+  else if (ATrigger = TDpccIdeContextTrigger.ServerOn) and
+    (AInput.Dpcc.OperatingMode <> TDpccOperatingMode.Server) then
+  begin
+    // Schon im LSP-Betrieb: Die Umleitung greift beim nächsten Serverstart der IDE, ohne Neustart von Delphi.
+    Result.Notice := Txt(TIdeCheckText.NoticeServerNextStart);
+  end
+  else if (ATrigger = TDpccIdeContextTrigger.MasterOff) and
+    (AInput.Dpcc.OperatingMode = TDpccOperatingMode.Server) then
+  begin
+    Result.Notice := Txt(TIdeCheckText.NoticeOffNextStart);
+  end
+  else if (ATrigger = TDpccIdeContextTrigger.Start) and
+    (AInput.Dpcc.OperatingMode = TDpccOperatingMode.Server) and (mProvider = TDpccIdeProvider.Other) then
+  begin
+    Result.Notice := Format(Txt(TIdeCheckText.NoticeServerOtherProvider), [Result.ProviderBefore]);
   end
   else if (ATrigger = TDpccIdeContextTrigger.Start) and mHasProviderMarker and
     SameText(mProviderMarker.Written, TDpccIdeCheck.cDpccId) and AInput.Dpcc.Enabled then
@@ -1526,14 +1625,22 @@ begin
     begin
       mLines.Add(Format(Txt(TIdeCheckText.StatusModeDpcc), [Trim(AInput.ProviderId)]));
     end
+    else if AInput.Dpcc.OperatingMode = TDpccOperatingMode.Server then
+    begin
+      mLines.Add(Format(Txt(TIdeCheckText.StatusModeServer), [ProviderName(mProvider, Trim(AInput.ProviderId))]));
+    end
     else
     begin
       mLines.Add(Format(Txt(TIdeCheckText.StatusModeIde), [ProviderName(mProvider, Trim(AInput.ProviderId))]));
     end;
-    // Hauptschalter und Anbieter passen nicht zusammen: Der Wechsel wirkt erst nach dem Neustart.
+    // Betriebsart und Anbieter passen nicht zusammen: Der Wechsel wirkt erst nach dem Neustart.
     if AInput.Dpcc.Enabled and (mProvider <> TDpccIdeProvider.Dpcc) then
     begin
       mLines.Add(Txt(TIdeCheckText.StatusPendingDpcc));
+    end
+    else if (AInput.Dpcc.OperatingMode = TDpccOperatingMode.Server) and (mProvider = TDpccIdeProvider.Dpcc) then
+    begin
+      mLines.Add(Txt(TIdeCheckText.StatusPendingServer));
     end
     else if not AInput.Dpcc.Enabled and (mProvider = TDpccIdeProvider.Dpcc) then
     begin
@@ -1563,12 +1670,14 @@ end;
 
 function TDpccIdeContextPlan.HasChanges: Boolean;
 begin
-  Result := (Length(Writes) > 0) or (Length(MarkerWrites) > 0) or (Length(MarkerDeletes) > 0) or EnabledChanged;
+  Result := (Length(Writes) > 0) or (Length(MarkerWrites) > 0) or (Length(MarkerDeletes) > 0) or EnabledChanged or
+    OperatingModeChanged;
 end;
 
 function TDpccIdeContextPlan.LogLine: string;
 const
-  cTriggers: array[TDpccIdeContextTrigger] of string = ('Start', 'Hauptschalter an', 'Hauptschalter aus');
+  cTriggers: array[TDpccIdeContextTrigger] of string = ('Start', 'Hauptschalter an', 'Hauptschalter aus',
+    'Betriebsart Server');
 var
   mProvider: string;
 begin
@@ -1584,6 +1693,11 @@ begin
   else
   begin
     Result := Format('IDE-Kontext (%s): %s → dpcc aus', [cTriggers[Trigger], mProvider]);
+  end;
+  Result := Result + '; Betriebsart ' + TDpccOperatingModes.LogName(OperatingMode);
+  if OperatingModeChanged then
+  begin
+    Result := Result + ' (geändert)';
   end;
   if ProviderChanged then
   begin
@@ -1655,6 +1769,7 @@ begin
     AInput.Markers := AInput.Markers + [mMarker];
   end;
   AInput.Dpcc.Enabled := Enabled;
+  AInput.Dpcc.Mode := OperatingMode;
 end;
 
 initialization

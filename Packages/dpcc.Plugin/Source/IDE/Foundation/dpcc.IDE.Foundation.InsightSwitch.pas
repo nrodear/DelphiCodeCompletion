@@ -27,6 +27,10 @@
 // Start: Nach einem Wechsel meldet dpcc einmal „wirkt nach dem Neustart von Delphi“ im Meldungsfenster.
 // Error Insight fasst dpcc nicht an (der frühere Knopf dafür war entfallen, der Code ohne Aufrufer; seit IDECHECK
 // entfernt); die Prüfung meldet es nur.
+// Drei Betriebsarten (Stufe 2 von dpcc.LspServer.exe, je Delphi-Version gespeichert): Plugin ≙ MasterOn, Aus ≙
+// MasterOff, Server ≙ ServerOn (wie MasterOff, der Anbieter wird aber in jedem Fall DelphiLSP; die Umleitung auf
+// dpcc.LspServer.exe macht dpcc.IDE.Foundation.LspRedirect). Beim Start bleibt Server stehen, solange DelphiLSP
+// gewählt ist; wählt der Nutzer im Dialog der IDE dpcc, gilt Plugin, einen anderen Anbieter unter Plugin: Aus.
 // Help Insight (HI1): Die Orte der Betriebsart dpcc sind unter Delphi 12 und 13 gleich (jeder vorhandene aus
 // Borland.EditOptions.Pascal und dem Ort von DelphiLSP, TDpccIdeCheck.DpccKeys). Weil der Registry-Wert unter
 // Delphi 12 nicht sicher wirkt, verbirgt dpcc.IDE.Hover.HelpInsightHide das Fenster zusätzlich zur Laufzeit; beim
@@ -35,7 +39,8 @@
 interface
 
 uses
-  dpcc.Core.Settings.IdeCheck;
+  dpcc.Core.Settings.IdeCheck,
+  dpcc.Core.Settings.OperatingMode;
 
 type
   TDpccIdeInsightSwitch = class
@@ -62,8 +67,8 @@ type
     class procedure Release; static;
     /// <summary>Beim Start von Delphi: Betriebsart nach dem gewählten Anbieter (eine Zeile ins Protokoll).</summary>
     class procedure ApplyAtStart; static;
-    /// <summary>Nach OK im Optionsdialog (in die Warteschlange gestellt): Hauptschalter vorher und nachher.</summary>
-    class procedure AfterOptions(AWasEnabled, AIsEnabled: Boolean); static;
+    /// <summary>Nach OK im Optionsdialog (in die Warteschlange gestellt): Betriebsart vorher und nachher.</summary>
+    class procedure AfterOptions(AWasMode, AIsMode: TDpccOperatingMode); static;
     /// <summary>Wahl im Code-Insight-Dialog der IDE: ASelected = dpcc gewählt.</summary>
     class procedure ProviderChosen(ASelected: Boolean); static;
     /// <summary>Beim Beenden: den zuletzt gewollten Stand erneut schreiben (nur Registry, ohne Einstellungen).
@@ -279,10 +284,11 @@ begin
       mRegistry.Free;
     end;
   end;
-  if AUpdateSettings and APlan.EnabledChanged then
+  if AUpdateSettings and (APlan.OperatingModeChanged or APlan.EnabledChanged) then
   begin
+    // Betriebsart dieser Version (Aus, Plugin, Server); Enabled ist daraus abgeleitet.
     mSettings := TDpccIdeSettings.Current;
-    mSettings.Enabled := APlan.Enabled;
+    mSettings.Mode := APlan.OperatingMode;
     TDpccIdeSettings.Update(mSettings);
   end;
 end;
@@ -328,29 +334,41 @@ begin
   end;
   // Ohne ausdrücklichen Anbieter: AtExit folgt dann dem, was in der Registry steht (wählt der Nutzer im Dialog der
   // IDE DelphiLSP, schreibt dpcc beim Beenden den Anbieter nicht wieder auf dpcc).
-  Apply(TDpccIdeContextTrigger.Start, '', True);
+  if TDpccIdeSettings.TakeFreshDefault then
+  begin
+    // Erster Start nach der Installation (kein gespeicherter Wert, auch kein früheres Enabled): Vorgabe Plugin, also
+    // wie Plugin mit OK (Anbieter dpcc, wirkt nach dem Neustart), statt beim gewählten DelphiLSP auszuschalten.
+    TDpccGuard.Log('IDE-Kontext: erster Start ohne gespeicherte Betriebsart, Vorgabe Plugin');
+    Apply(TDpccIdeContextTrigger.MasterOn, '', True);
+  end
+  else
+  begin
+    Apply(TDpccIdeContextTrigger.Start, '', True);
+  end;
   // Danach prüfen, was gilt (Betriebsart IDE: die Werte von DelphiLSP, nur Protokoll).
   mInput := TDpccIdeSettingsCheck.Read(TDpccIdeSettings.Current);
   TDpccGuard.Log(TDpccIdeCheck.Evaluate(mInput).LogLine);
 end;
 
-class procedure TDpccIdeInsightSwitch.AfterOptions(AWasEnabled, AIsEnabled: Boolean);
+class procedure TDpccIdeInsightSwitch.AfterOptions(AWasMode, AIsMode: TDpccOperatingMode);
 var
   mTrigger: TDpccIdeContextTrigger;
 begin
-  // Es gilt der Hauptschalter der Seite: an = Betriebsart dpcc, aus = IDE (auch ohne Umschalten, etwa wenn der
-  // Wechsel noch auf den Neustart wartet oder sich der Tooltip geändert hat).
-  if AIsEnabled then
-  begin
-    mTrigger := TDpccIdeContextTrigger.MasterOn;
-  end
+  // Es gilt die Betriebsart der Seite: Plugin = Betriebsart dpcc, Aus = IDE, Server = IDE mit Anbieter DelphiLSP und
+  // Umleitung auf dpcc.LspServer.exe (auch ohne Umschalten, etwa wenn der Wechsel noch auf den Neustart wartet oder
+  // sich der Tooltip geändert hat).
+  case AIsMode of
+    TDpccOperatingMode.Plugin:
+      mTrigger := TDpccIdeContextTrigger.MasterOn;
+    TDpccOperatingMode.Server:
+      mTrigger := TDpccIdeContextTrigger.ServerOn;
   else
-  begin
     mTrigger := TDpccIdeContextTrigger.MasterOff;
   end;
-  if AWasEnabled <> AIsEnabled then
+  if AWasMode <> AIsMode then
   begin
-    TDpccGuard.Log('IDE-Kontext: Hauptschalter mit OK umgeschaltet');
+    TDpccGuard.Log(Format('IDE-Kontext: Betriebsart mit OK umgestellt: %s → %s', [TDpccOperatingModes.LogName(AWasMode),
+      TDpccOperatingModes.LogName(AIsMode)]));
   end;
   Apply(mTrigger, '', False);
   // Gegenprüfung nach dem Rückschreiben der IDE: was überschrieben ist, erneut schreiben.
@@ -416,6 +434,8 @@ begin
     begin
       TDpccGuard.Run(TDpccFeature.Settings,
         procedure
+        var
+          mPlan: TDpccIdeContextPlan;
         begin
           if mSelected then
           begin
@@ -426,9 +446,17 @@ begin
           end
           else
           begin
+            // Plugin → Aus (wie früher); eine gespeicherte Betriebsart Server bleibt mit DelphiLSP stehen.
             TDpccGuard.Log('IDE-Kontext: anderer Anbieter im Code-Insight-Dialog der IDE gewählt');
-            TDpccIdeInsightSwitch.Apply(TDpccIdeContextTrigger.Start, TDpccIdeCheck.cDelphiLspId, True);
-            TDpccIdeInsightSwitch.ScheduleRecheck(TDpccIdeContextTrigger.MasterOff, TDpccIdeCheck.cDelphiLspId);
+            mPlan := TDpccIdeInsightSwitch.Apply(TDpccIdeContextTrigger.Start, TDpccIdeCheck.cDelphiLspId, True);
+            if mPlan.OperatingMode = TDpccOperatingMode.Server then
+            begin
+              TDpccIdeInsightSwitch.ScheduleRecheck(TDpccIdeContextTrigger.ServerOn, TDpccIdeCheck.cDelphiLspId);
+            end
+            else
+            begin
+              TDpccIdeInsightSwitch.ScheduleRecheck(TDpccIdeContextTrigger.MasterOff, TDpccIdeCheck.cDelphiLspId);
+            end;
           end;
         end);
     end);

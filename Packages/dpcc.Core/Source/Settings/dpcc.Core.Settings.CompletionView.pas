@@ -48,7 +48,9 @@ const
   /// „Ablauf protokollieren (Log)“ (Diagnose). ListWidth ist „Breite automatisch“ (0 = automatisch) in der Zeile der
   /// sichtbaren Zeilen.</summary>
   cPageItems: array[0..17] of TDpccPageItem = (
-    (Section: psMaster; Kind: pkSetting; Name: 'Enabled'),
+    // Seit Stufe 2 von dpcc.LspServer.exe die Betriebsart (Aus, Plugin, Server) statt des Hauptschalters; der Name
+    // ohne Version (TDpccOperatingModes.ValueName('')), gespeichert wird je Version „OperatingMode <Version>“.
+    (Section: psMaster; Kind: pkSetting; Name: 'OperatingMode'),
     (Section: psCompletion; Kind: pkSetting; Name: 'AutoMinChars'),
     (Section: psCompletion; Kind: pkSetting; Name: 'CompletionListMode'),
     (Section: psCompletion; Kind: pkSetting; Name: 'VisibleRows'),

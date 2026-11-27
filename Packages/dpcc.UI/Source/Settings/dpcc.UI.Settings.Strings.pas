@@ -35,7 +35,11 @@ type
     SettingsIndexRebuildRunning, SettingsIndexRebuildRejected,
     // Abschnitt IDE: „Ablauf protokollieren (Log)“ (LOG1), Hint am Schalter mit der Datei, Zeilen im Meldungsfenster
     // beim Ein- und Ausschalten.
-    SettingsDiagnose, SettingsDiagnoseHint, SettingsDiagnoseFile, SettingsDiagnoseOn, SettingsDiagnoseOff);
+    SettingsDiagnose, SettingsDiagnoseHint, SettingsDiagnoseFile, SettingsDiagnoseOn, SettingsDiagnoseOff,
+    // Betriebsart statt Hauptschalter (Stufe 2 von dpcc.LspServer.exe): je Art Beschriftung und erklärender Satz, in
+    // der Reihenfolge von TDpccOperatingMode; Hinweis, wenn dpcc.LspServer.exe fehlt, und Hint mit ihrem Ort.
+    SettingsModeOff, SettingsModePlugin, SettingsModeServer, SettingsModeOffInfo, SettingsModePluginInfo,
+    SettingsModeServerInfo, SettingsModeServerMissing, SettingsModeServerFile);
 
   TDpccSettingsStrings = class
   public
@@ -52,7 +56,7 @@ uses
 
 const
   cTexts: array[TDpccLanguage, TDpccSettingsTextId] of string = (
-    ('Code Insight von dpcc (stellt den Code-Insight-Anbieter der IDE auf dpcc um; aus = DelphiLSP)',
+    ('Betriebsart',
      'Vervollständigung',
      'Beim Übernehmen',
      'Parameter-Hint und Tooltip',
@@ -92,8 +96,19 @@ const
      'Protokolldatei: %s',
      'dpcc: Der Ablauf wird protokolliert in %s. Ausschalten: Tools › Optionen › Drittanbieter › dpcc, „Ablauf ' +
      'protokollieren (Log)“.',
-     'dpcc: Ablaufprotokoll aus.'),
-    ('Code Insight by dpcc (switches the IDE''s Code Insight provider to dpcc; off = DelphiLSP)',
+     'dpcc: Ablaufprotokoll aus.',
+     'Aus – Delphi arbeitet ohne dpcc',
+     'Plugin – Code Insight von dpcc im Editor (Vorgabe)',
+     'Server – dpcc.LspServer.exe an Stelle von DelphiLSP',
+     'Delphi nutzt seinen eigenen Code-Insight-Anbieter (DelphiLSP); dpcc zeigt keine Fenster und leitet nichts um.',
+     'dpcc wird der Code-Insight-Anbieter der IDE, mit eigener Liste, Tooltip und Parameter-Hint. Der Wechsel von ' +
+     'oder zu Plugin wirkt nach dem Neustart von Delphi.',
+     'Delphi bleibt im LSP-Betrieb und zeigt seine eigenen Fenster; die Antworten liefert dpcc.LspServer.exe statt ' +
+     'DelphiLSP.exe. Die Fehlermarkierung der IDE (Error Insight) bleibt leer. Der Wechsel von oder zu Plugin wirkt ' +
+     'nach dem Neustart von Delphi, zwischen Aus und Server beim nächsten Öffnen einer Projektgruppe.',
+     'Nicht wählbar: dpcc.LspServer.exe ist nicht installiert (im Setup die Komponente „LSP-Server“ wählen).',
+     'Programm: %s'),
+    ('Mode',
      'Completion',
      'When accepting',
      'Parameter hint and tooltip',
@@ -133,7 +148,18 @@ const
      'Log file: %s',
      'dpcc: The flow is logged to %s. To turn it off: Tools › Options › Third Party › dpcc, “Log the flow (log ' +
      'file)”.',
-     'dpcc: Flow log off.'));
+     'dpcc: Flow log off.',
+     'Off – Delphi works without dpcc',
+     'Plugin – Code Insight by dpcc in the editor (default)',
+     'Server – dpcc.LspServer.exe instead of DelphiLSP',
+     'Delphi uses its own Code Insight provider (DelphiLSP); dpcc shows no windows and redirects nothing.',
+     'dpcc becomes the IDE''s Code Insight provider, with its own list, tooltip and parameter hint. Switching to or ' +
+     'from Plugin takes effect after restarting Delphi.',
+     'Delphi stays in LSP mode and shows its own windows; the answers come from dpcc.LspServer.exe instead of ' +
+     'DelphiLSP.exe. The IDE''s error marks (Error Insight) stay empty. Switching to or from Plugin takes effect ' +
+     'after restarting Delphi, between Off and Server the next time a project group is opened.',
+     'Not available: dpcc.LspServer.exe is not installed (select the component “LSP server” in the setup).',
+     'Program: %s'));
 
 { TDpccSettingsStrings }
 

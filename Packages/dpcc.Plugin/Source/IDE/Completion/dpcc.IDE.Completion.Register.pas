@@ -14,6 +14,8 @@
 //     Code-Insight-Anbieter (DelphiLSP → dpcc aus und eigene Änderungen zurück; dpcc → an und die nötigen Schalter
 //     der IDE gesetzt), die Wahl im Code-Insight-Dialog der IDE über den Manager (ManagerEnabled/Disabled) und beim
 //     Beenden der zuletzt gewollte Stand noch einmal;
+//   - die Betriebsart Server (Stufe 2 von dpcc.LspServer.exe, TDpccLspRedirectHook): IAT-Hook auf CreateProcessW in
+//     IDELSP290/370.bpl nach der Betriebsart, beim Abbau vor dem Entladen zurückgesetzt;
 //   - das Verbergen des Fensters von Help Insight der IDE zur Laufzeit (HI1, TDpccHelpInsightHide): Ereignis-Hook
 //     (SetWinEventHook, Hauptthread) beim Anmelden, beim Abbau gleich nach dem Anhalten der Hauptthread-Queue
 //     gelöst (UnhookWinEvent), bevor Code der BPL entladen wird;
@@ -81,6 +83,8 @@ uses
   dpcc.IDE.Foundation.Settings,
   dpcc.IDE.Foundation.About,
   dpcc.IDE.Foundation.InsightSwitch,
+  dpcc.IDE.Foundation.LspRedirect,
+  dpcc.Core.Settings.OperatingMode,
   dpcc.IDE.Settings.Options,
   dpcc.IDE.Completion.History,
   dpcc.IDE.Completion.Favorites,
@@ -599,6 +603,23 @@ begin
   TDpccIdeInsightSwitch.ApplyAtStart;
 end;
 
+/// <summary>Hook für die Betriebsart Server einbauen (dpcc.IDE.Foundation.LspRedirect).</summary>
+procedure InstallLspRedirect;
+begin
+  TDpccLspRedirectHook.Install(TDpccIdeSettings.IdeVersion);
+  // Gegenseitiger Ausschluss, im Protokoll belegt: Nur Plugin startet den eingebauten Server (bei Bedarf); Aus und
+  // Server nie (ein späterer Wechsel meldet RequestStart, dpcc.IDE.CodeInsight.Manager.Session).
+  if TDpccIdeSettings.Current.Enabled then
+  begin
+    TDpccGuard.Log('Eingebauter Server: startet bei Bedarf (Betriebsart Plugin); keine Umleitung von DelphiLSP');
+  end
+  else
+  begin
+    TDpccGuard.Log('Eingebauter Server: startet nicht (Betriebsart ' +
+      TDpccOperatingModes.LogName(TDpccIdeSettings.Current.Mode) + ')');
+  end;
+end;
+
 /// <summary>Beim Beenden von Delphi den zuletzt gewollten Stand erneut schreiben (die IDE kann ihn beim Speichern
 /// ihrer Optionen überschrieben haben); beim bloßen Entladen des Packages nicht.</summary>
 procedure IdeContextAtExit;
@@ -782,6 +803,9 @@ begin
   // Wächter des Hauptthreads: misst Hänger, Dauer von Aktivitäten und Warten auf den Server (dpcc.log).
   Start('Watchdog', TDpccWatchdog.Start);
   Start('IdeContext', ApplyIdeContext);
+  // Betriebsart Server: Start von DelphiLSP.exe auf dpcc.LspServer.exe umlenken (IAT-Hook in IDELSP); entscheidet
+  // bei jedem Start neu nach der Betriebsart dieser Version.
+  Start('LspRedirect', InstallLspRedirect);
   Start('Notices', StartNotices);
   Start('Manager', StartManager);
   Start('Keys', StartKeys);
@@ -828,6 +852,8 @@ begin
     TDpccGuard.RotatingLog.OnError := nil;
     TDpccIdeSettings.OnChanged := nil;
     mTeardown.Step('IdeContext', IdeContextAtExit);
+    // Hook auf CreateProcessW zurück, bevor Code dieser BPL entladen wird; danach startet wieder das Original.
+    mTeardown.Step('LspRedirect', TDpccLspRedirectHook.Uninstall);
     // Wartende Gegenprüfung nach der Wahl im Code-Insight-Dialog samt Timer.
     mTeardown.Step('InsightSwitch', TDpccIdeInsightSwitch.Release);
     mTeardown.Step('Options', TDpccOptionsRegistration.Unregister);

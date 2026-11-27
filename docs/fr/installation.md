@@ -8,7 +8,8 @@
 
 - Delphi 13 / RAD Studio 37.0. Pour Delphi 12 / RAD Studio 23.0, voir
   [Compiler pour Delphi 12](#compiler-pour-delphi-12).
-- Plateforme Win32. L'IDE est un processus 32 bits, le plugin est donc un paquet Win32.
+- Plateforme Win32. L'IDE est un processus 32 bits, le plugin est donc un paquet Win32. L'IDE 64 bits de Delphi 13
+  (`bin64\bds.exe`) n'est pas prise en charge.
 - Le code source de dpcc. Il n'existe pas de BPL prêtes à l'emploi ; dpcc se compile à partir du groupe de projets.
   Un programme d'installation peut être créé à partir des BPL compilées, voir
   [Installer avec le programme d'installation](#installer-avec-le-programme-dinstallation).
@@ -26,7 +27,9 @@ La sortie se trouve sous `Output\Win32\Debug` :
 | `Bpl` | les huit BPL avec le suffixe `370` (version de paquet de Delphi 13), dont le plugin `dpcc.Plugin370.bpl` |
 | `Dcp` | les fichiers DCP des paquets |
 | `Dcu` | les DCU, un sous-dossier par projet |
-| `Bin` | le programme de test `dpcc.Completion.Tests.exe` |
+| `Bin` | le programme de test `dpcc.Completion.Tests.exe` et le serveur LSP `dpcc.LspServer.exe` (32 bits) |
+
+L'EXE 64 bits du serveur LSP n'est pas produite par la compilation du groupe, voir [Serveur LSP](#serveur-lsp).
 
 Le compilateur en ligne de commande (`dcc32`, MSBuild) est bloqué dans les éditions Community et Starter ; avec ces
 éditions, compiler dans l'IDE. Pour en savoir plus, voir [Développement](development.md).
@@ -146,7 +149,7 @@ compilées (Inno Setup 6). Il installe dpcc pour l'utilisateur courant, sans dro
 Delphi 12 et Delphi 13 (chaque fois l'IDE 32 bits).
 
 1. Compiler les deux groupes : `dpcc_d13.groupproj` (configuration Debug) et `dpcc_d12.groupproj` (configuration
-   D12), voir plus haut.
+   D12), voir plus haut, ainsi que l'EXE 64 bits du serveur LSP (voir [Serveur LSP](#serveur-lsp)).
 2. Créer le programme d'installation, depuis le dossier du dépôt :
 
    ```powershell
@@ -154,20 +157,48 @@ Delphi 12 et Delphi 13 (chaque fois l'IDE 32 bits).
    powershell -NoProfile -File Tools\Build-Setup.ps1           # installer\Output\dpccSetup-<version>.exe
    ```
 
+   À côté du programme d'installation est créé `installer\Output\dpcc.LspServer-<version>.zip` (voir
+   [Serveur LSP](#serveur-lsp)).
 3. Fermer toutes les instances de Delphi et lancer `dpccSetup-<version>.exe`. Seules les versions de Delphi trouvées
-   sont proposées.
+   sont proposées, ainsi que le composant « LSP server dpcc.LspServer.exe (for the mode “Server”, 32 and 64 bit) »
+   (serveur LSP pour le mode Server, 32 et 64 bits). Il est présélectionné et peut être désélectionné.
 
 Pour chaque version, le programme copie les huit BPL dans `%LOCALAPPDATA%\Programs\dpcc\bpl\d12` ou `…\bpl\d13`,
 inscrit `dpcc.Plugin290.bpl` ou `dpcc.Plugin370.bpl` sous `Known Packages` de l'IDE et place son dossier des BPL
-en tête du PATH de l'IDE. Une inscription d'une compilation personnelle (par exemple depuis `Output\Win32\Debug\Bpl`)
+en tête du PATH de l'IDE. Avec le composant serveur LSP, il dépose `dpcc.LspServer.exe` dans
+`%LOCALAPPDATA%\Programs\dpcc\server\win32` et, seulement sous Windows 64 bits, dans `…\server\win64`. Qui
+désélectionne le composant lors d'une nouvelle installation se débarrasse des EXE. Une inscription d'une compilation personnelle (par exemple depuis `Output\Win32\Debug\Bpl`)
 est remplacée après un avertissement : les deux ensemble feraient échouer le démarrage de l'IDE. Si Delphi est en
 cours d'exécution, le programme s'arrête.
 
+Après l'installation, le mode Plugin s'applique, séparément pour chaque version de Delphi ; le programme
+d'installation ne choisit aucun mode. Voir [Au premier démarrage](#au-premier-démarrage).
+
 Pour désinstaller, passer par **Applications** de Windows ou l'entrée du menu Démarrer
-**Delphi Pascal Code Completion › Uninstall dpcc**. Auparavant, désactiver l'interrupteur principal comme sous
+**Delphi Pascal Code Completion › Uninstall dpcc**. Auparavant, choisir le mode « Off » comme sous
 [Désinstallation](#désinstallation), étape 1 ; si dpcc est encore le fournisseur Code Insight, le programme de
-désinstallation demande confirmation. Il retire l'inscription, son segment de PATH et les fichiers ; réglages,
-données et cache restent. Détails (en allemand) : [installer/README_Installer.md](../../installer/README_Installer.md).
+désinstallation demande confirmation. Il retire l'inscription, son segment de PATH et les fichiers, y compris
+`dpcc.LspServer.exe` ; réglages, données et cache restent. Détails (en allemand) :
+[installer/README_Installer.md](../../installer/README_Installer.md).
+
+## Serveur LSP
+
+`dpcc.LspServer.exe` n'est nécessaire que pour le mode Server (voir [Serveur LSP](lsp-server.md)). Il y a trois façons
+d'obtenir l'EXE :
+
+- **Programme d'installation** : composant « LSP server » (par défaut), voir plus haut.
+- **ZIP** : `dpcc.LspServer-<version>.zip` contient `win32\dpcc.LspServer.exe`, `win64\dpcc.LspServer.exe` et
+  `LIESMICH.txt`. Placer l'une des deux EXE à côté du plugin (dans le dossier de `dpcc.Plugin290.bpl` ou
+  `dpcc.Plugin370.bpl`) ou extraire les dossiers `win64` et `win32` dans `%LOCALAPPDATA%\Programs\dpcc\server`
+  (organisation du programme d'installation). Sous Windows 64 bits, prendre l'EXE 64 bits ; l'IDE 32 bits la lance.
+- **Compilation propre** : l'EXE 32 bits est produite par la compilation du groupe `dpcc_d13.groupproj` (projet
+  `Application\dpcc.LspServer.dproj`, Win32, Debug, sortie `Output\Win32\Debug\Bin`). L'EXE 64 bits se compile dans
+  une étape à part dans Delphi 13 : ouvrir `Application\dpcc.LspServer.dproj`, plateforme cible **Windows 64-bit**,
+  configuration Debug, **Make**. La sortie se trouve sous `Output\Win64\Debug\Bin`. Le plugin l'y trouve de
+  lui-même.
+
+Où le plugin cherche l'EXE est décrit sous [Serveur LSP](lsp-server.md#où-dpcc-cherche-lexe). La page dpcc montre
+si elle est trouvée : sans EXE, « Server » est grisé.
 
 ## Vérifier que dpcc est chargé
 
@@ -175,19 +206,23 @@ données et cache restent. Détails (en allemand) : [installer/README_Installer
 - Sous **Tools › Options › Third Party** figure le nœud **dpcc**.
 - Le journal `%LOCALAPPDATA%\dpcc\Logs\dpcc.log` contient la ligne « dpcc angemeldet (Code Completion) » (dpcc
   enregistré).
-- Dans un fichier `.pas`, Ctrl+Espace ouvre la liste de dpcc. Elle affiche sur chaque ligne la nature en toutes
+- Dans le mode Plugin, Ctrl+Espace ouvre la liste de dpcc dans un fichier `.pas`. Elle affiche sur chaque ligne la nature en toutes
   lettres, le nom en gras et la signature.
 
 ## Au premier démarrage
 
-- dpcc démarre le serveur à la première requête, par exemple avec Ctrl+Espace. Le serveur construit ensuite l'index.
+- Dans le mode Plugin, dpcc démarre le serveur intégré à la première requête, par exemple avec Ctrl+Espace. Le serveur construit ensuite l'index.
   La première construction peut prendre quelques minutes sur les grosses installations, car elle lit aussi la
   bibliothèque. Ensuite, l'essentiel vient du cache. Voir [Index et cache](index-cache.md).
-- Si DelphiLSP est choisi comme fournisseur Code Insight au démarrage de Delphi (par défaut), dpcc se désactive.
-  Pour l'activer, activer l'interrupteur principal sous **Tools › Options › Third Party › dpcc** et fermer avec
-  **OK** : dpcc bascule alors le fournisseur de l'IDE sur dpcc et règle les options de l'IDE dont il a besoin (Help
-  Insight, infobulles, délai). Cela prend effet après le redémarrage de Delphi ; la fenêtre Messages le signale.
-  Voir [Réglages](settings.md#ce-que-dpcc-modifie-dans-lide).
+- Après l'installation, le mode Plugin s'applique. S'il n'existe encore aucune valeur enregistrée pour la version de
+  Delphi (pas même l'ancien interrupteur principal), dpcc bascule au premier démarrage le fournisseur Code Insight de
+  l'IDE sur dpcc et règle les options de l'IDE dont il a besoin (Help Insight, infobulles, délai), même si DelphiLSP
+  était choisi. Cela prend effet après le redémarrage de Delphi ; la fenêtre Messages le signale. D'ici là, la liste
+  après « . » vient encore de DelphiLSP.
+- Un autre mode se choisit sous **Tools › Options › Third Party › dpcc** : « Off » (Delphi sans dpcc) ou « Server »
+  (l'IDE garde ses fenêtres, les réponses viennent de `dpcc.LspServer.exe`). Voir
+  [Réglages](settings.md#mode-de-fonctionnement) et
+  [Ce que dpcc modifie dans l'IDE](settings.md#ce-que-dpcc-modifie-dans-lide).
 
 ## Mise à jour
 
@@ -205,8 +240,8 @@ les supprimer.
 ## Désinstallation
 
 1. Pour que dpcc rende le fournisseur et les réglages de l'IDE : sous **Tools › Options › Third Party › dpcc**,
-   désactiver l'interrupteur principal « Code Insight by dpcc » (Code Insight de dpcc), fermer avec **OK** et
-   redémarrer Delphi une fois. dpcc rétablit alors le fournisseur (par défaut DelphiLSP) et annule ses réglages.
+   choisir le mode « Off », fermer avec **OK** et redémarrer Delphi une fois. dpcc rétablit alors le fournisseur
+   (par défaut DelphiLSP) et annule ses réglages. Cela vaut pour chaque version de Delphi.
 2. Ouvrir **Component › Install Packages…**, choisir « dpcc - Delphi Pascal Code Completion » puis **Remove**.
 3. Fermer l'IDE.
 4. Retirer l'entrée du PATH : `powershell -NoProfile -File Tools\IdePath.ps1 -Action Remove` ou à la main sous
@@ -216,9 +251,10 @@ Ce qui reste ensuite et peut être supprimé à la main :
 
 | Emplacement | Contenu |
 |---|---|
-| `HKCU\Software\dpcc\IdePlugin` | réglages, marqueurs pour les réglages de l'IDE, `PathOverrideBackup` |
+| `HKCU\Software\dpcc\IdePlugin` | réglages (y compris `OperatingMode <version>` et un ancien `Enabled`), marqueurs pour les réglages de l'IDE, `PathOverrideBackup` |
 | `%APPDATA%\dpcc` | `settings.json`, `usage.json` (historique), `favorites.json` (favoris), issu de versions antérieures `settings-history.json` |
 | `%LOCALAPPDATA%\dpcc` | `Logs` (journal), `Index` (caches d'index) |
+| `%LOCALAPPDATA%\dpcc.LspServer` | caches et journal de `dpcc.LspServer.exe`, si le mode Server a été utilisé (voir [Serveur LSP](lsp-server.md#stockage)) |
 | dossier des BPL | `dpcc.IDE.Expert370.log`, si le journal de diagnostic était activé |
 
 Si l'on a sauté l'étape 1, dpcc peut rester inscrit comme fournisseur, et Help Insight, les infobulles et

@@ -228,6 +228,8 @@ uses
   dpcc.Core.Diagnostics.Shutdown,
   dpcc.Core.Projects.Contract,
   dpcc.IDE.Foundation.Settings,
+  dpcc.IDE.Foundation.LspRedirect,
+  dpcc.Core.Settings.OperatingMode,
   dpcc.IDE.Projects.Context,
   dpcc.IDE.CodeInsight.Manager.Paths,
   dpcc.IDE.CodeInsight.Manager.Handlers,
@@ -1139,6 +1141,40 @@ begin
   Result := False;
 end;
 
+var
+  /// <summary>Zuletzt protokollierter Grund, warum der eingebaute Server nicht startet ('' = keiner); jede Zeile nur
+  /// einmal je Grund (nur Hauptthread).</summary>
+  BlockedStartReason: string;
+
+/// <summary>Darf der eingebaute Server starten? Nur in der Betriebsart Plugin und nur, solange in dieser Sitzung kein
+/// dpcc.LspServer.exe an Stelle von DelphiLSP gestartet wurde. Sonst eine Zeile ins Protokoll (je Grund einmal).
+/// </summary>
+function StartAllowed: Boolean;
+var
+  mReason: string;
+begin
+  mReason := '';
+  if TDpccLspRedirectHook.Redirected then
+  begin
+    mReason := 'in dieser Sitzung lief dpcc.LspServer.exe an Stelle von DelphiLSP (wirkt nach dem Neustart von ' +
+      'Delphi)';
+  end
+  else if not TDpccIdeSettings.Current.Enabled then
+  begin
+    mReason := 'Betriebsart ' + TDpccOperatingModes.LogName(TDpccIdeSettings.Current.Mode);
+  end;
+  Result := mReason = '';
+  if Result then
+  begin
+    BlockedStartReason := '';
+  end
+  else if mReason <> BlockedStartReason then
+  begin
+    BlockedStartReason := mReason;
+    TDpccGuard.Log('Eingebauter Server nicht gestartet: ' + mReason);
+  end;
+end;
+
 procedure TDpccCodeInsightSession.RequestStart;
 var
   mJob: TDpccStartJob;
@@ -1146,6 +1182,12 @@ var
   mTicket: IDpccStartTicket;
 begin
   if not TDpccMainThread.IsMain or FShutDown or (FLifecycle = nil) then
+  begin
+    Exit;
+  end;
+  // Gegenseitiger Ausschluss (Betriebsart Server): Der eingebaute Server startet nur in der Betriebsart Plugin und
+  // nie, nachdem in dieser Sitzung dpcc.LspServer.exe an Stelle von DelphiLSP gestartet wurde (bis zum Neustart).
+  if not StartAllowed then
   begin
     Exit;
   end;

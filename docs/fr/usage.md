@@ -12,7 +12,7 @@
 | Ctrl+Maj+Espace | ouvrir l'aide aux paramètres de dpcc |
 
 dpcc attribue ces deux touches au moyen de sa propre liaison de touches (« dpcc Code Completion »). Il ne les prend
-que s'il traite le fichier : extension `.pas`, `.dpr`, `.dpk` ou `.inc`, interrupteur principal activé et fonction
+que s'il traite le fichier : extension `.pas`, `.dpr`, `.dpk` ou `.inc`, mode Plugin et fonction
 non désactivée par le fusible de sécurité (voir [Dépannage](troubleshooting.md)). Sinon, les touches vont à l'IDE.
 De même, un second Ctrl+Espace va à l'IDE si la liste de dpcc est restée vide au même endroit, ainsi que tout
 Ctrl+Espace tant que la liste de l'IDE est déjà ouverte (voir [plus bas](#liste-de-lide-quand-dpcc-ne-trouve-rien)).
@@ -23,16 +23,22 @@ qu'une de ses fenêtres est ouverte et a besoin de la touche.
 ## Interaction avec DelphiLSP
 
 Delphi 12 et 13 ne transmettent les déclencheurs automatiques (saisie de « . », « ( », « , ») qu'au fournisseur Code
-Insight choisi pour Delphi dans les options de l'IDE. La valeur par défaut est DelphiLSP. dpcc et DelphiLSP ne
-fonctionnent donc pas côte à côte, mais dans deux modes (détails sous [Réglages](settings.md#ce-que-dpcc-modifie-dans-lide)) :
+Insight choisi pour Delphi dans les options de l'IDE. La valeur par défaut de l'IDE est DelphiLSP. dpcc et DelphiLSP
+ne fonctionnent donc pas côte à côte, mais dans l'un de trois modes de fonctionnement, choisi pour chaque version de
+Delphi sous **Tools › Options › Third Party › dpcc** (détails sous [Réglages](settings.md#mode-de-fonctionnement) et
+[Ce que dpcc modifie dans l'IDE](settings.md#ce-que-dpcc-modifie-dans-lide)) :
 
-- **Mode dpcc** (interrupteur principal activé) : dpcc est le fournisseur. La liste après « . », l'aide aux paramètres
+- **Plugin** (par défaut après l'installation) : dpcc est le fournisseur. La liste après « . », l'aide aux paramètres
   sur « ( » et « , », Ctrl+Espace, Ctrl+Maj+Espace et l'infobulle viennent de dpcc. dpcc règle lui-même les options
   de l'IDE dont il a besoin.
-- **Mode IDE** (interrupteur principal désactivé) : DelphiLSP est le fournisseur, dpcc est désactivé. Si DelphiLSP est
-  choisi au démarrage de Delphi, dpcc se désactive lui-même.
-- Activer l'interrupteur principal bascule le fournisseur sur dpcc, le désactiver le rétablit sur DelphiLSP. Cela prend
-  effet après le redémarrage de Delphi ; d'ici là, ce qui suit vaut pour l'ancien fournisseur.
+- **Off** : DelphiLSP est le fournisseur, dpcc n'affiche aucune fenêtre. Si DelphiLSP est choisi au démarrage de
+  Delphi, Off s'applique, à moins que Server ne soit choisi.
+- **Server** : DelphiLSP reste le fournisseur et l'IDE affiche ses propres fenêtres ; les réponses viennent de
+  `dpcc.LspServer.exe` au lieu de `DelphiLSP.exe` (voir [Serveur LSP](lsp-server.md#mode-server)). Les fenêtres de
+  dpcc n'apparaissent pas, Error Insight reste vide.
+- Le passage depuis ou vers Plugin bascule le fournisseur. Cela prend effet après le redémarrage de Delphi ; d'ici là,
+  ce qui suit vaut pour l'ancien fournisseur. Entre Off et Server, le changement prend effet à la prochaine ouverture
+  d'un groupe de projets.
 - La liste qui s'ouvre d'elle-même pendant la saisie d'un nom (seulement si activée, voir
   [Ouverture pendant la saisie](#ouverture-pendant-la-saisie)) vient de dpcc : pour cela, dpcc observe lui-même
   l'éditeur.
@@ -95,9 +101,9 @@ comme d'habitude via DelphiLSP ; dpcc n'y participe pas.
   dès qu'il est prêt, selon les mêmes règles.
 
 La première fois de chaque session, la fenêtre Messages indique que dpcc est choisi et ce qui manque alors : Error
-Insight (marques d'erreur dans l'éditeur) et les autres services de DelphiLSP. Si vous en avez besoin, désactivez
-l'interrupteur principal (ou choisissez de nouveau DelphiLSP dans les options de l'IDE) ; dpcc est alors désactivé à
-partir du prochain démarrage.
+Insight (marques d'erreur dans l'éditeur) et les autres services de DelphiLSP. Si vous en avez besoin, choisissez le
+mode Off (ou de nouveau DelphiLSP dans les options de l'IDE) ; dpcc est alors désactivé à partir du prochain
+démarrage. Le mode Server garde les fenêtres de l'IDE, mais Error Insight y reste vide aussi.
 
 ## La liste
 

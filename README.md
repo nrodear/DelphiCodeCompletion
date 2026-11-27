@@ -21,12 +21,13 @@ Ausführliche Dokumentation: [docs/de/index.md](docs/de/index.md).
 - **FieldByName-Vervollständigung**: Feldnamen in `FieldByName('…')` und Komponenten aus den Formularen (DFM)
   des Projekts.
 
-dpcc läuft in einer von zwei Betriebsarten, je nach dem Code-Insight-Anbieter, der in der IDE für Delphi gewählt
-ist. In der Betriebsart dpcc (Hauptschalter an, Anbieter dpcc) kommen auch die Liste nach „.“ und die Parameterhilfe
-bei „(“ und „,“ von dpcc. In der Betriebsart IDE (Anbieter DelphiLSP, Vorgabe) ist dpcc aus. Der Hauptschalter
-stellt den Anbieter um; das wirkt nach dem Neustart von Delphi. Details:
-[Bedienung](docs/de/usage.md#zusammenspiel-mit-delphilsp) und
-[Einstellungen](docs/de/settings.md#was-dpcc-an-der-ide-umstellt).
+dpcc läuft je Delphi-Version in einer von drei Betriebsarten (**Tools › Optionen › Drittanbieter › dpcc**). In der
+Betriebsart Plugin (Vorgabe, Anbieter dpcc) kommen auch die Liste nach „.“ und die Parameterhilfe bei „(“ und „,“ von
+dpcc. In der Betriebsart Aus arbeitet Delphi mit DelphiLSP ohne dpcc. In der Betriebsart Server zeigt die IDE ihre
+eigenen Fenster, die Antworten liefert `dpcc.LspServer.exe` an Stelle von `DelphiLSP.exe`. Der Wechsel von oder zu
+Plugin stellt den Anbieter um; das wirkt nach dem Neustart von Delphi. Details:
+[Bedienung](docs/de/usage.md#zusammenspiel-mit-delphilsp),
+[Einstellungen](docs/de/settings.md#betriebsart) und [LSP-Server](docs/de/lsp-server.md#betriebsart-server).
 
 ## Voraussetzungen
 
@@ -37,7 +38,7 @@ stellt den Anbieter um; das wirkt nach dem Neustart von Delphi. Details:
 ## Bauen
 
 Die Projektgruppe `dpcc_d13.groupproj` in der IDE öffnen und alle Projekte bauen (Win32, Debug). Die Ausgabe landet
-unter `Output\Win32\Debug` (BPLs in `Bpl`, das Testprogramm und der eigenständige LSP-Server `dpcc.LspServer.exe` in `Bin`, siehe [LSP-Server](docs/de/lsp-server.md)). Für Delphi 12 ist es
+unter `Output\Win32\Debug` (BPLs in `Bpl`, das Testprogramm und der eigenständige LSP-Server `dpcc.LspServer.exe` in `Bin`, siehe [LSP-Server](docs/de/lsp-server.md); die 64-Bit-EXE entsteht in einem eigenen Schritt unter `Output\Win64\Debug\Bin`). Für Delphi 12 ist es
 `dpcc_d12.groupproj` mit der Konfiguration D12 (nie Debug) und der Ausgabe unter `Output\Win32\D12`. Mehr dazu:
 [Entwicklung](docs/de/development.md).
 
@@ -76,7 +77,8 @@ Der Eintrag wirkt beim nächsten Start der IDE. Alle Schritte, Prüfen und Deins
 
 Aus den gebauten BPLs beider Gruppen erzeugt `Tools\Build-Setup.ps1` mit Inno Setup 6 das Setup
 `installer\Output\dpccSetup-<Version>.exe`. Es installiert dpcc für den aktuellen Benutzer in Delphi 12 und/oder 13,
-ohne Administratorrechte, und setzt Known Packages und PATH der IDE selbst. Siehe
+ohne Administratorrechte, und setzt Known Packages und PATH der IDE selbst. Die Komponente „LSP-Server“ legt
+`dpcc.LspServer.exe` für die Betriebsart Server dazu; daneben entsteht ein ZIP mit der EXE. Siehe
 [Mit dem Setup installieren](docs/de/installation.md#mit-dem-setup-installieren).
 
 Die Optionen stehen unter **Tools › Optionen › Drittanbieter › dpcc**: [Einstellungen](docs/de/settings.md).

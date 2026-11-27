@@ -5,11 +5,12 @@
 [Overview](index.md) › LSP server
 
 `dpcc.LspServer.exe` is dpcc as a standalone language server. It speaks the Language Server Protocol over
-stdin/stdout and can take the place of `DelphiLSP.exe` in the Delphi IDE. Inside runs the same server as in the
-plugin (index, completion, hover, parameter help, jump targets); on top come the structure view and the format the
-IDE expects.
+stdin/stdout and takes the place of `DelphiLSP.exe` in the Delphi IDE. Inside runs the same server as in the plugin
+(index, completion, hover, parameter help, jump targets); on top come the structure view and the format the IDE
+expects.
 
-The plugin keeps its built-in server. The EXE is a second, separate way to the same result.
+The plugin integrates it into the IDE: in the [Server mode](#server-mode). The plugin's built-in server (Plugin mode)
+and the EXE never work at the same time.
 
 ## What it does
 
@@ -38,7 +39,79 @@ background; until the index is ready, answers are empty or incomplete instead of
 `exit` (as a notification or as a request with an id), at the end of the input, or when the process from
 `processId` in `initialize` ends. The working directory does not matter.
 
-The EXE exists for Win32 and Win64; both serve Delphi 12 and Delphi 13. It depends on no BPL.
+The EXE exists for Win32 and Win64; both serve Delphi 12 and Delphi 13. It depends on no BPL. The 32-bit IDE also
+starts the 64-bit EXE.
+
+## Server mode
+
+In the Server mode the IDE stays in LSP mode (provider DelphiLSP) and shows its own windows: list, hint, tooltip on
+hover, Structure view and Ctrl+click. When it starts `DelphiLSP.exe`, the plugin starts `dpcc.LspServer.exe` instead,
+with the same parameters; flags, handles, environment and working directory stay as the IDE sets them. For this the
+plugin redirects the call to `kernel32!CreateProcessW` in the module `IDELSP290.bpl` (Delphi 12) or `IDELSP370.bpl`
+(Delphi 13) inside the running IDE (hook in the import table). It changes nothing in the Delphi program folder and
+needs no administrator rights.
+
+### Turning it on
+
+1. Provide the EXE: select the component “LSP server” in the setup (default), put it from the ZIP into one of the
+   [locations](#where-dpcc-looks-for-the-exe) or build it yourself (see [Installation](installation.md#lsp-server)).
+2. **Tools › Options › Third Party › dpcc**, select the mode “Server – dpcc.LspServer.exe instead of DelphiLSP” and
+   close with **OK**. dpcc sets the IDE's Code Insight provider to DelphiLSP.
+3. If the change came from Plugin (or another provider was selected), restart Delphi. If it came from Off, close the
+   project group and open it again: the IDE starts its server when the first unit of a project group is shown, one
+   per group, and a running server stays until the group is closed.
+
+The mode applies per Delphi version (see [Settings](settings.md#operating-mode)). Each time DelphiLSP starts, the
+hook reads it fresh from the registry; so going back to the original DelphiLSP means “Off” and opening the project
+group again. If the EXE is missing, “Server” is grayed out on the page with the note “Not available:
+dpcc.LspServer.exe is not installed …”. If Server is already selected, it stays selected, and the start falls back
+to the original DelphiLSP. The hint on the radio button names the location found.
+
+### Where dpcc looks for the EXE
+
+Relative to the loaded plugin, in this order; on 64-bit Windows the 64-bit EXE (`win64`, `Win64`) comes first each
+time, then the 32-bit EXE:
+
+| Layout | Plugin | EXE |
+|---|---|---|
+| Setup | `{app}\bpl\d12` or `{app}\bpl\d13` (`{app}` = `%LOCALAPPDATA%\Programs\dpcc`) | `{app}\server\win64\dpcc.LspServer.exe`, then `{app}\server\win32\dpcc.LspServer.exe` |
+| own build | `Output\Win32\<configuration>\Bpl` | `Output\Win64\<configuration>\Bin`, as a fallback `Output\Win64\Debug\Bin` and `Output\Win64\Release\Bin`, then the same under `Output\Win32` |
+| last | any | next to the plugin, for example put there from the ZIP |
+
+For your own build under Delphi 12 (configuration D12) this means: first `Output\Win64\D12\Bin`, then
+`Output\Win64\Debug\Bin` and `…\Release\Bin`, then the same under `Output\Win32`.
+
+### Log
+
+Each step is a line in `dpcc.log` (`%LOCALAPPDATA%\dpcc\Logs`; log lines are always German):
+
+| Line | Meaning |
+|---|---|
+| `LSP-Umleitung: Hook beim Anmelden (37.0): 1 Eintrag/Einträge in IDELSP370.bpl umgebogen; Betriebsart jetzt Server; EXE: …` | The hook is in place. If `IDELSP` was not loaded yet at registration, dpcc installs it later (“Hook nachgeholt nach n ms …”, for at most 5 minutes). |
+| `LSP-Umleitung: #1 DelphiLSP umgeleitet auf <EXE> (PID n)` | The IDE started its server; `dpcc.LspServer.exe` was started. |
+| `LSP-Umleitung: #2 Start von DelphiLSP nicht umgeleitet (<Grund>)` | The original DelphiLSP starts. Reasons: `Betriebsart Aus`, `Betriebsart Plugin`, `dpcc.LspServer.exe nicht gefunden`, `dpcc.LspServer.exe fehlt: <Pfad>`. |
+| `LSP-Umleitung: #3 Start von dpcc.LspServer.exe fehlgeschlagen (Fehler n), Originalaufruf` | The EXE could not be started (Windows error code n); the original DelphiLSP starts instead. |
+| `LSP-Umleitung: Hook abgebaut: …` | When the plugin is unloaded, also in the running IDE. After that the original starts again. |
+| `Eingebauter Server: startet nicht (Betriebsart Server)` | When the plugin registers: in the modes Off and Server the built-in server does not start in this session (with Plugin: `… startet bei Bedarf (Betriebsart Plugin); keine Umleitung von DelphiLSP`). |
+| `Eingebauter Server nicht gestartet: …` | The plugin's built-in server stays off, with the reason (mode or an earlier redirection, see below). |
+
+The EXE's own log is in its [storage](#storage).
+
+### Mutual exclusion
+
+- The plugin's built-in server starts only in the Plugin mode.
+- Once the hook has redirected to `dpcc.LspServer.exe` in this IDE session, the built-in server does not start until
+  Delphi is restarted, even if Plugin is selected afterwards.
+- In the Plugin mode the hook never redirects; the IDE does not call DelphiLSP then anyway.
+
+### Limits
+
+- Error Insight stays empty: the server delivers no code diagnostics. dpcc does not set `ErrorInsightLevel`.
+- Not supported: the 64-bit IDE of Delphi 13 (`bin64\bds.exe`, `Known Packages x64`). The plugin is 32-bit and does
+  not load there.
+- If the EXE is missing or fails to start, the original DelphiLSP starts; one line goes to the log.
+- The Delphi 12 crash when showing a unit with a floating-point number does not occur in LSP mode (see
+  [Troubleshooting](troubleshooting.md#delphi-12-crash-when-showing-a-unit-with-a-floating-point-number)).
 
 ## Storage
 
@@ -80,5 +153,6 @@ sends no notifications of its own. Every other client gets standard LSP.
 
 ## See also
 
+- [Settings › Operating mode](settings.md#operating-mode)
 - [Architecture](architecture.md): server, index and the path of a request
 - [Index and cache](index-cache.md)

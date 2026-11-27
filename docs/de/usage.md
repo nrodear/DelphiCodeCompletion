@@ -12,7 +12,7 @@ Deutsch | [English](../en/usage.md) | [Français](../fr/usage.md)
 | Strg+Umschalt+Leertaste | Parameterhilfe von dpcc öffnen |
 
 dpcc belegt diese zwei Tasten mit einer eigenen Tastenbindung („dpcc Code Completion“). Es nimmt sie nur, wenn es
-die Datei bedient: Endung `.pas`, `.dpr`, `.dpk` oder `.inc`, Hauptschalter an und die Funktion nicht von der
+die Datei bedient: Endung `.pas`, `.dpr`, `.dpk` oder `.inc`, Betriebsart Plugin und die Funktion nicht von der
 Sicherung abgeschaltet (siehe [Fehlersuche](troubleshooting.md)). Sonst gehen die Tasten an die IDE. Ebenso geht
 ein zweites Strg+Leertaste an die IDE, wenn die Liste von dpcc an derselben Stelle leer blieb, und jedes
 Strg+Leertaste, solange die Liste der IDE schon offen ist (siehe [unten](#liste-der-ide-wenn-dpcc-nichts-findet)).
@@ -23,17 +23,22 @@ offen ist und die Taste braucht.
 ## Zusammenspiel mit DelphiLSP
 
 Delphi 12 und 13 leiten automatische Auslöser (Tippen von „.“, „(“, „,“) nur an den Code-Insight-Anbieter weiter,
-der in den Optionen der IDE für Delphi gewählt ist. Die Vorgabe ist DelphiLSP. dpcc und DelphiLSP laufen deshalb
-nicht nebeneinander, sondern in zwei Betriebsarten (Einzelheiten unter
-[Einstellungen](settings.md#was-dpcc-an-der-ide-umstellt)):
+der in den Optionen der IDE für Delphi gewählt ist. Die Vorgabe der IDE ist DelphiLSP. dpcc und DelphiLSP laufen
+deshalb nicht nebeneinander, sondern in einer von drei Betriebsarten, je Delphi-Version gewählt unter
+**Tools › Optionen › Drittanbieter › dpcc** (Einzelheiten unter [Einstellungen](settings.md#betriebsart) und
+[Was dpcc an der IDE umstellt](settings.md#was-dpcc-an-der-ide-umstellt)):
 
-- **Betriebsart dpcc** (Hauptschalter an): dpcc ist der Anbieter. Die Liste nach „.“, die Parameterhilfe bei „(“ und
-  „,“, Strg+Leertaste, Strg+Umschalt+Leertaste und der Tooltip kommen von dpcc. dpcc stellt die nötigen Schalter der
-  IDE selbst.
-- **Betriebsart IDE** (Hauptschalter aus): DelphiLSP ist der Anbieter, dpcc ist aus. Ist beim Start von Delphi
-  DelphiLSP gewählt, schaltet dpcc sich selbst aus.
-- Den Hauptschalter einschalten stellt den Anbieter auf dpcc, ausschalten zurück auf DelphiLSP. Das wirkt nach dem
-  Neustart von Delphi; bis dahin gilt das Folgende für den alten Anbieter.
+- **Plugin** (Vorgabe nach der Installation): dpcc ist der Anbieter. Die Liste nach „.“, die Parameterhilfe bei „(“
+  und „,“, Strg+Leertaste, Strg+Umschalt+Leertaste und der Tooltip kommen von dpcc. dpcc stellt die nötigen Schalter
+  der IDE selbst.
+- **Aus**: DelphiLSP ist der Anbieter, dpcc zeigt keine Fenster. Ist beim Start von Delphi DelphiLSP gewählt, gilt
+  Aus, sofern nicht Server gewählt ist.
+- **Server**: DelphiLSP bleibt der Anbieter, und die IDE zeigt ihre eigenen Fenster; die Antworten liefert
+  `dpcc.LspServer.exe` an Stelle von `DelphiLSP.exe` (siehe [LSP-Server](lsp-server.md#betriebsart-server)). Die
+  Fenster von dpcc erscheinen nicht, Error Insight bleibt leer.
+- Der Wechsel von oder zu Plugin stellt den Anbieter um. Das wirkt nach dem Neustart von Delphi; bis dahin gilt das
+  Folgende für den alten Anbieter. Zwischen Aus und Server wirkt der Wechsel beim nächsten Öffnen einer
+  Projektgruppe.
 - Die Liste, die beim Tippen eines Namens von selbst aufgeht (nur wenn eingeschaltet, siehe
   [Öffnen beim Tippen](#öffnen-beim-tippen)), kommt von dpcc: Dafür beobachtet dpcc den Editor selbst.
 
@@ -92,8 +97,9 @@ daran nicht beteiligt.
   bereit ist, nach denselben Regeln.
 
 Beim ersten Mal je Sitzung nennt das Meldungsfenster, dass dpcc gewählt ist und was dann fehlt: Error Insight
-(Fehlermarkierungen im Editor) und die übrigen Dienste von DelphiLSP. Wer sie braucht, schaltet den Hauptschalter
-aus (oder wählt in den Optionen der IDE wieder DelphiLSP); ab dem nächsten Start ist dpcc dann aus.
+(Fehlermarkierungen im Editor) und die übrigen Dienste von DelphiLSP. Wer sie braucht, wählt die Betriebsart Aus
+(oder in den Optionen der IDE wieder DelphiLSP); ab dem nächsten Start ist dpcc dann aus. Die Betriebsart Server
+behält die Fenster der IDE, Error Insight bleibt dort aber ebenfalls leer.
 
 ## Die Liste
 

@@ -46,7 +46,7 @@ dpcc gibt die Taste an die IDE weiter, wenn es die Datei nicht bedient:
 | Ursache | Abhilfe |
 |---|---|
 | Die Datei endet nicht auf `.pas`, `.dpr`, `.dpk` oder `.inc`. | Erwartet. |
-| Der Hauptschalter ist aus. | **Tools › Optionen › Drittanbieter › dpcc**, „Code Insight von dpcc“ einschalten. |
+| Die Betriebsart ist Aus oder Server. | Erwartet: In der Betriebsart Server zeigt die IDE ihre eigene Liste mit Antworten von `dpcc.LspServer.exe`. Für die Liste von dpcc unter **Tools › Optionen › Drittanbieter › dpcc** die Betriebsart „Plugin“ wählen (wirkt nach dem Neustart von Delphi). |
 | Die Sicherung hat die Vervollständigung abgeschaltet. | Das Meldungsfenster nennt das (siehe unten). Die IDE neu starten. |
 | Die Liste von dpcc blieb leer, und Strg+Leertaste kam ein zweites Mal an derselben Stelle. | Erwartet, siehe [Bedienung](usage.md#liste-der-ide-wenn-dpcc-nichts-findet). Nach einer Eingabe oder an einer anderen Stelle fragt Strg+Leertaste wieder dpcc. |
 
@@ -56,8 +56,8 @@ Meist steht in den Code-Insight-Optionen der IDE „Programmierhilfe“ aus (Reg
 `False`). Dann öffnet nach „.“ weder die Liste der IDE noch die von dpcc. Zweiter möglicher Grund: „Automatisch
 aufrufen“ steht aus (`Auto Invoke` = `False`); dann ruft die IDE die Vervollständigung nach „.“ nicht von selbst auf.
 
-- Betriebsart dpcc: dpcc stellt beide Werte beim Start von Delphi selbst auf `True`; wirkt nach dem nächsten Start.
-- Betriebsart IDE (DelphiLSP gewählt): dpcc meldet die Abweichung nur, im Protokoll („IDE-Einstellungen: 1 Abweichung:
+- Betriebsart Plugin: dpcc stellt beide Werte beim Start von Delphi selbst auf `True`; wirkt nach dem nächsten Start.
+- Betriebsarten Aus und Server (DelphiLSP gewählt): dpcc meldet die Abweichung nur, im Protokoll („IDE-Einstellungen: 1 Abweichung:
   Auto Code Completions“) und auf der Seite dpcc im Abschnitt **IDE**. In den Code-Insight-Optionen der IDE
   „Programmierhilfe“ und „Automatisch aufrufen“ einschalten.
 
@@ -65,9 +65,30 @@ Orte und Soll-Werte für Delphi 12 und 13: [Einstellungen](settings.md#was-dpcc-
 
 ## Die Liste nach „.“ sieht anders aus als die mit Strg+Leertaste
 
-Nach dem Einschalten von dpcc bis zum Neustart von Delphi erwartet: Die Liste, die nach „.“ von selbst aufgeht, kommt
+Nach dem Wechsel auf die Betriebsart Plugin bis zum Neustart von Delphi erwartet: Die Liste, die nach „.“ von selbst aufgeht, kommt
 noch vom bisherigen Anbieter (DelphiLSP). Nach dem Neustart ist dpcc der Anbieter. Siehe
 [Bedienung](usage.md#zusammenspiel-mit-delphilsp).
+
+## Server gewählt, aber es startet das originale DelphiLSP
+
+In `dpcc.log` steht dann „LSP-Umleitung: #n Start von DelphiLSP nicht umgeleitet (<Grund>)“ oder gar keine Zeile
+„LSP-Umleitung: #n …“. Die Zeilen sind unter [LSP-Server](lsp-server.md#protokoll) beschrieben.
+
+| Ursache | Abhilfe |
+|---|---|
+| Die EXE fehlt („dpcc.LspServer.exe nicht gefunden“ bzw. „… fehlt: <Pfad>“) oder ließ sich nicht starten („Start von dpcc.LspServer.exe fehlgeschlagen (Fehler n), Originalaufruf“). | Die EXE an einen der [Orte](lsp-server.md#wo-dpcc-die-exe-sucht) legen, etwa mit der Setup-Komponente „LSP-Server“ oder aus dem ZIP. Die Zeile „Hook beim Anmelden …; EXE: …“ nennt den Ort, den dpcc gefunden hat. |
+| Server ist für die andere Delphi-Version gewählt („Betriebsart Aus“ bzw. „Betriebsart Plugin“). | Die Betriebsart gilt je Version (`OperatingMode 23.0` bzw. `OperatingMode 37.0`). In der IDE, die umleiten soll, „Server“ wählen. |
+| Der Code-Insight-Anbieter der IDE ist nicht DelphiLSP. Dann startet die IDE gar kein `DelphiLSP.exe`, und es steht keine Zeile „#n …“ im Protokoll. | „Server“ mit OK stellt den Anbieter auf DelphiLSP; das wirkt nach dem Neustart von Delphi. War beim Start ein anderer Anbieter gewählt, ist Server zu Aus geworden (Hinweis im Meldungsfenster). |
+| Die Projektgruppe war beim Wechsel schon offen. Die IDE startet ihren Server, wenn die erste Unit einer Gruppe angezeigt wird, und behält ihn, bis die Gruppe geschlossen wird. | Die Projektgruppe schließen und wieder öffnen. |
+| Kein Hook („CreateProcessW nicht gefunden, kein Hook“ oder „Einbau fehlgeschlagen: …“). | Das Protokoll mit der Zeile schicken. Ohne Hook startet immer das Original. |
+| Die 64-Bit-IDE von Delphi 13 läuft. | Nicht unterstützt; das Plugin lädt dort nicht. Die 32-Bit-IDE verwenden. |
+
+## „Server“ ist grau
+
+Auf der Seite dpcc steht unter dem Feld „Nicht wählbar: dpcc.LspServer.exe ist nicht installiert (im Setup die
+Komponente „LSP-Server“ wählen).“ Das Plugin hat die EXE an keinem seiner [Orte](lsp-server.md#wo-dpcc-die-exe-sucht)
+gefunden. Abhilfe: das Setup erneut ausführen und die Komponente „LSP-Server“ wählen, die EXE aus dem ZIP neben das
+Plugin legen oder sie selbst bauen (siehe [Installation](installation.md#lsp-server)). Danach die Seite neu öffnen.
 
 ## Die Liste ist leer oder unvollständig
 
@@ -98,7 +119,8 @@ und Routinen außerhalb von Typen fehlen dann.
 
 Strg+Klick und „Deklaration suchen“ (Alt+↑) gehen an den Code-Insight-Anbieter, der in den Optionen der IDE gewählt
 ist. Nur wenn dort dpcc gewählt ist, springt dpcc (siehe
-[Bedienung](usage.md#wenn-dpcc-als-anbieter-gewählt-ist)).
+[Bedienung](usage.md#wenn-dpcc-als-anbieter-gewählt-ist)). In der Betriebsart Server springt die IDE selbst; das Ziel
+kommt dann von `dpcc.LspServer.exe`, und die Tabelle unten gilt nur zum Teil.
 
 | Ursache | Abhilfe |
 |---|---|
@@ -142,8 +164,8 @@ Zeile `declaration start` bzw. `definition start`.
 
 ## Help Insight fehlt nach der Deinstallation
 
-dpcc gibt den Anbieter und die Schalter der IDE nur zurück, solange es geladen ist. Wurde es entfernt, ohne vorher den
-Hauptschalter auszuschalten und Delphi neu zu starten, in den Code-Insight-Optionen der IDE DelphiLSP wählen und Help
+dpcc gibt den Anbieter und die Schalter der IDE nur zurück, solange es geladen ist. Wurde es entfernt, ohne vorher die
+Betriebsart Aus zu wählen und Delphi neu zu starten, in den Code-Insight-Optionen der IDE DelphiLSP wählen und Help
 Insight, den Kurzhinweis Symbol-Insight und die Ausdrucksauswertung wieder einschalten. Die Registry-Werte stehen
 unter [Einstellungen](settings.md#was-dpcc-an-der-ide-umstellt).
 
@@ -158,9 +180,12 @@ nicht mehr von selbst neu (siehe [Der Server ist abgestürzt](#der-server-ist-ab
 | „dpcc: Server wiederholt abgestürzt – Der Server endete zweimal mit … innerhalb von 10 Minuten. dpcc startet ihn nicht mehr von selbst neu …“ | Der Server bleibt beendet, bis er von Hand neu gestartet wird. Dazu erscheint die Rückfrage „Server neu starten?“. |
 | „dpcc: … nach 3 Fehlern in 5 Minuten abgeschaltet (zuletzt: …); bis zum Neustart der IDE.“ | Die Sicherung hat eine Funktion abgeschaltet. Sie bleibt bis zum Neustart der IDE aus. Fehler von dpcc erreichen die IDE nie. |
 | „dpcc: Quelle „…“ nach 3 Fehlern in 5 Minuten abgeschaltet …“ | Nur diese Datenquelle ist aus; die übrigen laufen weiter. |
-| „dpcc: dpcc hat den Code-Insight-Anbieter der IDE auf dpcc umgestellt; wirkt nach dem Neustart von Delphi.“ | Nach Hauptschalter an und OK, einmal je Sitzung. Bis zum Neustart ruft die IDE den bisherigen Anbieter. Siehe [Einstellungen](settings.md#was-dpcc-an-der-ide-umstellt). |
-| „dpcc: dpcc hat den Code-Insight-Anbieter der IDE wieder auf … gestellt; wirkt nach dem Neustart von Delphi …“ | Nach Hauptschalter aus und OK, einmal je Sitzung. |
-| „dpcc: Der Code-Insight-Anbieter ist nicht mehr dpcc …; dpcc ist aus …“ | Beim Start: dpcc hatte sich als Anbieter eingetragen, die IDE startete aber mit einem anderen (in den Optionen der IDE geändert oder von der IDE zurückgeschrieben). Zum Einschalten den Hauptschalter wieder setzen. |
+| „dpcc: dpcc hat den Code-Insight-Anbieter der IDE auf dpcc umgestellt; wirkt nach dem Neustart von Delphi.“ | Nach Betriebsart Plugin und OK (oder beim ersten Start nach der Installation), einmal je Sitzung. Bis zum Neustart ruft die IDE den bisherigen Anbieter. Siehe [Einstellungen](settings.md#was-dpcc-an-der-ide-umstellt). |
+| „dpcc: dpcc hat den Code-Insight-Anbieter der IDE wieder auf … gestellt; wirkt nach dem Neustart von Delphi …“ | Nach Betriebsart Aus und OK, während Plugin galt, einmal je Sitzung. |
+| „dpcc: Der Code-Insight-Anbieter ist nicht mehr dpcc …; dpcc ist aus. Zum Einschalten den Hauptschalter der Seite dpcc wieder setzen.“ | Beim Start: dpcc hatte sich als Anbieter eingetragen, die IDE startete aber mit einem anderen (in den Optionen der IDE geändert oder von der IDE zurückgeschrieben). Mit „Hauptschalter“ ist die Betriebsart gemeint: Zum Einschalten wieder „Plugin“ wählen. |
+| „dpcc: Betriebsart Server: dpcc hat den Code-Insight-Anbieter der IDE auf DelphiLSP gestellt; wirkt nach dem Neustart von Delphi …“ | Nach Betriebsart Server und OK aus Plugin oder einem anderen Anbieter. Erst nach dem Neustart startet die IDE `dpcc.LspServer.exe`. |
+| „dpcc: Betriebsart Server: Beim nächsten Start des Code-Insight-Servers der IDE (nächstes Öffnen einer Projektgruppe) startet dpcc.LspServer.exe …“ bzw. „dpcc: Betriebsart Aus: Beim nächsten Öffnen einer Projektgruppe startet die IDE wieder das originale DelphiLSP …“ | Nach einem Wechsel zwischen Aus und Server. Die Projektgruppe schließen und wieder öffnen. |
+| „dpcc: Betriebsart Server ist aus: In den Optionen der IDE ist ein anderer Code-Insight-Anbieter gewählt (…).“ | Beim Start: Server war gewählt, der Anbieter ist aber weder DelphiLSP noch leer. dpcc gilt als Aus. Dort DelphiLSP wählen und auf der Seite dpcc „Server“. |
 | „dpcc ist in den Optionen der IDE als Code-Insight-Anbieter für Delphi gewählt …“ | Einmal je Sitzung, wenn dpcc der gewählte Anbieter ist: Strg+Klick läuft über dpcc, Error Insight und die übrigen Dienste von DelphiLSP fehlen. Siehe [Bedienung](usage.md#wenn-dpcc-als-anbieter-gewählt-ist). |
 
 ## Der Server ist abgestürzt
@@ -179,6 +204,40 @@ Hintergrund-Thread der IDE (etwa Error Insight), der .NET-Code aufruft. In einem
 Gleitkomma-Einstellung der Grund: Im x87-Steuerwort war die Ausnahme „Invalid“ nicht maskiert, die Vorgabe
 `System.Default8087CW` der gemeinsamen RTL stand auf `$137A` statt auf `$033F` (Vorgabe der Delphi-RTL, alle
 Ausnahmen maskiert). Wer sie verstellt (die IDE, ein Experte, ein Package), zeigt das Abbild nicht.
+
+### Delphi 12: Absturz beim Anzeigen einer Unit mit Gleitkommazahl
+
+Bild: Delphi 12 (`bds.exe` 29.0) stürzt ab (Stapelüberlauf in `clr.dll`, Ausnahmecode `0xc00000fd`), sobald eine
+Unit mit der ersten Gleitkommazahl der Sitzung (etwa `4.90` oder `1e5`) im Editor sichtbar wird. Ein Strg+Klick, der
+eine solche Unit öffnet, reicht dafür.
+
+Ursache ist ein Fehler der IDE, nicht dpcc: Der verwaltete Parser der IDE für Code-Faltung und Error Insight scheitert
+an dieser Gleitkommazahl, weil im x87-Steuerwort „Invalid“ nicht maskiert ist (siehe oben). Er läuft nur, wenn
+Delphi 12 nicht im LSP-Betrieb ist: in der Betriebsart Plugin (Anbieter dpcc) oder mit dem klassischen Anbieter.
+Mit DelphiLSP als Anbieter tritt der Absturz nicht auf. Delphi 13 ist nicht betroffen. Delphi CE 12.1 Patch 1 behebt
+es nicht.
+
+Abhilfe:
+
+1. Unter **Tools › Optionen › Drittanbieter › dpcc** die Betriebsart „Server“ wählen: Die IDE bleibt bei DelphiLSP,
+   die Vervollständigung kommt von `dpcc.LspServer.exe` (siehe [LSP-Server](lsp-server.md#betriebsart-server)). Oder
+   „Aus“. Der Wechsel aus Plugin wirkt nach dem Neustart von Delphi; bis dahin keine Unit mit Gleitkommazahl
+   anzeigen.
+2. Nur wenn Plugin bleiben soll, von Hand eine dieser beiden:
+   - Den Text-Wert `ErrorInsightLevel` = `0` unter
+     `HKCU\Software\Embarcadero\BDS\23.0\Editor\Source Options\Borland.EditOptions.Pascal` setzen, **bevor** Delphi
+     startet. Zur Laufzeit gesetzt wirkt er nicht. Die Fehlermarkierung (Error Insight) entfällt dann.
+   - Delphi mit der Umgebungsvariablen `COMPlus_JITMinOpts=1` starten, etwa aus einer Batchdatei:
+
+     ```bat
+     set COMPlus_JITMinOpts=1
+     start "" "<Delphi-Ordner>\bin\bds.exe"
+     ```
+
+dpcc selbst setzt `ErrorInsightLevel` nicht. Code-Faltung aus oder `Error Insight` = `False` verhindern den Absturz
+nicht.
+
+### Gleitkomma-Einstellung im Protokoll
 
 dpcc ändert diese Einstellung nie. Es liest sie nur und schreibt dazu ins `dpcc.log`:
 
@@ -340,7 +399,7 @@ Auch „run start … mem n MB“ und die Zeilen „index … mem n MB“ nennen
   neu auf. Schließt die IDE eine Datei, gibt dpcc sie im Server frei.
 - Eine Datei außerhalb der Projektgruppe bekommt einen eigenen Arbeitsbereich. Er verschwindet wieder, wenn die letzte
   seiner Dateien geschlossen ist.
-- Endet der Server (Hauptschalter aus, Neustart), gibt dpcc den ganzen Index frei. Laufen dabei noch Anfragen, die nicht
+- Endet der Server (Neustart, Ende von Delphi), gibt dpcc den ganzen Index frei. Laufen dabei noch Anfragen, die nicht
   rechtzeitig enden, folgt die Freigabe, sobald sie fertig sind.
 
 ## Einstellungen auf Vorgabe

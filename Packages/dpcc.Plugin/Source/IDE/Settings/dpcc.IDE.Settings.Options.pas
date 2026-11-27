@@ -50,8 +50,10 @@ uses
   Vcl.Forms,
   ToolsAPI,
   dpcc.Core.Settings.Plugin,
+  dpcc.Core.Settings.OperatingMode,
   dpcc.UI.Settings.Page,
   dpcc.IDE.Foundation.InsightSwitch,
+  dpcc.IDE.Foundation.LspRedirect,
   dpcc.IDE.Foundation.Settings,
   dpcc.IDE.CodeInsight.Manager.Paths;
 
@@ -105,6 +107,8 @@ begin
   // „Ablauf protokollieren (Log)“ (LOG1): Hint mit der Datei; ein seit dem Start von Hand gesetztes Diagnose = 1
   // erscheint angehakt.
   FPage.DiagnoseFile := TDpccCodeInsightPaths.DiagnoseLog;
+  // Betriebsart Server nur mit installierter dpcc.LspServer.exe (Ort relativ zum Plugin).
+  FPage.ServerExe := TDpccLspRedirectHook.ServerExe;
   TDpccIdeSettings.RefreshDiagnose;
   FPage.LoadFrom(TDpccIdeSettings.Current);
 end;
@@ -112,10 +116,10 @@ end;
 procedure TDpccAddInOptions.DialogClosed(Accepted: Boolean);
 var
   mSettings: TDpccPluginSettings;
-  mWasEnabled, mIsEnabled: Boolean;
+  mWasMode, mIsMode: TDpccOperatingMode;
 begin
   try
-    mWasEnabled := TDpccIdeSettings.Current.Enabled;
+    mWasMode := TDpccIdeSettings.Current.Mode;
     if Accepted and (FPage <> nil) then
     begin
       // Gespeicherter Stand, darüber die Werte der Seite; was die Seite nicht zeigt, bleibt, wie es ist.
@@ -123,11 +127,11 @@ begin
       FPage.SaveTo(mSettings);
       TDpccIdeSettings.Update(mSettings);
     end;
-    mIsEnabled := TDpccIdeSettings.Current.Enabled;
+    mIsMode := TDpccIdeSettings.Current.Mode;
     // Betriebsart (IDECHECK) erst nach dem Dialog: Mit OK schreibt die IDE danach ihre Editoroptionen aus dem
-    // Speicher zurück, auch die Schalter, die dpcc gesetzt hat. Hauptschalter an stellt den Anbieter der IDE auf
-    // dpcc, aus wieder zurück; wirkt nach dem Neustart von Delphi. Die Strukturhervorhebung der IDE fasst dpcc seit
-    // S9 nicht mehr an.
+    // Speicher zurück, auch die Schalter, die dpcc gesetzt hat. Plugin stellt den Anbieter der IDE auf dpcc, Aus
+    // wieder zurück, Server auf DelphiLSP; ein Anbieterwechsel wirkt nach dem Neustart von Delphi. Die
+    // Strukturhervorhebung der IDE fasst dpcc seit S9 nicht mehr an.
     if Accepted then
     begin
       TDpccMainThread.ForceQueue(TDpccFeature.Settings,
@@ -136,7 +140,7 @@ begin
           TDpccGuard.Run(TDpccFeature.Settings,
             procedure
             begin
-              TDpccIdeInsightSwitch.AfterOptions(mWasEnabled, mIsEnabled);
+              TDpccIdeInsightSwitch.AfterOptions(mWasMode, mIsMode);
             end);
         end);
     end;

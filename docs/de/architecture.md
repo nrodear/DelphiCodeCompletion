@@ -89,7 +89,7 @@ Abhängigkeiten bis zum Ende der IDE geladen. So springt kein Thread in entladen
 | `Lsp` | LSP-Client, Sitzung (initialize, Dokumentabgleich, Anfragen), Adapter zum Server im Prozess, Absturzbehandlung |
 | `Completion` | Ablauf der Liste (`TDpccCompletionController`), Filtern, Rangfolge, Favoriten, Verlauf, Mengenmodus, Platzhalter |
 | `Hover`, `Signature`, `Documentation` | Inhalt von Tooltip und Parameterhilfe, XMLDoc-Darstellung |
-| `Settings` | Plugin-Einstellungen (`TDpccPluginSettings`: genau die Werte der Seite, dazu zwei nur gelesene), Ablage in Registry und `settings.json` (`dpcc.Core.Settings.Scopes`), Aufbau der Optionsseite und fest eingestellte Werte (`dpcc.Core.Settings.CompletionView`), Hauptschalter ohne Neustart |
+| `Settings` | Plugin-Einstellungen (`TDpccPluginSettings`: genau die Werte der Seite, dazu zwei nur gelesene), Ablage in Registry und `settings.json` (`dpcc.Core.Settings.Scopes`), Aufbau der Optionsseite und fest eingestellte Werte (`dpcc.Core.Settings.CompletionView`), Betriebsart Aus/Plugin/Server je Version (`dpcc.Core.Settings.OperatingMode`), Wechsel der eigenen Fenster ohne Neustart |
 | `Diagnostics` | Sicherung (`TDpccGuard`), Protokoll, Warteschlange zum Hauptthread, Abbau |
 | `Localization` | Sprache der Texte |
 
@@ -114,16 +114,18 @@ Abhängigkeiten bis zum Ende der IDE geladen. So springt kein Thread in entladen
 | `Forms` | Formulare aus dem Designer an den Server |
 | `Projects` | Projektkontext aus der IDE |
 | `Settings` | Anmeldung der Optionsseite |
-| `Foundation` | Einstellungen in Registry und `settings.json`, IDE-Schalter, Tastatur-Hook, Editorzugriff, Startbildschirm |
+| `Foundation` | Einstellungen in Registry und `settings.json`, IDE-Schalter, Tastatur-Hook, Editorzugriff, Startbildschirm, Umleitung von `DelphiLSP.exe` auf `dpcc.LspServer.exe` (Betriebsart Server) |
 
 ## Anmelden und Abbauen
 
 `dpcc.IDE.Completion.Register` ist die Wurzel. `Register` meldet nacheinander an: Sicherung und Protokoll, Sprache,
-Startbildschirm, Betriebsart (IDE-Kontext), Code-Insight-Manager, Tastenbindung, Formulare, Speicher-Notifier,
-Hauptschalter, Optionsseite. Jeder Schritt läuft für sich; ein Fehler kostet nur diesen Schritt und steht im
+Startbildschirm, Betriebsart (IDE-Kontext), Umleitung für die Betriebsart Server (`dpcc.IDE.Foundation.LspRedirect`,
+siehe [LSP-Server](lsp-server.md#betriebsart-server)), Code-Insight-Manager, Tastenbindung, Formulare,
+Speicher-Notifier, Wechsel der Betriebsart ohne Neustart, Optionsseite. Jeder Schritt läuft für sich; ein Fehler kostet nur diesen Schritt und steht im
 Protokoll.
 
-Die Betriebsart (dpcc ist Code-Insight-Anbieter oder aus) entscheidet `dpcc.Core.Settings.IdeCheck` ohne Registry
+Den Abgleich der Betriebsart mit dem Code-Insight-Anbieter (Plugin: dpcc ist Anbieter; Aus und Server: DelphiLSP)
+entscheidet `dpcc.Core.Settings.IdeCheck` ohne Registry
 (`TDpccIdeContext.Plan`: Schreibaktionen und Merker, `TDpccIdeCheck.Evaluate`: Prüfung); gelesen wird in
 `dpcc.IDE.Foundation.IdeSettingsCheck`, geschrieben in `dpcc.IDE.Foundation.InsightSwitch` (beim Start vor dem
 Manager, nach OK im Optionsdialog, bei der Wahl im Code-Insight-Dialog der IDE über

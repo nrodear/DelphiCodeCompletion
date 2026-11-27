@@ -7,7 +7,8 @@ Deutsch | [English](../en/installation.md) | [Français](../fr/installation.md)
 ## Voraussetzungen
 
 - Delphi 13 / RAD Studio 37.0. Für Delphi 12 / RAD Studio 23.0 siehe [Bauen für Delphi 12](#bauen-für-delphi-12).
-- Plattform Win32. Die IDE ist ein 32-Bit-Prozess, das Plugin ist deshalb ein Win32-Package.
+- Plattform Win32. Die IDE ist ein 32-Bit-Prozess, das Plugin ist deshalb ein Win32-Package. Die 64-Bit-IDE von
+  Delphi 13 (`bin64\bds.exe`) wird nicht unterstützt.
 - Der Quelltext von dpcc. Es gibt keine fertigen BPLs; dpcc wird aus der Projektgruppe gebaut. Aus den gebauten BPLs
   lässt sich ein Setup erzeugen, siehe [Mit dem Setup installieren](#mit-dem-setup-installieren).
 
@@ -24,7 +25,9 @@ Die Ausgabe liegt unter `Output\Win32\Debug`:
 | `Bpl` | die acht BPLs mit der Endung `370` (Package-Version von Delphi 13), darunter das Plugin `dpcc.Plugin370.bpl` |
 | `Dcp` | die DCP-Dateien der Packages |
 | `Dcu` | die DCUs, je Projekt ein Unterordner |
-| `Bin` | das Testprogramm `dpcc.Completion.Tests.exe` |
+| `Bin` | das Testprogramm `dpcc.Completion.Tests.exe` und der LSP-Server `dpcc.LspServer.exe` (32 Bit) |
+
+Die 64-Bit-EXE des LSP-Servers entsteht nicht im Gruppenbau, siehe [LSP-Server](#lsp-server).
 
 Der Kommandozeilen-Compiler (`dcc32`, MSBuild) ist in den Editionen Community und Starter gesperrt; dort in der IDE
 bauen. Mehr dazu unter [Entwicklung](development.md).
@@ -145,7 +148,7 @@ installiert dpcc für den aktuellen Benutzer, ohne Administratorrechte, wahlweis
 die 32-Bit-IDE).
 
 1. Beide Gruppen bauen: `dpcc_d13.groupproj` (Konfiguration Debug) und `dpcc_d12.groupproj` (Konfiguration D12),
-   siehe oben.
+   siehe oben, dazu die 64-Bit-EXE des LSP-Servers (siehe [LSP-Server](#lsp-server)).
 2. Das Setup erzeugen, aus dem Repo-Ordner:
 
    ```powershell
@@ -153,37 +156,68 @@ die 32-Bit-IDE).
    powershell -NoProfile -File Tools\Build-Setup.ps1           # installer\Output\dpccSetup-<Version>.exe
    ```
 
+   Neben dem Setup entsteht `installer\Output\dpcc.LspServer-<Version>.zip` (siehe [LSP-Server](#lsp-server)).
 3. Alle Delphi-Instanzen schließen und `dpccSetup-<Version>.exe` ausführen. Zur Auswahl stehen nur die Delphi-
-   Versionen, die das Setup findet.
+   Versionen, die das Setup findet, und die Komponente „LSP-Server dpcc.LspServer.exe (für die Betriebsart „Server“,
+   32 und 64 Bit)“. Sie ist vorgewählt und lässt sich abwählen.
 
 Das Setup kopiert je Version die acht BPLs nach `%LOCALAPPDATA%\Programs\dpcc\bpl\d12` bzw. `…\bpl\d13`, trägt
 `dpcc.Plugin290.bpl` bzw. `dpcc.Plugin370.bpl` unter `Known Packages` der IDE ein und setzt seinen BPL-Ordner
-vorn in den PATH der IDE. Eine Registrierung eines eigenen Baus (etwa aus `Output\Win32\Debug\Bpl`) ersetzt es nach
-einem Hinweis: beide zusammen ließen die IDE beim Start scheitern. Läuft Delphi, bricht es ab.
+vorn in den PATH der IDE. Mit der Komponente LSP-Server legt es `dpcc.LspServer.exe` nach
+`%LOCALAPPDATA%\Programs\dpcc\server\win32` und, nur auf 64-Bit-Windows, nach `…\server\win64`. Wer die Komponente
+bei einem erneuten Setup abwählt, wird die EXEs los. Eine Registrierung eines eigenen Baus (etwa aus
+`Output\Win32\Debug\Bpl`) ersetzt es nach einem Hinweis: beide zusammen ließen die IDE beim Start scheitern. Läuft
+Delphi, bricht es ab.
+
+Nach der Installation gilt die Betriebsart Plugin, je Delphi-Version getrennt; das Setup wählt keine Betriebsart.
+Siehe [Beim ersten Start](#beim-ersten-start).
 
 Deinstalliert wird über **Apps** von Windows oder den Startmenü-Eintrag
-**Delphi Pascal Code Completion › dpcc deinstallieren**. Vorher wie unter [Deinstallieren](#deinstallieren), Schritt 1, den Hauptschalter ausschalten; ist dpcc noch
-Code-Insight-Anbieter, fragt der Deinstaller nach. Er entfernt die Registrierung, sein PATH-Segment und die Dateien;
-Einstellungen, Daten und Cache bleiben. Einzelheiten: [installer/README_Installer.md](../../installer/README_Installer.md).
+**Delphi Pascal Code Completion › dpcc deinstallieren**. Vorher wie unter [Deinstallieren](#deinstallieren), Schritt 1,
+die Betriebsart „Aus“ wählen; ist dpcc noch Code-Insight-Anbieter, fragt der Deinstaller nach. Er entfernt die
+Registrierung, sein PATH-Segment und die Dateien, auch `dpcc.LspServer.exe`; Einstellungen, Daten und Cache bleiben.
+Einzelheiten: [installer/README_Installer.md](../../installer/README_Installer.md).
+
+## LSP-Server
+
+`dpcc.LspServer.exe` braucht nur die Betriebsart Server (siehe [LSP-Server](lsp-server.md)). Es gibt drei Wege zur
+EXE:
+
+- **Setup**: Komponente „LSP-Server“ (Vorgabe), siehe oben.
+- **ZIP**: `dpcc.LspServer-<Version>.zip` enthält `win32\dpcc.LspServer.exe`, `win64\dpcc.LspServer.exe` und
+  `LIESMICH.txt`. Eine der beiden EXEs neben das Plugin legen (in den Ordner von `dpcc.Plugin290.bpl` bzw.
+  `dpcc.Plugin370.bpl`) oder die Ordner `win64` und `win32` nach `%LOCALAPPDATA%\Programs\dpcc\server` entpacken
+  (beim Setup-Aufbau). Auf 64-Bit-Windows die 64-Bit-EXE nehmen; die 32-Bit-IDE startet sie.
+- **Eigener Bau**: Die 32-Bit-EXE entsteht im Gruppenbau `dpcc_d13.groupproj` (Projekt
+  `Application\dpcc.LspServer.dproj`, Win32, Debug, Ausgabe `Output\Win32\Debug\Bin`). Die 64-Bit-EXE in einem
+  eigenen Schritt in Delphi 13: `Application\dpcc.LspServer.dproj` öffnen, Zielplattform **Windows 64-Bit**,
+  Konfiguration Debug, **Erzeugen**. Die Ausgabe liegt unter `Output\Win64\Debug\Bin`. Dort findet das Plugin sie
+  von selbst.
+
+Wo das Plugin die EXE sucht, steht unter [LSP-Server](lsp-server.md#wo-dpcc-die-exe-sucht). Ob sie gefunden wird,
+zeigt die Seite dpcc: Ohne EXE ist „Server“ grau.
 
 ## Prüfen, ob dpcc geladen ist
 
 - Der Startbildschirm und der Info-Dialog der IDE nennen „dpcc 0.1.0“ (nur Text, ohne Bild).
 - Unter **Tools › Optionen › Drittanbieter** steht der Knoten **dpcc**.
 - Das Protokoll `%LOCALAPPDATA%\dpcc\Logs\dpcc.log` enthält die Zeile „dpcc angemeldet (Code Completion)“.
-- In einer `.pas`-Datei öffnet Strg+Leertaste die Liste von dpcc. Sie zeigt je Zeile die Art als Wort, den Namen
+- In der Betriebsart Plugin öffnet Strg+Leertaste in einer `.pas`-Datei die Liste von dpcc. Sie zeigt je Zeile die Art als Wort, den Namen
   fett und die Signatur.
 
 ## Beim ersten Start
 
-- Den Server startet dpcc mit der ersten Anfrage, etwa mit Strg+Leertaste. Danach baut er den Index auf. Der
+- Den eingebauten Server startet dpcc in der Betriebsart Plugin mit der ersten Anfrage, etwa mit Strg+Leertaste. Danach baut er den Index auf. Der
   erste Aufbau kann bei großen Installationen einige Minuten dauern, weil er auch die Bibliothek einliest. Danach
   kommt das meiste aus dem Cache. Siehe [Index und Cache](index-cache.md).
-- Ist beim Start von Delphi DelphiLSP als Code-Insight-Anbieter gewählt (Vorgabe), schaltet dpcc sich aus. Zum
-  Einschalten unter **Tools › Optionen › Drittanbieter › dpcc** den Hauptschalter setzen und mit **OK** schließen:
-  dpcc stellt dann den Anbieter der IDE auf dpcc und die nötigen Schalter der IDE (Help Insight, Kurzhinweise,
-  Verzögerung). Das wirkt nach dem Neustart von Delphi; das Meldungsfenster nennt es. Siehe
-  [Einstellungen](settings.md#was-dpcc-an-der-ide-umstellt).
+- Nach der Installation gilt die Betriebsart Plugin. Gibt es für die Delphi-Version noch keinen gespeicherten Wert
+  (auch nicht den früheren Hauptschalter), stellt dpcc beim ersten Start den Code-Insight-Anbieter der IDE auf dpcc
+  und die nötigen Schalter der IDE (Help Insight, Kurzhinweise, Verzögerung), auch wenn DelphiLSP gewählt war. Das
+  wirkt nach dem Neustart von Delphi; das Meldungsfenster nennt es. Bis dahin kommt die Liste nach „.“ noch von
+  DelphiLSP.
+- Eine andere Betriebsart wählt man unter **Tools › Optionen › Drittanbieter › dpcc**: „Aus“ (Delphi ohne dpcc) oder
+  „Server“ (die IDE behält ihre Fenster, die Antworten kommen von `dpcc.LspServer.exe`). Siehe
+  [Einstellungen](settings.md#betriebsart) und [Was dpcc an der IDE umstellt](settings.md#was-dpcc-an-der-ide-umstellt).
 
 ## Aktualisieren
 
@@ -200,8 +234,8 @@ Neubau liegen diese Dateien noch im BPL-Ordner; das Plugin lädt sie nicht mehr,
 ## Deinstallieren
 
 1. Damit dpcc den Anbieter und die Schalter der IDE zurückgibt: unter **Tools › Optionen › Drittanbieter › dpcc**
-   den Hauptschalter „Code Insight von dpcc“ ausschalten, mit **OK** schließen und Delphi einmal neu starten. dpcc
-   stellt dann den Anbieter zurück (Vorgabe DelphiLSP) und dreht seine Schalter zurück.
+   die Betriebsart „Aus“ wählen, mit **OK** schließen und Delphi einmal neu starten. dpcc stellt dann den Anbieter
+   zurück (Vorgabe DelphiLSP) und dreht seine Schalter zurück. Das gilt je Delphi-Version.
 2. **Komponenten › Packages installieren** öffnen, „dpcc - Delphi Pascal Code Completion“ wählen und **Entfernen**.
 3. Die IDE schließen.
 4. Den PATH-Eintrag entfernen: `powershell -NoProfile -File Tools\IdePath.ps1 -Action Remove` oder von Hand unter
@@ -211,9 +245,10 @@ Was danach noch liegt und von Hand gelöscht werden kann:
 
 | Ort | Inhalt |
 |---|---|
-| `HKCU\Software\dpcc\IdePlugin` | Einstellungen, Merker für die IDE-Schalter, `PathOverrideBackup` |
+| `HKCU\Software\dpcc\IdePlugin` | Einstellungen (auch `OperatingMode <Version>` und ein früheres `Enabled`), Merker für die IDE-Schalter, `PathOverrideBackup` |
 | `%APPDATA%\dpcc` | `settings.json`, `usage.json` (Verlauf), `favorites.json` (Favoriten), aus älteren Versionen `settings-history.json` |
 | `%LOCALAPPDATA%\dpcc` | `Logs` (Protokoll), `Index` (Index-Caches) |
+| `%LOCALAPPDATA%\dpcc.LspServer` | Caches und Protokoll von `dpcc.LspServer.exe`, falls die Betriebsart Server lief (siehe [LSP-Server](lsp-server.md#ablage)) |
 | BPL-Ordner | `dpcc.IDE.Expert370.log`, falls das Diagnoseprotokoll an war |
 
 Hat man Schritt 1 ausgelassen, bleibt eventuell dpcc als Anbieter eingetragen, und Help Insight, die Kurzhinweise und

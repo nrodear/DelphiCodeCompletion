@@ -141,7 +141,7 @@ const
   cSections: array[0..17] of TDpccPageSection = (psMaster, psCompletion, psCompletion, psCompletion, psCompletion,
     psCompletion, psCompletion, psCommit, psCommit, psCommit, psHints, psHints, psHints, psHints, psIndex, psIndex,
     psIde, psIde);
-  cNames: array[0..17] of string = ('Enabled', 'AutoMinChars', 'CompletionListMode', 'VisibleRows', 'ListWidth',
+  cNames: array[0..17] of string = ('OperatingMode', 'AutoMinChars', 'CompletionListMode', 'VisibleRows', 'ListWidth',
     'Learning', 'ResetHistory', 'AutoParentheses', 'CommitCharacters', 'AutoUses', 'ParameterHints', 'HoverTooltip',
     'DebugHoverValues', 'PopupLook', 'IndexExtraSourceFolders', 'RebuildIndex', 'CheckIde', 'Diagnose');
 var

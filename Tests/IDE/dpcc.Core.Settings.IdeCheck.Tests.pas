@@ -120,6 +120,30 @@ type
     /// (de/en).</summary>
     [Test]
     procedure AutoInvokeCaptions;
+    /// <summary>Betriebsart Server beim Start (Delphi 12 und 13): bleibt mit DelphiLSP und ohne Anbieterwert (Vorgabe
+    /// der IDE) stehen, ohne etwas zu schreiben; mit dpcc als Anbieter wird Plugin, mit einem anderen Anbieter Aus
+    /// (mit Hinweis). Plugin mit DelphiLSP wird wie früher Aus.</summary>
+    [Test]
+    [TestCase('Delphi 12', 'Software\Embarcadero\BDS\23.0')]
+    [TestCase('Delphi 13', 'Software\Embarcadero\BDS\37.0')]
+    procedure ServerModeAtStart(ABaseKey: string);
+    /// <summary>Server mit OK gewählt: aus Plugin (Anbieter dpcc) zurück auf DelphiLSP, auch wenn der Merker einen
+    /// anderen Anbieter nennt, eigene Schalter zurück, Hinweis „Neustart“; aus Aus (DelphiLSP) nichts zu schreiben,
+    /// Hinweis „nächster Serverstart“; aus einem anderen Anbieter ebenfalls DelphiLSP.</summary>
+    [Test]
+    procedure ServerOnFromEachMode;
+    /// <summary>Von Server zu Aus: nichts zu schreiben, Hinweis „nächstes Öffnen einer Projektgruppe“; von Server zu
+    /// Plugin: Anbieter dpcc und Schalter wie beim Hauptschalter an (wirkt nach dem Neustart).</summary>
+    [Test]
+    procedure ServerToOffAndPlugin;
+    /// <summary>Wahl im Code-Insight-Dialog der IDE: dpcc → Plugin (auch aus Server); ein anderer Anbieter unter
+    /// Plugin → Aus; DelphiLSP unter Server → bleibt Server.</summary>
+    [Test]
+    procedure ProviderChoiceInDialog;
+    /// <summary>Statuszeilen der Betriebsart Server und des ausstehenden Wechsels; Protokollzeile nennt die
+    /// Betriebsart.</summary>
+    [Test]
+    procedure ServerStatusLines;
   end;
 
 implementation
@@ -128,6 +152,7 @@ uses
   System.SysUtils,
   System.StrUtils,
   dpcc.Core.Localization.Language,
+  dpcc.Core.Settings.OperatingMode,
   dpcc.Core.Settings.IdeCheck;
 
 const
@@ -143,7 +168,13 @@ var
 
 function State(AEnabled, AHover, ADebug: Boolean): TDpccIdeDpccState;
 begin
+  // Alles vorbelegt (seit der Betriebsart hat der Stand auch Mode).
+  Result := Default(TDpccIdeDpccState);
   Result.Enabled := AEnabled;
+  if AEnabled then
+  begin
+    Result.Mode := TDpccOperatingMode.Plugin;
+  end;
   Result.HoverTooltip := AHover;
   Result.DebugHoverValues := ADebug;
   Result.AutoMinChars := 0;
@@ -1182,6 +1213,170 @@ begin
       Assert.AreEqual('Auto invoke', mFinding.Caption, 'Auto Invoke (en)');
     end;
   end;
+end;
+
+/// <summary>Gespeicherte Betriebsart Server (Hauptschalter aus, eigene Fenster aus).</summary>
+function ServerState: TDpccIdeDpccState;
+begin
+  Result := State(False, True, True);
+  Result.Mode := TDpccOperatingMode.Server;
+end;
+
+/// <summary>Delphi 12 bzw. 13 (ABaseKey) mit beiden Orten, Anbieter AProvider ('' = kein Wert) und dpcc-Stand
+/// AState.</summary>
+function WithProvider(const ABaseKey, AProvider: string; const AState: TDpccIdeDpccState): TDpccIdeCheckInput;
+begin
+  Result := Delphi13Keys([cLsp, cPas]);
+  Result.BaseKey := ABaseKey;
+  Result.RemoveValue(cSrc, TDpccIdeCheck.cProviderValue);
+  Result.ProviderId := AProvider;
+  if AProvider <> '' then
+  begin
+    Result.SetValue(cSrc, TDpccIdeCheck.cProviderValue, AProvider);
+  end;
+  Result.Dpcc := AState;
+end;
+
+procedure TDpccIdeCheckTests.ServerModeAtStart(ABaseKey: string);
+var
+  mInput: TDpccIdeCheckInput;
+  mPlan: TDpccIdeContextPlan;
+  mProvider: string;
+begin
+  // DelphiLSP gewählt und ohne Anbieterwert (Vorgabe der IDE = DelphiLSP): Server bleibt, nichts zu tun.
+  for mProvider in [TDpccIdeCheck.cDelphiLspId, ''] do
+  begin
+    mInput := WithProvider(ABaseKey, mProvider, ServerState);
+    mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.Start);
+    Assert.AreEqual(Ord(TDpccOperatingMode.Server), Ord(mPlan.OperatingMode), 'bleibt Server: "' + mProvider + '"');
+    Assert.AreEqual(Ord(TDpccIdeMode.Ide), Ord(mPlan.Mode), 'Code Insight der IDE');
+    Assert.IsFalse(mPlan.Enabled, 'eigene Fenster aus');
+    Assert.IsFalse(mPlan.OperatingModeChanged, 'nicht geändert');
+    Assert.AreEqual(0, Integer(Length(mPlan.Writes)), 'nichts zu schreiben');
+    Assert.IsFalse(mPlan.ProviderChanged, 'Anbieter bleibt');
+    Assert.IsFalse(mPlan.HasChanges, mPlan.LogLine);
+    Assert.IsTrue(ContainsText(mPlan.LogLine, 'Betriebsart Server'), mPlan.LogLine);
+  end;
+  // dpcc als Anbieter (im Dialog der IDE gewählt): Plugin.
+  mInput := WithProvider(ABaseKey, TDpccIdeCheck.cDpccId, ServerState);
+  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.Start);
+  Assert.AreEqual(Ord(TDpccOperatingMode.Plugin), Ord(mPlan.OperatingMode), 'dpcc → Plugin');
+  Assert.IsTrue(mPlan.Enabled and mPlan.OperatingModeChanged, 'Plugin an');
+  // Ein anderer Anbieter: Aus, mit Hinweis.
+  mInput := WithProvider(ABaseKey, 'Borland.CodeInsight.Pascal', ServerState);
+  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.Start);
+  Assert.AreEqual(Ord(TDpccOperatingMode.Off), Ord(mPlan.OperatingMode), 'anderer Anbieter → Aus');
+  Assert.IsTrue(mPlan.OperatingModeChanged, 'geändert');
+  Assert.IsTrue(ContainsText(mPlan.Notice, 'anderer Code-Insight-Anbieter'), mPlan.Notice);
+  Assert.IsFalse(WritesAt(mPlan, cSrc), 'Anbieter nicht angefasst');
+  // Plugin mit DelphiLSP: wie früher Aus.
+  mInput := WithProvider(ABaseKey, TDpccIdeCheck.cDelphiLspId, State(True, True, True));
+  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.Start);
+  Assert.AreEqual(Ord(TDpccOperatingMode.Off), Ord(mPlan.OperatingMode), 'Plugin mit DelphiLSP → Aus');
+end;
+
+procedure TDpccIdeCheckTests.ServerOnFromEachMode;
+var
+  mInput: TDpccIdeCheckInput;
+  mPlan, mOff: TDpccIdeContextPlan;
+  mWrite: TDpccIdeWrite;
+begin
+  // Aus Plugin: vorher ein anderer Anbieter (Merker nennt ihn), dpcc hat auf sich gestellt und Schalter gesetzt.
+  mInput := WithProvider(cBase13, 'Acme.Insight', State(True, True, True));
+  mInput.SetValue(cLsp, TDpccIdeCheck.cHelpInsight, 'True');
+  TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.MasterOn).ApplyTo(mInput);
+  Assert.AreEqual(TDpccIdeCheck.cDpccId, mInput.ProviderId, 'Plugin: Anbieter dpcc');
+  Assert.IsTrue(Length(mInput.Markers) > 1, 'Merker');
+  // Zum Vergleich: Aus ginge zum gemerkten Anbieter zurück.
+  mOff := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.MasterOff);
+  Assert.AreEqual('Acme.Insight', mOff.ProviderAfter, 'Aus: gemerkter Anbieter');
+  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.ServerOn);
+  Assert.AreEqual(Ord(TDpccOperatingMode.Server), Ord(mPlan.OperatingMode), 'Server');
+  Assert.IsFalse(mPlan.Enabled, 'eigene Fenster aus');
+  Assert.IsTrue(HasWrite(mPlan, cSrc, TDpccIdeCheck.cProviderValue, mWrite), 'Anbieter geschrieben');
+  Assert.AreEqual(TDpccIdeCheck.cDelphiLspId, mWrite.Value, 'Server: immer DelphiLSP');
+  Assert.IsTrue(mPlan.ProviderChanged, 'Anbieter gewechselt');
+  Assert.IsTrue(MatchText(TDpccIdeCheck.cHelpInsight, mPlan.RestoredNames), 'Schalter zurück');
+  Assert.IsTrue(ContainsText(mPlan.Notice, 'Neustart'), mPlan.Notice);
+  Assert.IsTrue(ContainsText(mPlan.Notice, 'dpcc.LspServer.exe'), mPlan.Notice);
+  Assert.IsTrue(StartsText('IDE-Kontext (Betriebsart Server)', mPlan.LogLine), mPlan.LogLine);
+  mPlan.ApplyTo(mInput);
+  Assert.AreEqual(0, Integer(Length(mInput.Markers)), 'keine Merker mehr');
+  Assert.AreEqual('True', ValueOf(mInput, cLsp, TDpccIdeCheck.cHelpInsight), 'Help Insight wieder an');
+  Assert.IsFalse(TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.ServerOn).HasChanges, 'Gegenprüfung: nichts');
+  // Aus Aus (DelphiLSP): nichts zu schreiben, wirkt beim nächsten Serverstart der IDE.
+  mInput := WithProvider(cBase12, TDpccIdeCheck.cDelphiLspId, State(False, True, True));
+  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.ServerOn);
+  Assert.AreEqual(Ord(TDpccOperatingMode.Server), Ord(mPlan.OperatingMode), 'Server');
+  Assert.IsTrue(mPlan.OperatingModeChanged, 'geändert');
+  Assert.AreEqual(0, Integer(Length(mPlan.Writes)), 'nichts an der IDE');
+  Assert.IsFalse(mPlan.ProviderChanged, 'Anbieter bleibt');
+  Assert.IsTrue(ContainsText(mPlan.Notice, 'nächsten Start'), mPlan.Notice);
+  // Aus einem anderen Anbieter: DelphiLSP.
+  mInput := WithProvider(cBase13, 'Acme.Insight', State(False, True, True));
+  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.ServerOn);
+  Assert.IsTrue(HasWrite(mPlan, cSrc, TDpccIdeCheck.cProviderValue, mWrite), 'Anbieter geschrieben');
+  Assert.AreEqual(TDpccIdeCheck.cDelphiLspId, mWrite.Value, 'DelphiLSP');
+  Assert.IsTrue(ContainsText(mPlan.Notice, 'Neustart'), mPlan.Notice);
+end;
+
+procedure TDpccIdeCheckTests.ServerToOffAndPlugin;
+var
+  mInput: TDpccIdeCheckInput;
+  mPlan: TDpccIdeContextPlan;
+  mWrite: TDpccIdeWrite;
+begin
+  mInput := WithProvider(cBase13, TDpccIdeCheck.cDelphiLspId, ServerState);
+  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.MasterOff);
+  Assert.AreEqual(Ord(TDpccOperatingMode.Off), Ord(mPlan.OperatingMode), 'Aus');
+  Assert.IsTrue(mPlan.OperatingModeChanged, 'geändert');
+  Assert.AreEqual(0, Integer(Length(mPlan.Writes)), 'nichts an der IDE');
+  Assert.IsTrue(ContainsText(mPlan.Notice, 'originale DelphiLSP'), mPlan.Notice);
+  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.MasterOn);
+  Assert.AreEqual(Ord(TDpccOperatingMode.Plugin), Ord(mPlan.OperatingMode), 'Plugin');
+  Assert.IsTrue(mPlan.Enabled, 'eigene Fenster an');
+  Assert.IsTrue(HasWrite(mPlan, cSrc, TDpccIdeCheck.cProviderValue, mWrite), 'Anbieter');
+  Assert.AreEqual(TDpccIdeCheck.cDpccId, mWrite.Value, 'dpcc');
+  Assert.IsTrue(ContainsText(mPlan.Notice, 'Neustart'), mPlan.Notice);
+end;
+
+procedure TDpccIdeCheckTests.ProviderChoiceInDialog;
+var
+  mInput: TDpccIdeCheckInput;
+  mPlan: TDpccIdeContextPlan;
+begin
+  // Wie TDpccIdeInsightSwitch.ProviderChosen: Start mit dem gewählten Anbieter als Vorgabe.
+  mInput := WithProvider(cBase13, TDpccIdeCheck.cDelphiLspId, ServerState);
+  mInput.ProviderId := TDpccIdeCheck.cDpccId;
+  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.Start);
+  Assert.AreEqual(Ord(TDpccOperatingMode.Plugin), Ord(mPlan.OperatingMode), 'dpcc gewählt → Plugin');
+  mInput := WithProvider(cBase13, TDpccIdeCheck.cDpccId, State(True, True, True));
+  mInput.ProviderId := TDpccIdeCheck.cDelphiLspId;
+  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.Start);
+  Assert.AreEqual(Ord(TDpccOperatingMode.Off), Ord(mPlan.OperatingMode), 'anderer Anbieter unter Plugin → Aus');
+  mInput := WithProvider(cBase12, TDpccIdeCheck.cDelphiLspId, ServerState);
+  mInput.ProviderId := TDpccIdeCheck.cDelphiLspId;
+  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.Start);
+  Assert.AreEqual(Ord(TDpccOperatingMode.Server), Ord(mPlan.OperatingMode), 'DelphiLSP unter Server → Server');
+end;
+
+procedure TDpccIdeCheckTests.ServerStatusLines;
+var
+  mInput: TDpccIdeCheckInput;
+  mStatus: string;
+begin
+  mInput := WithProvider(cBase13, TDpccIdeCheck.cDelphiLspId, ServerState);
+  mStatus := TDpccIdeContext.StatusText(mInput);
+  Assert.IsTrue(StartsText('Betriebsart Server: Die IDE startet dpcc.LspServer.exe', mStatus), mStatus);
+  Assert.IsFalse(ContainsText(mStatus, 'nächsten Start'), 'kein Wechsel offen: ' + mStatus);
+  // Server gewählt, aber dpcc noch Anbieter bis zum Neustart.
+  mInput := WithProvider(cBase13, TDpccIdeCheck.cDpccId, ServerState);
+  mStatus := TDpccIdeContext.StatusText(mInput);
+  Assert.IsTrue(ContainsText(mStatus, 'erst dann übernimmt dpcc.LspServer.exe'), mStatus);
+  TDpccTextLanguage.Current := TDpccLanguage.English;
+  mInput := WithProvider(cBase13, TDpccIdeCheck.cDelphiLspId, ServerState);
+  mStatus := TDpccIdeContext.StatusText(mInput);
+  Assert.IsTrue(StartsText('Mode Server: the IDE starts dpcc.LspServer.exe', mStatus), mStatus);
 end;
 
 initialization

@@ -170,7 +170,8 @@ The unit namespaces (`DCC_Namespace`) also apply per project.
 
 ## When the index is built
 
-- The server starts with the first request, for example Ctrl+Space, or when the master switch is turned on.
+- In the Plugin mode the server starts with the first request, for example Ctrl+Space, or when switching to Plugin.
+  In the Server mode `dpcc.LspServer.exe` builds its own index (see [LSP server](lsp-server.md#storage)).
 - It then builds the index. This runs in the background; the IDE does not wait for it.
 - While the build is running, the list shows “limited (index is being built)” and may be incomplete.
 - On large installations the first build can take a few minutes because it reads the library. After that, most of it

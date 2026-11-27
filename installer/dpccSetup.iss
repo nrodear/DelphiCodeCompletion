@@ -1,6 +1,7 @@
 ﻿; =============================================================================
 ; dpccSetup.iss  -  Inno Setup 6.x, dpcc-Paketsatz fuer Delphi 12 und Delphi 13
-; Installiert die acht Packages von dpcc je Benutzer und traegt sie in die IDE ein.
+; Installiert die acht Packages von dpcc je Benutzer und traegt sie in die IDE ein;
+; dazu (abwaehlbar, vorgewaehlt) den LSP-Server dpcc.LspServer.exe in 32 und 64 Bit.
 ; Beschreibung, Bau und Testmatrix: installer\README_Installer.md
 ;
 ; Leitplanken (bindend):
@@ -13,7 +14,10 @@
 ;   * Deinstallation: Registry-Werte VOR den Dateien entfernen.
 ;   * Das Setup baut KEINE Netzverbindung auf - kein Update-Check, keine
 ;     Telemetrie, kein Download.
-;   * Nur Win32: D12 = BDS 23.0, D13 = BDS 37.0, jeweils die 32-bit-IDE.
+;   * Nur Win32: D12 = BDS 23.0, D13 = BDS 37.0, jeweils die 32-bit-IDE (der
+;     LSP-Server liegt zusaetzlich als Win64-EXE bei; die 32-bit-IDE startet ihn).
+;   * Die Betriebsart (Aus, Plugin, Server) waehlt das Setup nicht; sie steht in
+;     den Einstellungen von dpcc, je Delphi-Version.
 ;   * Der IDE-PATH-Override ist ein GETEILTER Wert: nur das eigene Segment
 ;     einfuegen oder entfernen, nie den Wert ersetzen.
 ;   * Einstellungen (HKCU\Software\dpcc), Daten (%APPDATA%\dpcc), Cache und
@@ -112,6 +116,22 @@
 ; Wertdaten der Known Packages = {$DESCRIPTION} aus dpcc.Plugin.dpk.
 #define DpccPackageDescription "dpcc - Delphi Pascal Code Completion"
 
+; --- LSP-Server dpcc.LspServer.exe -------------------------------------------------
+; Fuer die Betriebsart "Server" (Einstellungen von dpcc): die IDE bleibt bei
+; DelphiLSP, das Plugin lenkt den Start von DelphiLSP.exe auf diese EXE um. Eine
+; EXE fuer Delphi 12 und 13, je Bitbreite; abwaehlbare Komponente "lspserver"
+; (vorgewaehlt). Ziel {app}\server\win32 und {app}\server\win64; dort sucht das
+; Plugin sie (64 Bit zuerst, wenn Windows 64 Bit ist). Das Setup waehlt keine
+; Betriebsart. Quellen: dpcc.LspServer.dproj, Win32 im Gruppenbau
+; (Output\Win32\Debug\Bin), Win64 eigener Bauschritt (Output\Win64\Debug\Bin).
+#ifndef DpccLspServerDirWin32
+  #define DpccLspServerDirWin32 DpccRepoRoot + "Output\Win32\Debug\Bin"
+#endif
+#ifndef DpccLspServerDirWin64
+  #define DpccLspServerDirWin64 DpccRepoRoot + "Output\Win64\Debug\Bin"
+#endif
+#define DpccLspServerExe "dpcc.LspServer.exe"
+
 ; BDS-Registry-Schluessel (HKCU). Der Nummernsprung 23.0 -> 37.0 ist real.
 #define KnownPackages23 "Software\Embarcadero\BDS\23.0\Known Packages"
 #define KnownPackages37 "Software\Embarcadero\BDS\37.0\Known Packages"
@@ -165,8 +185,8 @@ de.DevBplWarn=Unter "%2" ist bereits eine Registrierung von dpcc mit anderem Pfa
 en.DevBplWarn=A registration of dpcc with a different path already exists under "%2" (for example your own build from the repository):%n%n%1%nIt will be replaced by the installed registration; having both would make the IDE fail at startup. To use your own build again later, register it again (docs\en\installation.md).
 de.OverrideFail=Der PATH-Eintrag der IDE konnte nicht geschrieben werden (%1). Ohne ihn lädt dpcc beim IDE-Start nicht.
 en.OverrideFail=The IDE's PATH entry could not be written (%1). Without it dpcc will not load when the IDE starts.
-de.ProviderStill=dpcc ist noch als Code-Insight-Anbieter eingetragen in:%n%n%1%nOhne das Plugin bleiben dort sonst Help Insight, die Kurzhinweise und der Wert-Tooltip der IDE aus.%n%nEmpfohlen: Delphi starten, unter Tools > Optionen > Drittanbieter > dpcc den Hauptschalter ausschalten, mit OK schließen, Delphi einmal neu starten und wieder schließen. dpcc stellt dabei den Anbieter (DelphiLSP) und seine Schalter zurück.%n%nTrotzdem jetzt deinstallieren?
-en.ProviderStill=dpcc is still set as the Code Insight provider in:%n%n%1%nWithout the plugin, Help Insight, tooltips and the value tooltip of the IDE would then stay off there.%n%nRecommended: start Delphi, turn off the main switch under Tools > Options > Third Party > dpcc, close with OK, restart Delphi once and close it again. dpcc then restores the provider (DelphiLSP) and its switches.%n%nUninstall now anyway?
+de.ProviderStill=dpcc ist noch als Code-Insight-Anbieter eingetragen in:%n%n%1%nOhne das Plugin bleiben dort sonst Help Insight, die Kurzhinweise und der Wert-Tooltip der IDE aus.%n%nEmpfohlen: Delphi starten, unter Tools > Optionen > Drittanbieter > dpcc die Betriebsart „Aus“ wählen, mit OK schließen, Delphi einmal neu starten und wieder schließen. dpcc stellt dabei den Anbieter (DelphiLSP) und seine Schalter zurück.%n%nTrotzdem jetzt deinstallieren?
+en.ProviderStill=dpcc is still set as the Code Insight provider in:%n%n%1%nWithout the plugin, Help Insight, tooltips and the value tooltip of the IDE would then stay off there.%n%nRecommended: start Delphi, choose the mode “Off” under Tools > Options > Third Party > dpcc, close with OK, restart Delphi once and close it again. dpcc then restores the provider (DelphiLSP) and its switches.%n%nUninstall now anyway?
 de.DonateBtn=Spenden
 en.DonateBtn=Donate
 de.StarBtn=Stern auf GitHub
@@ -185,6 +205,8 @@ de.CompD12=Delphi 12 Athens (32-bit-IDE)
 en.CompD12=Delphi 12 Athens (32-bit IDE)
 de.CompD13=Delphi 13 Florence (32-bit-IDE)
 en.CompD13=Delphi 13 Florence (32-bit IDE)
+de.CompLspServer=LSP-Server dpcc.LspServer.exe (für die Betriebsart „Server“, 32 und 64 Bit)
+en.CompLspServer=LSP server dpcc.LspServer.exe (for the mode “Server”, 32 and 64 bit)
 de.NoComponent=Bitte mindestens eine Delphi-Version auswählen - sonst wird dpcc nicht installiert.
 en.NoComponent=Please select at least one Delphi version - otherwise dpcc is not installed.
 ; Versions-Uebersicht auf der "Ready to Install"-Seite. Dieselben Aussagen
@@ -204,8 +226,8 @@ de.ReadyNote=Alternative: das Projekt von GitHub laden und die Packages selbst i
 en.ReadyNote=Alternative: download the project from GitHub and build/install the packages yourself in the IDE - instructions (docs\en\installation.md) in the repository:
 de.ReadyPath=Das Setup trägt seinen Paketordner vorn in die PATH-Einstellung der gewählten IDEs ein (Tools > Optionen > IDE > Umgebungsvariablen), sonst findet die IDE die sieben Laufzeitpakete von dpcc nicht. Bestehende Einträge bleiben erhalten, die Deinstallation nimmt nur diesen Ordner wieder heraus.
 en.ReadyPath=Setup adds its package folder to the front of the PATH setting of the selected IDEs (Tools > Options > IDE > Environment Variables); without it the IDE cannot find the seven runtime packages of dpcc. Existing entries stay in place, uninstalling removes only this folder.
-de.ReadyStart=Nach der Installation: Ist in Delphi DelphiLSP als Code-Insight-Anbieter gewählt (Vorgabe), bleibt dpcc zunächst aus. Einschalten unter Tools > Optionen > Drittanbieter > dpcc (Hauptschalter, OK, Delphi neu starten).
-en.ReadyStart=After installing: if DelphiLSP is the Code Insight provider in Delphi (default), dpcc stays off at first. Turn it on under Tools > Options > Third Party > dpcc (main switch, OK, restart Delphi).
+de.ReadyStart=Nach der Installation gilt die Betriebsart „Plugin“: Beim ersten Start stellt dpcc den Code-Insight-Anbieter der IDE auf dpcc; das wirkt nach einem Neustart von Delphi. Die Betriebsart (Aus, Plugin, Server) wählen Sie unter Tools > Optionen > Drittanbieter > dpcc, je Delphi-Version getrennt; das Setup wählt sie nicht. „Server“ braucht die Komponente LSP-Server.
+en.ReadyStart=After installing, the mode “Plugin” applies: at the first start dpcc switches the IDE's Code Insight provider to dpcc; this takes effect after restarting Delphi. Choose the mode (Off, Plugin, Server) under Tools > Options > Third Party > dpcc, separately for each Delphi version; setup does not choose it. “Server” needs the LSP server component.
 
 [Messages]
 de.WelcomeLabel2=%n[name/ver] wird auf Ihrem Computer installiert (nur für den aktuellen Benutzer, ohne Administratorrechte).%n%nDieses Setup baut keine Netzwerkverbindungen auf: kein Update-Check, keine Telemetrie, kein Download.
@@ -224,6 +246,10 @@ Name: "d12"; Description: "{cm:CompD12}"; Types: full custom; \
   Flags: disablenouninstallwarning; Check: IsDelphi12Installed
 Name: "d13"; Description: "{cm:CompD13}"; Types: full custom; \
   Flags: disablenouninstallwarning; Check: IsDelphi13Installed
+; Unabhaengig von der Delphi-Version: eine EXE fuer beide IDEs. Vorgewaehlt
+; (full), abwaehlbar (custom); Abwahl beim erneuten Setup entfernt sie wieder.
+Name: "lspserver"; Description: "{cm:CompLspServer}"; Types: full custom; \
+  Flags: disablenouninstallwarning
 
 [Files]
 ; Acht BPLs je Version, Components statt Check: nur schreiben, wenn die IDE
@@ -249,6 +275,10 @@ Source: "{#DpccBplSourceDirD13}\dpcc.Core{#DpccSuffixD13}.bpl";    DestDir: "{ap
 Source: "{#DpccBplSourceDirD13}\dpcc.UI{#DpccSuffixD13}.bpl";      DestDir: "{app}\bpl\d13"; Flags: ignoreversion; Components: d13
 Source: "{#DpccBplSourceDirD13}\{#DpccIdeBplD13}";                 DestDir: "{app}\bpl\d13"; Flags: ignoreversion; Components: d13
 
+; --- LSP-Server (beide Bitbreiten; die 64-Bit-EXE nur auf 64-Bit-Windows) -----
+Source: "{#DpccLspServerDirWin32}\{#DpccLspServerExe}"; DestDir: "{app}\server\win32"; Flags: ignoreversion; Components: lspserver
+Source: "{#DpccLspServerDirWin64}\{#DpccLspServerExe}"; DestDir: "{app}\server\win64"; Flags: ignoreversion; Components: lspserver; Check: IsWin64
+
 [UninstallDelete]
 ; Inno entfernt die installierten Dateien selbst. Die bpl-Ordner koennen aber
 ; Reste tragen: das Diagnoseprotokoll dpcc.IDE.Expert<suffix>.log (samt den
@@ -258,6 +288,9 @@ Source: "{#DpccBplSourceDirD13}\{#DpccIdeBplD13}";                 DestDir: "{ap
 Type: filesandordirs; Name: "{app}\bpl\d12"
 Type: filesandordirs; Name: "{app}\bpl\d13"
 Type: dirifempty;     Name: "{app}\bpl"
+Type: dirifempty;     Name: "{app}\server\win32"
+Type: dirifempty;     Name: "{app}\server\win64"
+Type: dirifempty;     Name: "{app}\server"
 
 [InstallDelete]
 ; Fruehere Setups legten den Startmenue-Eintrag unter "dpcc" an. Beim
@@ -860,6 +893,16 @@ begin
   RemoveDir(VersionsOrdner(AOrdner));   // wirkt nur, wenn leer - genau so gewollt
 end;
 
+// LSP-Server restlos entfernen: beide EXEs, dann die Ordner, wenn leer.
+procedure EntferneLspServer;
+begin
+  EntferneDatei(ExpandConstant('{app}\server\win32\{#DpccLspServerExe}'));
+  EntferneDatei(ExpandConstant('{app}\server\win64\{#DpccLspServerExe}'));
+  RemoveDir(ExpandConstant('{app}\server\win32'));
+  RemoveDir(ExpandConstant('{app}\server\win64'));
+  RemoveDir(ExpandConstant('{app}\server'));
+end;
+
 // Eine angehakte Version fertigstellen; Dateien und Known-Packages-Wert hat
 // Inno zu diesem Zeitpunkt schon geschrieben.
 procedure RichteVersionEin(const AOrdner, ASuffix, AKnownKey, ADisabledKey,
@@ -904,6 +947,13 @@ begin
     RichteVersionEin('d13', SUFFIX_D13, KNOWN_PACKAGES_37, DISABLED_PACKAGES_37, ENV_VARS_37)
   else
     EntferneVariante('d13', SUFFIX_D13, KNOWN_PACKAGES_37, DISABLED_PACKAGES_37, ENV_VARS_37);
+
+  // LSP-Server abgewaehlt: eine EXE aus einem frueheren Lauf entfernen (Inno
+  // entfernt abgewaehlte Komponenten nicht selbst). Ohne EXE zeigt dpcc die
+  // Betriebsart "Server" als nicht waehlbar; eine schon gewaehlte faellt beim
+  // Start von DelphiLSP auf das Original zurueck.
+  if not WizardIsComponentSelected('lspserver') then
+    EntferneLspServer;
 end;
 
 // Ist dpcc in dieser Version installiert (unser Known-Packages-Wert) UND noch

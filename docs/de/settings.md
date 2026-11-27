@@ -8,10 +8,11 @@ Die Optionen stehen unter **Tools › Optionen › Drittanbieter › dpcc**. Das
 
 ## Die Seite
 
-- Oben steht der Hauptschalter, darunter folgen die Abschnitte **Vervollständigung**, **Beim Übernehmen**,
-  **Parameter-Hint und Tooltip**, **Index** und **IDE**.
-- Ist der Hauptschalter aus, sind alle Optionen darunter und der Knopf „Verlauf zurücksetzen“ grau. „Index neu
-  aufbauen“, „Jetzt prüfen“ und „Ablauf protokollieren (Log)“ bleiben bedienbar.
+- Oben steht die Betriebsart mit drei Optionsfeldern, darunter folgen die Abschnitte **Vervollständigung**, **Beim
+  Übernehmen**, **Parameter-Hint und Tooltip**, **Index** und **IDE**.
+- Die Optionen darunter gelten nur für die Betriebsart Plugin. In den Betriebsarten Aus und Server sind sie und der
+  Knopf „Verlauf zurücksetzen“ grau. „Index neu aufbauen“, „Jetzt prüfen“ und „Ablauf protokollieren (Log)“ bleiben
+  bedienbar.
 - „Werte beim Debuggen zeigen“ ist grau, solange „Eigener Tooltip beim Verweilen über Bezeichnern“ aus ist.
 
 Gespeichert wird mit **OK**. Ausnahmen: „Verlauf zurücksetzen“ und „Index neu aufbauen“ wirken sofort, „Jetzt
@@ -24,17 +25,49 @@ Die Spalte „Registry-Wert“ nennt den Namen unter `HKCU\Software\dpcc\IdePlug
 den dpcc in Hinweisen und in `settings.json` verwendet. „–“ bei „Registry-Wert“: Die Option liegt nicht in der
 Registry, sondern in `settings.json` (siehe [Ablage](#ablage)).
 
-## Hauptschalter
+## Betriebsart
 
 | Option | Registry-Wert | Schlüssel | Vorgabe | Wirkung |
 |---|---|---|---|---|
-| Code Insight von dpcc (stellt den Code-Insight-Anbieter der IDE auf dpcc um; aus = DelphiLSP) | `Enabled` | `completion.enabled` | an | Hauptschalter und Betriebsart. An mit OK: dpcc stellt den Code-Insight-Anbieter der IDE auf dpcc und setzt die nötigen Schalter der IDE; aus mit OK: zurück auf den vorigen Anbieter (Vorgabe DelphiLSP), eigene Änderungen zurück. Der Anbieterwechsel wirkt nach dem Neustart von Delphi. Beim Start von Delphi gilt der gewählte Anbieter: Ist DelphiLSP gewählt, schaltet dpcc sich aus. Siehe [Was dpcc an der IDE umstellt](#was-dpcc-an-der-ide-umstellt). Liste, Parameterhilfe und Tooltip von dpcc folgen dem Schalter sofort (aus: Strg+Leertaste und Strg+Umschalt+Leertaste gehen an die IDE); der Server läuft beim Ausschalten weiter. |
+| Betriebsart (drei Optionsfelder) | `OperatingMode 23.0` (Delphi 12) bzw. `OperatingMode 37.0` (Delphi 13) | `operatingMode` | Plugin | Je Delphi-Version getrennt: `off`, `plugin` oder `server`. Ersetzt den früheren Hauptschalter „Code Insight von dpcc“ (`Enabled`, für alle Versionen gemeinsam). Zur Laufzeit gilt genau eine Betriebsart; der eingebaute Server des Plugins und `dpcc.LspServer.exe` arbeiten nie gleichzeitig. Ein Wechsel von oder zu Plugin stellt den Code-Insight-Anbieter der IDE um und wirkt nach dem Neustart von Delphi; zwischen Aus und Server wirkt er beim nächsten Öffnen einer Projektgruppe. Siehe [Umschalten](#umschalten). Liste, Parameterhilfe und Tooltip von dpcc folgen der Wahl nach OK sofort (außer in Plugin gehen Strg+Leertaste und Strg+Umschalt+Leertaste an die IDE); ein schon laufender eingebauter Server läuft weiter. |
+
+Die drei Optionsfelder und ihr Text auf der Seite:
+
+| Optionsfeld | Text darunter |
+|---|---|
+| „Aus – Delphi arbeitet ohne dpcc“ | „Delphi nutzt seinen eigenen Code-Insight-Anbieter (DelphiLSP); dpcc zeigt keine Fenster und leitet nichts um.“ |
+| „Plugin – Code Insight von dpcc im Editor (Vorgabe)“ | „dpcc wird der Code-Insight-Anbieter der IDE, mit eigener Liste, Tooltip und Parameter-Hint. Der Wechsel von oder zu Plugin wirkt nach dem Neustart von Delphi.“ |
+| „Server – dpcc.LspServer.exe an Stelle von DelphiLSP“ | „Delphi bleibt im LSP-Betrieb und zeigt seine eigenen Fenster; die Antworten liefert dpcc.LspServer.exe statt DelphiLSP.exe. Die Fehlermarkierung der IDE (Error Insight) bleibt leer. Der Wechsel von oder zu Plugin wirkt nach dem Neustart von Delphi, zwischen Aus und Server beim nächsten Öffnen einer Projektgruppe.“ |
+
+- **Aus** (früher „Hauptschalter aus“): Delphi arbeitet mit seinem eigenen Code-Insight-Anbieter (DelphiLSP,
+  `Insight Manager` = `Borland.CodeInsight.LSP.Pascal`). dpcc zeigt keine Fenster und leitet nichts um.
+- **Plugin** (Vorgabe nach der Installation, früher „Hauptschalter an“): dpcc ist der Code-Insight-Anbieter
+  (`dpcc.CodeInsight`) mit eingebautem Server und eigener Liste, eigenem Tooltip und Parameter-Hint.
+- **Server**: Die IDE bleibt im LSP-Betrieb (Anbieter DelphiLSP). Startet sie `DelphiLSP.exe`, startet das Plugin an
+  dessen Stelle `dpcc.LspServer.exe`. Eingebauter Server und Fenster von dpcc sind aus. Siehe
+  [Betriebsart Server](#betriebsart-server).
+
+### Betriebsart Server
+
+- Liste, Hint, Tooltip beim Verweilen, Strukturansicht und Strg+Klick sind die der IDE; die Antworten kommen von
+  `dpcc.LspServer.exe`. Liste, Tooltip und Parameter-Hint von dpcc erscheinen nicht, Strg+Leertaste und
+  Strg+Umschalt+Leertaste gehen an die IDE.
+- Die Fehlermarkierung der IDE (Error Insight) bleibt leer: `dpcc.LspServer.exe` liefert keine Code-Diagnosen. dpcc
+  setzt `ErrorInsightLevel` nicht.
+- Umgeleitet wird aus dem Plugin heraus (Hook auf `CreateProcessW` im Modul `IDELSP290.bpl` bzw. `IDELSP370.bpl`).
+  Im Delphi-Programmordner ändert dpcc nichts, Administratorrechte braucht es nicht. Einzelheiten, Orte der EXE und
+  Protokollzeilen: [LSP-Server](lsp-server.md#betriebsart-server).
+- „Server“ ist nur wählbar, wenn dpcc die EXE findet. Sonst ist das Feld grau, darunter steht „Nicht wählbar:
+  dpcc.LspServer.exe ist nicht installiert (im Setup die Komponente „LSP-Server“ wählen).“ Ist Server schon gewählt,
+  bleibt es gewählt; der Start fällt dann auf das originale DelphiLSP zurück. Der Hint am Feld nennt den gefundenen
+  Ort der EXE („Programm: …“).
+- Nicht unterstützt: die 64-Bit-IDE von Delphi 13 (`bin64\bds.exe`). Das Plugin ist 32 Bit.
 
 ## Vervollständigung
 
 | Option | Registry-Wert | Schlüssel | Vorgabe | Wirkung |
 |---|---|---|---|---|
-| Beim Tippen öffnen ab Zeichen (0 = nie): | `AutoMinChars` | `completion.autoMinChars` | 0 | 0 bis 10; Vorgabe 0 = aus (wie vor dem Öffnen beim Tippen), zum Einschalten z. B. 5 einstellen. Tippt man einen Namen ohne Punkt davor, öffnet die Liste erst, wenn das Wort vor dem Cursor so viele Zeichen hat; darunter fragt dpcc den Server nicht. 0 = Tippen öffnet nie. Strg+Leertaste öffnet bei jeder Länge; nach „.“ und bei den übrigen Auslösern ändert sich nichts. Damit die IDE beim Tippen nicht zusätzlich ihre eigene Liste öffnet, stellt dpcc in der Betriebsart dpcc `Auto Invoke Delay` = -1 (siehe [unten](#was-dpcc-an-der-ide-umstellt)). Siehe [Bedienung](usage.md#öffnen-beim-tippen). |
+| Beim Tippen öffnen ab Zeichen (0 = nie): | `AutoMinChars` | `completion.autoMinChars` | 0 | 0 bis 10; Vorgabe 0 = aus (wie vor dem Öffnen beim Tippen), zum Einschalten z. B. 5 einstellen. Tippt man einen Namen ohne Punkt davor, öffnet die Liste erst, wenn das Wort vor dem Cursor so viele Zeichen hat; darunter fragt dpcc den Server nicht. 0 = Tippen öffnet nie. Strg+Leertaste öffnet bei jeder Länge; nach „.“ und bei den übrigen Auslösern ändert sich nichts. Damit die IDE beim Tippen nicht zusätzlich ihre eigene Liste öffnet, stellt dpcc in der Betriebsart Plugin `Auto Invoke Delay` = -1 (siehe [unten](#was-dpcc-an-der-ide-umstellt)). Siehe [Bedienung](usage.md#öffnen-beim-tippen). |
 | Beim Tippen zeigen: | `CompletionListMode` | `completion.listMode` | Nur Treffer | „Nur Treffer“ (`filter`), „Alle Einträge, Treffer oben“ (`all`), „Treffer, darunter gedämpft der Rest“ (`rest`, unter der Überschrift „Weitere Einträge“). Gilt für Mitgliederlisten nach „.“ (fest eingestellt). |
 | Sichtbare Zeilen der Liste: | `VisibleRows` | `completion.visibleRows` | 9 | 5 bis 20 Zeilen. |
 | Breite automatisch | `ListWidth` | `completion.listWidth` | an (`ListWidth` = 0) | Steht in derselben Zeile wie „Sichtbare Zeilen der Liste“. An: Die Liste wächst mit dem breitesten Eintrag. Aus: die zuletzt gezogene Breite (240 bis 720). Ziehen am rechten Rand der Liste setzt die Breite ebenfalls. |
@@ -54,9 +87,9 @@ Registry, sondern in `settings.json` (siehe [Ablage](#ablage)).
 | Option | Registry-Wert | Schlüssel | Vorgabe | Wirkung |
 |---|---|---|---|---|
 | Parameter-Hint bei „(“ und „,“ | `ParameterHints` | `completion.parameterHints` | an | Aus: keine Parameterhilfe von dpcc, auch nicht über Strg+Umschalt+Leertaste. Das automatische Öffnen bei „(“ und „,“ erreicht dpcc nur, wenn die IDE dpcc als Anbieter aufruft (siehe [Bedienung](usage.md#zusammenspiel-mit-delphilsp)). |
-| Eigener Tooltip beim Verweilen über Bezeichnern | `HoverTooltip` | `editor.hoverTooltip` | an | Tooltip von dpcc. Solange er an ist, schaltet dpcc in der Betriebsart dpcc Help Insight und den Kurzhinweis Symbol-Insight der IDE ab (`Help Insight`, `Declaration Information`) und verbirgt ein trotzdem erscheinendes Fenster von Help Insight sofort, ohne Neustart. Gesperrt, solange der Hauptschalter aus ist. |
+| Eigener Tooltip beim Verweilen über Bezeichnern | `HoverTooltip` | `editor.hoverTooltip` | an | Tooltip von dpcc. Solange er an ist, schaltet dpcc in der Betriebsart Plugin Help Insight und den Kurzhinweis Symbol-Insight der IDE ab (`Help Insight`, `Declaration Information`) und verbirgt ein trotzdem erscheinendes Fenster von Help Insight sofort, ohne Neustart. Gesperrt außerhalb der Betriebsart Plugin. |
 | Werte beim Debuggen zeigen (schaltet den Wert-Tooltip der IDE ab) | `DebugHoverValues` | `debug.hoverValues` | an | Steht eingerückt unter dem Tooltip. Bei angehaltenem Programm steht der Wert des Ausdrucks oben im Tooltip; dpcc schaltet dann die Ausdrucksauswertung im Kurzhinweis der IDE ab (`ToolTip Watches`). Wer den Wert-Tooltip der IDE will, schaltet diese Option aus. Gesperrt, solange „Eigener Tooltip …“ aus ist. |
-| Darstellung der Popups: | `PopupLook` | `editor.popupLook` | Dezent | „Intensiv“ (`intense`), „Dezent“ (`subtle`), „Unscheinbar“ (`plain`). Bestimmt, wie stark die Fenster von dpcc färben: Vervollständigungsliste, Tooltip und Parameter-Hint, dazu die Platzhalter-Markierungen im Editor. Was jede Stufe ändert, steht unter [Darstellung der Popups](#darstellung-der-popups). Gilt nach OK ab dem nächsten Öffnen eines Fensters. Ein unbekannter Wert in der Registry gilt als Dezent. Gesperrt, solange der Hauptschalter aus ist. |
+| Darstellung der Popups: | `PopupLook` | `editor.popupLook` | Dezent | „Intensiv“ (`intense`), „Dezent“ (`subtle`), „Unscheinbar“ (`plain`). Bestimmt, wie stark die Fenster von dpcc färben: Vervollständigungsliste, Tooltip und Parameter-Hint, dazu die Platzhalter-Markierungen im Editor. Was jede Stufe ändert, steht unter [Darstellung der Popups](#darstellung-der-popups). Gilt nach OK ab dem nächsten Öffnen eines Fensters. Ein unbekannter Wert in der Registry gilt als Dezent. Gesperrt außerhalb der Betriebsart Plugin. |
 
 ### Darstellung der Popups
 
@@ -75,14 +108,14 @@ bestimmt die IDE die Farben.
 | Option | Registry-Wert | Schlüssel | Vorgabe | Wirkung |
 |---|---|---|---|---|
 | Zusätzliche Quellordner (mit „;“ getrennt, samt Unterordnern): | – | `index.extraSourceFolders` | leer | Ordner mit dem Quelltext von Bibliotheken, die sonst nur als `.dcu` vorliegen (DUnitX, DUnit, FireDAC, Komponenten). Unterordner zählen mit (ohne `.git`, `__history`, `__recovery`); `$(Name)` und `%Name%` werden aufgelöst. Ihre Units schlägt „+ Unit“ vor, geladen werden sie bei Bedarf; sie haben einen eigenen Cache. Liegt in `%APPDATA%\dpcc\settings.json` (in der Datei auch als Liste), nicht in der Registry; der Server baut den Index ohne Neustart um. Ersetzt den früheren Schalter `index.officeAndWinRt`: Office-Typbibliotheken und WinRT stehen immer im Katalog. Siehe [Index und Cache](index-cache.md#zusätzliche-quellordner). |
-| Knopf „Index neu aufbauen“ | – | – | – | Fragt nach, löscht alle Index-Caches und baut den Index neu auf. Hängt nicht am Hauptschalter. Siehe [Index und Cache](index-cache.md#index-neu-aufbauen). |
+| Knopf „Index neu aufbauen“ | – | – | – | Fragt nach, löscht alle Index-Caches und baut den Index neu auf. Hängt nicht an der Betriebsart. Siehe [Index und Cache](index-cache.md#index-neu-aufbauen). |
 
 ## IDE
 
 | Option | Registry-Wert | Schlüssel | Vorgabe | Wirkung |
 |---|---|---|---|---|
-| Knopf „Jetzt prüfen“ | – | – | – | Rechts daneben stehen bis zu vier Zeilen: Betriebsart und Anbieter, ob ein Wechsel noch auf den Neustart von Delphi wartet, was dpcc an der IDE gesetzt hat und das Ergebnis der Prüfung (etwa „1 Abweichung: Auto Code Completions“). Beim Öffnen der Seite gelesen, der Knopf liest neu. Liest nur, ändert nichts; hängt nicht am Hauptschalter. Siehe [Was dpcc an der IDE umstellt](#was-dpcc-an-der-ide-umstellt). |
-| Ablauf protokollieren (Log) | `Diagnose` | – | aus | Schreibt für jede Aktion (Strg+Klick bzw. „Deklaration suchen“, Vervollständigung, Hover, Parameterhilfe) jeden Schritt vom Aufruf der IDE bis zum Ergebnis ins Diagnoseprotokoll neben der Plugin-BPL. Ohne Quelltext außer dem Wort an der Stelle. Derselbe DWORD wie das frühere `Diagnose` = 1 von Hand: Ein so gesetzter Wert erscheint angehakt. Wirkt nach OK sofort, ohne Neustart; das Meldungsfenster nennt dann die Datei, der Hint am Schalter ebenso. Hängt nicht am Hauptschalter. Siehe [Fehlersuche](troubleshooting.md#ablaufprotokoll). |
+| Knopf „Jetzt prüfen“ | – | – | – | Rechts daneben stehen bis zu vier Zeilen: Betriebsart und Anbieter, ob ein Wechsel noch auf den Neustart von Delphi wartet, was dpcc an der IDE gesetzt hat und das Ergebnis der Prüfung (etwa „1 Abweichung: Auto Code Completions“). Beim Öffnen der Seite gelesen, der Knopf liest neu. Liest nur, ändert nichts; hängt nicht an der Betriebsart. Siehe [Was dpcc an der IDE umstellt](#was-dpcc-an-der-ide-umstellt). |
+| Ablauf protokollieren (Log) | `Diagnose` | – | aus | Schreibt für jede Aktion (Strg+Klick bzw. „Deklaration suchen“, Vervollständigung, Hover, Parameterhilfe) jeden Schritt vom Aufruf der IDE bis zum Ergebnis ins Diagnoseprotokoll neben der Plugin-BPL. Ohne Quelltext außer dem Wort an der Stelle. Derselbe DWORD wie das frühere `Diagnose` = 1 von Hand: Ein so gesetzter Wert erscheint angehakt. Wirkt nach OK sofort, ohne Neustart; das Meldungsfenster nennt dann die Datei, der Hint am Schalter ebenso. Hängt nicht an der Betriebsart. Siehe [Fehlersuche](troubleshooting.md#ablaufprotokoll). |
 
 ## Fest eingestellte Werte
 
@@ -90,7 +123,7 @@ Diese Optionen stehen nicht mehr auf der Seite. Sie gelten fest mit ihrer bisher
 
 - **Verzögerung bis zum automatischen Öffnen (etwa nach „.“): 150 ms** (`OpenDelayMs`, `completion.openDelayMs`).
   Gilt nur für das automatische Öffnen (nach „.“ und beim Tippen), nicht für Strg+Leertaste. Automatisch öffnet
-  dpcc nur in der Betriebsart dpcc; in der Betriebsart IDE (DelphiLSP gewählt) ist dpcc aus (siehe
+  dpcc nur in der Betriebsart Plugin; in den Betriebsarten Aus und Server öffnet dpcc keine Liste (siehe
   [Bedienung](usage.md#zusammenspiel-mit-delphilsp)).
 - **Favoriten anheften mit Strg+D: an** (`Favorites`, `completion.favorites`). Strg+D in der offenen Liste heftet an
   bzw. löst; die Favoriten liegen weiter in `%APPDATA%\dpcc\favorites.json`. Siehe
@@ -125,7 +158,11 @@ Diese Optionen stehen nicht mehr auf der Seite. Sie gelten fest mit ihrer bisher
   den Schlüssel nicht mehr.
 - Wer eine der jetzt [fest eingestellten](#fest-eingestellte-werte) Optionen geändert hatte, verliert die Abweichung
   ohne Meldung. Die alten Werte unter `HKCU\Software\dpcc\IdePlugin` bleiben liegen und werden nicht mehr beachtet.
-- OK speichert nur noch die Werte der Seite: den Hauptschalter und zwölf Optionen in der Registry,
+- Der Hauptschalter „Code Insight von dpcc“ ist der [Betriebsart](#betriebsart) gewichen: an entspricht Plugin, aus
+  entspricht Aus; neu ist Server. Die Betriebsart gilt je Delphi-Version; den früheren Wert `Enabled` überführt dpcc
+  beim ersten Start (siehe [Ablage](#ablage)).
+- OK speichert nur noch die Werte der Seite: die Betriebsart der laufenden Delphi-Version und zwölf Optionen in der
+  Registry,
   `index.extraSourceFolders` in `settings.json`. Früher schrieb jedes OK rund 600 Registry-Werte (auch versteckte
   Einstellungen früherer Reiter, Tasten, Modul-Schalter und experimentelle Schalter) und dazu Server-Schlüssel in
   `settings.json`: `slashCommands.enabled`, `codeLens.metrics`, `metrics`, `experimental.enabled`, `compiler.onSave`,
@@ -145,7 +182,7 @@ Diese Optionen stehen nicht mehr auf der Seite. Sie gelten fest mit ihrer bisher
 
 | Ort | Inhalt |
 |---|---|
-| `HKCU\Software\dpcc\IdePlugin` | alle Optionen der Seite außer `index.extraSourceFolders`. Schalter und Zahlen als DWORD (Schalter 0/1), Auswahlen als Text (`CompletionListMode`: `filter`, `all`, `rest`; `PopupLook`: `intense`, `subtle`, `plain`). Dazu die Merker für die IDE-Schalter (unten) und `PathOverrideBackup` von `Tools\IdePath.ps1`. Nur gelesen, nie geschrieben: der Support-Schalter `LogNames` (siehe [Fehlersuche](troubleshooting.md)). `Diagnose` („Ablauf protokollieren (Log)“) gehört seit dieser Fassung zu den Werten der Seite; OK schreibt ihn als 0 oder 1, ein von Hand gesetzter Wert gilt weiter. Alte Werte der fest eingestellten und der entfernten Optionen bleiben liegen, wirken aber nicht; dpcc schreibt sie nicht mehr. |
+| `HKCU\Software\dpcc\IdePlugin` | alle Optionen der Seite außer `index.extraSourceFolders`. Schalter und Zahlen als DWORD (Schalter 0/1), Auswahlen als Text (`CompletionListMode`: `filter`, `all`, `rest`; `PopupLook`: `intense`, `subtle`, `plain`; die Betriebsart je Version als `OperatingMode 23.0` bzw. `OperatingMode 37.0`: `off`, `plugin`, `server`). Der frühere Hauptschalter `Enabled` (DWORD, für alle Versionen gemeinsam) wird nur noch gelesen, siehe unten. Dazu die Merker für die IDE-Schalter (unten) und `PathOverrideBackup` von `Tools\IdePath.ps1`. Nur gelesen, nie geschrieben: der Support-Schalter `LogNames` (siehe [Fehlersuche](troubleshooting.md)). `Diagnose` („Ablauf protokollieren (Log)“) gehört seit dieser Fassung zu den Werten der Seite; OK schreibt ihn als 0 oder 1, ein von Hand gesetzter Wert gilt weiter. Alte Werte der fest eingestellten und der entfernten Optionen bleiben liegen, wirken aber nicht; dpcc schreibt sie nicht mehr. |
 | `%APPDATA%\dpcc\settings.json` | `index.extraSourceFolders` (von der Seite) und `hints.xmlDocMaxLines` (nur in der Datei einstellbar). Der Server im IDE-Prozess liest die Datei selbst und beobachtet sie. dpcc liest `hints.xmlDocMaxLines` nur und schreibt den Schlüssel nie; fehlt er in der Datei, gilt ein Registry-Wert `XmlDocMaxLines` einer älteren Version, sonst 0. Andere Schlüssel der Datei fasst dpcc nicht an. Ein alter Wert `hints.xmlDocExpand` bzw. `hints.xmlDocFull` bleibt ohne Wirkung. |
 | `%APPDATA%\dpcc\settings-history.json` | nur aus älteren Versionen: frühere Stände der Einstellungen. dpcc schreibt und liest die Datei nicht mehr; sie kann gelöscht werden. |
 | `%APPDATA%\dpcc\usage.json` | Verlauf der lernenden Gewichtung |
@@ -154,33 +191,58 @@ Diese Optionen stehen nicht mehr auf der Seite. Sie gelten fest mit ihrer bisher
 Eine unbrauchbare `usage.json` oder `favorites.json` legt dpcc als `….defekt` daneben und beginnt leer. Eine
 gesperrte Datei überschreibt es nicht.
 
+Betriebsart beim ersten Start einer Version:
+
+- Hat die Delphi-Version noch keinen eigenen Wert `OperatingMode <Version>`, gilt das frühere `Enabled`: 0 → Aus,
+  jeder andere Wert → Plugin. Fehlt auch `Enabled`, gilt Plugin. Ein unlesbarer Wert zählt wie ein fehlender.
+- Das Ergebnis schreibt dpcc beim ersten Start sofort unter dem Namen der Version. `Enabled` bleibt danach
+  unverändert liegen und wird nicht mehr geschrieben.
+- Gibt es weder einen eigenen Wert noch `Enabled` (erster Start nach der Installation), gilt Plugin, und dpcc stellt
+  den Code-Insight-Anbieter der IDE auf dpcc, auch wenn DelphiLSP gewählt war. Das wirkt nach dem Neustart von
+  Delphi.
+
 Alles auf Vorgabe: die IDE schließen und den Schlüssel `HKCU\Software\dpcc\IdePlugin` sowie `settings.json`
-löschen. Vorher den Hauptschalter aus- und mit OK bestätigen und Delphi einmal neu starten, damit dpcc den Anbieter
-und die IDE-Schalter zurückgibt (siehe unten).
+löschen. Vorher die Betriebsart Aus wählen, mit OK bestätigen und Delphi einmal neu starten, damit dpcc den Anbieter
+und die IDE-Schalter zurückgibt (siehe unten). Beim nächsten Start gilt dann wieder die Vorgabe Plugin, und dpcc
+stellt den Anbieter erneut auf dpcc.
 
 ## Was dpcc an der IDE umstellt
 
-dpcc läuft in einer von zwei Betriebsarten, die sich ausschließen. Welche gilt, entscheidet dpcc beim Start von
-Delphi selbst nach dem Code-Insight-Anbieter, der in den Optionen der IDE für Delphi gewählt ist (Wert
-`Insight Manager` unter `HKCU\<Basis>\Editor\Source Options\Borland.EditOptions.Pascal`). Das gilt für Delphi 12
+dpcc läuft je Delphi-Version in einer von drei [Betriebsarten](#betriebsart), die sich ausschließen. Gewählt wird
+sie auf der Seite; beim Start von Delphi gleicht dpcc sie mit dem Code-Insight-Anbieter ab, der in den Optionen der
+IDE für Delphi gewählt ist (Wert `Insight Manager` unter
+`HKCU\<Basis>\Editor\Source Options\Borland.EditOptions.Pascal`). Das gilt für Delphi 12
 (`<Basis>` = `Software\Embarcadero\BDS\23.0`) und Delphi 13 (`…\BDS\37.0`) gleich.
 
-| Betriebsart | Gewählter Anbieter | dpcc | Was dpcc an der IDE ändert |
+| Betriebsart | Anbieter der IDE | dpcc | Was dpcc an der IDE ändert |
 |---|---|---|---|
-| IDE | DelphiLSP (Vorgabe) oder ein anderer Anbieter | aus: dpcc schaltet seinen Hauptschalter beim Start aus | Es dreht zurück, was es selbst geändert hatte. Die Werte, die DelphiLSP braucht, prüft es nur und schreibt das Ergebnis ins Protokoll. |
-| dpcc | dpcc (`dpcc.CodeInsight`) | an: dpcc schaltet seinen Hauptschalter beim Start ein | Es setzt die Schalter aus der Tabelle [Schalter in der Betriebsart dpcc](#schalter-in-der-betriebsart-dpcc). |
+| Aus | DelphiLSP (Vorgabe der IDE) oder ein anderer Anbieter | keine Fenster, keine Umleitung | Es dreht zurück, was es selbst geändert hatte. Die Werte, die DelphiLSP braucht, prüft es nur und schreibt das Ergebnis ins Protokoll. |
+| Plugin | dpcc (`dpcc.CodeInsight`) | eingebauter Server, eigene Liste, Tooltip und Parameter-Hint | Es setzt die Schalter aus der Tabelle [Schalter in der Betriebsart Plugin](#schalter-in-der-betriebsart-plugin). |
+| Server | DelphiLSP (`Borland.CodeInsight.LSP.Pascal`) | kein eingebauter Server, keine Fenster; der Start von `DelphiLSP.exe` wird auf `dpcc.LspServer.exe` umgeleitet | Wie bei Aus. Den Anbieter stellt es mit OK auf DelphiLSP. Die Umleitung sitzt im Prozess der IDE, nicht in der Registry. |
 
 Für diese Schalter gibt es keine Open Tools API: Sie stehen in der Registry der IDE und werden beim Start der IDE
 gelesen. dpcc liest und schreibt sie dort, versionsneutral über den Basisschlüssel der laufenden IDE.
 
 ### Umschalten
 
-- **Hauptschalter an** und OK: dpcc stellt den Anbieter der IDE auf dpcc (`Insight Manager` = `dpcc.CodeInsight`) und
-  setzt die Schalter. Der vorige Anbieter bleibt gemerkt.
-- **Hauptschalter aus** und OK: dpcc stellt den Anbieter zurück (auf den gemerkten, sonst auf DelphiLSP) und dreht
-  seine übrigen Änderungen zurück.
-- **In den Optionen der IDE** (Code Insight) DelphiLSP oder dpcc wählen: Meldet die IDE die Wahl an dpcc, folgt der
-  Hauptschalter sofort; sonst gilt die Wahl beim nächsten Start.
+- **Plugin** mit OK: dpcc stellt den Anbieter der IDE auf dpcc (`Insight Manager` = `dpcc.CodeInsight`) und setzt
+  die Schalter. Der vorige Anbieter bleibt gemerkt.
+- **Aus** mit OK, während Plugin galt: dpcc stellt den Anbieter zurück (auf den gemerkten, sonst auf DelphiLSP) und
+  dreht seine übrigen Änderungen zurück.
+- **Server** mit OK: dpcc stellt den Anbieter in jedem Fall auf DelphiLSP (auch aus einem anderen Anbieter, nicht auf
+  den gemerkten Wert) und dreht seine Code-Insight-Schalter zurück wie bei Aus.
+- Von oder zu **Plugin** wechselt der Anbieter; das wirkt erst nach dem Neustart von Delphi (siehe unten).
+- **Zwischen Aus und Server** (die IDE ist schon im LSP-Betrieb) braucht es keinen Neustart. Die IDE startet ihren
+  Server, wenn die erste Unit einer Projektgruppe angezeigt wird, einen je Projektgruppe; ein laufender Server bleibt,
+  bis die Gruppe geschlossen wird. Die Umleitung liest die Betriebsart bei jedem Start von DelphiLSP neu. Also: die
+  Projektgruppe schließen und wieder öffnen.
+- **Beim Start von Delphi** richtet sich die Betriebsart nach dem gewählten Anbieter: Ist dpcc gewählt, gilt Plugin.
+  Ist DelphiLSP gewählt (oder kein Anbieter eingetragen), bleibt eine gespeicherte Betriebsart Server stehen, sonst
+  gilt Aus. Ist ein anderer Anbieter gewählt, gilt Aus; war Server gewählt, sagt das Meldungsfenster es. Ausnahme ist
+  der erste Start ohne gespeicherten Wert (siehe [Ablage](#ablage)).
+- **In den Optionen der IDE** (Code Insight) einen Anbieter wählen: dpcc → Plugin; ein anderer Anbieter, während
+  Plugin gilt → Aus (wie bisher); DelphiLSP, während Server gilt → Server bleibt. Meldet die IDE die Wahl an dpcc,
+  folgt die Betriebsart sofort; sonst gilt die Wahl beim nächsten Start.
 - Die IDE liest Anbieter und Schalter nur beim Start. Nach einem Wechsel meldet dpcc einmal im Meldungsfenster
   „… wirkt nach dem Neustart von Delphi“. Bis dahin ruft die IDE den bisherigen Anbieter.
 - Weil die IDE mit OK ihre Editoroptionen aus dem Speicher zurückschreibt, schreibt dpcc erst nach dem Dialog, prüft
@@ -191,15 +253,17 @@ gelesen. dpcc liest und schreibt sie dort, versionsneutral über den Basisschlü
   höchstens 10 Minuten lang) und schreibt überschriebene Werte erneut, wie nach OK auf der Seite dpcc. Die Reparatur
   beim Beenden von Delphi bleibt.
 - Kommt der Wechsel auf dpcc trotzdem nicht an (die IDE hat ihre Wahl zurückgeschrieben), ist dpcc beim nächsten
-  Start aus, und das Meldungsfenster sagt es. Dann den Hauptschalter erneut setzen oder dpcc in den Optionen der IDE
-  wählen.
+  Start aus, und das Meldungsfenster sagt es. Dann die Betriebsart Plugin erneut wählen oder dpcc in den Optionen der
+  IDE wählen.
 - Jede Entscheidung steht als eine Zeile im Protokoll, etwa „IDE-Kontext (Start): Borland.CodeInsight.LSP.Pascal →
-  dpcc aus; zurückgedreht: Help Insight“ bzw. „IDE-Kontext (Hauptschalter an): … → dpcc an; Anbieter → dpcc.CodeInsight
-  (wirkt nach dem Neustart); gesetzt: …“.
+  dpcc aus; Betriebsart Server; …“ bzw. „IDE-Kontext (Hauptschalter an): … → dpcc an; Betriebsart Plugin (geändert);
+  Anbieter → dpcc.CodeInsight (wirkt nach dem Neustart); gesetzt: …“. Der Anlass in Klammern heißt im Protokoll
+  weiter „Hauptschalter an“ (Plugin), „Hauptschalter aus“ (Aus) bzw. „Betriebsart Server“. Ein Wechsel auf der Seite
+  steht zusätzlich als „IDE-Kontext: Betriebsart mit OK umgestellt: Aus → Server“.
 
-### Schalter in der Betriebsart dpcc
+### Schalter in der Betriebsart Plugin
 
-Ort, wenn nicht anders genannt: die Orte der Betriebsart dpcc unter `HKCU\<Basis>\Code Insight` (siehe
+Ort, wenn nicht anders genannt: die Orte der Betriebsart Plugin unter `HKCU\<Basis>\Code Insight` (siehe
 [Orte der Schlüssel je Version](#orte-der-schlüssel-je-version)). Unter Delphi 12 und Delphi 13 ist das jeder
 vorhandene aus `Borland.EditOptions.Pascal` und `Borland.EditOptions.Borland.CodeInsight.LSP.Pascal`.
 
@@ -219,15 +283,16 @@ Ein fehlender Wert gilt mit der Vorgabe der IDE (Schalter an, Verzögerung -1). 
 Die Namen der Optionen sind die der deutschen IDE, gekürzt; maßgeblich ist der Registry-Wert.
 
 Help Insight zur Laufzeit: Unabhängig vom Registry-Wert verbirgt dpcc das Fenster von Help Insight der IDE, sobald
-es sichtbar wird, solange dpcc an ist und entweder „Eigener Tooltip …“ an ist (dann immer) oder das Popup der
+es sichtbar wird, solange die Betriebsart Plugin gilt und entweder „Eigener Tooltip …“ an ist (dann immer) oder das Popup der
 Vervollständigung von dpcc offen ist (dann auch bei ausgeschaltetem eigenem Tooltip, damit das Fenster die Liste
-nicht verdeckt). Das wirkt sofort, ohne Neustart von Delphi; ist dpcc aus, bleibt Help Insight der IDE unberührt.
+nicht verdeckt). Das wirkt sofort, ohne Neustart von Delphi; in den Betriebsarten Aus und Server bleibt Help Insight
+der IDE unberührt.
 Das erste Verbergen je Sitzung steht im Protokoll („Help Insight der IDE: Fenster THelpInsightWindow verborgen …“),
 mit „Ablauf protokollieren (Log)“ jedes mit Grund. Beim Start steht außerdem eine Zeile „Help Insight in der
 Registry (…)“ mit dem gelesenen Wert an den Orten von DelphiLSP, `Borland.EditOptions.Pascal` und
 `Borland.EditOptions.HTML`.
 
-### Prüfung in der Betriebsart IDE
+### Prüfung in den Betriebsarten Aus und Server
 
 Mit DelphiLSP prüft dpcc beim Start, ändert aber nichts. Das Ergebnis steht im Protokoll und im Abschnitt
 [IDE](#ide) der Seite.
@@ -237,22 +302,22 @@ Mit DelphiLSP prüft dpcc beim Start, ändert aber nichts. Das Ergebnis steht im
 | Programmierhilfe | `Auto Code Completions` | `True` | Aus: Nach „.“ öffnet keine Liste (siehe [Fehlersuche](troubleshooting.md#nach-dem-punkt-öffnet-keine-liste)). |
 | Automatisch aufrufen | `Auto Invoke` | `True` | Aus: Die IDE ruft die Vervollständigung nach „.“ nicht von selbst auf (siehe [Fehlersuche](troubleshooting.md#nach-dem-punkt-öffnet-keine-liste)). |
 | Code-Parameter: Automatisch aufrufen | `Auto Code Parameters` | `True` | Aus: kein Parameter-Hint von selbst. |
-| Error Insight | `Error Insight` | `True` (fehlt = an) | Aus: Die Fehlermarkierungen von DelphiLSP fehlen im Editor. |
+| Error Insight | `Error Insight` | `True` (fehlt = an) | Aus: Die Fehlermarkierungen von DelphiLSP fehlen im Editor. In der Betriebsart Server bleiben sie ohnehin leer. |
 
 #### Orte der Schlüssel je Version
 
 | | Delphi 12 (BDS 23.0) | Delphi 13 (BDS 37.0) |
 |---|---|---|
-| Betriebsart IDE (DelphiLSP) | `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` | `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` |
-| Betriebsart dpcc | jeder vorhandene aus `Code Insight\Borland.EditOptions.Pascal` und `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` | jeder vorhandene aus `Code Insight\Borland.EditOptions.Pascal` und `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` |
+| Betriebsarten Aus und Server (DelphiLSP) | `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` | `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` |
+| Betriebsart Plugin | jeder vorhandene aus `Code Insight\Borland.EditOptions.Pascal` und `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` | jeder vorhandene aus `Code Insight\Borland.EditOptions.Pascal` und `Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` |
 
 Weder für Delphi 12 noch für Delphi 13 ist belegt, welchen Ort die IDE mit dpcc als Anbieter liest; unter Delphi 12
 blieb Help Insight auch mit `False` am Ort von DelphiLSP an. dpcc behandelt beide Versionen deshalb gleich: Es setzt
 und prüft jeden der beiden Orte, den es gibt, und legt keinen fehlenden an; fehlen beide, nimmt es den Ort von
 DelphiLSP. Frühere Merker für `Borland.EditOptions.Pascal` unter Delphi 12 gelten damit wieder als eigene Merker und
 werden nicht mehr als „alter Ort“ aufgeräumt; „aufgeräumt (alter Ort)“ steht nur noch bei einem Merker an einem Ort,
-der kein Ort der Betriebsart dpcc ist. Das Fenster von Help Insight verbirgt dpcc zusätzlich zur Laufzeit (siehe
-[Schalter in der Betriebsart dpcc](#schalter-in-der-betriebsart-dpcc)).
+der kein Ort der Betriebsart Plugin ist. Das Fenster von Help Insight verbirgt dpcc zusätzlich zur Laufzeit (siehe
+[Schalter in der Betriebsart Plugin](#schalter-in-der-betriebsart-plugin)).
 Fehlt der geprüfte Schlüssel ganz, steht im Ergebnis „Schlüssel fehlt (IDE-Vorgabe)“; das ist kein Fehler. Die
 Protokollzeile lautet etwa
 „IDE-Einstellungen: 1 Abweichung: Auto Code Completions; Anbieter „Borland.CodeInsight.LSP.Pascal“, geprüft …“.
@@ -266,7 +331,8 @@ Protokollzeile lautet etwa
 - Ältere Merker (`IdeHelpInsightDisabled …`, `IdeTooltipWatchesDisabled …`) gelten weiter: Beim nächsten Abgleich
   dreht dpcc sie zurück bzw. ersetzt sie durch die neuen.
 - Error Insight und die Strukturhervorhebung schaltet dpcc nie.
-- Vor dem Deinstallieren: Hauptschalter aus, OK, Delphi neu starten. Sonst bleibt `dpcc.CodeInsight` als Anbieter und
+- `ErrorInsightLevel` setzt dpcc ebenfalls nicht, auch nicht in der Betriebsart Server.
+- Vor dem Deinstallieren: Betriebsart Aus, OK, Delphi neu starten. Sonst bleibt `dpcc.CodeInsight` als Anbieter und
   bleiben die Schalter von dpcc stehen.
 - Zusätzlich meldet dpcc einen eigenen Code-Insight-Manager und die Tastenbindung „dpcc Code Completion“ für
   Strg+Leertaste und Strg+Umschalt+Leertaste an. Beides baut es beim Entladen wieder ab.

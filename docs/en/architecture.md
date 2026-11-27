@@ -89,7 +89,7 @@ dependencies loaded until the IDE exits. This way no thread jumps into unloaded 
 | `Lsp` | LSP client, session (initialize, document synchronization, requests), adapter to the in-process server, crash handling |
 | `Completion` | flow of the list (`TDpccCompletionController`), filtering, ranking, favorites, history, set mode, placeholders |
 | `Hover`, `Signature`, `Documentation` | contents of tooltip and parameter hint, XMLDoc rendering |
-| `Settings` | plugin settings (`TDpccPluginSettings`: exactly the values of the page, plus two read-only ones), storage in the registry and `settings.json` (`dpcc.Core.Settings.Scopes`), layout of the options page and fixed values (`dpcc.Core.Settings.CompletionView`), master switch without restart |
+| `Settings` | plugin settings (`TDpccPluginSettings`: exactly the values of the page, plus two read-only ones), storage in the registry and `settings.json` (`dpcc.Core.Settings.Scopes`), layout of the options page and fixed values (`dpcc.Core.Settings.CompletionView`), operating mode Off/Plugin/Server per version (`dpcc.Core.Settings.OperatingMode`), switching the own windows without restart |
 | `Diagnostics` | safety fuse (`TDpccGuard`), log, queue to the main thread, shutdown |
 | `Localization` | language of the texts |
 
@@ -114,15 +114,17 @@ dependencies loaded until the IDE exits. This way no thread jumps into unloaded 
 | `Forms` | forms from the designer to the server |
 | `Projects` | project context from the IDE |
 | `Settings` | registration of the options page |
-| `Foundation` | settings in the registry and `settings.json`, IDE switches, keyboard hook, editor access, splash screen |
+| `Foundation` | settings in the registry and `settings.json`, IDE switches, keyboard hook, editor access, splash screen, redirection of `DelphiLSP.exe` to `dpcc.LspServer.exe` (Server mode) |
 
 ## Registration and shutdown
 
 `dpcc.IDE.Completion.Register` is the composition root. `Register` registers, one after the other: safety fuse and
-log, language, splash screen, mode (IDE context), Code Insight manager, key binding, forms, save notifier, master
-switch, options page. Each step runs on its own; an error costs only that step and is written to the log.
+log, language, splash screen, mode (IDE context), redirection for the Server mode
+(`dpcc.IDE.Foundation.LspRedirect`, see [LSP server](lsp-server.md#server-mode)), Code Insight manager, key binding,
+forms, save notifier, switching the mode without restart, options page. Each step runs on its own; an error costs only that step and is written to the log.
 
-The mode (dpcc is the Code Insight provider or off) is decided by `dpcc.Core.Settings.IdeCheck` without the registry
+The reconciliation of the mode with the Code Insight provider (Plugin: dpcc is the provider; Off and Server:
+DelphiLSP) is decided by `dpcc.Core.Settings.IdeCheck` without the registry
 (`TDpccIdeContext.Plan`: write actions and markers, `TDpccIdeCheck.Evaluate`: check); reading happens in
 `dpcc.IDE.Foundation.IdeSettingsCheck`, writing in `dpcc.IDE.Foundation.InsightSwitch` (at startup before the
 manager, after OK in the options dialog, on the choice in the IDE's Code Insight dialog via

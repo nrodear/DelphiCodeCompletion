@@ -14,6 +14,10 @@
 // Seit LOG1 gehört der DWORD Diagnose („Ablauf protokollieren (Log)“) zu den Werten der Seite. Weil der Support ihn
 // auch von Hand setzt, liest RefreshDiagnose ihn vor dem Laden der Seite neu, und Update übernimmt den Stand der
 // Registry, wenn der Aufrufer den Wert nicht geändert hat.
+// Seit Stufe 2 von dpcc.LspServer.exe gilt die Betriebsart (Aus, Plugin, Server) je Delphi-Version
+// ("OperatingMode 23.0" bzw. "OperatingMode 37.0", Version nach CompilerVersion, IdeVersion). Fehlt der Wert einer
+// Version, überführt EnsureLoaded den früheren gemeinsamen DWORD Enabled (0 → Aus, sonst Plugin, ohne ihn Plugin) und
+// schreibt das Ergebnis sofort unter dem Namen der Version; Enabled schreibt dpcc nicht mehr.
 
 interface
 
@@ -40,6 +44,11 @@ type
     class procedure RefreshDiagnose; static;
     /// <summary>Beim Entladen: Stand verwerfen; der nächste Zugriff liest neu.</summary>
     class procedure Release; static;
+    /// <summary>Version der IDE, deren Betriebsart gilt ("23.0" für Delphi 12, "37.0" für Delphi 13).</summary>
+    class function IdeVersion: string; static;
+    /// <summary>Einmal True, wenn beim Laden für diese Version weder ein eigener Wert der Betriebsart noch das frühere
+    /// Enabled stand (erster Start nach der Installation): Dann gilt die Vorgabe Plugin auch gegen DelphiLSP.</summary>
+    class function TakeFreshDefault: Boolean; static;
     /// <summary>Nach Update (Optionsseite, gezogene Breite): z. B. Hauptschalter und Tooltips abgleichen (#494).
     /// </summary>
     class property OnChanged: TProc read FOnChanged write FOnChanged;
@@ -56,6 +65,7 @@ uses
   System.Win.Registry,
   dpcc.Core.Files.TextFile,
   dpcc.Core.Settings.Scopes,
+  dpcc.Core.Settings.OperatingMode,
   dpcc.Core.Diagnostics.Guard;
 
 type
@@ -171,6 +181,8 @@ type
 
 var
   GState: TSettingsState;
+  /// <summary>Beim ersten Laden ohne jeden gespeicherten Wert der Betriebsart (TakeFreshDefault).</summary>
+  GFreshDefault: Boolean;
 
 function GlobalFile: string;
 begin
@@ -250,8 +262,41 @@ begin
   end;
   LoadGlobal(mContent);
   mStore := TDpccRoutedSettingsStore.Create(TRegistryStore.Create(False), mContent.Text);
+  // Betriebsart je Delphi-Version: Load liest "OperatingMode <Version>", ohne ihn das frühere Enabled.
+  GState.Settings.IdeVersion := IdeVersion;
   GState.Settings.Load(mStore);
   GState.Loaded := True;
+  // Weder eigener Wert noch früheres Enabled: erster Start nach der Installation, Vorgabe Plugin (ApplyAtStart).
+  GFreshDefault := GState.Settings.ModeFromDefault;
+  GState.Settings.ModeFromDefault := False;
+  if GState.Settings.ModeFromLegacy then
+  begin
+    // Überführung einmal festschreiben: ab jetzt gilt für diese Version der eigene Wert; Enabled bleibt, wie er ist
+    // (andere Versionen ohne eigenen Wert überführen ihn genauso).
+    GState.Settings.ModeFromLegacy := False;
+    mStore := TRegistryStore.Create(True);
+    mStore.WriteString(TDpccOperatingModes.ValueName(IdeVersion), TDpccOperatingModes.IdOf(GState.Settings.Mode));
+    TDpccGuard.Log(Format('Betriebsart für Delphi %s aus dem früheren Hauptschalter übernommen: %s', [IdeVersion,
+      TDpccOperatingModes.LogName(GState.Settings.Mode)]));
+  end;
+end;
+
+class function TDpccIdeSettings.TakeFreshDefault: Boolean;
+begin
+  EnsureLoaded;
+  Result := GFreshDefault;
+  GFreshDefault := False;
+end;
+
+class function TDpccIdeSettings.IdeVersion: string;
+begin
+  // Die Registry-Version der IDE, für die dieses Plugin gebaut ist (Delphi 12 = BDS 23.0, Delphi 13 = BDS 37.0);
+  // ohne Open Tools API, damit es auch aus Hintergrund-Threads gilt.
+{$IF CompilerVersion >= 37.0}
+  Result := '37.0';
+{$ELSE}
+  Result := '23.0';
+{$IFEND}
 end;
 
 class function TDpccIdeSettings.Current: TDpccPluginSettings;
@@ -270,6 +315,9 @@ var
 begin
   EnsureLoaded;
   mNext := ASettings;
+  // Immer unter der Version dieser IDE (die Betriebsart gilt je Version).
+  mNext.IdeVersion := IdeVersion;
+  mNext.ModeFromLegacy := False;
   mNext.Normalize;
   // Diagnose (LOG1) setzt der Support auch von Hand in der Registry: Ändert der Aufrufer den Wert nicht (gezogene
   // Breite der Liste, Betriebsart), gilt der Stand dort, statt ihn mit einem älteren zu überschreiben.

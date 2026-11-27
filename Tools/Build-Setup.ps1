@@ -21,6 +21,12 @@
   Danach ruft es ISCC mit /DDpccVersion=<x.y.z>.0, /DDpccBplSourceDirD12, /DDpccBplSourceDirD13 und /O<OutDir>.
   Ergebnis: <OutDir>\dpccSetup-<x.y.z>.0.exe. Das Setup wird nicht ausgefuehrt.
 
+  LSP-Server (Betriebsart Server): Das Setup nimmt dpcc.LspServer.exe in beiden Bitbreiten als abwaehlbare
+  Komponente auf. Geprueft wird wie bei den BPLs: Output\Win32\Debug\Bin (PE 014C, Gruppenbau dpcc_d13) und
+  Output\Win64\Debug\Bin (PE 8664, eigener Bauschritt Win64) vorhanden und nicht aelter als ihre Quellen
+  (Application und die Packages dpcc.Text, dpcc.WinBase, dpcc.Common, dpcc.Windows). Zusaetzlich entsteht
+  <OutDir>\dpcc.LspServer-<x.y.z>.zip mit win32\, win64\ und LIESMICH.txt (installer\LspServer-LIESMICH.txt).
+
 .EXAMPLE
   powershell -NoProfile -File Tools\Build-Setup.ps1 -DryRun
   powershell -NoProfile -File Tools\Build-Setup.ps1
@@ -32,6 +38,10 @@ param(
   [string]$BplDirD12 = '',
   # BPL-Ordner von Delphi 13; Vorgabe Output\Win32\Debug\Bpl im Repo.
   [string]$BplDirD13 = '',
+  # Ordner der 32-Bit-EXE dpcc.LspServer.exe; Vorgabe Output\Win32\Debug\Bin (Gruppenbau dpcc_d13).
+  [string]$LspServerDirWin32 = '',
+  # Ordner der 64-Bit-EXE dpcc.LspServer.exe; Vorgabe Output\Win64\Debug\Bin (eigener Bauschritt Win64).
+  [string]$LspServerDirWin64 = '',
   # Zielordner des Setups; Vorgabe installer\Output im Repo (steht in .gitignore).
   [string]$OutDir = '',
   # Voller Pfad zu ISCC.exe, falls es weder im PATH noch im Standardordner liegt.
@@ -46,6 +56,10 @@ $iss = Join-Path $repo 'installer\dpccSetup.iss'
 
 if ($BplDirD12 -eq '') { $BplDirD12 = Join-Path $repo 'Output\Win32\D12\Bpl' }
 if ($BplDirD13 -eq '') { $BplDirD13 = Join-Path $repo 'Output\Win32\Debug\Bpl' }
+if ($LspServerDirWin32 -eq '') { $LspServerDirWin32 = Join-Path $repo 'Output\Win32\Debug\Bin' }
+if ($LspServerDirWin64 -eq '') { $LspServerDirWin64 = Join-Path $repo 'Output\Win64\Debug\Bin' }
+$LspServerDirWin32 = [IO.Path]::GetFullPath($LspServerDirWin32).TrimEnd('\')
+$LspServerDirWin64 = [IO.Path]::GetFullPath($LspServerDirWin64).TrimEnd('\')
 if ($OutDir -eq '') { $OutDir = Join-Path $repo 'installer\Output' }
 $BplDirD12 = [IO.Path]::GetFullPath($BplDirD12).TrimEnd('\')
 $BplDirD13 = [IO.Path]::GetFullPath($BplDirD13).TrimEnd('\')
@@ -149,6 +163,47 @@ foreach ($v in $versions) {
 }
 ''
 
+# ---- LSP-Server -------------------------------------------------------------------------------------------------
+# Eine EXE je Bitbreite. Quellen: Application\dpcc.LspServer.dpr, Application\Source und die Packages, deren Units
+# die EXE ueber ihren Suchpfad direkt uebersetzt (dpcc.Text, dpcc.WinBase, dpcc.Common, dpcc.Windows).
+$lspExe = 'dpcc.LspServer.exe'
+$lspSources = @(Join-Path $repo 'Application') + (@('dpcc.Text', 'dpcc.WinBase', 'dpcc.Common', 'dpcc.Windows') |
+    ForEach-Object { Join-Path $repo "Packages\$_\Source" })
+$lspNewest = Get-ChildItem -Path $lspSources -Recurse -File -Include '*.pas', '*.dpr', '*.dfm', '*.inc' |
+  Where-Object { $_.FullName -notmatch '\\__history\\|\\__recovery\\' } |
+  Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$lspTargets = @(
+  @{ Name = 'Win32'; Dir = $LspServerDirWin32; Machine = 0x014C; Hint = 'Gruppenbau dpcc_d13 (Win32, Debug)' },
+  @{ Name = 'Win64'; Dir = $LspServerDirWin64; Machine = 0x8664; Hint = 'dpcc.LspServer.dproj, Plattform Win64, Debug' }
+)
+'{0,-10} {1,-24} {2,-5} {3,-19} {4}' -f 'LSP', 'EXE', 'PE', 'Stand', 'Zustand'
+foreach ($l in $lspTargets) {
+  $file = Join-Path $l.Dir $lspExe
+  if (-not (Test-Path $file)) {
+    '{0,-10} {1,-24} {2,-5} {3,-19} {4}' -f $l.Name, $lspExe, '-', '-', 'FEHLT'
+    $findings.Add("LSP-Server $($l.Name): $lspExe fehlt in $($l.Dir) ($($l.Hint)).")
+    continue
+  }
+  $state = @()
+  $machine = Get-PeMachine $file
+  if ($machine -ne $l.Machine) {
+    $state += 'BITBREITE'
+    $findings.Add(('LSP-Server {0}: PE-Machine {1:X4}, erwartet {2:X4}.' -f $l.Name, [int]$machine, $l.Machine))
+  }
+  $built = (Get-Item $file).LastWriteTime
+  if ($lspNewest -and ($lspNewest.LastWriteTime -gt $built)) {
+    $state += 'VERALTET'
+    $findings.Add(('LSP-Server {0}: {1} ({2:dd.MM.yyyy HH:mm}) ist aelter als {3} ({4:dd.MM.yyyy HH:mm}); {5}.' -f
+        $l.Name, $lspExe, $built, $lspNewest.Name, $lspNewest.LastWriteTime, $l.Hint))
+  }
+  $text = if ($state.Count) { $state -join ' + ' } else { 'ok' }
+  '{0,-10} {1,-24} {2,-5} {3,-19} {4}' -f $l.Name, $lspExe, ('{0:X4}' -f [int]$machine),
+    ('{0:dd.MM.yyyy HH:mm}' -f $built), $text
+}
+$readme = Join-Path $repo 'installer\LspServer-LIESMICH.txt'
+if (-not (Test-Path $readme)) { $findings.Add("Liesmich fuer das ZIP fehlt: $readme.") }
+''
+
 if ($findings.Count -gt 0) {
   $hint = ($versions | ForEach-Object { "$($_.Name): $($_.Group)" }) -join '; '
   throw ("Setup nicht gebaut, {0} Befund(e):`n  - {1}`n" -f $findings.Count, ($findings -join "`n  - ")) +
@@ -159,9 +214,11 @@ if ($findings.Count -gt 0) {
 "ISCC     : $Iscc"
 "Skript   : $iss"
 "Ziel     : $OutDir\dpccSetup-$versionFull.exe"
+$zipFile = Join-Path $OutDir "dpcc.LspServer-$version.zip"
+"ZIP      : $zipFile"
 
 if ($DryRun) {
-  'Probelauf gruen: 16 BPLs und Version passen. Nichts angelegt oder veraendert.'
+  'Probelauf gruen: 16 BPLs, 2 EXEs des LSP-Servers und Version passen. Nichts angelegt oder veraendert.'
   return
 }
 
@@ -171,6 +228,8 @@ $isccArgs = @(
   "/DDpccVersion=$versionFull",
   "/DDpccBplSourceDirD12=$BplDirD12",
   "/DDpccBplSourceDirD13=$BplDirD13",
+  "/DDpccLspServerDirWin32=$LspServerDirWin32",
+  "/DDpccLspServerDirWin64=$LspServerDirWin64",
   "/O$OutDir",
   $iss
 )
@@ -179,3 +238,22 @@ if ($LASTEXITCODE -ne 0) { throw "ISCC fehlgeschlagen (Exit $LASTEXITCODE)." }
 $setupExe = Join-Path $OutDir "dpccSetup-$versionFull.exe"
 if (-not (Test-Path $setupExe)) { throw "Setup-EXE fehlt nach ISCC: $setupExe" }
 "Fertig: $setupExe"
+
+# ZIP mit beiden EXEs und dem Liesmich, fuer Nutzer ohne Setup (eigener Bau, andere Ablage). Aufgebaut ueber
+# System.IO.Compression, damit die Ordner win32\ und win64\ im Archiv stehen.
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+if (Test-Path $zipFile) { Remove-Item $zipFile -Force }
+$zip = [IO.Compression.ZipFile]::Open($zipFile, [IO.Compression.ZipArchiveMode]::Create)
+try {
+  [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, (Join-Path $LspServerDirWin32 $lspExe),
+    "win32/$lspExe", [IO.Compression.CompressionLevel]::Optimal)
+  [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, (Join-Path $LspServerDirWin64 $lspExe),
+    "win64/$lspExe", [IO.Compression.CompressionLevel]::Optimal)
+  [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $readme, 'LIESMICH.txt',
+    [IO.Compression.CompressionLevel]::Optimal)
+}
+finally {
+  $zip.Dispose()
+}
+"Fertig: $zipFile"

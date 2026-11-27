@@ -187,7 +187,9 @@ aussi par projet.
 
 ## Quand l'index est créé
 
-- Le serveur démarre à la première requête, par exemple Ctrl+Espace, ou à l'activation de l'interrupteur principal.
+- Dans le mode Plugin, le serveur démarre à la première requête, par exemple Ctrl+Espace, ou au passage au mode
+  Plugin. Dans le mode Server, `dpcc.LspServer.exe` construit son propre index (voir
+  [Serveur LSP](lsp-server.md#stockage)).
 - Il construit alors l'index. Cela se fait en arrière-plan ; l'IDE ne l'attend pas.
 - Tant que la construction est en cours, la liste affiche « limited (index is being built) » (limitée, index en cours
   de construction) et peut être incomplète.

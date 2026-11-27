@@ -2,7 +2,8 @@
 
 Das Setup `dpccSetup-<Version>.exe` installiert dpcc für den aktuellen Benutzer in Delphi 12 und/oder Delphi 13,
 ohne Administratorrechte. Technik: Inno Setup 6, Skript `installer\dpccSetup.iss`. Es kompiliert nichts, sondern
-bündelt die in der IDE gebauten BPLs.
+bündelt die in der IDE gebauten BPLs und, als abwählbare Komponente, den LSP-Server `dpcc.LspServer.exe` in 32 und
+64 Bit.
 
 ## 0. Unterstützte Delphi-Versionen
 
@@ -31,6 +32,13 @@ Der Kommandozeilen-Compiler ist in den Editionen Community und Starter gesperrt;
 | 13 | `dpcc_d13.groupproj` | Win32 / Debug | `Output\Win32\Debug\Bpl` | `DpccBplSourceDirD13` |
 | 12 | `dpcc_d12.groupproj` | Win32 / D12 | `Output\Win32\D12\Bpl` | `DpccBplSourceDirD12` |
 
+Dazu der LSP-Server, eine EXE je Bitbreite für beide Delphi-Versionen:
+
+| EXE | Entsteht | Ordner (Quelle des Setups) | ISCC-Define |
+|---|---|---|---|
+| `dpcc.LspServer.exe` 32 Bit | im Gruppenbau `dpcc_d13.groupproj` (Projekt `Application\dpcc.LspServer.dproj`, Win32 / Debug) | `Output\Win32\Debug\Bin` | `DpccLspServerDirWin32` |
+| `dpcc.LspServer.exe` 64 Bit | **nicht** im Gruppenbau: in Delphi 13 `Application\dpcc.LspServer.dproj` öffnen, Zielplattform Windows 64-Bit, Konfiguration Debug, Erzeugen | `Output\Win64\Debug\Bin` | `DpccLspServerDirWin64` |
+
 Je Version acht BPLs, alle mit `{$LIBSUFFIX AUTO}`:
 
 | BPL | Art |
@@ -38,7 +46,8 @@ Je Version acht BPLs, alle mit `{$LIBSUFFIX AUTO}`:
 | `dpcc.Text`, `dpcc.WinBase`, `dpcc.Common`, `dpcc.Windows`, `dpcc.Server`, `dpcc.Core`, `dpcc.UI` | Laufzeitpakete (`{$RUNONLY}`) |
 | `dpcc.Plugin` | Design-Paket (`{$DESIGNONLY}`), das Plugin; requires die sieben |
 
-Das Setup nimmt beide Versionen immer zusammen auf; vor dem Setup also beide Gruppen bauen.
+Das Setup nimmt beide Versionen und beide EXEs immer zusammen auf; vor dem Setup also beide Gruppen bauen und die
+Win64-EXE.
 
 ### Warum der PATH-Eintrag nötig ist
 
@@ -64,16 +73,31 @@ Das Skript prüft vorher alles und bricht erst dann ab; angelegt ist bis dahin n
 - `ISCC.exe` gefunden,
 - Version aus `Packages\dpcc.Text\Source\Product\dpcc.Text.Product.Version.pas` lesbar (`x.y.z`),
 - je Version alle acht BPLs vorhanden, PE-Machine `014C` (Win32),
-- jede BPL jünger als die neueste Quelldatei (`.pas`, `.dpk`, `.dfm`, `.inc`) ihres Packages.
+- jede BPL jünger als die neueste Quelldatei (`.pas`, `.dpk`, `.dfm`, `.inc`) ihres Packages,
+- beide EXEs des LSP-Servers vorhanden: `Output\Win32\Debug\Bin\dpcc.LspServer.exe` mit PE-Machine `014C`,
+  `Output\Win64\Debug\Bin\dpcc.LspServer.exe` mit `8664` (x64), jede nicht älter als ihre Quellen.
 
 Die Win32-BPLs tragen keine VERSIONINFO (`VerInfo_IncludeVerInfo` ist für Win32 aus); ein Versionsvergleich der
-BPLs entfällt deshalb. Danach ruft das Skript ISCC mit `/DDpccVersion=<x.y.z>.0` und den beiden Quellordnern auf.
+BPLs entfällt deshalb. Danach ruft das Skript ISCC mit `/DDpccVersion=<x.y.z>.0`, den beiden BPL-Ordnern und den
+beiden EXE-Ordnern (`/DDpccLspServerDirWin32`, `/DDpccLspServerDirWin64`) auf und legt neben dem Setup das ZIP
+`installer\Output\dpcc.LspServer-<x.y.z>.zip` an:
+
+| Eintrag im ZIP | Quelle |
+|---|---|
+| `win32\dpcc.LspServer.exe` | EXE aus `-LspServerDirWin32` |
+| `win64\dpcc.LspServer.exe` | EXE aus `-LspServerDirWin64` |
+| `LIESMICH.txt` | `installer\LspServer-LIESMICH.txt` (deutsch und englisch) |
+
+Das ZIP ist für alle, die die EXE ohne Setup neben ein Plugin legen wollen (siehe
+[Installation › LSP-Server](../docs/de/installation.md#lsp-server)).
 
 | Parameter | Vorgabe | Bedeutung |
 |---|---|---|
 | `-DryRun` | aus | nur die Prüfungen, danach Ende |
 | `-BplDirD12` | `Output\Win32\D12\Bpl` | anderer BPL-Ordner für Delphi 12 |
 | `-BplDirD13` | `Output\Win32\Debug\Bpl` | anderer BPL-Ordner für Delphi 13 |
+| `-LspServerDirWin32` | `Output\Win32\Debug\Bin` | anderer Ordner der 32-Bit-EXE |
+| `-LspServerDirWin64` | `Output\Win64\Debug\Bin` | anderer Ordner der 64-Bit-EXE |
 | `-OutDir` | `installer\Output` | Zielordner des Setups (steht über `Output/` in `.gitignore`) |
 | `-Iscc` | PATH, dann Standardordner | voller Pfad zu `ISCC.exe` |
 
@@ -84,14 +108,19 @@ cd installer
 iscc dpccSetup.iss
 :: abweichende Quellordner:
 iscc /DDpccBplSourceDirD12="D:\release\d12" /DDpccBplSourceDirD13="D:\release\d13" dpccSetup.iss
+:: abweichende Ordner der beiden EXEs:
+iscc /DDpccLspServerDirWin32="D:\release\win32" /DDpccLspServerDirWin64="D:\release\win64" dpccSetup.iss
 ```
+
+Das ZIP legt nur `Tools\Build-Setup.ps1` an, nicht ISCC.
 
 Ohne `/DDpccVersion` liest das Skript die Version beim Kompilieren selbst aus `dpcc.Text.Product.Version.pas`
 (`cVersion`, mit angehängtem `.0`); eine zweite, von Hand gepflegte Versionsangabe gibt es nicht. Die vierstellige
 Fassung steht im Dateinamen und in der VERSIONINFO der Setup-EXE; angezeigt wird (`AppVersion`, abgeleitet als
 `DpccVersionShort`) die dreistellige, z. B. `0.1.0` statt `0.1.0.0`. Weitere Defines:
-`DpccRepoRoot` (Repo-Wurzel mit abschließendem `\`, Vorgabe der Ordner über `installer`) und `DpccDonateUrl`
-(leer = kein Spenden-Button). Ergebnis: `installer\Output\dpccSetup-<Version>.exe`. Setup-EXEs gehören nicht ins
+`DpccRepoRoot` (Repo-Wurzel mit abschließendem `\`, Vorgabe der Ordner über `installer`), `DpccLspServerDirWin32`
+und `DpccLspServerDirWin64` (Vorgabe `Output\Win32\Debug\Bin` bzw. `Output\Win64\Debug\Bin` unter `DpccRepoRoot`)
+und `DpccDonateUrl` (leer = kein Spenden-Button). Ergebnis: `installer\Output\dpccSetup-<Version>.exe`. Setup-EXEs gehören nicht ins
 Repo.
 
 ## 3. Was der Installer tut
@@ -102,6 +131,7 @@ Repo.
   |---|---|---|---|
   | Delphi 12 | `bpl\d12\dpcc.*290.bpl` | `HKCU\Software\Embarcadero\BDS\23.0\Known Packages`, Wert `…\bpl\d12\dpcc.Plugin290.bpl` | `…\BDS\23.0\Environment Variables`, Wert `PATH` |
   | Delphi 13 | `bpl\d13\dpcc.*370.bpl` | `HKCU\Software\Embarcadero\BDS\37.0\Known Packages`, Wert `…\bpl\d13\dpcc.Plugin370.bpl` | `…\BDS\37.0\Environment Variables`, Wert `PATH` |
+  | LSP-Server (Komponente `lspserver`) | `server\win32\dpcc.LspServer.exe`, auf 64-Bit-Windows zusätzlich `server\win64\dpcc.LspServer.exe` | – | – |
 
   Dazu `unins000.exe`/`unins000.dat` in `{app}`, der Eintrag unter „Apps“ von Windows und ein Startmenü-Eintrag
   `Delphi Pascal Code Completion\dpcc deinstallieren` (englisch: `Uninstall dpcc`). Die Verknüpfung
@@ -133,22 +163,34 @@ Repo.
 - **Auswahl auf eigener Seite**: nur gefundene Versionen, installiert wird nur das Angehakte. Wer eine zuvor
   installierte Version aushakt, wird sie los: Registrierung, Override-Segment, Dateien (auch das Diagnoseprotokoll
   `dpcc.IDE.Expert<suffix>.log`), Ordner – in dieser Reihenfolge. Ohne Auswahl geht es nicht weiter.
+- **Komponente LSP-Server** (`lspserver`, „LSP-Server dpcc.LspServer.exe (für die Betriebsart „Server“, 32 und 64
+  Bit)“): unabhängig von der Delphi-Version, vorgewählt, abwählbar. Ziel `{app}\server\win32` und, nur auf 64-Bit-
+  Windows, `{app}\server\win64`; dort sucht das Plugin die EXE (64 Bit zuerst). Wer sie bei einem erneuten Setup
+  abwählt, wird beide EXEs und die dann leeren Ordner los. Ohne EXE zeigt die Seite dpcc die Betriebsart „Server“ als
+  nicht wählbar; eine schon gewählte fällt beim Start auf das originale DelphiLSP zurück.
 - **IDE-Check** (Fenster der Klasse `TAppBuilder`) beim Start von Setup und Deinstallation und noch einmal vor dem
   Schreiben. Läuft eine IDE, bricht das Setup mit Meldung ab; es beendet nie Prozesse. Im Silent-Lauf endet es
   ohne Dialog, der Grund steht im Log.
 - **Nicht angefasst**: Einstellungen (`HKCU\Software\dpcc\IdePlugin`), Daten (`%APPDATA%\dpcc`), Index-Cache und
-  Protokoll (`%LOCALAPPDATA%\dpcc`) und der Code-Insight-Anbieter der IDE. Ist DelphiLSP gewählt (Vorgabe), bleibt
-  dpcc nach der Installation aus; eingeschaltet wird es unter **Tools › Optionen › Drittanbieter › dpcc**
-  ([Einstellungen](../docs/de/settings.md#was-dpcc-an-der-ide-umstellt)). Die Ready-Seite sagt das.
+  Protokoll (`%LOCALAPPDATA%\dpcc`), die Ablage des LSP-Servers (`%LOCALAPPDATA%\dpcc.LspServer`) und der
+  Code-Insight-Anbieter der IDE. Das Setup wählt keine Betriebsart. Nach der Installation gilt die Betriebsart
+  „Plugin“, je Delphi-Version getrennt: Gibt es für die Version noch keinen gespeicherten Wert (auch kein früheres
+  `Enabled`), stellt dpcc beim ersten Start den Code-Insight-Anbieter der IDE selbst auf dpcc, auch wenn DelphiLSP
+  gewählt war; das wirkt nach einem Neustart von Delphi. Eine gespeicherte Betriebsart bleibt. Gewählt wird sie unter
+  **Tools › Optionen › Drittanbieter › dpcc** ([Einstellungen](../docs/de/settings.md#betriebsart)). Die Ready-Seite
+  sagt das: „Nach der Installation gilt die Betriebsart „Plugin“ … je Delphi-Version getrennt; das Setup wählt sie
+  nicht. „Server“ braucht die Komponente LSP-Server.“
 - **Deinstallation**: zuerst der IDE-Check. Ist dpcc in einer Version, in der das Setup es installiert hat, noch
   Code-Insight-Anbieter (`Insight Manager` = `dpcc.CodeInsight` unter
   `HKCU\Software\Embarcadero\BDS\<bds>\Editor\Source Options\Borland.EditOptions.Pascal`), fragt der Deinstaller
-  nach (Vorgabe Nein) und empfiehlt, erst den Hauptschalter auszuschalten; dpcc stellt dann Anbieter und Schalter
-  selbst zurück. Der Deinstaller schreibt dort nichts; im Silent-Lauf steht der Hinweis nur im Log. Danach werden
+  nach (Vorgabe Nein) und empfiehlt, erst die Betriebsart „Aus“ zu wählen und Delphi einmal neu zu starten; dpcc
+  stellt dann Anbieter und Schalter selbst zurück. Der Deinstaller schreibt dort nichts; im Silent-Lauf steht der Hinweis nur im Log. Danach werden
   die Registry-Werte VOR den Dateien entfernt (`uninsdeletevalue` und `usUninstall`-Handler): Known- und
   Disabled-Packages-Wert beider Versionen und das eigene PATH-Segment, nur dieses. Bleibt vom Wert nichts oder nur
   `$(PATH)`, verschwindet er (der Schlüssel mit, wenn er leer ist); bleibt mehr, bleibt der Rest stehen.
-  `[UninstallDelete]` räumt `bpl\d12`, `bpl\d13` und den dann leeren `bpl`-Ordner ab. Einstellungen, Daten, Cache
+  `[UninstallDelete]` räumt `bpl\d12`, `bpl\d13` und den dann leeren `bpl`-Ordner ab. Die installierten
+  `dpcc.LspServer.exe` entfernt Inno selbst, `[UninstallDelete]` danach die dann leeren Ordner `server\win32`,
+  `server\win64` und `server`. Einstellungen, Daten, Cache
   und Protokoll bleiben; was danach noch liegt, nennt
   [Installation › Deinstallieren](../docs/de/installation.md#deinstallieren).
 - **Kein Netzwerk**: das Setup baut keine Verbindung auf. Die Buttons unten links („Stern auf GitHub“, optional
@@ -171,15 +213,20 @@ Repo.
 | 7 | Silent `dpccSetup-*.exe /VERYSILENT /NORESTART /LOG` | wie #1; Exit-Code 0; Hinweise nur im Log |
 | 7b | Silent mit offener IDE | Ende ohne Dialog, Exit-Code ungleich 0, Grund im Log |
 | 8 | Eine Version abwählen (Setup erneut) | Dateien, Known-/Disabled-Wert und Segment dieser Version weg |
-| 9 | Deinstallation, dpcc noch Anbieter | Rückfrage erscheint; Nein bricht ohne Änderung ab |
-| 10 | Deinstallation (IDE zu) | Registry-Werte weg, PATH ohne unser Segment mit allen fremden Segmenten, danach Dateien weg; `HKCU\Software\dpcc`, `%APPDATA%\dpcc`, `%LOCALAPPDATA%\dpcc` unverändert; IDE startet ohne Fehlermeldung |
+| 9 | Deinstallation, dpcc noch Anbieter | Rückfrage erscheint und empfiehlt die Betriebsart „Aus“; Nein bricht ohne Änderung ab |
+| 10 | Deinstallation (IDE zu) | Registry-Werte weg, PATH ohne unser Segment mit allen fremden Segmenten, danach Dateien weg, auch `{app}\server\win32` und `{app}\server\win64`; `HKCU\Software\dpcc`, `%APPDATA%\dpcc`, `%LOCALAPPDATA%\dpcc`, `%LOCALAPPDATA%\dpcc.LspServer` unverändert; IDE startet ohne Fehlermeldung |
 | 11 | Delphi 12 und 13 gleichzeitig offen | jede IDE lädt ihre `290`- bzw. `370`-Fassung |
+| 12 | Komponente LSP-Server angewählt (Vorgabe), 64-Bit-Windows | `{app}\server\win32\dpcc.LspServer.exe` (PE `014C`) und `{app}\server\win64\dpcc.LspServer.exe` (PE `8664`); auf der Seite dpcc ist „Server“ wählbar, der Hint am Feld nennt die 64-Bit-EXE |
+| 13 | Komponente LSP-Server abgewählt (Setup erneut) | beide EXEs und die leeren `server`-Ordner weg; „Server“ grau mit „Nicht wählbar: …“; war Server gewählt, bleibt es gewählt, und `dpcc.log` nennt „Start von DelphiLSP nicht umgeleitet (dpcc.LspServer.exe nicht gefunden)“ |
+| 14 | Betriebsart Server, Projektgruppe öffnen | `dpcc.log`: „LSP-Umleitung: #n DelphiLSP umgeleitet auf …\server\win64\dpcc.LspServer.exe (PID n)“; die IDE zeigt ihre Liste mit Antworten von `dpcc.LspServer.exe` |
+| 15 | Erste Installation ohne gespeicherte Betriebsart, DelphiLSP gewählt | erster Start: Meldung „dpcc hat den Code-Insight-Anbieter der IDE auf dpcc umgestellt …“; `OperatingMode <bds>` = `plugin`; nach dem Neustart ist dpcc Anbieter |
 
 Die Interaktion mit der IDE lässt sich nicht automatisch prüfen; die Matrix wird am gebauten Setup von Hand
 durchgespielt.
 
 ## 5. Grenzen
 
-- Nur Win32; keine Variante für die 64-Bit-IDE von Delphi 13 (dpcc baut dafür keine BPLs).
-- Das Setup nimmt immer beide Versionen auf; wer nur eine gebaut hat, kann es nicht bauen.
+- Nur Win32; keine Variante für die 64-Bit-IDE von Delphi 13 (dpcc baut dafür keine BPLs). Die 64-Bit-EXE des
+  LSP-Servers ändert daran nichts: Sie läuft als eigener Prozess, gestartet von der 32-Bit-IDE.
+- Das Setup nimmt immer beide Versionen und beide EXEs auf; wer nur eine gebaut hat, kann es nicht bauen.
 - Keine Code-Signatur.

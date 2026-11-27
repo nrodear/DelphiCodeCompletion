@@ -13,7 +13,7 @@ Deutsch | [English](../en/development.md) | [Français](../fr/development.md)
 
 ## Bauen
 
-`dpcc_d13.groupproj` enthält neun Projekte:
+`dpcc_d13.groupproj` enthält zehn Projekte:
 
 1. `Packages\dpcc.Text\dpcc.Text.dproj`
 2. `Packages\dpcc.WinBase\dpcc.WinBase.dproj`
@@ -24,6 +24,7 @@ Deutsch | [English](../en/development.md) | [Français](../fr/development.md)
 7. `Packages\dpcc.UI\dpcc.UI.dproj`
 8. `Packages\dpcc.Plugin\dpcc.Plugin.dproj`
 9. `Tests\dpcc.Completion.Tests.dproj`
+10. `Application\dpcc.LspServer.dproj` (der LSP-Server `dpcc.LspServer.exe`, siehe [LSP-Server](lsp-server.md))
 
 Die Gruppe in der IDE öffnen, Win32 und Debug wählen und alle Projekte bauen. Die Abhängigkeiten der Gruppe legen
 die Reihenfolge fest.
@@ -33,14 +34,22 @@ die Reihenfolge fest.
 | BPLs | `Output\Win32\Debug\Bpl` |
 | DCPs | `Output\Win32\Debug\Dcp` |
 | DCUs | `Output\Win32\Debug\Dcu\<Projekt>` |
-| Testprogramm | `Output\Win32\Debug\Bin` |
+| Testprogramm, `dpcc.LspServer.exe` (32 Bit) | `Output\Win32\Debug\Bin` |
+| `dpcc.LspServer.exe` (64 Bit, eigener Schritt, siehe unten) | `Output\Win64\Debug\Bin` |
+
+**LSP-Server für 64 Bit:** Die Win64-EXE entsteht nicht im Gruppenbau. Eigener Schritt in Delphi 13:
+`Application\dpcc.LspServer.dproj` öffnen, Zielplattform **Windows 64-Bit**, Konfiguration Debug, **Erzeugen**
+(Make). Die Ausgabe liegt unter `Output\Win64\Debug\Bin`. Das Plugin aus `Output\Win32\<Konfiguration>\Bpl` findet
+die EXE dort selbst (Reihenfolge der Orte: [LSP-Server](lsp-server.md#wo-dpcc-die-exe-sucht)). Vor
+`Tools\Build-Setup.ps1` also drei Bauten: `dpcc_d13.groupproj` (Debug), `dpcc_d12.groupproj` (D12) und die
+Win64-EXE.
 
 Alle acht Packages tragen die Package-Version als Endung (`{$LIBSUFFIX AUTO}`, in der `.dproj` `DllSuffix` =
 `$(Auto)`): `dpcc.Text370.bpl` … unter Delphi 13, `dpcc.Text290.bpl` … unter Delphi 12. Die Namen in `requires`
 und die `.dcp` bleiben ohne Endung.
 
 **Delphi 12:** `dpcc_d12.groupproj` enthält die Projekte 1 bis 8 mit denselben Abhängigkeiten, ohne das
-Testprogramm. Jede `.dproj` der Packages hat neben Debug (`Cfg_1`) und Release (`Cfg_2`) die Build-Konfiguration
+Testprogramm und ohne den LSP-Server (die EXE aus der Gruppe für Delphi 13 bedient beide Versionen). Jede `.dproj` der Packages hat neben Debug (`Cfg_1`) und Release (`Cfg_2`) die Build-Konfiguration
 `D12` (`Cfg_3`). Sie erbt alle Einstellungen von Debug und setzt selbst keine Werte. Weil alle Ausgabe- und
 Suchpfade `$(Platform)\$(Config)` enthalten, baut sie ohne eigene Pfade nach `Output\Win32\D12\…`. Delphi 12 baut
 mit der Konfiguration D12, Delphi 13 mit Debug.
@@ -73,6 +82,15 @@ Ist dpcc in derselben IDE installiert, entlädt die IDE das Plugin beim Bauen. N
 
 Build-Ausgaben gehören nicht ins Repository (`.gitignore`: `Output/`, `*.dcu`, `*.bpl`, `*.exe` …).
 
+### Setup und ZIP
+
+`Tools\Build-Setup.ps1` baut aus den fertigen Dateien das Setup (Inno Setup 6) und daneben das ZIP
+`installer\Output\dpcc.LspServer-<x.y.z>.zip` mit `win32\dpcc.LspServer.exe`, `win64\dpcc.LspServer.exe` und
+`LIESMICH.txt` (Quelle `installer\LspServer-LIESMICH.txt`). Es prüft vorher die BPLs beider Versionen und beide EXEs:
+`Output\Win32\Debug\Bin` mit PE-Machine `014C`, `Output\Win64\Debug\Bin` mit `8664`, jede nicht älter als ihre
+Quellen. Andere Ordner über `-LspServerDirWin32` und `-LspServerDirWin64`. Einzelheiten:
+[installer/README_Installer.md](../../installer/README_Installer.md).
+
 ## Testen
 
 `Tests\dpcc.Completion.Tests.dproj` ist ein DUnitX-Konsolenprogramm, nur in der Gruppe für Delphi 13. Nach dem
@@ -99,7 +117,7 @@ Output\Win32\Debug\Bin\dpcc.Completion.Tests.exe --exclude:Benchmark --exitbehav
 | `Tests\Common\Index` | Index: Extractor, Token- und Typtexte, bedingte Kompilierung, Inhalte je Deklaration (Format 35) |
 | `Tests\Common\Semantics` | Namensauflösung (aus dem früheren Stand zurückgeholt): lokale Namen, Mitglieder und Vorfahren, Ketten, Überladungen, Generics, Helfer, `with`, Inline-Variablen, Sichtbarkeit, Ausdrücke als Empfänger, die Teile des Resolvers einzeln |
 | `Tests\Common\Pascal` | Parser und Präprozessor |
-| `Tests\IDE` | Plugin-Seite ohne ToolsAPI: Ablauf der Liste, Rangfolge, Favoriten, Mengenmodus, Platzhalter, Einstellungen, Texte |
+| `Tests\IDE` | Plugin-Seite ohne ToolsAPI: Ablauf der Liste, Rangfolge, Favoriten, Mengenmodus, Platzhalter, Einstellungen, Texte, Betriebsart und Überführung aus `Enabled` (`dpcc.Core.Settings.OperatingMode.Tests`), Entscheidung und Orte der Umleitung auf `dpcc.LspServer.exe` (`dpcc.Core.Lsp.ServerRedirect.Tests`) |
 | `Tests\Application\Shell` | Hülle des Servers |
 | `Tests\Common` | Speicher: Selbstmessung, Namen der `.dcp`, gemeinsamer Cache, Office-Typbibliotheken und WinRT, Freigabe nach dem Ende des Servers, Dokumente, Namens- und Verweistabellen, Signaturen im Cache, Cache-Format 34, Katalog, Nachladen und Verdrängen, Nutzungsstatistik, Suche über nicht geladene Units, geschützte Units, Wiederverwendung der Verweistabellen, gleichzeitiges Nachladen, Anhängen an den Cache, Verdichten des Caches, Freigabe der gemeinsamen Stände nach dem Stopp, Schreiben der Nutzungsstatistik |
 | `Tests\Common` (`dpcc.Common.Sources.Tests`) | Quellen und Aktualität: zusätzliche Quellordner, Office und WinRT bei Bedarf, gleichnamige Units, neue und geänderte Dateien, Fehler je Datei, `uses … in`, Makros und Browsing Path, Typen der Installation ohne Quelltext |
@@ -185,6 +203,18 @@ Nach dem Muster der vorhandenen Optionen:
 5. Test: `dpcc.Core.Settings.CompletionView.Tests` prüft, dass `TDpccPluginSettings.StoredNames` genau die
    Einstellungen der Seite sind und nichts anderes gespeichert oder umgeleitet wird;
    `dpcc.UI.Settings.Page.Tests` prüft die Seite headless in der Test-Exe.
+
+### Betriebsart und Umleitung im Code
+
+| Unit | Aufgabe |
+|---|---|
+| `dpcc.Core.Settings.OperatingMode` | Betriebsart Aus, Plugin, Server: Kennungen, Registry-Name je Version, Überführung aus `Enabled` |
+| `dpcc.Core.Lsp.ServerRedirect` | reine Entscheidung, ob ein Start von `DelphiLSP.exe` umgeleitet wird, und die Orte der EXE; ohne Registry und Dateizugriff, damit testbar |
+| `dpcc.Core.Diagnostics.ImportPatch` | Eintrag in der Importtabelle eines Moduls finden, umbiegen und zurücksetzen |
+| `dpcc.IDE.Foundation.LspRedirect` | der Hook im Plugin: Einbau beim Anmelden, Abbau beim Entladen, Betriebsart bei jedem Aufruf frisch gelesen |
+
+Tests: `Tests\IDE\dpcc.Core.Settings.OperatingMode.Tests.pas` und `Tests\IDE\dpcc.Core.Lsp.ServerRedirect.Tests.pas`.
+Den Hook selbst prüft nur die laufende IDE.
 
 ## Beitragen
 

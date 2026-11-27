@@ -15,9 +15,12 @@
 // Dezent, Unscheinbar; TDpccPluginSettings.PopupLook); sie ändert nur, wie die Fenster von dpcc zeichnen.
 // Seit LOG1 steht zuletzt im Abschnitt IDE „Ablauf protokollieren (Log)“ (TDpccPluginSettings.Diagnose, derselbe
 // Registry-Wert wie das frühere Diagnose = 1); sein Hint nennt die Protokolldatei (DiagnoseFile, von der IDE-Schicht).
-// Sperren: Hauptschalter aus → alle Optionen und „Verlauf zurücksetzen“ grau; „Werte beim Debuggen“ zusätzlich grau,
-// wenn „Eigener Tooltip“ aus ist. „Index neu aufbauen“, „Jetzt prüfen“ und „Ablauf protokollieren“ hängen nicht am
-// Hauptschalter.
+// Seit Stufe 2 von dpcc.LspServer.exe steht oben statt des Hauptschalters die Betriebsart als Dreifachwahl (Aus,
+// Plugin, Server; TDpccPluginSettings.Mode), je mit einem gedämpften Satz darunter. „Server“ ist nur wählbar, wenn die
+// IDE-Schicht den Ort von dpcc.LspServer.exe gesetzt hat (ServerExe); sonst steht darunter ein Hinweis.
+// Sperren: Betriebsart nicht Plugin → alle Optionen und „Verlauf zurücksetzen“ grau; „Werte beim Debuggen“ zusätzlich
+// grau, wenn „Eigener Tooltip“ aus ist. „Index neu aufbauen“, „Jetzt prüfen“ und „Ablauf protokollieren“ hängen nicht
+// an der Betriebsart.
 // „Index neu aufbauen“ läuft im Hintergrund: OnRebuildIndex kehrt sofort zurück. Den Zustand (läuft → Knopf grau,
 // Meldung daneben) fragt die Seite über OnRebuildStatus ab, beim Setzen und per Timer der Seite, solange er läuft.
 // Die IDE-Schicht hält keinen Verweis auf die Seite; sie kann jederzeit geschlossen und zerstört werden.
@@ -39,6 +42,7 @@ uses
   Vcl.Forms,
   dpcc.Core.Settings.Plugin,
   dpcc.Core.Settings.CompletionView,
+  dpcc.Core.Settings.OperatingMode,
   dpcc.UI.Settings.ChoiceBox;
 
 const
@@ -89,7 +93,14 @@ type
     FRows: TArray<TWinControl>;
     FNextTop: Integer;
     FBuilt: Boolean;
-    FMaster: TCheckBox;
+    /// <summary>Betriebsart (Aus, Plugin, Server) statt des früheren Hauptschalters: drei Optionsfelder in einer
+    /// Zeile (dieselbe Gruppe), je mit einem erklärenden Satz darunter; unter Server der Hinweis, wenn die EXE fehlt.
+    /// </summary>
+    FModeRow: TWinControl;
+    FModes: array[TDpccOperatingMode] of TRadioButton;
+    FModeInfos: array[TDpccOperatingMode] of TLabel;
+    FServerMissing: TLabel;
+    FServerExe: string;
     /// <summary>Zahlen als Auswahl (0 bis 10 bzw. 5 bis 20): ohne Fenster nutzbar, ohne Tippfehler.</summary>
     FAutoMinChars: TDpccChoiceBox;
     FListMode: TDpccChoiceBox;
@@ -152,6 +163,12 @@ type
     procedure RebuildTimerTick(Sender: TObject);
     procedure SetOnIdeStatus(const AValue: TFunc<string>);
     procedure SetDiagnoseFile(const AValue: string);
+    procedure SetServerExe(const AValue: string);
+    function GetMode: TDpccOperatingMode;
+    procedure SetMode(AValue: TDpccOperatingMode);
+    function GetModeButton(AMode: TDpccOperatingMode): TRadioButton;
+    /// <summary>Optionsfelder der Betriebsart samt Sätzen untereinander; Höhe nach dem Umbruch in der Breite.</summary>
+    procedure ArrangeModes;
     procedure CMFontChanged(var AMessage: TMessage); message CM_FONTCHANGED;
   protected
     procedure CreateWnd; override;
@@ -179,7 +196,15 @@ type
     property Entries: TArray<TDpccSettingsPageEntry> read FEntries;
     /// <summary>Zeilen in der Reihenfolge der Seite (Überschriften eingeschlossen).</summary>
     property Rows: TArray<TWinControl> read FRows;
-    property MasterSwitch: TCheckBox read FMaster;
+    /// <summary>Gewählte Betriebsart (früher Hauptschalter); nur Plugin schaltet die übrigen Optionen frei.</summary>
+    property Mode: TDpccOperatingMode read GetMode write SetMode;
+    /// <summary>Optionsfeld einer Betriebsart.</summary>
+    property ModeButton[AMode: TDpccOperatingMode]: TRadioButton read GetModeButton;
+    /// <summary>Hinweis unter „Server“, wenn dpcc.LspServer.exe fehlt (sichtbar nur dann).</summary>
+    property ServerMissing: TLabel read FServerMissing;
+    /// <summary>Ort von dpcc.LspServer.exe; setzt die IDE-Schicht. '' = nicht installiert: „Server“ ist nicht
+    /// wählbar (außer, es ist schon gewählt) und der Hinweis erscheint.</summary>
+    property ServerExe: string read FServerExe write SetServerExe;
     property AutoWidth: TCheckBox read FAutoWidth;
     property ListModeChoice: TDpccChoiceBox read FListMode;
     property AutoMinCharsChoice: TDpccChoiceBox read FAutoMinChars;
@@ -217,6 +242,8 @@ implementation
 {$R *.dfm}
 
 uses
+  Winapi.Windows,
+  System.Types,
   System.Math,
   System.UITypes,
   Vcl.Dialogs,
@@ -237,6 +264,9 @@ const
   cButtonHeight = 29;
   /// <summary>Höhe der Zeile mit „Jetzt prüfen“ und bis zu vier Statuszeilen (bei 96 dpi).</summary>
   cIdeStatusHeight = 64;
+  /// <summary>Anfangshöhe der Zeile mit der Betriebsart (bei 96 dpi); ArrangeModes setzt sie nach dem Umbruch.
+  /// </summary>
+  cModeRowHeight = 170;
   /// <summary>Abstand zwischen Beschriftung und Feld bzw. zwischen Elementen einer Zeile.</summary>
   cGap = 12;
   /// <summary>Platz für Kästchen und Rand eines Kontrollkästchens neben dem Text.</summary>
@@ -328,17 +358,48 @@ begin
   Height := FNextTop;
 end;
 
+/// <summary>Gedämpfter, umbrechender Satz in ARow (Betriebsart).</summary>
+function NewInfoLabel(AOwner: TComponent; ARow: TWinControl; const AText: string): TLabel;
+begin
+  Result := TLabel.Create(AOwner);
+  Result.Parent := ARow;
+  Result.AutoSize := False;
+  Result.WordWrap := True;
+  Result.ShowAccelChar := False;
+  Result.Caption := AText;
+  Result.Font.Color := StyleServices.GetSystemColor(clGrayText);
+end;
+
 procedure TDpccSettingsPage.BuildItem(const AItem: TDpccPageItem);
+const
+  cModeCaptions: array[TDpccOperatingMode] of TDpccSettingsTextId = (TDpccSettingsTextId.SettingsModeOff,
+    TDpccSettingsTextId.SettingsModePlugin, TDpccSettingsTextId.SettingsModeServer);
+  cModeInfos: array[TDpccOperatingMode] of TDpccSettingsTextId = (TDpccSettingsTextId.SettingsModeOffInfo,
+    TDpccSettingsTextId.SettingsModePluginInfo, TDpccSettingsTextId.SettingsModeServerInfo);
 var
   mRow: TWinControl;
   mCaption: TLabel;
+  mMode: TDpccOperatingMode;
 begin
   mCaption := nil;
-  if AItem.Name = 'Enabled' then
+  if AItem.Name = TDpccOperatingModes.cValuePrefix then
   begin
-    FMaster := AddCheckRow(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsEnabled), 0);
-    FMaster.OnClick := ToggleClick;
-    AddEntry(AItem, FMaster, nil);
+    // Betriebsart: drei Optionsfelder in einer Zeile (eine Gruppe), darunter je ein gedämpfter Satz; die Höhe setzt
+    // ArrangeModes nach dem Umbruch.
+    FModeRow := AddRow(cModeRowHeight);
+    for mMode := Low(TDpccOperatingMode) to High(TDpccOperatingMode) do
+    begin
+      FModes[mMode] := TRadioButton.Create(Self);
+      FModes[mMode].Parent := FModeRow;
+      FModes[mMode].Left := 0;
+      FModes[mMode].Caption := TDpccSettingsStrings.Text(cModeCaptions[mMode]);
+      FModes[mMode].OnClick := ToggleClick;
+      FModeInfos[mMode] := NewInfoLabel(Self, FModeRow, TDpccSettingsStrings.Text(cModeInfos[mMode]));
+    end;
+    FServerMissing := NewInfoLabel(Self, FModeRow,
+      TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsModeServerMissing));
+    FModes[TDpccOperatingMode.Plugin].Checked := True;
+    AddEntry(AItem, FModes[TDpccOperatingMode.Plugin], nil);
   end
   else if AItem.Name = 'AutoMinChars' then
   begin
@@ -609,11 +670,11 @@ type
 
 function TDpccSettingsPage.TextWidthFor(AControl: TControl; const AText: string): Integer;
 var
-  mBitmap: TBitmap;
+  mBitmap: Vcl.Graphics.TBitmap;
 begin
   // Ohne Fenster messen (die IDE und die Tests bauen die Seite, bevor sie eines hat): Schrift des Elements auf der
   // Leinwand eines Bitmaps; die Höhe der Schrift ist schon auf die Skalierung des Elements umgerechnet.
-  mBitmap := TBitmap.Create;
+  mBitmap := Vcl.Graphics.TBitmap.Create;
   try
     mBitmap.Canvas.Font.Assign(TControlFont(AControl).Font);
     Result := mBitmap.Canvas.TextWidth(AText);
@@ -627,6 +688,77 @@ begin
   Result := TextWidthFor(ACheck, ACheck.Caption) + ScaleValue(cCheckGlyph);
 end;
 
+/// <summary>Höhe von ALabel mit Umbruch in AWidth (auch ohne Fenster gemessen).</summary>
+function WrappedHeight(ALabel: TLabel; AWidth: Integer): Integer;
+var
+  mBitmap: Vcl.Graphics.TBitmap;
+  mRect: TRect;
+  mText: string;
+begin
+  mBitmap := Vcl.Graphics.TBitmap.Create;
+  try
+    mBitmap.Canvas.Font.Assign(ALabel.Font);
+    mText := ALabel.Caption;
+    mRect := Rect(0, 0, Max(1, AWidth), 0);
+    DrawText(mBitmap.Canvas.Handle, PChar(mText), Length(mText), mRect, DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+    Result := Max(mRect.Bottom - mRect.Top, mBitmap.Canvas.TextHeight('Ag'));
+  finally
+    mBitmap.Free;
+  end;
+end;
+
+procedure TDpccSettingsPage.ArrangeModes;
+var
+  mMode: TDpccOperatingMode;
+  mTop, mInfoLeft, mWidth, mDelta, mRowWidth: Integer;
+
+  procedure Place(ALabel: TLabel);
+  begin
+    ALabel.SetBounds(mInfoLeft, mTop, mWidth, WrappedHeight(ALabel, mWidth));
+    Inc(mTop, ALabel.Height + ScaleValue(1));
+  end;
+
+begin
+  if FModeRow = nil then
+  begin
+    Exit;
+  end;
+  // Die Sätze stehen unter dem Text des Optionsfelds, nicht unter seinem Kreis.
+  mInfoLeft := ScaleValue(cCheckGlyph - 8);
+  // Ohne Fenster richtet die VCL die Zeilen noch nicht aus (Breite 0): dann die Breite der Seite samt Rändern.
+  mRowWidth := FModeRow.Width;
+  if mRowWidth < ScaleValue(200) then
+  begin
+    // Width, nicht ClientWidth: Das verlangte ein Fenster.
+    mRowWidth := Width - ScaleValue(8);
+  end;
+  mWidth := Max(ScaleValue(120), mRowWidth - mInfoLeft);
+  mTop := 0;
+  for mMode := Low(TDpccOperatingMode) to High(TDpccOperatingMode) do
+  begin
+    FModes[mMode].SetBounds(0, mTop, TextWidthFor(FModes[mMode], FModes[mMode].Caption) + ScaleValue(cCheckGlyph),
+      ScaleValue(cCheckRowHeight - 2));
+    Inc(mTop, FModes[mMode].Height);
+    Place(FModeInfos[mMode]);
+    if (mMode = TDpccOperatingMode.Server) and FServerMissing.Visible then
+    begin
+      Place(FServerMissing);
+    end;
+    Inc(mTop, ScaleValue(4));
+  end;
+  if FModeRow.Height <> mTop then
+  begin
+    mDelta := mTop - FModeRow.Height;
+    // Erst die Zeile, dann die Seite: Das Resize der Seite ruft ArrangeModes erneut, das dann nichts mehr ändert.
+    FModeRow.Height := mTop;
+    // Ohne Ausrichtung durch die IDE wächst bzw. schrumpft die Seite mit (wie Build sie aus den Zeilen berechnet).
+    if Align = alNone then
+    begin
+      Height := Height + mDelta;
+    end;
+  end;
+end;
+
 procedure TDpccSettingsPage.ArrangeRows;
 var
   mEntry: TDpccSettingsPageEntry;
@@ -636,6 +768,7 @@ begin
   begin
     Exit;
   end;
+  ArrangeModes;
   // Spalte der Felder: rechts von der längsten Beschriftung links eines Felds.
   mFieldLeft := ScaleValue(cIndent);
   for mEntry in FEntries do
@@ -746,13 +879,19 @@ begin
   begin
     Exit;
   end;
-  mOn := FMaster.Checked;
+  // Die Optionen gelten nur für die Betriebsart Plugin (eigene Fenster von dpcc).
+  mOn := Mode = TDpccOperatingMode.Plugin;
+  // „Server“ nur mit installierter dpcc.LspServer.exe; ist es schon gewählt, bleibt es sichtbar wählbar.
+  FServerMissing.Visible := FServerExe = '';
+  FModes[TDpccOperatingMode.Server].Enabled := (FServerExe <> '') or FModes[TDpccOperatingMode.Server].Checked;
+  FModeInfos[TDpccOperatingMode.Server].Enabled := FModes[TDpccOperatingMode.Server].Enabled;
+  ArrangeModes;
   for mEntry in FEntries do
   begin
-    // „Ablauf protokollieren“ (LOG1) auch bei Hauptschalter aus: Das Protokoll zeigt dann, warum dpcc nicht zuständig
+    // „Ablauf protokollieren“ (LOG1) auch ohne Plugin-Betrieb: Das Protokoll zeigt dann, warum dpcc nicht zuständig
     // ist.
-    if (mEntry.Control = FMaster) or (mEntry.Control = FRebuild) or (mEntry.Control = FCheckIde) or
-      (mEntry.Control = FDiagnose) then
+    if (mEntry.Item.Name = TDpccOperatingModes.cValuePrefix) or (mEntry.Control = FRebuild) or
+      (mEntry.Control = FCheckIde) or (mEntry.Control = FDiagnose) then
     begin
       Continue;
     end;
@@ -772,9 +911,52 @@ begin
   FCheckIde.Enabled := Assigned(FOnIdeStatus);
 end;
 
+function TDpccSettingsPage.GetMode: TDpccOperatingMode;
+var
+  mMode: TDpccOperatingMode;
+begin
+  for mMode := Low(TDpccOperatingMode) to High(TDpccOperatingMode) do
+  begin
+    if (FModes[mMode] <> nil) and FModes[mMode].Checked then
+    begin
+      Exit(mMode);
+    end;
+  end;
+  Result := TDpccOperatingModes.cDefault;
+end;
+
+procedure TDpccSettingsPage.SetMode(AValue: TDpccOperatingMode);
+var
+  mMode: TDpccOperatingMode;
+begin
+  for mMode := Low(TDpccOperatingMode) to High(TDpccOperatingMode) do
+  begin
+    FModes[mMode].Checked := mMode = AValue;
+  end;
+  UpdateLocks;
+end;
+
+function TDpccSettingsPage.GetModeButton(AMode: TDpccOperatingMode): TRadioButton;
+begin
+  Result := FModes[AMode];
+end;
+
+procedure TDpccSettingsPage.SetServerExe(const AValue: string);
+begin
+  FServerExe := Trim(AValue);
+  FModes[TDpccOperatingMode.Server].ShowHint := FServerExe <> '';
+  FModes[TDpccOperatingMode.Server].Hint := '';
+  if FServerExe <> '' then
+  begin
+    FModes[TDpccOperatingMode.Server].Hint := TDpccSettingsStrings.Fmt(TDpccSettingsTextId.SettingsModeServerFile,
+      [FServerExe]);
+  end;
+  UpdateLocks;
+end;
+
 procedure TDpccSettingsPage.LoadFrom(const ASettings: TDpccPluginSettings);
 begin
-  FMaster.Checked := ASettings.Enabled;
+  Mode := ASettings.Mode;
   FAutoMinChars.Choice := EnsureRange(ASettings.AutoMinChars, 0, TDpccPluginSettings.cMaxAutoMinChars) -
     FAutoMinChars.Tag;
   FListMode.Choice := Ord(TDpccListModes.ModeOf(ASettings.CompletionListMode));
@@ -797,7 +979,7 @@ end;
 
 procedure TDpccSettingsPage.SaveTo(var ASettings: TDpccPluginSettings);
 begin
-  ASettings.Enabled := FMaster.Checked;
+  ASettings.Mode := Mode;
   if FAutoMinChars.Choice >= 0 then
   begin
     ASettings.AutoMinChars := FAutoMinChars.Tag + FAutoMinChars.Choice;

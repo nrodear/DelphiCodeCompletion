@@ -34,6 +34,8 @@ type
     procedure Number(const AName: string; var AValue: Integer);
     /// <summary>Text unter AName.</summary>
     procedure Text(const AName: string; var AValue: string);
+    /// <summary>Schreibt (Writer) statt zu lesen (Reader).</summary>
+    function Writing: Boolean;
   end;
 
 /// <summary>AValue, wenn er (ohne Groß-/Kleinschreibung) unter AAllowed steht, in deren Schreibweise;
@@ -109,6 +111,11 @@ begin
   begin
     AValue := FStore.ReadInteger(AName, AValue);
   end;
+end;
+
+function TDpccSettingsExchange.Writing: Boolean;
+begin
+  Result := FWriting;
 end;
 
 procedure TDpccSettingsExchange.Text(const AName: string; var AValue: string);

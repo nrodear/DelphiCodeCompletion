@@ -23,7 +23,7 @@ parenthèses.
 | [Réglages](settings.md) | Chaque option de la page Tools › Options › Third Party › dpcc, stockage, ce que dpcc modifie dans l'IDE |
 | [Index et cache](index-cache.md) | Ce que contient l'index, où se trouve le cache, reconstruction, nettoyage |
 | [Dépannage](troubleshooting.md) | Le plugin ne se charge pas, la liste manque, infobulles en double, journaux |
-| [Serveur LSP](lsp-server.md) | dpcc.LspServer.exe : serveur de langage autonome sur stdio, appel, stockage, ce qu’il fait |
+| [Serveur LSP](lsp-server.md) | dpcc.LspServer.exe : serveur de langage autonome sur stdio, mode Server, appel, stockage, ce qu’il fait |
 
 ## Pour les développeurs
 
@@ -39,10 +39,12 @@ parenthèses.
 | Complétion | Ctrl+Espace | dpcc |
 | Aide aux paramètres | Ctrl+Maj+Espace | dpcc |
 | Infobulle sur les identificateurs | La souris s'attarde sur un identificateur | dpcc |
-| Liste qui s'ouvre d'elle-même après « . » | Saisie de « . » | dpcc s'il est le fournisseur Code Insight (interrupteur principal activé) ; sinon DelphiLSP (IDE), et dpcc est désactivé |
+| Liste qui s'ouvre d'elle-même après « . » | Saisie de « . » | dpcc s'il est le fournisseur Code Insight (mode Plugin) ; sinon DelphiLSP (IDE), et dpcc est désactivé |
 
-dpcc traite les fichiers portant les extensions `.pas`, `.dpr`, `.dpk` et `.inc`. Dans tous les autres fichiers, et
-lorsque l'interrupteur principal est désactivé, c'est l'IDE qui reste responsable.
+Le tableau vaut pour le mode Plugin (par défaut). dpcc traite les fichiers portant les extensions `.pas`, `.dpr`,
+`.dpk` et `.inc`. Dans tous les autres fichiers, et dans le mode Off, c'est l'IDE qui reste responsable. Dans le mode
+Server, l'IDE affiche ses propres fenêtres, les réponses viennent de `dpcc.LspServer.exe` (voir
+[Serveur LSP](lsp-server.md#mode-server)).
 
 ## Licence
 

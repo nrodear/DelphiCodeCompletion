@@ -4,6 +4,9 @@
 // einen Speicher. Die IDE-Schicht speichert in HKCU\Software\dpcc\IdePlugin, Tests im Arbeitsspeicher
 // (TDpccMemorySettingsStore). Breiten in logischen Pixeln (96 dpi, #412).
 // Seit OPT2 steht hier nur noch, was wirkt:
+// - Seit Stufe 2 von dpcc.LspServer.exe ist der Hauptschalter die Betriebsart (Mode: Aus, Plugin, Server) je
+//   Delphi-Version, gespeichert als Text "OperatingMode <Version>"; Enabled ist nur noch abgeleitet (Mode = Plugin)
+//   und der frühere DWORD Enabled nur noch gelesen (Überführung, dpcc.Core.Settings.OperatingMode).
 // - Gespeichert (OK auf der Seite „dpcc“, gezogene Breite der Liste): der Hauptschalter und die (seit LOG1) vierzehn
 //   Optionen der Seite (cPageItems in dpcc.Core.Settings.CompletionView). index.extraSourceFolders liegt in
 //   %APPDATA%\dpcc\settings.json (TDpccRoutedSettingsStore, dpcc.Core.Settings.Scopes), alle übrigen in der Registry.
@@ -24,6 +27,7 @@ interface
 uses
   System.Generics.Collections,
   dpcc.Core.Settings.Plugin.Store,
+  dpcc.Core.Settings.OperatingMode,
   dpcc.Core.Style.Look;
 
 const
@@ -40,6 +44,8 @@ type
     /// <summary>Die gespeicherten Werte über AIo, jeder unter seinem Registry-Namen (Schlüssel der Doku dahinter).
     /// </summary>
     procedure Exchange(const AIo: TDpccSettingsExchange);
+    function GetEnabled: Boolean;
+    procedure SetEnabled(AValue: Boolean);
   public const
     cMinVisibleRows = 5;
     cMaxVisibleRows = 20;
@@ -52,8 +58,19 @@ type
     /// <summary>Wie THintSettings.cMaxXmlDocLines des Servers.</summary>
     cMaxXmlDocLines = 50;
   public
-    /// <summary>Hauptschalter (#407, completion.enabled): aus = eingebaute Code Insight der IDE.</summary>
-    Enabled: Boolean;
+    /// <summary>Betriebsart dieser Delphi-Version (Aus, Plugin, Server; dpcc.Core.Settings.OperatingMode), in der
+    /// Registry als Text unter "OperatingMode &lt;IdeVersion&gt;". Fehlt er, gilt beim Laden der frühere gemeinsame
+    /// DWORD Enabled (0 → Aus, sonst Plugin; ohne Wert Plugin), und ModeFromLegacy ist gesetzt.</summary>
+    Mode: TDpccOperatingMode;
+    /// <summary>Version der IDE, deren Betriebsart Load und Save lesen bzw. schreiben ("23.0", "37.0"); '' = ohne
+    /// Version (Tests). Nicht gespeichert; Load lässt sie stehen.</summary>
+    IdeVersion: string;
+    /// <summary>Nach Load: Die Betriebsart kam aus dem früheren Enabled (oder der Vorgabe), nicht aus einem eigenen
+    /// Wert dieser Version. Nicht gespeichert.</summary>
+    ModeFromLegacy: Boolean;
+    /// <summary>Nach Load: weder ein eigener Wert dieser Version noch das frühere Enabled, also die Vorgabe nach der
+    /// Installation (Plugin). Nicht gespeichert.</summary>
+    ModeFromDefault: Boolean;
     /// <summary>Beim Tippen eines Bezeichners ohne Punkt davor öffnet die Liste erst ab so vielen Zeichen
     /// (L5, completion.autoMinChars); 0 = Tippen öffnet nie. Strg+Leertaste gilt immer.</summary>
     AutoMinChars: Integer;
@@ -96,6 +113,10 @@ type
     /// <summary>Namen im Diagnoseprotokoll (#1478, diagnostics.log.names): Registry-Schalter für den Support, nur
     /// gelesen.</summary>
     LogNames: Boolean;
+    /// <summary>Früherer Hauptschalter, jetzt abgeleitet: an genau in der Betriebsart Plugin (nur dann arbeiten der
+    /// eingebaute Server und die Fenster von dpcc). Setzen auf True wählt Plugin, auf False aus Plugin heraus Aus
+    /// (Server bleibt Server).</summary>
+    property Enabled: Boolean read GetEnabled write SetEnabled;
     class function Defaults: TDpccPluginSettings; static;
     /// <summary>Werte in ihre Grenzen bringen.</summary>
     procedure Normalize;
@@ -150,7 +171,10 @@ uses
 
 class function TDpccPluginSettings.Defaults: TDpccPluginSettings;
 begin
-  Result.Enabled := True;
+  Result.Mode := TDpccOperatingModes.cDefault;
+  Result.IdeVersion := '';
+  Result.ModeFromLegacy := False;
+  Result.ModeFromDefault := False;
   Result.AutoMinChars := cDefaultAutoMinChars;
   Result.CompletionListMode := cCompletionListModeNames[0];
   Result.VisibleRows := 9;
@@ -184,13 +208,55 @@ begin
   begin
     PopupLook := cDpccLookLevelDefault;
   end;
+  if not InRange(Integer(Ord(Mode)), Ord(Low(TDpccOperatingMode)), Ord(High(TDpccOperatingMode))) then
+  begin
+    Mode := TDpccOperatingModes.cDefault;
+  end;
+end;
+
+function TDpccPluginSettings.GetEnabled: Boolean;
+begin
+  Result := Mode = TDpccOperatingMode.Plugin;
+end;
+
+procedure TDpccPluginSettings.SetEnabled(AValue: Boolean);
+begin
+  if AValue then
+  begin
+    Mode := TDpccOperatingMode.Plugin;
+  end
+  else if Mode = TDpccOperatingMode.Plugin then
+  begin
+    Mode := TDpccOperatingMode.Off;
+  end;
 end;
 
 procedure TDpccPluginSettings.Exchange(const AIo: TDpccSettingsExchange);
+const
+  // Marke „kein Wert“ beim Lesen (kein gültiger Text und keine sinnvolle Zahl).
+  cMissingText = #0;
+  cMissingNumber = Low(Integer);
 var
-  mPopupLook: string;
+  mPopupLook, mMode: string;
+  mLegacy: Integer;
 begin
-  AIo.Flag('Enabled', Enabled); // completion.enabled
+  // Betriebsart je Delphi-Version; beim Lesen ohne eigenen Wert die Überführung aus dem früheren Enabled. Enabled
+  // selbst schreibt dpcc nicht mehr (andere Versionen ohne eigenen Wert überführen ihn weiter so, wie er war).
+  if AIo.Writing then
+  begin
+    mMode := TDpccOperatingModes.IdOf(Mode);
+    AIo.Text(TDpccOperatingModes.ValueName(IdeVersion), mMode); // operatingMode je Version
+  end
+  else
+  begin
+    mMode := cMissingText;
+    AIo.Text(TDpccOperatingModes.ValueName(IdeVersion), mMode);
+    mLegacy := cMissingNumber;
+    AIo.Number(TDpccOperatingModes.cLegacyName, mLegacy);
+    Mode := TDpccOperatingModes.Resolve(mMode <> cMissingText, mMode, mLegacy <> cMissingNumber, mLegacy,
+      ModeFromLegacy);
+    ModeFromDefault := ModeFromLegacy and (mLegacy = cMissingNumber);
+  end;
   AIo.Number('AutoMinChars', AutoMinChars); // completion.autoMinChars
   AIo.Text('CompletionListMode', CompletionListMode); // completion.listMode
   AIo.Number('VisibleRows', VisibleRows); // completion.visibleRows
@@ -215,8 +281,12 @@ end;
 procedure TDpccPluginSettings.Load(const AStore: IDpccSettingsStore);
 var
   mReader: TDpccSettingsExchange;
+  mVersion: string;
 begin
+  // Die Version bestimmt, welche Betriebsart gilt; sie gehört dem Aufrufer und bleibt.
+  mVersion := IdeVersion;
   Self := Defaults;
+  IdeVersion := mVersion;
   mReader := TDpccSettingsExchange.Reader(AStore);
   Exchange(mReader);
   // Nur gelesen: Save schreibt sie nicht zurück.
@@ -241,7 +311,8 @@ end;
 
 class function TDpccPluginSettings.ReadOnlyNames: TArray<string>;
 begin
-  Result := ['XmlDocMaxLines', 'LogNames'];
+  // Enabled: der frühere Hauptschalter, nur noch Quelle der Überführung der Betriebsart.
+  Result := ['XmlDocMaxLines', 'LogNames', TDpccOperatingModes.cLegacyName];
 end;
 
 { TDpccMemorySettingsStore }

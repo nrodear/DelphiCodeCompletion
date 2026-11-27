@@ -12,7 +12,7 @@
 | Ctrl+Shift+Space | open the dpcc parameter hint |
 
 dpcc assigns these two keys with its own key binding (“dpcc Code Completion”). It takes them only if it serves the
-file: extension `.pas`, `.dpr`, `.dpk` or `.inc`, master switch on, and the feature not switched off by the safety
+file: extension `.pas`, `.dpr`, `.dpk` or `.inc`, Plugin mode, and the feature not switched off by the safety
 fuse (see [Troubleshooting](troubleshooting.md)). Otherwise the keys go to the IDE. A second Ctrl+Space also goes
 to the IDE if the dpcc list stayed empty at the same position, and so does every Ctrl+Space while the IDE list is
 already open (see [below](#ide-list-when-dpcc-finds-nothing)).
@@ -23,15 +23,20 @@ windows is open and needs the key.
 ## Interaction with DelphiLSP
 
 Delphi 12 and 13 pass automatic triggers (typing “.”, “(”, “,”) only to the Code Insight provider that is selected
-for Delphi in the IDE options. The default is DelphiLSP. dpcc and DelphiLSP therefore do not run side by side but in
-two modes (details under [Settings](settings.md#what-dpcc-changes-in-the-ide)):
+for Delphi in the IDE options. The IDE default is DelphiLSP. dpcc and DelphiLSP therefore do not run side by side but
+in one of three modes, selected per Delphi version under **Tools › Options › Third Party › dpcc** (details under
+[Settings](settings.md#operating-mode) and [What dpcc changes in the IDE](settings.md#what-dpcc-changes-in-the-ide)):
 
-- **dpcc mode** (master switch on): dpcc is the provider. The list after “.”, the parameter hint on “(” and “,”,
-  Ctrl+Space, Ctrl+Shift+Space and the tooltip come from dpcc. dpcc sets the IDE switches it needs itself.
-- **IDE mode** (master switch off): DelphiLSP is the provider, dpcc is off. If DelphiLSP is selected when Delphi
-  starts, dpcc turns itself off.
-- Turning the master switch on switches the provider to dpcc, turning it off switches it back to DelphiLSP. This takes
-  effect after restarting Delphi; until then, the following applies to the old provider.
+- **Plugin** (default after installation): dpcc is the provider. The list after “.”, the parameter hint on “(” and
+  “,”, Ctrl+Space, Ctrl+Shift+Space and the tooltip come from dpcc. dpcc sets the IDE switches it needs itself.
+- **Off**: DelphiLSP is the provider, dpcc shows no windows. If DelphiLSP is selected when Delphi starts, Off applies
+  unless Server is selected.
+- **Server**: DelphiLSP stays the provider, and the IDE shows its own windows; the answers come from
+  `dpcc.LspServer.exe` instead of `DelphiLSP.exe` (see [LSP server](lsp-server.md#server-mode)). The dpcc windows do
+  not appear, Error Insight stays empty.
+- A change to or from Plugin switches the provider. This takes effect after restarting Delphi; until then, the
+  following applies to the old provider. Between Off and Server the change takes effect the next time a project group
+  is opened.
 - The list that opens by itself while you type a name (only if switched on, see
   [Opening while typing](#opening-while-typing)) comes from dpcc: for this, dpcc watches the editor itself.
 
@@ -90,8 +95,9 @@ involved.
   as soon as it is ready, by the same rules.
 
 The first time in each session, the Messages window says that dpcc is selected and what is missing then: Error
-Insight (error marks in the editor) and the other DelphiLSP services. If you need them, turn the master switch off
-(or select DelphiLSP again in the IDE options); from the next start dpcc is then off.
+Insight (error marks in the editor) and the other DelphiLSP services. If you need them, select the Off mode
+(or DelphiLSP again in the IDE options); from the next start dpcc is then off. The Server mode keeps the IDE's
+windows, but Error Insight stays empty there as well.
 
 ## The list
 

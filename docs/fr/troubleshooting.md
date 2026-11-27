@@ -51,7 +51,7 @@ dpcc transmet la touche à l'IDE lorsqu'il ne traite pas le fichier :
 | Cause | Solution |
 |---|---|
 | Le fichier ne se termine pas par `.pas`, `.dpr`, `.dpk` ou `.inc`. | Comportement attendu. |
-| L'interrupteur principal est désactivé. | **Tools › Options › Third Party › dpcc**, activer « Code Insight by dpcc » (Code Insight de dpcc). |
+| Le mode est Off ou Server. | Attendu : dans le mode Server, l'IDE affiche sa propre liste avec les réponses de `dpcc.LspServer.exe`. Pour la liste de dpcc, choisir le mode « Plugin » sous **Tools › Options › Third Party › dpcc** (prend effet après le redémarrage de Delphi). |
 | Le fusible de sécurité a désactivé la complétion. | La fenêtre Messages le signale (voir plus bas). Redémarrer l'IDE. |
 | La liste de dpcc est restée vide, et Ctrl+Espace a été pressé une seconde fois au même endroit. | Comportement attendu, voir [Utilisation](usage.md#liste-de-lide-quand-dpcc-ne-trouve-rien). Après une saisie ou à un autre endroit, Ctrl+Espace interroge de nouveau dpcc. |
 
@@ -62,9 +62,9 @@ de registre `Auto Code Completions` = `False`). Alors ni la liste de l'IDE ni ce
 Deuxième cause possible : « Auto invoke » (appel automatique) est désactivé (`Auto Invoke` = `False`) ; l'IDE
 n'appelle alors pas d'elle-même la complétion après « . ».
 
-- Mode dpcc : dpcc règle lui-même les deux valeurs sur `True` au démarrage de Delphi ; prend effet au prochain
+- Mode Plugin : dpcc règle lui-même les deux valeurs sur `True` au démarrage de Delphi ; prend effet au prochain
   démarrage.
-- Mode IDE (DelphiLSP choisi) : dpcc ne fait que signaler l'écart, dans le journal (« IDE-Einstellungen: 1 Abweichung:
+- Modes Off et Server (DelphiLSP choisi) : dpcc ne fait que signaler l'écart, dans le journal (« IDE-Einstellungen: 1 Abweichung:
   Auto Code Completions ») et sur la page dpcc dans la section **IDE**. Activer « Code completion » et « Auto invoke »
   dans les options Code Insight de l'IDE.
 
@@ -72,9 +72,32 @@ Emplacements et valeurs attendues pour Delphi 12 et 13 : [Réglages](settings.m
 
 ## La liste après « . » est différente de celle obtenue avec Ctrl+Espace
 
-Attendu après l'activation de dpcc et jusqu'au redémarrage de Delphi : la liste qui s'ouvre d'elle-même après « . »
+Attendu après le passage au mode Plugin et jusqu'au redémarrage de Delphi : la liste qui s'ouvre d'elle-même après « . »
 vient encore du fournisseur précédent (DelphiLSP). Après le redémarrage, dpcc est le fournisseur. Voir
 [Utilisation](usage.md#interaction-avec-delphilsp).
+
+## Server est choisi, mais c'est le DelphiLSP d'origine qui démarre
+
+`dpcc.log` contient alors « LSP-Umleitung: #n Start von DelphiLSP nicht umgeleitet (<Grund>) » ou aucune ligne
+« LSP-Umleitung: #n … » (les lignes du journal sont toujours en allemand). Ces lignes sont décrites sous
+[Serveur LSP](lsp-server.md#journal).
+
+| Cause | Remède |
+|---|---|
+| L'EXE manque (« dpcc.LspServer.exe nicht gefunden » ou « … fehlt: <Pfad> ») ou n'a pas pu être lancée (« Start von dpcc.LspServer.exe fehlgeschlagen (Fehler n), Originalaufruf »). | Placer l'EXE à l'un des [emplacements](lsp-server.md#où-dpcc-cherche-lexe), par exemple avec le composant « LSP server » du programme d'installation ou depuis le ZIP. La ligne « Hook beim Anmelden …; EXE: … » indique l'emplacement trouvé par dpcc. |
+| Server est choisi pour l'autre version de Delphi (« Betriebsart Aus » ou « Betriebsart Plugin »). | Le mode s'applique par version (`OperatingMode 23.0` ou `OperatingMode 37.0`). Choisir « Server » dans l'IDE qui doit rediriger. |
+| Le fournisseur Code Insight de l'IDE n'est pas DelphiLSP. L'IDE ne lance alors aucun `DelphiLSP.exe`, et aucune ligne « #n … » ne figure dans le journal. | « Server » avec OK règle le fournisseur sur DelphiLSP ; cela prend effet après le redémarrage de Delphi. Si un autre fournisseur était choisi au démarrage, Server est devenu Off (remarque dans la fenêtre Messages). |
+| Le groupe de projets était déjà ouvert lors du changement. L'IDE lance son serveur lorsque la première unité d'un groupe est affichée et le garde jusqu'à la fermeture du groupe. | Fermer puis rouvrir le groupe de projets. |
+| Pas de hook (« CreateProcessW nicht gefunden, kein Hook » ou « Einbau fehlgeschlagen: … »). | Envoyer le journal avec cette ligne. Sans hook, c'est toujours l'original qui démarre. |
+| L'IDE 64 bits de Delphi 13 est utilisée. | Non pris en charge ; le plugin ne s'y charge pas. Utiliser l'IDE 32 bits. |
+
+## « Server » est grisé
+
+Sur la page dpcc figure sous le bouton « Not available: dpcc.LspServer.exe is not installed (select the component “LSP
+server” in the setup). » (non disponible : dpcc.LspServer.exe n'est pas installé ; choisir le composant « LSP server »
+dans l'installateur). Le plugin n'a trouvé l'EXE à aucun de ses [emplacements](lsp-server.md#où-dpcc-cherche-lexe).
+Remède : relancer le programme d'installation et choisir le composant « LSP server », placer l'EXE du ZIP à côté du
+plugin ou la compiler soi-même (voir [Installation](installation.md#serveur-lsp)). Rouvrir ensuite la page.
 
 ## La liste est vide ou incomplète
 
@@ -106,7 +129,9 @@ constantes et les routines hors des types manquent alors.
 ## Ctrl+clic ne saute pas
 
 Ctrl+clic et « Find Declaration » (Alt+↑) vont au fournisseur Code Insight choisi dans les options de l'IDE. dpcc ne
-saute que s'il y est choisi (voir [Utilisation](usage.md#quand-dpcc-est-choisi-comme-fournisseur)).
+saute que s'il y est choisi (voir [Utilisation](usage.md#quand-dpcc-est-choisi-comme-fournisseur)). Dans le mode
+Server, l'IDE saute elle-même ; la cible vient alors de `dpcc.LspServer.exe`, et le tableau ci-dessous ne s'applique
+qu'en partie.
 
 | Cause | Remède |
 |---|---|
@@ -144,7 +169,7 @@ forme de code `name=h…`), précédée d'une ligne `declaration start` ou `defi
 - En plus, dpcc masque à l'exécution la fenêtre Help Insight de l'IDE (par exemple « TQRCustomBand Type ») dès
   qu'elle apparaît : toujours avec l'infobulle propre activée, sinon tant que la liste de dpcc est ouverte. Aucun
   redémarrage n'est nécessaire pour cela, y compris sous Delphi 12, où la valeur de registre seule n'agit pas de façon
-  fiable. dpcc désactivé, la fenêtre de l'IDE reste. Le journal contient « Help Insight der IDE: Fenster
+  fiable. Dans les modes Off et Server, la fenêtre de l'IDE reste. Le journal contient « Help Insight der IDE: Fenster
   THelpInsightWindow verborgen … » au premier masquage et « Help Insight in der Registry (…) » avec les valeurs lues
   au démarrage.
 - La page dpcc affiche l'état dans la section **IDE** (« Check now », vérifier maintenant).
@@ -153,8 +178,8 @@ forme de code `name=h…`), précédée d'une ligne `declaration start` ou `defi
 
 ## Help Insight manque après la désinstallation
 
-dpcc ne rend le fournisseur et les réglages de l'IDE que tant qu'il est chargé. S'il a été retiré sans désactiver
-auparavant l'interrupteur principal et redémarrer Delphi, choisir DelphiLSP dans les options Code Insight de l'IDE et
+dpcc ne rend le fournisseur et les réglages de l'IDE que tant qu'il est chargé. S'il a été retiré sans choisir
+auparavant le mode Off et redémarrer Delphi, choisir DelphiLSP dans les options Code Insight de l'IDE et
 réactiver Help Insight, l'infobulle Symbol Insight et l'évaluation d'expressions dans l'infobulle. Les valeurs de
 registre figurent sous [Réglages](settings.md#ce-que-dpcc-modifie-dans-lide).
 
@@ -169,9 +194,12 @@ dpcc ne le redémarre plus de lui-même (voir [Le serveur a planté](#le-serveur
 | « dpcc: Server crashed repeatedly – The server ended twice with … within 10 minutes. dpcc no longer restarts it on its own … » (dpcc : le serveur a planté à plusieurs reprises – le serveur s'est arrêté deux fois avec … en moins de 10 minutes. dpcc ne le redémarre plus de lui-même …) | Le serveur reste arrêté jusqu'à ce qu'on le redémarre à la main. La question « Restart server? » (redémarrer le serveur ?) apparaît à cet effet. |
 | « dpcc: … switched off after 3 errors in 5 minutes (last: …) until the IDE is restarted. » (dpcc : … désactivé après 3 erreurs en 5 minutes (dernière : …) jusqu'au redémarrage de l'IDE) | Le fusible de sécurité a désactivé une fonction. Elle reste désactivée jusqu'au redémarrage de l'IDE. Les erreurs de dpcc n'atteignent jamais l'IDE. |
 | « dpcc: source "…" switched off after 3 errors in 5 minutes … » (dpcc : source « … » désactivée après 3 erreurs en 5 minutes …) | Seule cette source de données est désactivée ; les autres continuent de tourner. |
-| « dpcc: dpcc switched the IDE's Code Insight provider to dpcc; takes effect after restarting Delphi. » (dpcc a basculé le fournisseur Code Insight de l'IDE sur dpcc ; prend effet après le redémarrage de Delphi) | Après interrupteur principal activé et OK, une fois par session. Jusqu'au redémarrage, l'IDE appelle le fournisseur précédent. Voir [Réglages](settings.md#ce-que-dpcc-modifie-dans-lide). |
-| « dpcc: dpcc switched the IDE's Code Insight provider back to …; takes effect after restarting Delphi … » (dpcc a rétabli le fournisseur Code Insight de l'IDE sur … ; prend effet après le redémarrage de Delphi) | Après interrupteur principal désactivé et OK, une fois par session. |
-| « dpcc: The Code Insight provider is no longer dpcc …; dpcc is off … » (le fournisseur Code Insight n'est plus dpcc … ; dpcc est désactivé …) | Au démarrage : dpcc s'était inscrit comme fournisseur, mais l'IDE a démarré avec un autre (modifié dans les options de l'IDE ou réécrit par l'IDE). Pour activer dpcc, réactiver l'interrupteur principal. |
+| « dpcc: dpcc switched the IDE's Code Insight provider to dpcc; takes effect after restarting Delphi. » (dpcc a basculé le fournisseur Code Insight de l'IDE sur dpcc ; prend effet après le redémarrage de Delphi) | Après le mode Plugin et OK (ou au premier démarrage après l'installation), une fois par session. Jusqu'au redémarrage, l'IDE appelle le fournisseur précédent. Voir [Réglages](settings.md#ce-que-dpcc-modifie-dans-lide). |
+| « dpcc: dpcc switched the IDE's Code Insight provider back to …; takes effect after restarting Delphi … » (dpcc a rétabli le fournisseur Code Insight de l'IDE sur … ; prend effet après le redémarrage de Delphi) | Après le mode Off et OK alors que Plugin s'appliquait, une fois par session. |
+| « dpcc: The Code Insight provider is no longer dpcc …; dpcc is off. To turn it on, set the master switch on the dpcc page again. » (le fournisseur Code Insight n'est plus dpcc … ; dpcc est désactivé. Pour l'activer, réactiver l'interrupteur principal de la page dpcc) | Au démarrage : dpcc s'était inscrit comme fournisseur, mais l'IDE a démarré avec un autre (modifié dans les options de l'IDE ou réécrit par l'IDE). « Master switch » désigne le mode de fonctionnement : pour activer dpcc, choisir de nouveau « Plugin ». |
+| « dpcc: Mode Server: dpcc switched the IDE's Code Insight provider to DelphiLSP; takes effect after restarting Delphi … » (mode Server : dpcc a basculé le fournisseur Code Insight de l'IDE sur DelphiLSP ; prend effet après le redémarrage de Delphi …) | Après le mode Server et OK depuis Plugin ou un autre fournisseur. Ce n'est qu'après le redémarrage que l'IDE lance `dpcc.LspServer.exe`. |
+| « dpcc: Mode Server: the next time the IDE starts its Code Insight server (next time a project group is opened), dpcc.LspServer.exe starts … » (mode Server : au prochain lancement du serveur Code Insight de l'IDE, c'est-à-dire à la prochaine ouverture d'un groupe de projets, dpcc.LspServer.exe démarre …) ou « dpcc: Mode Off: the next time a project group is opened, the IDE starts the original DelphiLSP again … » (mode Off : à la prochaine ouverture d'un groupe de projets, l'IDE relance le DelphiLSP d'origine …) | Après un changement entre Off et Server. Fermer puis rouvrir le groupe de projets. |
+| « dpcc: Mode Server is off: another Code Insight provider is selected in the IDE options (…). » (le mode Server est désactivé : un autre fournisseur Code Insight est choisi dans les options de l'IDE) | Au démarrage : Server était choisi, mais le fournisseur n'est ni DelphiLSP ni vide. dpcc est en mode Off. Y choisir DelphiLSP, puis « Server » sur la page dpcc. |
 | « dpcc is selected as the Code Insight provider for Delphi in the IDE options … » (dpcc est choisi comme fournisseur Code Insight pour Delphi dans les options de l'IDE …) | Une fois par session si dpcc est le fournisseur choisi : Ctrl+clic passe par dpcc, Error Insight et les autres services de DelphiLSP manquent. Voir [Utilisation](usage.md#quand-dpcc-est-choisi-comme-fournisseur). |
 
 ## Le serveur a planté
@@ -185,11 +213,46 @@ dpcc ne le redémarre plus de lui-même (voir [Le serveur a planté](#le-serveur
 
 ## L'IDE plante avec un dépassement de pile dans clr.dll
 
-Symptôme : l'IDE se termine sur un dépassement de pile (stack overflow) ; le vidage mémoire montre `clr.dll` et un
+Symptôme : l'IDE se termine sur un dépassement de pile (stack overflow) ; le vidage mémoire montre `clr.dll` et un
 thread d'arrière-plan de l'IDE (par exemple Error Insight) qui appelle du code .NET. Dans un cas examiné, la cause était
-le réglage de la virgule flottante : l'exception « Invalid » n'était pas masquée dans le mot de contrôle x87, et
+le réglage de la virgule flottante : l'exception « Invalid » n'était pas masquée dans le mot de contrôle x87, et
 `System.Default8087CW` de la RTL partagée valait `$137A` au lieu de `$033F` (valeur par défaut de la RTL Delphi, toutes
 les exceptions masquées). Le vidage ne dit pas qui l'a modifié (l'IDE, un expert, un package).
+
+### Plantage de Delphi 12 à l'affichage d'une unité avec un nombre à virgule flottante
+
+Symptôme : Delphi 12 (`bds.exe` 29.0) plante (dépassement de pile dans `clr.dll`, code d'exception `0xc00000fd`) dès
+qu'une unité contenant le premier nombre à virgule flottante de la session (par exemple `4.90` ou `1e5`) devient
+visible dans l'éditeur. Un Ctrl+clic qui ouvre une telle unité suffit.
+
+La cause est une erreur de l'IDE, pas de dpcc : l'analyseur managé de l'IDE pour le pliage de code et Error Insight
+échoue sur ce nombre, parce que « Invalid » n'est pas masquée dans le mot de contrôle x87 (voir plus haut). Il ne
+s'exécute que si Delphi 12 n'est pas en fonctionnement LSP : dans le mode Plugin (fournisseur dpcc) ou avec le
+fournisseur classique. Avec DelphiLSP comme fournisseur, le plantage ne se produit pas. Delphi 13 n'est pas concerné.
+Delphi CE 12.1 Patch 1 ne corrige pas le problème.
+
+Remède :
+
+1. Sous **Tools › Options › Third Party › dpcc**, choisir le mode « Server » : l'IDE reste sur DelphiLSP, la
+   complétion vient de `dpcc.LspServer.exe` (voir [Serveur LSP](lsp-server.md#mode-server)). Ou « Off ». Le passage
+   depuis Plugin prend effet après le redémarrage de Delphi ; d'ici là, ne pas afficher d'unité contenant un nombre à
+   virgule flottante.
+2. Seulement si Plugin doit rester, à la main, l'une de ces deux mesures :
+   - Régler la valeur texte `ErrorInsightLevel` = `0` sous
+     `HKCU\Software\Embarcadero\BDS\23.0\Editor\Source Options\Borland.EditOptions.Pascal` **avant** le
+     démarrage de Delphi. Réglée pendant l'exécution, elle n'agit pas. Les marques d'erreur (Error Insight)
+     disparaissent alors.
+   - Démarrer Delphi avec la variable d'environnement `COMPlus_JITMinOpts=1`, par exemple depuis un fichier batch :
+
+     ```bat
+     set COMPlus_JITMinOpts=1
+     start "" "<dossier de Delphi>\bin\bds.exe"
+     ```
+
+dpcc lui-même ne règle pas `ErrorInsightLevel`. Désactiver le pliage de code ou `Error Insight` = `False`
+n'empêche pas le plantage.
+
+### Réglage de la virgule flottante dans le journal
 
 dpcc ne modifie jamais ce réglage. Il se contente de le lire et écrit ces lignes dans `dpcc.log` (les lignes du journal
 sont toujours en allemand) :
@@ -357,7 +420,7 @@ l'index et au moins toutes les 10 minutes, dès qu'une requête se termine. Exem
   anciens, il le reconstruit au prochain accès. Quand l'IDE ferme un fichier, dpcc le libère dans le serveur.
 - Un fichier hors du groupe de projets reçoit son propre espace de travail. Celui-ci disparaît quand le dernier de ses
   fichiers est fermé.
-- Quand le serveur s'arrête (interrupteur principal désactivé, redémarrage), dpcc libère tout l'index. Si des requêtes
+- Quand le serveur s'arrête (redémarrage, fermeture de Delphi), dpcc libère tout l'index. Si des requêtes
   sont encore en cours et ne se terminent pas à temps, la libération suit dès qu'elles sont terminées.
 
 ## Réglages par défaut

@@ -172,7 +172,9 @@ Quellordner. Ohne Projektbezug gilt: Projekt vor Suchpfad vor Bibliothek vor Zus
 
 ## Wann der Index entsteht
 
-- Der Server startet mit der ersten Anfrage, etwa Strg+Leertaste, oder beim Einschalten des Hauptschalters.
+- Der Server startet in der Betriebsart Plugin mit der ersten Anfrage, etwa Strg+Leertaste, oder beim Wechsel auf
+  Plugin. In der Betriebsart Server baut `dpcc.LspServer.exe` seinen eigenen Index (siehe
+  [LSP-Server](lsp-server.md#ablage)).
 - Dann baut er den Index auf. Das läuft im Hintergrund; die IDE wartet nicht darauf.
 - Solange der Aufbau läuft, zeigt die Liste „eingeschränkt (Index wird aufgebaut)“ und kann unvollständig sein.
 - Der erste Aufbau kann bei großen Installationen einige Minuten dauern, weil er die Bibliothek einliest. Danach

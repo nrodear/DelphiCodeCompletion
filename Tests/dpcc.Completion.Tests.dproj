@@ -170,6 +170,11 @@
         <DCCReference Include="..\Packages\dpcc.Core\Source\Editor\dpcc.Core.Editor.CodeInsightKeys.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Settings\dpcc.Core.Settings.IdeCheck.pas"/>
         <DCCReference Include="IDE\dpcc.Core.Settings.IdeCheck.Tests.pas"/>
+        <DCCReference Include="..\Packages\dpcc.Core\Source\Settings\dpcc.Core.Settings.OperatingMode.pas"/>
+        <DCCReference Include="IDE\dpcc.Core.Settings.OperatingMode.Tests.pas"/>
+        <DCCReference Include="..\Packages\dpcc.Core\Source\Lsp\dpcc.Core.Lsp.ServerRedirect.pas"/>
+        <DCCReference Include="..\Packages\dpcc.Core\Source\Diagnostics\dpcc.Core.Diagnostics.ImportPatch.pas"/>
+        <DCCReference Include="IDE\dpcc.Core.Lsp.ServerRedirect.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Editor\dpcc.Core.Editor.HelpInsightRule.pas"/>
         <DCCReference Include="IDE\dpcc.Core.Editor.HelpInsightRule.Tests.pas"/>
         <DCCReference Include="..\Packages\dpcc.Core\Source\Lsp\dpcc.Core.Lsp.SessionLifecycle.pas"/>

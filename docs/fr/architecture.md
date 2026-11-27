@@ -90,7 +90,7 @@ ses dépendances chargé jusqu'à la fin de l'IDE. Ainsi, aucun thread ne saute 
 | `Lsp` | client LSP, session (initialize, synchronisation des documents, requêtes), adaptateur vers le serveur dans le processus, gestion des plantages |
 | `Completion` | déroulement de la liste (`TDpccCompletionController`), filtrage, classement, favoris, historique, mode ensemble, espaces réservés |
 | `Hover`, `Signature`, `Documentation` | contenu de l'infobulle et de l'aide aux paramètres, présentation du XMLDoc |
-| `Settings` | réglages du plugin (`TDpccPluginSettings` : exactement les valeurs de la page, plus deux en lecture seule), stockage dans le registre et `settings.json` (`dpcc.Core.Settings.Scopes`), structure de la page d'options et valeurs fixes (`dpcc.Core.Settings.CompletionView`), interrupteur principal sans redémarrage |
+| `Settings` | réglages du plugin (`TDpccPluginSettings` : exactement les valeurs de la page, plus deux en lecture seule), stockage dans le registre et `settings.json` (`dpcc.Core.Settings.Scopes`), structure de la page d'options et valeurs fixes (`dpcc.Core.Settings.CompletionView`), mode de fonctionnement Off/Plugin/Server par version (`dpcc.Core.Settings.OperatingMode`), changement des fenêtres propres sans redémarrage |
 | `Diagnostics` | fusible de sécurité (`TDpccGuard`), journal, file d'attente vers le thread principal, démontage |
 | `Localization` | langue des textes |
 
@@ -115,16 +115,18 @@ ses dépendances chargé jusqu'à la fin de l'IDE. Ainsi, aucun thread ne saute 
 | `Forms` | fiches du concepteur vers le serveur |
 | `Projects` | contexte de projet issu de l'IDE |
 | `Settings` | enregistrement de la page d'options |
-| `Foundation` | réglages dans le registre et `settings.json`, réglages de l'IDE, hook clavier, accès à l'éditeur, écran de démarrage |
+| `Foundation` | réglages dans le registre et `settings.json`, réglages de l'IDE, hook clavier, accès à l'éditeur, écran de démarrage, redirection de `DelphiLSP.exe` vers `dpcc.LspServer.exe` (mode Server) |
 
 ## Enregistrement et démontage
 
 `dpcc.IDE.Completion.Register` est la racine de composition. `Register` enregistre successivement : fusible de
-sécurité et journal, langue, écran de démarrage, mode de fonctionnement (contexte IDE), gestionnaire Code Insight,
-liaison de touches, fiches, notificateur d'enregistrement, interrupteur principal, page d'options. Chaque étape
+sécurité et journal, langue, écran de démarrage, mode de fonctionnement (contexte IDE), redirection pour le mode Server
+(`dpcc.IDE.Foundation.LspRedirect`, voir [Serveur LSP](lsp-server.md#mode-server)), gestionnaire Code Insight,
+liaison de touches, fiches, notificateur d'enregistrement, changement de mode sans redémarrage, page d'options. Chaque étape
 s'exécute séparément ; une erreur ne coûte que cette étape et figure dans le journal.
 
-Le mode de fonctionnement (dpcc est le fournisseur Code Insight ou désactivé) est décidé par
+L'accord du mode de fonctionnement avec le fournisseur Code Insight (Plugin : dpcc est le fournisseur ; Off et
+Server : DelphiLSP) est décidé par
 `dpcc.Core.Settings.IdeCheck` sans le registre (`TDpccIdeContext.Plan` : actions d'écriture et marqueurs,
 `TDpccIdeCheck.Evaluate` : vérification) ; la lecture se fait dans `dpcc.IDE.Foundation.IdeSettingsCheck`, l'écriture
 dans `dpcc.IDE.Foundation.InsightSwitch` (au démarrage avant le gestionnaire, après OK dans la boîte de dialogue des

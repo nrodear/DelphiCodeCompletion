@@ -18,7 +18,7 @@ project group without tests, see [Building for Delphi 12](installation.md#buildi
 | [Settings](settings.md) | Every option on the Tools › Options › Third Party › dpcc page, storage, what dpcc changes in the IDE |
 | [Index and cache](index-cache.md) | What the index contains, where the cache is, rebuilding, cleanup |
 | [Troubleshooting](troubleshooting.md) | Plugin does not load, list missing, duplicate tooltips, logs |
-| [LSP server](lsp-server.md) | dpcc.LspServer.exe: standalone language server over stdio, command line, storage, what it does |
+| [LSP server](lsp-server.md) | dpcc.LspServer.exe: standalone language server over stdio, Server mode, command line, storage, what it does |
 
 ## For developers
 
@@ -34,10 +34,11 @@ project group without tests, see [Building for Delphi 12](installation.md#buildi
 | Completion | Ctrl+Space | dpcc |
 | Parameter hint | Ctrl+Shift+Space | dpcc |
 | Tooltip over identifiers | Mouse rests over an identifier | dpcc |
-| List that opens by itself after “.” | Typing “.” | dpcc if it is the Code Insight provider (master switch on); otherwise DelphiLSP (IDE), and dpcc is off |
+| List that opens by itself after “.” | Typing “.” | dpcc if it is the Code Insight provider (Plugin mode); otherwise DelphiLSP (IDE), and dpcc is off |
 
-dpcc serves files with the extensions `.pas`, `.dpr`, `.dpk` and `.inc`. In all other files, and when the master
-switch is off, the IDE stays in charge.
+The table applies to the Plugin mode (default). dpcc serves files with the extensions `.pas`, `.dpr`, `.dpk` and
+`.inc`. In all other files and in the Off mode, the IDE stays in charge. In the Server mode the IDE shows its own
+windows, and the answers come from `dpcc.LspServer.exe` (see [LSP server](lsp-server.md#server-mode)).
 
 ## License
 
