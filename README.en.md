@@ -35,7 +35,7 @@ takes effect after restarting Delphi. Details: [Usage](docs/en/usage.md#interact
 ## Building
 
 Open the project group `dpcc_d13.groupproj` in the IDE and build all projects (Win32, Debug). The output goes to
-`Output\Win32\Debug` (BPLs in `Bpl`, the test program in `Bin`). For Delphi 12 it is `dpcc_d12.groupproj` with
+`Output\Win32\Debug` (BPLs in `Bpl`, the test program and the standalone LSP server `dpcc.LspServer.exe` in `Bin`, see [LSP server](docs/en/lsp-server.md)). For Delphi 12 it is `dpcc_d12.groupproj` with
 the configuration D12 (never Debug) and the output in `Output\Win32\D12`. More on this: [Development](docs/en/development.md).
 
 ## Installing

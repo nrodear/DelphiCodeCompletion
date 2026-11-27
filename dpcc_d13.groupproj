@@ -30,6 +30,9 @@
         <Projects Include="Tests\dpcc.Completion.Tests.dproj">
             <Dependencies>Packages\dpcc.Text\dpcc.Text.dproj;Packages\dpcc.WinBase\dpcc.WinBase.dproj;Packages\dpcc.Common\dpcc.Common.dproj;Packages\dpcc.Windows\dpcc.Windows.dproj;Packages\dpcc.Server\dpcc.Server.dproj;Packages\dpcc.Core\dpcc.Core.dproj</Dependencies>
         </Projects>
+        <Projects Include="Application\dpcc.LspServer.dproj">
+            <Dependencies/>
+        </Projects>
     </ItemGroup>
     <ProjectExtensions>
         <Borland.Personality>Default.Personality.12</Borland.Personality>
@@ -119,14 +122,23 @@
     <Target Name="dpcc_Completion_Tests:Make" DependsOnTargets="dpcc_Text:Make;dpcc_WinBase:Make;dpcc_Common:Make;dpcc_Windows:Make;dpcc_Server:Make;dpcc_Core:Make">
         <MSBuild Projects="Tests\dpcc.Completion.Tests.dproj" Targets="Make"/>
     </Target>
+    <Target Name="dpcc_LspServer">
+        <MSBuild Projects="Application\dpcc.LspServer.dproj"/>
+    </Target>
+    <Target Name="dpcc_LspServer:Clean">
+        <MSBuild Projects="Application\dpcc.LspServer.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="dpcc_LspServer:Make">
+        <MSBuild Projects="Application\dpcc.LspServer.dproj" Targets="Make"/>
+    </Target>
     <Target Name="Build">
-        <CallTarget Targets="dpcc_Text;dpcc_WinBase;dpcc_Common;dpcc_Windows;dpcc_Server;dpcc_Core;dpcc_UI;dpcc_Plugin;dpcc_Completion_Tests"/>
+        <CallTarget Targets="dpcc_Text;dpcc_WinBase;dpcc_Common;dpcc_Windows;dpcc_Server;dpcc_Core;dpcc_UI;dpcc_Plugin;dpcc_Completion_Tests;dpcc_LspServer"/>
     </Target>
     <Target Name="Clean">
-        <CallTarget Targets="dpcc_Text:Clean;dpcc_WinBase:Clean;dpcc_Common:Clean;dpcc_Windows:Clean;dpcc_Server:Clean;dpcc_Core:Clean;dpcc_UI:Clean;dpcc_Plugin:Clean;dpcc_Completion_Tests:Clean"/>
+        <CallTarget Targets="dpcc_Text:Clean;dpcc_WinBase:Clean;dpcc_Common:Clean;dpcc_Windows:Clean;dpcc_Server:Clean;dpcc_Core:Clean;dpcc_UI:Clean;dpcc_Plugin:Clean;dpcc_Completion_Tests:Clean;dpcc_LspServer:Clean"/>
     </Target>
     <Target Name="Make">
-        <CallTarget Targets="dpcc_Text:Make;dpcc_WinBase:Make;dpcc_Common:Make;dpcc_Windows:Make;dpcc_Server:Make;dpcc_Core:Make;dpcc_UI:Make;dpcc_Plugin:Make;dpcc_Completion_Tests:Make"/>
+        <CallTarget Targets="dpcc_Text:Make;dpcc_WinBase:Make;dpcc_Common:Make;dpcc_Windows:Make;dpcc_Server:Make;dpcc_Core:Make;dpcc_UI:Make;dpcc_Plugin:Make;dpcc_Completion_Tests:Make;dpcc_LspServer:Make"/>
     </Target>
     <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
 </Project>

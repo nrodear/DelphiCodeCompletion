@@ -1,0 +1,99 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <PropertyGroup>
+        <ProjectGuid>{0A2BF034-13A9-4032-847E-51B766784AB8}</ProjectGuid>
+        <MainSource>dpcc.LspServer.dpr</MainSource>
+        <ProjectVersion>20.3</ProjectVersion>
+        <FrameworkType>None</FrameworkType>
+        <AppType>Console</AppType>
+        <Base>True</Base>
+        <Config Condition="'$(Config)'==''">Debug</Config>
+        <Platform Condition="'$(Platform)'==''">Win32</Platform>
+        <TargetedPlatforms>3</TargetedPlatforms>
+        <ProjectName Condition="'$(ProjectName)'==''">dpcc.LspServer</ProjectName>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Config)'=='Debug' or '$(Cfg_1)'!=''">
+        <Cfg_1>true</Cfg_1>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Config)'=='Release' or '$(Cfg_2)'!=''">
+        <Cfg_2>true</Cfg_2>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Base)'!=''">
+        <DCC_MapFile>3</DCC_MapFile>
+        <SanitizedProjectName>dpcc_LspServer</SanitizedProjectName>
+        <DCC_Namespace>System;Winapi;System.Win;$(DCC_Namespace)</DCC_Namespace>
+        <DCC_UnitSearchPath>..\Packages\dpcc.Text\Source\Anonymize;..\Packages\dpcc.Text\Source\Chars;..\Packages\dpcc.Text\Source\Checkin;..\Packages\dpcc.Text\Source\DebugDisplay;..\Packages\dpcc.Text\Source\Defines;..\Packages\dpcc.Text\Source\Diff;..\Packages\dpcc.Text\Source\Encoding;..\Packages\dpcc.Text\Source\Entities;..\Packages\dpcc.Text\Source\Fuzzy;..\Packages\dpcc.Text\Source\Json;..\Packages\dpcc.Text\Source\Jsonc;..\Packages\dpcc.Text\Source\Lines;..\Packages\dpcc.Text\Source\LogMarks;..\Packages\dpcc.Text\Source\Product;..\Packages\dpcc.Text\Source\Uris;..\Packages\dpcc.WinBase\Source\Process;..\Packages\dpcc.Common\Source\Architecture;..\Packages\dpcc.Common\Source\Compiler;..\Packages\dpcc.Common\Source\Configuration;..\Packages\dpcc.Common\Source\Configuration\Internals;..\Packages\dpcc.Common\Source\Dfm;..\Packages\dpcc.Common\Source\Diagnostics;..\Packages\dpcc.Common\Source\Diagnostics\Adapters;..\Packages\dpcc.Common\Source\Diagnostics\Providers;..\Packages\dpcc.Common\Source\Documents;..\Packages\dpcc.Common\Source\Documents\Providers;..\Packages\dpcc.Common\Source\Editing;..\Packages\dpcc.Common\Source\Index;..\Packages\dpcc.Common\Source\Index\Adapters;..\Packages\dpcc.Common\Source\JsonRpc;..\Packages\dpcc.Common\Source\Localization;..\Packages\dpcc.Common\Source\Logging;..\Packages\dpcc.Common\Source\Logging\Providers;..\Packages\dpcc.Common\Source\Lsp;..\Packages\dpcc.Common\Source\Lsp\Internals;..\Packages\dpcc.Common\Source\Pascal;..\Packages\dpcc.Common\Source\Product;..\Packages\dpcc.Common\Source\Projects;..\Packages\dpcc.Common\Source\Projects\Internals;..\Packages\dpcc.Common\Source\Query;..\Packages\dpcc.Common\Source\Rationale;..\Packages\dpcc.Common\Source\Rules;..\Packages\dpcc.Common\Source\Semantics;..\Packages\dpcc.Windows\Source\Compiler;..\Packages\dpcc.Windows\Source\Diagnostics;..\Packages\dpcc.Windows\Source\Documents;..\Packages\dpcc.Windows\Source\Editing;..\Packages\dpcc.Windows\Source\Process;..\Packages\dpcc.Windows\Source\Projects;Source\Shell;Source\LspServer;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_DcuOutput>..\Output\$(Platform)\$(Config)\Dcu\dpcc.LspServer</DCC_DcuOutput>
+        <DCC_ExeOutput>..\Output\$(Platform)\$(Config)\Bin</DCC_ExeOutput>
+        <VerInfo_MajorVer>0</VerInfo_MajorVer>
+        <VerInfo_MinorVer>1</VerInfo_MinorVer>
+        <VerInfo_Release>0</VerInfo_Release>
+        <VerInfo_Build>0</VerInfo_Build>
+        <VerInfo_Keys>CompanyName=;FileDescription=dpcc LSP-Server;FileVersion=0.1.0.0;InternalName=dpcc.LspServer;LegalCopyright=;LegalTrademarks=;OriginalFilename=dpcc.LspServer.exe;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=dpcc;ProductVersion=0.1.0.0;Comments=</VerInfo_Keys>
+        <DCC_ConsoleTarget>true</DCC_ConsoleTarget>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_1)'!=''">
+        <DCC_Define>DEBUG;$(DCC_Define)</DCC_Define>
+        <DCC_RangeChecking>true</DCC_RangeChecking>
+        <DCC_IntegerOverflowCheck>true</DCC_IntegerOverflowCheck>
+        <DCC_DebugDCUs>false</DCC_DebugDCUs>
+        <DCC_Optimize>false</DCC_Optimize>
+        <DCC_GenerateStackFrames>true</DCC_GenerateStackFrames>
+        <DCC_DebugInfoInExe>true</DCC_DebugInfoInExe>
+        <DCC_RemoteDebug>false</DCC_RemoteDebug>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_2)'!=''">
+        <DCC_Define>RELEASE;$(DCC_Define)</DCC_Define>
+        <DCC_LocalDebugSymbols>false</DCC_LocalDebugSymbols>
+        <DCC_DebugInformation>0</DCC_DebugInformation>
+        <DCC_SymbolReferenceInfo>0</DCC_SymbolReferenceInfo>
+    </PropertyGroup>
+    <ItemGroup>
+        <DelphiCompile Include="$(MainSource)">
+            <MainSource>MainSource</MainSource>
+        </DelphiCompile>
+        <DCCReference Include="Source\LspServer\Shell.LspServer.Main.pas"/>
+        <DCCReference Include="Source\LspServer\Shell.LspServer.Options.pas"/>
+        <DCCReference Include="Source\LspServer\Shell.LspServer.FileLog.pas"/>
+        <DCCReference Include="Source\LspServer\Shell.LspServer.StdStreams.pas"/>
+        <DCCReference Include="Source\LspServer\Shell.LspServer.Host.pas"/>
+        <DCCReference Include="Source\LspServer\Shell.LspServer.RadStudio.Dialect.pas"/>
+        <DCCReference Include="Source\LspServer\Shell.LspServer.RadStudio.Settings.pas"/>
+        <DCCReference Include="Source\LspServer\Shell.LspServer.DocumentSymbols.pas"/>
+        <BuildConfiguration Include="Base">
+            <Key>Base</Key>
+        </BuildConfiguration>
+        <BuildConfiguration Include="Debug">
+            <Key>Cfg_1</Key>
+            <CfgParent>Base</CfgParent>
+        </BuildConfiguration>
+        <BuildConfiguration Include="Release">
+            <Key>Cfg_2</Key>
+            <CfgParent>Base</CfgParent>
+        </BuildConfiguration>
+    </ItemGroup>
+    <ProjectExtensions>
+        <Borland.Personality>Delphi.Personality.12</Borland.Personality>
+        <Borland.ProjectType>Application</Borland.ProjectType>
+        <BorlandProject>
+            <Delphi.Personality>
+                <Source>
+                    <Source Name="MainSource">dpcc.LspServer.dpr</Source>
+                </Source>
+            </Delphi.Personality>
+            <Platforms>
+                <Platform value="Win32">True</Platform>
+                <Platform value="Win64">True</Platform>
+            </Platforms>
+        </BorlandProject>
+        <ProjectFileVersion>12</ProjectFileVersion>
+    </ProjectExtensions>
+    <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Delphi.Targets')"/>
+    <Import Project="$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj" Condition="Exists('$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj')"/>
+</Project>

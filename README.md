@@ -37,7 +37,7 @@ stellt den Anbieter um; das wirkt nach dem Neustart von Delphi. Details:
 ## Bauen
 
 Die Projektgruppe `dpcc_d13.groupproj` in der IDE öffnen und alle Projekte bauen (Win32, Debug). Die Ausgabe landet
-unter `Output\Win32\Debug` (BPLs in `Bpl`, das Testprogramm in `Bin`). Für Delphi 12 ist es
+unter `Output\Win32\Debug` (BPLs in `Bpl`, das Testprogramm und der eigenständige LSP-Server `dpcc.LspServer.exe` in `Bin`, siehe [LSP-Server](docs/de/lsp-server.md)). Für Delphi 12 ist es
 `dpcc_d12.groupproj` mit der Konfiguration D12 (nie Debug) und der Ausgabe unter `Output\Win32\D12`. Mehr dazu:
 [Entwicklung](docs/de/development.md).
 

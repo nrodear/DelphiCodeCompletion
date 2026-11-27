@@ -18,6 +18,7 @@ project group without tests, see [Building for Delphi 12](installation.md#buildi
 | [Settings](settings.md) | Every option on the Tools › Options › Third Party › dpcc page, storage, what dpcc changes in the IDE |
 | [Index and cache](index-cache.md) | What the index contains, where the cache is, rebuilding, cleanup |
 | [Troubleshooting](troubleshooting.md) | Plugin does not load, list missing, duplicate tooltips, logs |
+| [LSP server](lsp-server.md) | dpcc.LspServer.exe: standalone language server over stdio, command line, storage, what it does |
 
 ## For developers
 

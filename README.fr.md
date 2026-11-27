@@ -36,7 +36,7 @@ L'interrupteur principal change de fournisseur ; cela prend effet après le red
 ## Compilation
 
 Ouvrir le groupe de projets `dpcc_d13.groupproj` dans l'IDE et compiler tous les projets (Win32, Debug). La sortie
-se trouve sous `Output\Win32\Debug` (les BPL dans `Bpl`, le programme de test dans `Bin`). Pour Delphi 12, c'est
+se trouve sous `Output\Win32\Debug` (les BPL dans `Bpl`, le programme de test et le serveur LSP autonome `dpcc.LspServer.exe` dans `Bin`, voir [Serveur LSP](docs/fr/lsp-server.md)). Pour Delphi 12, c'est
 `dpcc_d12.groupproj`, avec la configuration D12 (jamais Debug) et la sortie sous `Output\Win32\D12`. Pour en savoir plus :
 [Développement](docs/fr/development.md).
 

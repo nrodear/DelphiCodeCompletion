@@ -23,6 +23,7 @@ parenthèses.
 | [Réglages](settings.md) | Chaque option de la page Tools › Options › Third Party › dpcc, stockage, ce que dpcc modifie dans l'IDE |
 | [Index et cache](index-cache.md) | Ce que contient l'index, où se trouve le cache, reconstruction, nettoyage |
 | [Dépannage](troubleshooting.md) | Le plugin ne se charge pas, la liste manque, infobulles en double, journaux |
+| [Serveur LSP](lsp-server.md) | dpcc.LspServer.exe : serveur de langage autonome sur stdio, appel, stockage, ce qu’il fait |
 
 ## Pour les développeurs
 
