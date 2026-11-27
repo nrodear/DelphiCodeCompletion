@@ -161,6 +161,10 @@ type
     /// <summary>Bibliotheksstufe nur mit Kopf und Katalog (Speicher-Optimierung Phase 3); siehe
     /// TIndexBuilder.LazyLibrary.</summary>
     LazyLibrary: Boolean;
+    /// <summary>Ordner anderer Delphi-Installationen als der des Auftrags (dpcc.LspServer.exe): Units darunter
+    /// nimmt der Index vor dem Aufbau heraus und übernimmt sie aus keinem Cache, damit gleichnamige Units nie aus der
+    /// falschen Version kommen. Leer = keine Prüfung (Plugin, CLI).</summary>
+    ForeignRoots: TArray<string>;
   end;
 
   /// <summary>Cache-Datei verworfen; AReason z. B. "Prüfsumme stimmt nicht" (#492).</summary>
@@ -208,6 +212,8 @@ type
     /// <summary>Bibliotheks-Units außerhalb der Installation, die der Projekt-Cache zuletzt enthielt (Phase 5): Kommen
     /// beim ersten Aufbau neue hinzu, schreibt FlushLibrary auch ihn.</summary>
     FProjectLibraryWritten: Integer;
+    /// <summary>Units anderer Installationen, die Load aus den Caches nicht übernommen hat (ForeignRoots).</summary>
+    FForeignCached: Integer;
     function ReadCache(const AFileName: string): TArray<TIndexCacheEntry>;
     /// <summary>Wie ReadCache ohne Kataloge (Phase 3).</summary>
     function ReadHeaders(const AFileName: string): TArray<TIndexCacheEntry>;
@@ -261,6 +267,8 @@ type
     procedure FlushLibrary;
     /// <summary>Gibt die gelesenen Einträge frei; die gemeinsamen Kopien hält das Objekt bis zum Ende.</summary>
     procedure Release;
+    /// <summary>Nach Load: so viele Units anderer Installationen standen in den Caches (ForeignRoots).</summary>
+    property ForeignCached: Integer read FForeignCached;
   end;
 
   /// <summary>Nutzungsstatistik der Bibliotheks-Units (Speicher-Optimierung Phase 3): Punkte je Unit mit
@@ -370,6 +378,9 @@ type
     function PrepareBuilder(const ARequest: TIndexRequest; const ACancelled: TFunc<Boolean>;
       ACaches: TIndexCacheWriter): TIndexBuilder;
     procedure WaitForOtherWriter(const ARequest: TIndexRequest; const ACancelled: TFunc<Boolean>);
+    /// <summary>Nimmt die Units unter ARoots (TIndexRequest.ForeignRoots) aus dem Index; ohne ARoots nichts.
+    /// </summary>
+    procedure RemoveForeignUnits(const ARoots: TArray<string>);
     function AcquireBuilder: TIndexBuilder;
     procedure ReleaseBuilder;
     procedure ReplaceBuilder(ABuilder: TIndexBuilder);
@@ -1295,6 +1306,45 @@ begin
   end;
 end;
 
+/// <summary>Liegt AFileName unter einem der Ordner ARoots (TIndexRequest.ForeignRoots)?</summary>
+function UnderForeignRoot(const AFileName: string; const ARoots: TArray<string>): Boolean;
+var
+  mRoot: string;
+begin
+  Result := False;
+  for mRoot in ARoots do
+  begin
+    if (mRoot <> '') and SameText(Copy(AFileName, 1, Length(mRoot) + 1), IncludeTrailingPathDelimiter(mRoot)) then
+    begin
+      Exit(True);
+    end;
+  end;
+end;
+
+/// <summary>AEntries ohne die Units unter ARoots; ARemoved zählt sie.</summary>
+function WithoutForeign(const AEntries: TArray<TIndexCacheEntry>; const ARoots: TArray<string>;
+  var ARemoved: Integer): TArray<TIndexCacheEntry>;
+var
+  mEntry: TIndexCacheEntry;
+begin
+  if Length(ARoots) = 0 then
+  begin
+    Exit(AEntries);
+  end;
+  Result := nil;
+  for mEntry in AEntries do
+  begin
+    if UnderForeignRoot(mEntry.Header.FileName, ARoots) then
+    begin
+      Inc(ARemoved);
+    end
+    else
+    begin
+      Result := Result + [mEntry];
+    end;
+  end;
+end;
+
 const
   /// <summary>Am Ende eines Aufbaus wird ein gemeinsamer Cache verdichtet (ganz neu geschrieben), wenn sein ungenutzter
   /// Teil größer ist als cCompactBytes oder als cCompactPercent der Datei (Phase 5).</summary>
@@ -1631,6 +1681,17 @@ begin
   FSearchCached := LoadShared(FRequest.SearchCacheFile, AKept, FSearchHold);
   // Zusätzliche Quellordner (L2): eigener gemeinsamer Cache, wie die Bibliothek nur als Katalog übernommen.
   FExtraCached := LoadShared(FRequest.ExtraCacheFile, AKept, FExtraHold);
+  // Ein Cache, der Units einer anderen Delphi-Installation hält (früher gemischter Index), gibt sie nicht weiter:
+  // Der Builder liest sie aus der richtigen Installation neu.
+  if Length(FRequest.ForeignRoots) > 0 then
+  begin
+    FForeignCached := 0;
+    FCached := WithoutForeign(FCached, FRequest.ForeignRoots, FForeignCached);
+    FProjectLibraryWritten := LibraryEntries(FCached);
+    FLibraryCached := WithoutForeign(FLibraryCached, FRequest.ForeignRoots, FForeignCached);
+    FSearchCached := WithoutForeign(FSearchCached, FRequest.ForeignRoots, FForeignCached);
+    FExtraCached := WithoutForeign(FExtraCached, FRequest.ForeignRoots, FForeignCached);
+  end;
   // Phase 3: Units, die nur im Katalog stehen, lesen ab jetzt aus dieser Fassung der Datei (hat ein anderer Prozess
   // sie ersetzt, lasen sie bisher aus der alten über deren offenes Handle).
   Bind(FLibraryCached);
@@ -2131,6 +2192,23 @@ begin
     end;
 end;
 
+procedure TIndexService.RemoveForeignUnits(const ARoots: TArray<string>);
+var
+  mUnit: TUnitIndex;
+begin
+  if Length(ARoots) = 0 then
+  begin
+    Exit;
+  end;
+  for mUnit in FIndex.Units do
+  begin
+    if UnderForeignRoot(mUnit.FileName, ARoots) then
+    begin
+      FIndex.RemoveFile(mUnit.FileName);
+    end;
+  end;
+end;
+
 function TIndexService.PrepareBuilder(const ARequest: TIndexRequest; const ACancelled: TFunc<Boolean>;
   ACaches: TIndexCacheWriter): TIndexBuilder;
 begin
@@ -2151,6 +2229,9 @@ begin
     begin
       ARequest.Prepare();
     end;
+    // Ein abgebrochener Aufbau mit einer anderen Delphi-Version hat ihre Units schon eingelesen; der vorige Aufbau
+    // ist hier zu Ende (TIndexThread.Execute).
+    RemoveForeignUnits(ARequest.ForeignRoots);
     WaitForOtherWriter(ARequest, ACancelled);
     TMonitor.Enter(FLock);
     try

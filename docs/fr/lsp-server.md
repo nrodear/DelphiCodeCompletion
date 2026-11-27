@@ -166,12 +166,14 @@ fenêtres de l’IDE ont donc le même aspect qu’avec l’original, seul le co
 |---|---|
 | hover | `contents` est **une** chaîne HTML dans le cadre de Help Insight (`HelpInsight.css`) : un titre comme `function TProbe.Twice(const A: Integer): Integer`, un lien `fichier (ligne)`, puis résumé, paramètres, valeur de retour et remarques tirés du XMLDoc. Les versions précédentes envoyaient du texte brut, que l’IDE affichait comme du HTML (les lignes se collaient). |
 | signatureHelp | une entrée par paramètre avec son type (`A: Integer`, les groupes comme `A, B: Integer` résolus), `documentation` en HTML (`kind` html), par paramètre `kind` xml |
-| definition, declaration, typeDefinition, implementation | **un** objet Location (pas de tableau) ; fichiers ouverts avec la même écriture d’URI que dans `didOpen` |
-| completion | `kibitzkind` 2 après `.`, 7 sans point, 15 dans la clause uses ; `sortText` hexadécimal ; surcharges en entrées séparées ; `kind`, `detail` et `DCC_Flags` par genre de symbole comme DelphiLSP ; les branches `{$IFDEF}` inactives sont omises |
+| definition, declaration, typeDefinition, implementation | **un** objet Location (pas de tableau) ; fichiers ouverts avec la même écriture d’URI que dans `didOpen` ; definition et implementation sur une routine de la bibliothèque sautent à son corps comme DelphiLSP |
+| completion | `kibitzkind` 2 après `.`, 7 sans point, 15 dans la clause uses ; `sortText` hexadécimal ; surcharges en entrées séparées ; `kind`, `detail` et `DCC_Flags` par genre de symbole comme DelphiLSP ; les branches `{$IFDEF}` inactives sont omises ; la liste entière (jusqu’à 5000 entrées) au lieu des 1000 premières ; avec `enableKeyWordCompletion` de l’IDE, les mots-clés à la fin de la liste des identificateurs (kind 14, `sortText` `k000` …) |
 | completionItem/resolve | la même entrée que dans la liste, avec `DCC_Flags`, sans `documentation` |
 | documentSymbol | avec une section uses et ses unités ; énumérations et alias de type comme les records (kind 23), constructeurs comme les méthodes (kind 6), propriété avec sa partie d’accès comme `detail` |
 
-Différences de contenu connues : le titre de l’aide aux paramètres ne nomme ni la classe ni l’unité (`function Add(…)` au lieu de `function TProbe.Add(…)` ; invisible dans l’indication de paramètres de l’IDE) ; Ctrl+clic sur une routine de la RTL saute à sa déclaration, DelphiLSP à son implémentation ; les mots-clés et les unités de la clause uses ne figurent dans la liste que si le serveur les fournit.
+Différences de contenu connues : le titre de l’aide aux paramètres ne nomme ni la classe ni l’unité (`function Add(…)` au lieu de `function TProbe.Add(…)` ; invisible dans l’indication de paramètres de l’IDE) ; la liste de la clause uses ne contient que des unités avec source (pas de simples espaces de noms comme `System`, pas d’unités seulement en .dcu), la liste des identificateurs pas de membres de classe qualifiés comme `TThread.Queue`.
+
+Version de Delphi : le serveur prend la version de l’IDE qui le lance (d’après `processId` dans `initialize`) dès avant ses données de projet, même si le .dproj a été enregistré en dernier par une autre version. Il ne garde dans l’index ni ne reprend d’un cache des unités d’une autre installation ; dans les versions précédentes, Delphi 12 pouvait ainsi sauter dans les sources de Delphi 13, par exemple pour `TStringList`.
 
 ## Voir aussi
 

@@ -21,6 +21,11 @@
 //   lesbar, 0x10000 Ereignis, 0x20000 Konstruktor, 0x40000 Destruktor, 0x200000 Array-Property, 0x800000
 //   Klassenmethode bzw. globale Routine, 0x4000000 overload, 0x8000000 Interface, 0x10000000 deprecated. Einträge,
 //   die zusätzliche Änderungen brauchen (uses ergänzen, Vorlagen, Befehle), fehlen: Die IDE übernähme nur den Namen.
+//   In der uses-Klausel bleiben Units, deren textEdit nur ihren Namen einsetzt (der Server ersetzt damit den ganzen
+//   getippten Namen; vorher fiel so die ganze Liste weg): kind 17, detail ";", DCC_Flags 0x4026.
+//   Schickt die IDE in workspace/didChangeConfiguration enableKeyWordCompletion = true, stehen in der Bezeichnerliste
+//   (kibitzkind 7) statt der Schlüsselwörter des Servers die 120 Wörter von DelphiLSP hinten (cKeywords, kind 14,
+//   detail "", DCC_Flags 0, sortText "k000".."k077" hexadezimal).
 // - completionItem/resolve: kind und insertTextFormat kommen als Zeichenketten; data fehlt. Der Übersetzer setzt den
 //   Eintrag des Servers wieder ein (über sortText und label der Liste) und antwortet mit dem Eintrag, wie er in der
 //   Liste stand, samt DCC_Flags und ohne documentation.
@@ -33,7 +38,10 @@
 //   helpinsight:/filelink:<Pfad>?<Zeile>,1 und den Blöcken Summary, Parameters, Returns, Remarks; gebaut aus dem
 //   dpcc-Teil der Antwort des Servers (HoverHtml, HoverCaption).
 // - textDocument/definition, declaration, typeDefinition, implementation: ein Location-Objekt (kein Array), die URI
-//   in der Schreibweise, in der die IDE die Datei geöffnet hat.
+//   in der Schreibweise, in der die IDE die Datei geöffnet hat. definition und implementation führen wie DelphiLSP
+//   zum Rumpf einer Bibliotheks-Routine: Der Index führt ihn dort nicht als Symbol, nur seine Zeile am
+//   interface-Symbol (ImplementationLine); der Server springt deshalb zur Deklaration, der Übersetzer an den Anfang
+//   der Zeile des Rumpfs. Liegt das Ziel im Dokument der Anfrage, paart der Server beide selbst (Baum des Editors).
 // - Benachrichtigungen und Anfragen des Servers an den Client (window/logMessage, $/progress, dpcc/…) gehen nicht an
 //   die IDE; sie kennt sie nicht.
 // Threadsicher: WriteMessage kommt aus Worker-Threads, ReadMessage nur aus dem Lese-Thread der Verbindung.
@@ -80,6 +88,8 @@ type
     /// <summary>completionItem/resolve: der Eintrag, wie die IDE ihn schickte (JSON), für den Rückfall, wenn er nicht
     /// mehr aus der letzten Liste stammt; '' ohne.</summary>
     ResolveEcho: string;
+    /// <summary>textDocument/definition und implementation: URI des Dokuments der Anfrage; '' ohne.</summary>
+    Uri: string;
   end;
 
   TRadStudioDialect = class(TInterfacedObject, IJsonRpcTransport)
@@ -108,9 +118,13 @@ type
     FTypeLookup: TRadTypeLookup;
     FOnInitialize: TRadInitializeEvent;
     FDropped: Integer;
+    /// <summary>enableKeyWordCompletion aus workspace/didChangeConfiguration.</summary>
+    FKeywords: Boolean;
     function GetActive: Boolean;
+    function GetKeywords: Boolean;
     procedure NoteInitialize(AMessage: TJSONObject);
     procedure NoteDocument(const AMethod: string; AMessage: TJSONObject);
+    procedure NoteConfiguration(AMessage: TJSONObject);
     function KibitzOf(AMessage: TJSONObject): Integer;
     /// <summary>Setzt den Eintrag des Servers als params ein; liefert seinen Schlüssel ('' ohne).</summary>
     function FixResolveParams(AMessage: TJSONObject): string;
@@ -119,6 +133,10 @@ type
     function CompletionAnswer(AResult: TJSONValue; AKibitz: Integer): TJSONValue;
     function ResolveAnswer(AResult: TJSONValue; const AKey, AEcho: string): TJSONValue;
     function LocationAnswer(AResult: TJSONValue): TJSONValue;
+    /// <summary>Zeigt ALocation (Location der IDE) auf die Deklaration einer Bibliotheks-Routine, deren Rumpf der
+    /// Index nur als Zeile kennt, dann auf den Anfang dieser Zeile; sonst und im Dokument ARequestUri unverändert.
+    /// </summary>
+    procedure MoveToLibraryBody(ALocation: TJSONValue; const ARequestUri: string);
     /// <summary>AUri in der Schreibweise, in der die IDE die Datei geöffnet hat; sonst unverändert.</summary>
     function IdeUri(const AUri: string): string;
     procedure RememberItems(AServerItems, ARadItems: TList<TJSONObject>);
@@ -170,6 +188,8 @@ type
     class function PlainOf(const AMarkdown: string): string; static;
     /// <summary>Der Client ist RAD Studio (nach initialize).</summary>
     property Active: Boolean read GetActive;
+    /// <summary>Die IDE will Schlüsselwörter in der Bezeichnerliste (enableKeyWordCompletion).</summary>
+    property Keywords: Boolean read GetKeywords;
     /// <summary>Verworfene Nachrichten des Servers an die IDE.</summary>
     property Dropped: Integer read FDropped;
     property UnitSymbols: TRadUnitSymbols read FUnitSymbols write FUnitSymbols;
@@ -200,6 +220,7 @@ const
   cDidOpenMethod = 'textDocument/didOpen';
   cDidChangeMethod = 'textDocument/didChange';
   cDidCloseMethod = 'textDocument/didClose';
+  cDidChangeConfigurationMethod = 'workspace/didChangeConfiguration';
   // Arten des Servers (LSP), die eigens übersetzt werden.
   cServerKindVariable = 6;
   cServerKindModule = 9;
@@ -229,6 +250,21 @@ const
   /// <summary>Wörter, nach denen keine uses-Klausel mehr offen ist (unvollständiger Text).</summary>
   cSectionWords: array[0..10] of string = ('interface', 'implementation', 'begin', 'type', 'var', 'const',
     'procedure', 'function', 'initialization', 'finalization', 'end');
+  /// <summary>Schlüsselwörter der Bezeichnerliste mit enableKeyWordCompletion, wie DelphiLSP in Delphi 12 und 13
+  /// (gemessen am 27.11.2026, Reihenfolge samt dem zweiten "reference" am Ende).</summary>
+  cKeywords: array[0..119] of string = (
+    'absolute', 'abstract', 'and', 'array', 'as', 'asm', 'assembler', 'automated', 'begin', 'case', 'cdecl', 'class',
+    'class helper for', 'const', 'contains', 'constructor', 'default', 'deprecated', 'destructor', 'dispid',
+    'dispinterface', 'div', 'do', 'downto', 'dynamic', 'else', 'end', 'except', 'experimental', 'export', 'exports',
+    'external', 'far', 'file', 'final', 'finalization', 'finally', 'for', 'forward', 'function', 'goto', 'helper',
+    'if', 'ilcode', 'implementation', 'implements', 'in', 'index', 'inherited', 'initialization', 'inline',
+    'interface', 'is', 'label', 'library', 'local', 'message', 'mod', 'name', 'near', 'nil', 'nodefault', 'not',
+    'object', 'of', 'operator', 'or', 'out', 'overload', 'override', 'package', 'packed', 'pascal', 'platform',
+    'private', 'procedure', 'protected', 'program', 'property', 'public', 'published', 'raise', 'read', 'readonly',
+    'record', 'record helper for', 'reference', 'register', 'reintroduce', 'remove', 'repeat', 'requires', 'resident',
+    'resourcestring', 'safecall', 'sealed', 'set', 'shl', 'shr', 'static', 'stdcall', 'stored', 'strict', 'then',
+    'threadvar', 'to', 'try', 'type', 'unit', 'until', 'uses', 'var', 'virtual', 'while', 'winapi', 'with', 'write',
+    'writeonly', 'xor', 'reference');
 
 function IdKey(const AId: TJSONValue): string;
 begin
@@ -1037,12 +1073,22 @@ begin
   end;
 end;
 
-/// <summary>Braucht der Eintrag mehr als seinen Namen (Änderungen, Vorlage, Befehl)?</summary>
-function NeedsEdits(AItem: TJSONObject): Boolean;
+/// <summary>Braucht der Eintrag mehr als seinen Namen (Änderungen, Vorlage, Befehl)? Mit ANameEdit zählt ein
+/// textEdit, das nur label einsetzt, nicht dazu (uses-Klausel: Der Server ersetzt so den ganzen getippten Namen samt
+/// Punkten, die IDE übernimmt den Namen selbst).</summary>
+function NeedsEdits(AItem: TJSONObject; ANameEdit: Boolean): Boolean;
 var
   mEdits: TJSONArray;
+  mEdit: TJSONValue;
+  mText: string;
 begin
-  Result := (AItem.GetValue('textEdit') <> nil) or (AItem.GetValue('command') <> nil) or
+  mEdit := AItem.GetValue('textEdit');
+  if ANameEdit and (mEdit is TJSONObject) and TJSONObject(mEdit).TryGetValue<string>('newText', mText) and
+    (mText <> '') and (mText = AItem.GetValue<string>('label', '')) then
+  begin
+    mEdit := nil;
+  end;
+  Result := (mEdit <> nil) or (AItem.GetValue('command') <> nil) or
     (AItem.GetValue<Integer>('insertTextFormat', 1) = 2) or
     (AItem.TryGetValue<TJSONArray>('additionalTextEdits', mEdits) and (mEdits.Count > 0));
 end;
@@ -1489,6 +1535,16 @@ begin
   end;
 end;
 
+function TRadStudioDialect.GetKeywords: Boolean;
+begin
+  FLock.Enter;
+  try
+    Result := FKeywords;
+  finally
+    FLock.Leave;
+  end;
+end;
+
 procedure TRadStudioDialect.NoteInitialize(AMessage: TJSONObject);
 var
   mParams: TJSONObject;
@@ -1580,6 +1636,24 @@ begin
   end;
 end;
 
+procedure TRadStudioDialect.NoteConfiguration(AMessage: TJSONObject);
+var
+  mValue: TJSONValue;
+begin
+  // Die IDE schickt die Projektdaten unter "settings"; fehlt der Schalter, bleibt der letzte Stand.
+  mValue := AMessage.FindValue('params.settings.enableKeyWordCompletion');
+  if not (mValue is TJSONBool) then
+  begin
+    Exit;
+  end;
+  FLock.Enter;
+  try
+    FKeywords := TJSONBool(mValue).AsBoolean;
+  finally
+    FLock.Leave;
+  end;
+end;
+
 function TRadStudioDialect.KibitzOf(AMessage: TJSONObject): Integer;
 var
   mParams: TJSONObject;
@@ -1658,11 +1732,16 @@ begin
     mPending.Kibitz := cKibitzMember;
     mPending.ResolveKey := '';
     mPending.ResolveEcho := '';
+    mPending.Uri := '';
     if Active then
     begin
       if (mMethod = cDidOpenMethod) or (mMethod = cDidChangeMethod) or (mMethod = cDidCloseMethod) then
       begin
         NoteDocument(mMethod, Result);
+      end
+      else if mMethod = cDidChangeConfigurationMethod then
+      begin
+        NoteConfiguration(Result);
       end
       else if mMethod = cCompletionMethod then
       begin
@@ -1679,8 +1758,13 @@ begin
       else if mMethod = cImplementationMethod then
       begin
         // Wie DelphiLSP: dasselbe Ziel wie definition; die Antwort geht als implementation zurück.
+        mPending.Uri := Result.GetValue<string>('params.textDocument.uri', '');
         Result.RemovePair('method').Free;
         Result.AddPair('method', cDefinitionMethod);
+      end
+      else if mMethod = cDefinitionMethod then
+      begin
+        mPending.Uri := Result.GetValue<string>('params.textDocument.uri', '');
       end;
     end;
     if (mMethod <> '') and (mId <> nil) then
@@ -1738,6 +1822,8 @@ begin
     mPending.Method := '';
     mPending.Kibitz := cKibitzMember;
     mPending.ResolveKey := '';
+    mPending.ResolveEcho := '';
+    mPending.Uri := '';
   end;
   mResult := AMessage.GetValue('result');
   if (mResult = nil) or ((mPending.Method <> cInitializeMethod) and not Active) then
@@ -1821,8 +1907,18 @@ begin
   begin
     Result := HoverAnswer(AResult);
   end
-  else if (mMethod = cDefinitionMethod) or (mMethod = cDeclarationMethod) or (mMethod = cTypeDefinitionMethod) or
-    (mMethod = cImplementationMethod) then
+  else if (mMethod = cDefinitionMethod) or (mMethod = cImplementationMethod) then
+  begin
+    Result := LocationAnswer(AResult);
+    try
+      MoveToLibraryBody(Result, APending.Uri);
+    except
+      // Lieber das Ziel des Servers als keines.
+      on Exception do
+        ;
+    end;
+  end
+  else if (mMethod = cDeclarationMethod) or (mMethod = cTypeDefinitionMethod) then
   begin
     Result := LocationAnswer(AResult);
   end;
@@ -2807,6 +2903,8 @@ var
   mRadItems, mKeywords: TObjectList<TJSONObject>;
   mSources, mKeywordSources: TList<TJSONObject>;
   mIndex, mLast, mWidth: Integer;
+  mWord: string;
+  mKeyword: TJSONObject;
 begin
   mIncomplete := False;
   if AResult is TJSONArray then
@@ -2839,11 +2937,29 @@ begin
     try
       for mItem in mItems do
       begin
-        if not (mItem is TJSONObject) or NeedsEdits(TJSONObject(mItem)) or IsUnavailable(TJSONObject(mItem)) then
+        if not (mItem is TJSONObject) or NeedsEdits(TJSONObject(mItem), AKibitz = cKibitzUses) or
+          IsUnavailable(TJSONObject(mItem)) then
         begin
           Continue;
         end;
         mBuilder.Add(TJSONObject(mItem), mRadItems, mSources, mKeywords, mKeywordSources);
+      end;
+      if (AKibitz = cKibitzScope) and Keywords then
+      begin
+        // Wie DelphiLSP mit enableKeyWordCompletion: die feste Liste statt der Schlüsselwörter des Servers. Ohne
+        // Eintrag des Servers ist der Eintrag selbst die Quelle für resolve.
+        mKeywords.Clear;
+        mKeywordSources.Clear;
+        for mWord in cKeywords do
+        begin
+          mKeyword := TJSONObject.Create;
+          mKeywords.Add(mKeyword);
+          mKeyword.AddPair('label', mWord);
+          mKeyword.AddPair('kind', TJSONNumber.Create(cRadKindKeyword));
+          mKeyword.AddPair('detail', '');
+          mKeyword.AddPair('DCC_Flags', TJSONNumber.Create(0));
+          mKeywordSources.Add(mKeyword);
+        end;
       end;
       // Laufende Nummer hexadezimal, so breit wie die des letzten Eintrags; Schlüsselwörter dahinter mit "k".
       mLast := mRadItems.Count - 1;
@@ -3002,6 +3118,79 @@ begin
   Result := TJSONObject.Create;
   TJSONObject(Result).AddPair('uri', IdeUri(mUri));
   TJSONObject(Result).AddPair('range', TJSONObject(mRange.Clone));
+end;
+
+/// <summary>{"line": ALine, "character": ACharacter}.</summary>
+function PositionJson(ALine, ACharacter: Integer): TJSONObject;
+begin
+  Result := TJSONObject.Create;
+  Result.AddPair('line', TJSONNumber.Create(ALine));
+  Result.AddPair('character', TJSONNumber.Create(ACharacter));
+end;
+
+procedure TRadStudioDialect.MoveToLibraryBody(ALocation: TJSONValue; const ARequestUri: string);
+var
+  mLocation, mRange: TJSONObject;
+  mUri: string;
+  mLine, mCharacter, mBody, mIndex: Integer;
+  mSymbols: TArray<TIndexSymbol>;
+  mFound: Boolean;
+begin
+  if not (ALocation is TJSONObject) then
+  begin
+    Exit;
+  end;
+  mLocation := TJSONObject(ALocation);
+  mUri := mLocation.GetValue<string>('uri', '');
+  // Im Dokument der Anfrage paart der Server Deklaration und Rumpf selbst (Baum des Editors); dort wechselt dieselbe
+  // Taste zwischen beiden.
+  if (mUri = '') or ((ARequestUri <> '') and TDocumentUris.SameFile(mUri, ARequestUri)) then
+  begin
+    Exit;
+  end;
+  mLine := mLocation.GetValue<Integer>('range.start.line', -1);
+  mCharacter := mLocation.GetValue<Integer>('range.start.character', -1);
+  if mLine < 0 then
+  begin
+    Exit;
+  end;
+  mSymbols := nil;
+  mFound := False;
+  if Assigned(FUnitSymbols) then
+  begin
+    try
+      mFound := FUnitSymbols(TDocumentUris.ToPath(mUri), mSymbols);
+    except
+      // Ohne Symbole bleibt das Ziel des Servers.
+      on Exception do
+        mFound := False;
+    end;
+  end;
+  if not mFound then
+  begin
+    Exit;
+  end;
+  mBody := -1;
+  for mIndex := 0 to High(mSymbols) do
+  begin
+    if IsRoutineKind(mSymbols[mIndex].Kind) and (mSymbols[mIndex].SelectionRange.StartPos.Line = mLine) and
+      (mSymbols[mIndex].SelectionRange.StartPos.Character = mCharacter) then
+    begin
+      // Nur Bibliotheks-Units tragen die Zeile (sonst ist der Rumpf ein eigenes Symbol und schon das Ziel).
+      mBody := mSymbols[mIndex].ImplementationLine;
+      Break;
+    end;
+  end;
+  if (mBody < 0) or (mBody = mLine) then
+  begin
+    Exit;
+  end;
+  // Der Index kennt nur die Zeile: ihr Anfang, wie DelphiLSP.
+  mRange := TJSONObject.Create;
+  mRange.AddPair('start', PositionJson(mBody, 0));
+  mRange.AddPair('end', PositionJson(mBody, 0));
+  mLocation.RemovePair('range').Free;
+  mLocation.AddPair('range', mRange);
 end;
 
 end.

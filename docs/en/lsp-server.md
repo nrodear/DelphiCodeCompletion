@@ -160,12 +160,14 @@ windows thus look as they do with the original, only the content may differ.
 |---|---|
 | hover | `contents` is **one** HTML string in the Help Insight frame (`HelpInsight.css`): a heading such as `function TProbe.Twice(const A: Integer): Integer`, a link `file (line)`, then summary, parameters, returns and remarks from the XMLDoc. Earlier versions sent plain text here, which the IDE rendered as HTML (lines ran together). |
 | signatureHelp | one entry per parameter with its type (`A: Integer`, groups such as `A, B: Integer` resolved), `documentation` as HTML (`kind` html), per parameter `kind` xml |
-| definition, declaration, typeDefinition, implementation | **one** Location object (no array); open files with the same URI spelling as in `didOpen` |
-| completion | `kibitzkind` 2 after `.`, 7 without a dot, 15 in the uses clause; `sortText` hexadecimal; overloads as separate entries; `kind`, `detail` and `DCC_Flags` per symbol kind like DelphiLSP; inactive `{$IFDEF}` branches are left out |
+| definition, declaration, typeDefinition, implementation | **one** Location object (no array); open files with the same URI spelling as in `didOpen`; definition and implementation on a library routine jump to its body like DelphiLSP |
+| completion | `kibitzkind` 2 after `.`, 7 without a dot, 15 in the uses clause; `sortText` hexadecimal; overloads as separate entries; `kind`, `detail` and `DCC_Flags` per symbol kind like DelphiLSP; inactive `{$IFDEF}` branches are left out; the whole list (up to 5000 entries) instead of the first 1000; with the IDE's `enableKeyWordCompletion` the keywords at the end of the identifier list (kind 14, `sortText` `k000` …) |
 | completionItem/resolve | the same entry as in the list, including `DCC_Flags`, without `documentation` |
 | documentSymbol | with a uses section and its units; enums and type aliases like records (kind 23), constructors like methods (kind 6), property with its access part as `detail` |
 
-Known differences in content: the heading of the parameter help does not name the class or unit (`function Add(…)` instead of `function TProbe.Add(…)`; not visible in the IDE's parameter hint); Ctrl+click on an RTL routine jumps to its declaration, DelphiLSP to its implementation; keywords and the units of the uses clause are only in the list if the server provides them.
+Known differences in content: the heading of the parameter help does not name the class or unit (`function Add(…)` instead of `function TProbe.Add(…)`; not visible in the IDE's parameter hint); the uses clause list only holds units with source (no plain namespaces such as `System`, no units that exist only as .dcu), the identifier list no qualified class members such as `TThread.Queue`.
+
+Delphi version: the server takes the version of the IDE that starts it (from `processId` in `initialize`) even before its project data, also when the .dproj was last saved by another version. It neither keeps units of another installation in the index nor takes them from a cache; in earlier versions Delphi 12 could jump into the Delphi 13 sources this way, for example for `TStringList`.
 
 ## See also
 

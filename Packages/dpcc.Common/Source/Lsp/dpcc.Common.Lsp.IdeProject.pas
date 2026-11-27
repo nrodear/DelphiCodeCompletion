@@ -109,6 +109,8 @@ type
     FOnChanged: TIdeProjectChangedEvent;
     FOnNamingChanged: TIdeProjectChangedEvent;
     FActive: string;
+    FClientBdsVersion: string;
+    FSeparateInstallations: Boolean;
     procedure HandleNotification(const AParams: TJSONValue);
   public
     constructor Create;
@@ -126,6 +128,13 @@ type
     function Find(const AProjectFile: string; out AContext: TIdeProjectContext): Boolean;
     /// <summary>.dproj des aktiven Projekts der IDE (#46); '' ohne Meldung. Threadsicher.</summary>
     function ActiveProject: string;
+    /// <summary>Version der IDE, die den Server als Ersatz für DelphiLSP gestartet hat (dpcc.LspServer.exe), z. B.
+    /// "23.0": gilt schon vor ihren Projektdaten. '' im Plugin (es meldet seine Kontexte schon in initialize), ohne
+    /// IDE und wenn sie nicht zu bestimmen war. Vor dem ersten Laden setzen.</summary>
+    property ClientBdsVersion: string read FClientBdsVersion write FClientBdsVersion;
+    /// <summary>Units anderer Delphi-Installationen als der des Projekts weder im Index behalten noch aus Caches
+    /// übernehmen (TIndexRequest.ForeignRoots). Nur dpcc.LspServer.exe für RAD Studio; im Plugin aus.</summary>
+    property SeparateInstallations: Boolean read FSeparateInstallations write FSeparateInstallations;
     /// <summary>Nach dpcc/projectContext mit geändertem Kontext (Thread des Dispatchers).</summary>
     property OnChanged: TIdeProjectChangedEvent read FOnChanged write FOnChanged;
     /// <summary>Nach dpcc/projectContext, wenn sich nur die Präfix-Vorgaben geändert haben (#1111): Prüfregeln

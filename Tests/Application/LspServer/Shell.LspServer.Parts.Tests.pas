@@ -4,8 +4,9 @@
 // browsingPaths, CommonAppData) auf den Projektkontext, Befehlszeile und Ablageort, Formate des RAD-Studio-Dialekts
 // (kind, detail, DCC_Flags, Kopfzeilen, Parameterhilfe, Hover-HTML, kibitzkind, Capabilities) und der Baum für
 // documentSymbol. Dazu der Übersetzer über einem Transport ohne Server (Wiedergabe der IDE): Vervollständigung mit
-// hexadezimalem sortText, einzelnen Überladungen und ohne nicht geltende Zweige, resolve mit dem Eintrag der Liste,
-// Sprungziele als ein Location-Objekt in der Schreibweise der IDE. Alle Daten synthetisch nach dem am 27.11.2026
+// hexadezimalem sortText, einzelnen Überladungen und ohne nicht geltende Zweige, Units der uses-Klausel,
+// Schlüsselwörter mit enableKeyWordCompletion, resolve mit dem Eintrag der Liste, Sprungziele als ein Location-Objekt
+// in der Schreibweise der IDE (Bibliotheks-Routinen zum Rumpf). Alle Daten synthetisch nach dem am 27.11.2026
 // gemessenen Format (Stellvertreter in der IDE, DelphiLSP in Delphi 12 und 13).
 
 interface
@@ -66,6 +67,19 @@ type
     /// <summary>sortText-Breite nach der Anzahl, kibitzkind 7 und 15, Units als kind 17.</summary>
     [Test]
     procedure CompletionSortTextAndKibitz;
+    /// <summary>uses-Klausel: Units, deren textEdit nur den Namen einsetzt (so liefert sie der Server), bleiben als
+    /// kind 17; anderer Text und Befehle fallen weg, in der Bezeichnerliste weiter jedes textEdit.</summary>
+    [Test]
+    procedure CompletionUsesKeepsNameEdits;
+    /// <summary>enableKeyWordCompletion aus workspace/didChangeConfiguration: In der Bezeichnerliste die 120
+    /// Schlüsselwörter von DelphiLSP statt der des Servers, resolve mit dem Eintrag der Liste; Mitgliederliste und
+    /// ausgeschaltet wie bisher.</summary>
+    [Test]
+    procedure KeywordsWithEnableKeyWordCompletion;
+    /// <summary>definition und implementation auf eine Bibliotheks-Routine: Anfang der Zeile ihres Rumpfs
+    /// (ImplementationLine); declaration, Routinen ohne Zeile und Anfragen aus der Unit selbst unverändert.</summary>
+    [Test]
+    procedure DefinitionToLibraryBody;
     /// <summary>definition, implementation, declaration: ein Location-Objekt, URI wie von der IDE geöffnet, leere
     /// Liste und null als null.</summary>
     [Test]
@@ -1304,6 +1318,224 @@ begin
     Assert.AreEqual('implementation', mSymbols.Items[1].GetValue<string>('detail'));
   finally
     mSymbols.Free;
+  end;
+end;
+
+procedure TLspServerPartsTests.CompletionUsesKeepsNameEdits;
+const
+  // Wie TCompletionUses: ersetzt wird der ganze getippte Name in Zeile 3 der Testunit.
+  cEdit = '"textEdit":{"range":{"start":{"line":3,"character":2},"end":{"line":3,"character":16}},"newText":"';
+var
+  mSession: TDialectSession;
+  mResponse: TJSONObject;
+begin
+  mSession := TDialectSession.Create('RAD Studio');
+  try
+    mSession.Open(cProbeUri, cProbeText);
+    mSession.FromIde(CompletionRequest(30, 3, 2)).Free;
+    mResponse := mSession.FromServer('{"jsonrpc":"2.0","id":30,"result":{"isIncomplete":true,"items":[' +
+      '{"label":"Data.DB","kind":9,"detail":"$(BDS)\\source\\data\\Data.DB.pas",' + cEdit + 'Data.DB"},' +
+      '"sortText":"00000","data":{"usesGroup":"rtl","usesFilter":"Data.DB","usesTypes":[],"usesTypeCount":0}},' +
+      '{"label":"System.Types","kind":9,' + cEdit + 'System.Types"},"sortText":"00001"},' +
+      '{"label":"Vorlage","kind":9,' + cEdit + 'Vorlage;"},"sortText":"00002"},' +
+      '{"label":"Mit Befehl","kind":9,' + cEdit + 'Mit Befehl"},"command":{"title":"x","command":"dpcc.x",' +
+      '"arguments":[]},"sortText":"00003"}]}}');
+    try
+      Assert.AreEqual(15, mResponse.GetValue<Integer>('result.kibitzkind'), 'uses-Klausel');
+      Assert.IsTrue(mResponse.GetValue<Boolean>('result.isIncomplete'), 'gekürzte Liste bleibt unvollständig');
+      Assert.AreEqual(2, mResponse.GetValue<TJSONArray>('result.items').Count,
+        'Units mit dem Namen als textEdit; anderer Text und Befehl weg');
+      Assert.AreEqual('Data.DB|17|;|$4026|0', ItemText(mResponse, 0), 'Unit wie DelphiLSP');
+      Assert.AreEqual('System.Types|17|;|$4026|1', ItemText(mResponse, 1));
+      Assert.IsNull(mResponse.FindValue('result.items[0].textEdit'), 'ohne textEdit');
+    finally
+      mResponse.Free;
+    end;
+    // Bezeichnerliste: Ein textEdit fällt weiter weg, auch mit dem Namen.
+    mSession.FromIde(CompletionRequest(31, 8, 5)).Free;
+    mResponse := mSession.FromServer('{"jsonrpc":"2.0","id":31,"result":{"isIncomplete":false,"items":[' +
+      '{"label":"Wert","kind":6,"detail":"Integer",' + cEdit + 'Wert"}},{"label":"P","kind":6,"detail":"TProbe"}]}}');
+    try
+      Assert.AreEqual(7, mResponse.GetValue<Integer>('result.kibitzkind'));
+      Assert.AreEqual(1, mResponse.GetValue<TJSONArray>('result.items').Count, 'nur P');
+      Assert.AreEqual('P', mResponse.GetValue<string>('result.items[0].label'));
+    finally
+      mResponse.Free;
+    end;
+  finally
+    mSession.Free;
+  end;
+end;
+
+/// <summary>Wie oft label ALabel in der Liste von AResponse steht.</summary>
+function LabelCount(AResponse: TJSONObject; const ALabel: string): Integer;
+var
+  mItem: TJSONValue;
+begin
+  Result := 0;
+  for mItem in AResponse.GetValue<TJSONArray>('result.items') do
+  begin
+    if mItem.GetValue<string>('label', '') = ALabel then
+    begin
+      Inc(Result);
+    end;
+  end;
+end;
+
+procedure TLspServerPartsTests.KeywordsWithEnableKeyWordCompletion;
+var
+  mSession: TDialectSession;
+  mResponse, mRequest: TJSONObject;
+begin
+  mSession := TDialectSession.Create('RAD Studio');
+  try
+    mSession.Open(cProbeUri, cProbeText);
+    Assert.IsFalse(mSession.Dialect.Keywords, 'ohne Einstellung aus');
+    // So schickt die IDE die Projektdaten (gemessen; hier gekürzt).
+    mSession.FromIde('{"jsonrpc":"2.0","method":"workspace/didChangeConfiguration","params":{"settings":' +
+      '{"project":"' + cProbeUri + '","includeDCUsInUsesCompletion":true,"enableKeyWordCompletion":true}}}').Free;
+    Assert.IsTrue(mSession.Dialect.Keywords, 'eingeschaltet');
+    mSession.FromIde(CompletionRequest(40, 8, 5)).Free;
+    mResponse := mSession.FromServer('{"jsonrpc":"2.0","id":40,"result":{"isIncomplete":false,"items":[' +
+      '{"label":"P","kind":6,"detail":"TProbe"},{"label":"begin","kind":14,"sortText":"00001"}]}}');
+    try
+      Assert.AreEqual(121, mResponse.GetValue<TJSONArray>('result.items').Count, 'P und 120 Schlüsselwörter');
+      Assert.AreEqual('P|6|: TProbe;|$3|0', ItemText(mResponse, 0), 'Bezeichner vorn');
+      Assert.AreEqual('absolute|14||$0|k000', ItemText(mResponse, 1), 'erstes Schlüsselwort');
+      Assert.AreEqual('class helper for|14||$0|k00C', ItemText(mResponse, 13), 'mehrere Wörter, hexadezimal');
+      Assert.AreEqual('xor|14||$0|k076', ItemText(mResponse, 119));
+      Assert.AreEqual('reference|14||$0|k077', ItemText(mResponse, 120), 'zweites reference am Ende wie gemessen');
+      Assert.AreEqual(1, LabelCount(mResponse, 'begin'), 'das Schlüsselwort des Servers nicht doppelt');
+    finally
+      mResponse.Free;
+    end;
+    // resolve: zurück kommt der Eintrag der Liste.
+    mRequest := mSession.FromIde('{"jsonrpc":"2.0","id":41,"method":"completionItem/resolve","params":' +
+      '{"label":"absolute","kind":"14","detail":"","DCC_Flags":0,"sortText":"k000"}}');
+    try
+      Assert.AreEqual(14, mRequest.GetValue<Integer>('params.kind'), 'Eintrag eingesetzt');
+    finally
+      mRequest.Free;
+    end;
+    mResponse := mSession.FromServer('{"jsonrpc":"2.0","id":41,"result":{"label":"absolute","kind":14,' +
+      '"detail":"","DCC_Flags":0,"sortText":"k000"}}');
+    try
+      Assert.AreEqual('absolute', mResponse.GetValue<string>('result.label'));
+      Assert.AreEqual(14, mResponse.GetValue<Integer>('result.kind'));
+      Assert.AreEqual(Int64(0), mResponse.GetValue<Int64>('result.DCC_Flags'));
+      Assert.AreEqual('k000', mResponse.GetValue<string>('result.sortText'));
+    finally
+      mResponse.Free;
+    end;
+    // Mitgliederliste nach "P.": ohne Schlüsselwörter.
+    mSession.FromIde(CompletionRequest(42, 9, 4)).Free;
+    mResponse := mSession.FromServer('{"jsonrpc":"2.0","id":42,"result":{"isIncomplete":false,"items":[' +
+      '{"label":"Reset","kind":2,"detail":";"}]}}');
+    try
+      Assert.AreEqual(2, mResponse.GetValue<Integer>('result.kibitzkind'));
+      Assert.AreEqual(1, mResponse.GetValue<TJSONArray>('result.items').Count, 'nur Reset');
+    finally
+      mResponse.Free;
+    end;
+    // Ausgeschaltet: die Schlüsselwörter des Servers wie bisher.
+    mSession.FromIde('{"jsonrpc":"2.0","method":"workspace/didChangeConfiguration","params":{"settings":' +
+      '{"project":"' + cProbeUri + '","enableKeyWordCompletion":false}}}').Free;
+    Assert.IsFalse(mSession.Dialect.Keywords, 'ausgeschaltet');
+    mSession.FromIde(CompletionRequest(43, 8, 5)).Free;
+    mResponse := mSession.FromServer('{"jsonrpc":"2.0","id":43,"result":{"isIncomplete":false,"items":[' +
+      '{"label":"P","kind":6,"detail":"TProbe"},{"label":"begin","kind":14,"sortText":"00001"}]}}');
+    try
+      Assert.AreEqual(2, mResponse.GetValue<TJSONArray>('result.items').Count);
+      Assert.AreEqual('begin|14||$0|k000', ItemText(mResponse, 1), 'Schlüsselwort des Servers hinten');
+    finally
+      mResponse.Free;
+    end;
+  finally
+    mSession.Free;
+  end;
+end;
+
+/// <summary>Location-Antwort des Servers (als Liste) auf AUri mit dem Namen bei ALine/ACharacter.</summary>
+function LocationResponse(AId: Integer; const AUri: string; ALine, ACharacter, ALength: Integer): string;
+begin
+  Result := Format('{"jsonrpc":"2.0","id":%d,"result":[{"uri":"%s","range":{"start":{"line":%d,"character":%d},' +
+    '"end":{"line":%d,"character":%d}}}]}', [AId, AUri, ALine, ACharacter, ALine, ACharacter + ALength]);
+end;
+
+procedure TLspServerPartsTests.DefinitionToLibraryBody;
+const
+  cLibraryFile = 'C:\Studio\source\rtl\sys\System.SysUtils.pas';
+  cLibraryUri = 'file:///C%3A/Studio/source/rtl/sys/System.SysUtils.pas';
+var
+  mSession: TDialectSession;
+  mResponse: TJSONObject;
+  mSymbols: TArray<TIndexSymbol>;
+  mHere, mThere: string;
+begin
+  // Bibliotheks-Unit wie im Index: Überladungen im interface mit der Zeile ihres Rumpfs (der Rumpf selbst fehlt),
+  // eine Routine ohne Zeile.
+  mSymbols := [
+    Placed(Symbol(TIndexSymbolKind.Routine, 'IntToStr', 'function IntToStr(Value: Integer): string; overload;',
+    'string', ['overload', 'impl:8591']), '', 1329, 9),
+    Placed(Symbol(TIndexSymbolKind.Routine, 'IntToStr', 'function IntToStr(Value: Int64): string; overload;',
+    'string', ['overload', 'impl:8596']), '', 1330, 9),
+    Placed(Symbol(TIndexSymbolKind.Routine, 'Beep', 'procedure Beep;', '', nil), '', 1400, 10)];
+  mHere := '"params":{"textDocument":{"uri":"' + cProbeUri + '"},"position":{"line":9,"character":4}}}';
+  mThere := '"params":{"textDocument":{"uri":"' + cLibraryUri + '"},"position":{"line":8591,"character":9}}}';
+  mSession := TDialectSession.Create('RAD Studio');
+  try
+    mSession.Dialect.UnitSymbols :=
+      function(const AFileName: string; out ASymbols: TArray<TIndexSymbol>): Boolean
+      begin
+        Result := SameText(AFileName, cLibraryFile);
+        ASymbols := nil;
+        if Result then
+        begin
+          ASymbols := mSymbols;
+        end;
+      end;
+    mSession.Open(cProbeUri, cProbeText);
+    // Gemessen: DelphiLSP springt von IntToStr( zum Rumpf (Anfang der Zeile), der Server zur Deklaration.
+    mSession.FromIde('{"jsonrpc":"2.0","id":50,"method":"textDocument/definition",' + mHere).Free;
+    mResponse := mSession.FromServer(LocationResponse(50, cLibraryUri, 1330, 9, 8));
+    try
+      Assert.AreEqual(cLibraryUri, mResponse.GetValue<string>('result.uri'));
+      Assert.AreEqual('8596:0-8596:0', RangeText(mResponse, 'result.range'), 'Rumpf der zweiten Überladung');
+    finally
+      mResponse.Free;
+    end;
+    mSession.FromIde('{"jsonrpc":"2.0","id":51,"method":"textDocument/implementation",' + mHere).Free;
+    mResponse := mSession.FromServer(LocationResponse(51, cLibraryUri, 1329, 9, 8));
+    try
+      Assert.AreEqual('8591:0-8591:0', RangeText(mResponse, 'result.range'), 'implementation wie definition');
+    finally
+      mResponse.Free;
+    end;
+    mSession.FromIde('{"jsonrpc":"2.0","id":52,"method":"textDocument/declaration",' + mHere).Free;
+    mResponse := mSession.FromServer(LocationResponse(52, cLibraryUri, 1329, 9, 8));
+    try
+      Assert.AreEqual('1329:9-1329:17', RangeText(mResponse, 'result.range'), 'declaration bleibt');
+    finally
+      mResponse.Free;
+    end;
+    mSession.FromIde('{"jsonrpc":"2.0","id":53,"method":"textDocument/definition",' + mHere).Free;
+    mResponse := mSession.FromServer(LocationResponse(53, cLibraryUri, 1400, 10, 4));
+    try
+      Assert.AreEqual('1400:10-1400:14', RangeText(mResponse, 'result.range'), 'ohne Zeile des Rumpfs');
+    finally
+      mResponse.Free;
+    end;
+    // Aus der Bibliotheks-Unit selbst paart der Server Deklaration und Rumpf über den Baum des Editors.
+    mSession.Open(cLibraryUri, 'unit System.SysUtils;');
+    mSession.FromIde('{"jsonrpc":"2.0","id":54,"method":"textDocument/definition",' + mThere).Free;
+    mResponse := mSession.FromServer(LocationResponse(54, cLibraryUri, 1329, 9, 8));
+    try
+      Assert.AreEqual('1329:9-1329:17', RangeText(mResponse, 'result.range'), 'Anfrage aus der Unit selbst');
+    finally
+      mResponse.Free;
+    end;
+  finally
+    mSession.Free;
   end;
 end;
 

@@ -63,6 +63,12 @@ const
   /// <summary>So viele Zeichen muss der Name haben, bevor nicht eingebundene Units mitsuchen.</summary>
   cCompletionMinImportPrefix = 2;
 
+var
+  /// <summary>Höchstzahl der Einträge einer Antwort im laufenden Prozess; Vorgabe cCompletionMaxItems. Nur
+  /// dpcc.LspServer.exe hebt sie für RAD Studio an: DelphiLSP schickt der IDE die ganze Liste (gemessen 27.11.2026:
+  /// 2475 Bezeichner, 2381 Units), bei 1000 fehlten etwa alle Units ab „S“.</summary>
+  CompletionMaxItems: Integer = cCompletionMaxItems;
+
 type
   /// <summary>Vorfilter für Kandidaten und Symbole aus anderen Units (#465: nur Attributklassen).</summary>
   TCompletionAdmitFunc = reference to function(const ASymbol: TResolvedSymbol): Boolean;
@@ -2518,7 +2524,7 @@ begin
   begin
     ClearExpected(FList);
   end;
-  mRoom := Max(0, cCompletionMaxItems - FSent);
+  mRoom := Max(0, CompletionMaxItems - FSent);
   if FList.Count > mRoom then
   begin
     FTruncated := True;

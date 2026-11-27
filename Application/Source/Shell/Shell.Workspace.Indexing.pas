@@ -153,6 +153,30 @@ const
   /// <summary>Höchstens so viele Geschwisterordner durchsucht der Package-Locator nach einer .dpk.</summary>
   cMaxSiblingFolders = 200;
 
+/// <summary>Ordner der installierten Delphi-Versionen außer AVersion (TIndexRequest.ForeignRoots); ohne
+/// Installation von AVersion leer, dann prüft der Aufbau nichts.</summary>
+function ForeignInstallationRoots(const AVersion: string): TArray<string>;
+var
+  mVersion, mRoot, mOwnRoot: string;
+begin
+  Result := nil;
+{$IFDEF MSWINDOWS}
+  mOwnRoot := ExcludeTrailingPathDelimiter(TDelphiInstallation.RootDirOf(AVersion));
+  if mOwnRoot = '' then
+  begin
+    Exit;
+  end;
+  for mVersion in TDelphiInstallation.Versions do
+  begin
+    mRoot := ExcludeTrailingPathDelimiter(TDelphiInstallation.RootDirOf(mVersion));
+    if (mRoot <> '') and not SameText(mRoot, mOwnRoot) then
+    begin
+      Result := Result + [mRoot];
+    end;
+  end;
+{$ENDIF}
+end;
+
 /// <summary>Die Ordner neben AFolder (eine Ebene, ohne AFolder selbst, höchstens cMaxSiblingFolders): Gängig ist
 /// Packages\&lt;Name&gt;\&lt;Name&gt;.dpk, und ein requires-Package muss kein Projekt der Gruppe sein. Leer am
 /// Laufwerk oder wenn der Elternordner nicht lesbar ist.</summary>
@@ -607,6 +631,12 @@ begin
   mTarget.Priority := FParts.Setup.Priority;
   mTarget.Usages := ASettings.IndexUsages;
   mRequest := TShellIndexRequests.RequestOf(ALoaded, mFiles, mTarget);
+  // Als Ersatz für DelphiLSP (dpcc.LspServer.exe): Units anderer Installationen weder behalten noch aus Caches
+  // übernehmen (gemessen 27.11.2026: Delphi 12 sprang bei TStringList in die Quellen von Delphi 13).
+  if (FParts.Setup.IdeProjects <> nil) and FParts.Setup.IdeProjects.SeparateInstallations then
+  begin
+    mRequest.ForeignRoots := ForeignInstallationRoots(ALoaded.Version);
+  end;
   mRequest.ResolveUnit := NewResolver(ALoaded, mFiles.ExtraFolders, mRequest.ResolveUnitFrom);
   TMonitor.Enter(FResolveLock);
   try

@@ -160,12 +160,14 @@ damit aus wie mit dem Original, nur der Inhalt kann abweichen.
 |---|---|
 | hover | `contents` ist **ein** HTML-String im Gerüst von Help Insight (`HelpInsight.css`): Kopfzeile wie `function TProbe.Twice(const A: Integer): Integer`, Verweis `Datei (Zeile)`, dann Zusammenfassung, Parameter, Rückgabe, Bemerkungen aus dem XMLDoc. Frühere Fassungen schickten hier Klartext, den die IDE als HTML zeigte (Zeilen liefen zusammen). |
 | signatureHelp | je Parameter ein Eintrag mit Typ (`A: Integer`, Gruppen wie `A, B: Integer` aufgelöst), `documentation` als HTML (`kind` html) bzw. je Parameter `kind` xml |
-| definition, declaration, typeDefinition, implementation | **ein** Location-Objekt (kein Array); geöffnete Dateien mit derselben URI-Schreibweise wie in `didOpen` |
-| completion | `kibitzkind` 2 nach `.`, 7 ohne Punkt, 15 in der uses-Klausel; `sortText` hexadezimal; Überladungen einzeln; `kind`, `detail` und `DCC_Flags` je Symbolart wie DelphiLSP; Zweige nicht aktiver `{$IFDEF}` fehlen |
+| definition, declaration, typeDefinition, implementation | **ein** Location-Objekt (kein Array); geöffnete Dateien mit derselben URI-Schreibweise wie in `didOpen`; definition und implementation auf eine Routine der Bibliothek springen wie DelphiLSP zu ihrem Rumpf |
+| completion | `kibitzkind` 2 nach `.`, 7 ohne Punkt, 15 in der uses-Klausel; `sortText` hexadezimal; Überladungen einzeln; `kind`, `detail` und `DCC_Flags` je Symbolart wie DelphiLSP; Zweige nicht aktiver `{$IFDEF}` fehlen; die ganze Liste (bis 5000 Einträge) statt der ersten 1000; mit `enableKeyWordCompletion` der IDE die Schlüsselwörter am Ende der Bezeichnerliste (kind 14, `sortText` `k000` …) |
 | completionItem/resolve | derselbe Eintrag wie in der Liste, samt `DCC_Flags`, ohne `documentation` |
 | documentSymbol | mit uses-Abschnitt und Units; Aufzählungen und Typalias wie Records (kind 23), Konstruktoren wie Methoden (kind 6), Property mit Zugriffsteil als `detail` |
 
-Bekannte Unterschiede im Inhalt: Die Kopfzeile der Parameterhilfe nennt Klasse bzw. Unit nicht (`function Add(…)` statt `function TProbe.Add(…)`; im Parameter-Hint der IDE nicht sichtbar); Strg+Klick auf eine RTL-Routine springt zur Deklaration, DelphiLSP zur Implementierung; Schlüsselwörter und die Units der uses-Klausel stehen nur in der Liste, wenn der Server sie liefert.
+Bekannte Unterschiede im Inhalt: Die Kopfzeile der Parameterhilfe nennt Klasse bzw. Unit nicht (`function Add(…)` statt `function TProbe.Add(…)`; im Parameter-Hint der IDE nicht sichtbar); die Liste der uses-Klausel enthält nur Units mit Quelltext (keine reinen Namespaces wie `System`, keine Units nur als .dcu), die Bezeichnerliste keine qualifizierten Klassenmitglieder wie `TThread.Queue`.
+
+Delphi-Version: Der Server nimmt die Version der IDE, die ihn startet (aus `processId` in `initialize`), schon vor deren Projektdaten, auch wenn die .dproj zuletzt mit einer anderen Version gespeichert wurde. Units einer anderen Installation nimmt er weder in den Index noch aus einem Cache; in früheren Fassungen konnte Delphi 12 so etwa bei `TStringList` in die Quellen von Delphi 13 springen.
 
 ## Siehe auch
 

@@ -94,6 +94,31 @@ type
     procedure ExitNotificationEndsServer;
   end;
 
+  /// <summary>Stufe 4: Im Server-Betrieb kommen Units nie aus der Installation einer anderen Delphi-Version
+  /// (gemessen 27.11.2026: Delphi 12 sprang bei TStringList in die Quellen von Delphi 13, weil der Index vor den
+  /// Projektdaten der IDE nach der ProjectVersion der .dproj mit 37.0 begann und die gelesenen Units behielt).
+  /// </summary>
+  [TestFixture]
+  TLspServerVersionTests = class
+  private
+    /// <summary>Aufbau wie ein Arbeitsbereich mit der Installation ARoot (System.Classes darunter); AForeign wie
+    /// TIndexRequest.ForeignRoots.</summary>
+    procedure Build(AService: TObject; const ARoot, ACacheFile: string; const AForeign: TArray<string>);
+  public
+    /// <summary>Version der IDE aus dem Pfad von bds.exe: der Installationsordner über bin.</summary>
+    [Test]
+    procedure IdeVersionFromExe;
+    /// <summary>Reihenfolge wie im Server: Start ohne Version der IDE, falsche Vermutung 37.0, dann die richtige
+    /// 23.0 aus den Projektdaten: Mit ForeignRoots bleibt keine Unit von 37.0 im Index; ohne (wie früher) bleibt sie.
+    /// </summary>
+    [Test]
+    procedure WrongGuessLeavesNoForeignUnits;
+    /// <summary>Ein früher gemischter Projekt-Cache (Units von 37.0 im Cache eines Laufs mit 23.0) gibt sie nicht
+    /// mehr weiter; System.Classes kommt aus 23.0.</summary>
+    [Test]
+    procedure ForeignCacheEntriesAreIgnored;
+  end;
+
 implementation
 
 uses
@@ -104,7 +129,11 @@ uses
   dpcc.Common.Documents.Uris,
   dpcc.Common.Logging.Contract,
   dpcc.Common.Logging.Providers.Logger,
-  dpcc.Common.Index.Adapters.CacheDirectory;
+  dpcc.Common.Index.Adapters.CacheDirectory,
+  dpcc.Common.Index.Contract,
+  dpcc.Common.Index.SymbolIndex,
+  dpcc.Common.Index.Service,
+  dpcc.Common.Memory.Phase1.Tests;
 
 const
   cIndexWaitMs = 60000;
@@ -924,7 +953,141 @@ begin
   Assert.AreEqual(0, FExitCode);
 end;
 
+{ TLspServerVersionTests }
+
+const
+  cRoot12 = 'C:\Studio\23.0';
+  cRoot13 = 'C:\Studio\37.0';
+
+function VersionFiles: TCountingIndexFileSystem;
+const
+  cClasses = 'unit System.Classes;'#10'interface'#10'type TStringList = class end;'#10'implementation'#10'end.';
+begin
+  Result := TCountingIndexFileSystem.Create;
+  Result.Put('C:\P\P.dpr', 'program P;'#10'uses System.Classes;'#10'begin end.', 1);
+  Result.Put(cRoot12 + '\source\rtl\common\System.Classes.pas', cClasses, 1);
+  Result.Put(cRoot13 + '\source\rtl\common\System.Classes.pas', cClasses, 1);
+end;
+
+function UnitsUnder(const AIndex: ISymbolIndex; const ARoot: string): Integer;
+var
+  mUnit: TUnitIndex;
+begin
+  Result := 0;
+  for mUnit in AIndex.Units do
+  begin
+    if StartsText(ARoot + '\', mUnit.FileName) then
+    begin
+      Inc(Result);
+    end;
+  end;
+end;
+
+procedure TLspServerVersionTests.Build(AService: TObject; const ARoot, ACacheFile: string;
+  const AForeign: TArray<string>);
+var
+  mRequest: TIndexRequest;
+  mFile: string;
+begin
+  mFile := ARoot + '\source\rtl\common\System.Classes.pas';
+  mRequest := Default(TIndexRequest);
+  mRequest.Defines := ['DEBUG', 'MSWINDOWS'];
+  mRequest.LibraryDefines := ['MSWINDOWS', 'WIN32'];
+  mRequest.Files := ['C:\P\P.dpr'];
+  mRequest.LibraryFiles := [mFile];
+  mRequest.LibraryRoots := [ARoot];
+  mRequest.ResolveUnit :=
+    function(const AUnitName: string): string
+    begin
+      Result := '';
+      if SameText(AUnitName, 'System.Classes') then
+      begin
+        Result := mFile;
+      end;
+    end;
+  mRequest.CacheFile := ACacheFile;
+  mRequest.ForeignRoots := AForeign;
+  TIndexService(AService).Start(mRequest);
+  TIndexService(AService).WaitFor;
+end;
+
+procedure TLspServerVersionTests.IdeVersionFromExe;
+var
+  mInstalled: TArray<TPair<string, string>>;
+begin
+  mInstalled := [TPair<string, string>.Create('37.0', cRoot13), TPair<string, string>.Create('23.0', cRoot12 + '\')];
+  Assert.AreEqual('23.0', TLspServerHost.BdsVersionOfIde(cRoot12 + '\bin\bds.exe', mInstalled));
+  Assert.AreEqual('37.0', TLspServerHost.BdsVersionOfIde('c:\studio\37.0\BIN\BDS.EXE', mInstalled));
+  Assert.AreEqual('', TLspServerHost.BdsVersionOfIde('C:\Andere\bin\bds.exe', mInstalled), 'fremder Ordner');
+  Assert.AreEqual('', TLspServerHost.BdsVersionOfIde('', mInstalled), 'ohne Pfad');
+end;
+
+procedure TLspServerVersionTests.WrongGuessLeavesNoForeignUnits;
+var
+  mFiles: IIndexFileSystem;
+  mIndex: ISymbolIndex;
+  mService: TIndexService;
+  mUnit: TUnitIndex;
+begin
+  mFiles := VersionFiles;
+  // Wie früher ohne ForeignRoots: Die Unit der falschen Vermutung bleibt neben der richtigen im Index.
+  mIndex := TSymbolIndex.Create;
+  mService := TIndexService.Create(mIndex, mFiles);
+  try
+    Build(mService, cRoot13, '', nil);
+    Assert.AreEqual(1, UnitsUnder(mIndex, cRoot13), 'Vermutung 37.0 eingelesen');
+    Build(mService, cRoot12, '', nil);
+    Assert.AreEqual(1, UnitsUnder(mIndex, cRoot13), 'ohne ForeignRoots bleibt 37.0 (der alte Fehler)');
+  finally
+    mService.Free;
+  end;
+  // Mit ForeignRoots wie im Server: nach dem Wechsel auf 23.0 nichts mehr von 37.0.
+  mIndex := TSymbolIndex.Create;
+  mService := TIndexService.Create(mIndex, mFiles);
+  try
+    Build(mService, cRoot13, '', [cRoot12]);
+    Build(mService, cRoot12, '', [cRoot13]);
+    Assert.AreEqual(0, UnitsUnder(mIndex, cRoot13), 'keine Unit von 37.0');
+    Assert.AreEqual(1, UnitsUnder(mIndex, cRoot12), 'System.Classes von 23.0');
+    Assert.IsTrue(mIndex.FindUnit('System.Classes', mUnit), 'System.Classes bekannt');
+    Assert.IsTrue(StartsText(cRoot12 + '\', mUnit.FileName), mUnit.FileName);
+  finally
+    mService.Free;
+  end;
+end;
+
+procedure TLspServerVersionTests.ForeignCacheEntriesAreIgnored;
+const
+  cCache = 'C:\Cache\23.0\Gemischt\index.dpccidx';
+var
+  mFiles: IIndexFileSystem;
+  mIndex: ISymbolIndex;
+  mService: TIndexService;
+  mUnit: TUnitIndex;
+begin
+  mFiles := VersionFiles;
+  // Gemischter Stand wie aus einem früheren Lauf: System.Classes von 37.0 im Projekt-Cache.
+  mIndex := TSymbolIndex.Create;
+  mService := TIndexService.Create(mIndex, mFiles);
+  try
+    Build(mService, cRoot13, cCache, nil);
+  finally
+    mService.Free;
+  end;
+  mIndex := TSymbolIndex.Create;
+  mService := TIndexService.Create(mIndex, mFiles);
+  try
+    Build(mService, cRoot12, cCache, [cRoot13]);
+    Assert.AreEqual(0, UnitsUnder(mIndex, cRoot13), 'nichts von 37.0 aus dem Cache');
+    Assert.IsTrue(mIndex.FindUnit('System.Classes', mUnit), 'System.Classes bekannt');
+    Assert.IsTrue(StartsText(cRoot12 + '\', mUnit.FileName), mUnit.FileName);
+  finally
+    mService.Free;
+  end;
+end;
+
 initialization
   TDUnitX.RegisterTestFixture(TLspServerHostTests);
+  TDUnitX.RegisterTestFixture(TLspServerVersionTests);
 
 end.

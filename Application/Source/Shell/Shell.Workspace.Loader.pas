@@ -244,6 +244,13 @@ begin
   begin
     Exit(ALoaded.Context.BdsVersion);
   end;
+  // Als Ersatz für DelphiLSP (dpcc.LspServer.exe) ist die Version der startenden IDE bekannt, bevor sie ihre
+  // Projektdaten schickt: sonst begänne der Index nach der ProjectVersion der .dproj mit einer anderen Installation.
+  if (FSetup.IdeProjects <> nil) and (FSetup.IdeProjects.ClientBdsVersion <> '') and
+    (IndexText(FSetup.IdeProjects.ClientBdsVersion, AInstalled) >= 0) then
+  begin
+    Exit(FSetup.IdeProjects.ClientBdsVersion);
+  end;
   // Konfiguration vor ProjectVersion der .dproj vor neuester Installation (#47); ohne Installation die
   // erwartete Version: Sie liefert nur die Symbole (#1321).
   Result := TDelphiVersions.Choose(ASettings.DelphiVersion, ALoaded.ProjectVersion, AInstalled, mConfiguredMissing);

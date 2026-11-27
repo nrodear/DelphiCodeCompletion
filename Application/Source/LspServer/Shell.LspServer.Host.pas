@@ -27,6 +27,7 @@ uses
   System.SysUtils,
   System.Classes,
   System.JSON,
+  System.Generics.Collections,
   dpcc.Common.Logging.Contract,
   dpcc.Common.JsonRpc.Contract,
   Shell.Composition.CompletionServer,
@@ -63,6 +64,13 @@ type
     function Run: Integer;
     /// <summary>Prozessweite Merker des Servers freigeben, wenn keiner mehr läuft.</summary>
     class procedure ReleaseProcessState; static;
+    /// <summary>Delphi-Version (z. B. "23.0") der IDE AExeFile (…\bin\bds.exe): die aus AInstalled (Version,
+    /// Installationsordner), deren Ordner den Ordner bin enthält; '' ohne Treffer.</summary>
+    class function BdsVersionOfIde(const AExeFile: string;
+      const AInstalled: TArray<TPair<string, string>>): string; static;
+    /// <summary>Wie oben für den Prozess AProcessId (processId aus initialize) und die installierten Versionen;
+    /// '' wenn er nicht zu öffnen ist.</summary>
+    class function BdsVersionOfProcess(AProcessId: Cardinal): string; static;
     property Root: TShellCompletionServer read FRoot;
     property Dialect: TRadStudioDialect read FDialect;
     /// <summary>Nach initialize mit processId (Thread der Verbindung): der Prozess des Clients, etwa zum
@@ -73,7 +81,14 @@ type
 implementation
 
 uses
+{$IFDEF MSWINDOWS}
+  Winapi.Windows,
+{$ENDIF}
   System.IOUtils,
+  System.StrUtils,
+  dpcc.Common.Lsp.IdeProject,
+  dpcc.Common.Lsp.CompletionCollector,
+  Shell.Composition.Ide,
   dpcc.Common.JsonRpc.Messages,
   dpcc.Common.JsonRpc.StreamTransport,
   dpcc.Common.Diagnostics.Anonymizer,
@@ -90,6 +105,11 @@ uses
   Shell.Workspace.Listings,
   Shell.Composition.Workspaces;
 
+const
+  /// <summary>Höchstzahl der Einträge einer Vervollständigung für RAD Studio (CompletionMaxItems); DelphiLSP
+  /// schickte im Testprojekt 2475 Bezeichner und 2381 Units.</summary>
+  cRadStudioMaxItems = 5000;
+
 { TLspServerHost }
 
 constructor TLspServerHost.Create(AInput, AOutput: TStream; AOwnsStreams: Boolean; const ALogger: ILogger);
@@ -100,9 +120,27 @@ begin
   FTransport := FDialect;
   FDialect.OnInitialize :=
     procedure(const AClientName: string; AProcessId: Cardinal)
+    var
+      mVersion: string;
     begin
       FLogger.Info(Format('initialize von %s (Prozess %d), Dialekt RAD Studio: %s', [TLogMarks.Name(AClientName),
         AProcessId, BoolToStr(SameText(AClientName, TRadStudioDialect.cClientName), True)]));
+      // Die IDE schickt ihre Projektdaten erst nach den ersten Dateien: Ihre Version schon jetzt festlegen, sonst
+      // begänne der Index nach der ProjectVersion der .dproj mit einer anderen Installation (Stufe 4).
+      if SameText(AClientName, TRadStudioDialect.cClientName) and (FRoot <> nil) then
+      begin
+        mVersion := '';
+        if AProcessId <> 0 then
+        begin
+          mVersion := BdsVersionOfProcess(AProcessId);
+        end;
+        FRoot.Parts.Ide.Project.ClientBdsVersion := mVersion;
+        // Auch wenn die Version hier unbekannt bleibt: Wechselt sie mit den Projektdaten, bleibt nichts gemischt.
+        FRoot.Parts.Ide.Project.SeparateInstallations := True;
+        FLogger.Info(Format('Delphi-Version der IDE: %s', [IfThen(mVersion = '', 'unbekannt', mVersion)]));
+        // Wie DelphiLSP die ganze Liste (Bezeichner, Units der uses-Klausel), nicht nur die ersten 1000.
+        CompletionMaxItems := cRadStudioMaxItems;
+      end;
       if Assigned(FOnClientProcess) and (AProcessId <> 0) then
       begin
         FOnClientProcess(AProcessId);
@@ -313,6 +351,76 @@ begin
   TImportNames.Clear;
   TIndexService.ForgetSharedStates;
   TSharedUnitListings.Clear;
+  CompletionMaxItems := cCompletionMaxItems;
 end;
+
+class function TLspServerHost.BdsVersionOfIde(const AExeFile: string;
+  const AInstalled: TArray<TPair<string, string>>): string;
+var
+  mFolder: string;
+  mPair: TPair<string, string>;
+begin
+  Result := '';
+  // …\<Installation>\bin\bds.exe
+  mFolder := ExcludeTrailingPathDelimiter(ExtractFileDir(ExtractFileDir(AExeFile)));
+  if mFolder = '' then
+  begin
+    Exit;
+  end;
+  for mPair in AInstalled do
+  begin
+    if (mPair.Value <> '') and SameText(ExcludeTrailingPathDelimiter(mPair.Value), mFolder) then
+    begin
+      Exit(mPair.Key);
+    end;
+  end;
+end;
+
+{$IFDEF MSWINDOWS}
+const
+  /// <summary>PROCESS_QUERY_LIMITED_INFORMATION (fehlt in Winapi.Windows): reicht für den Pfad des Programms.
+  /// </summary>
+  cProcessQueryLimitedInformation = $1000;
+
+function QueryImageName(hProcess: THandle; dwFlags: DWORD; lpExeName: PWideChar; var lpdwSize: DWORD): BOOL;
+  stdcall; external kernel32 name 'QueryFullProcessImageNameW';
+{$ENDIF}
+
+class function TLspServerHost.BdsVersionOfProcess(AProcessId: Cardinal): string;
+{$IFDEF MSWINDOWS}
+var
+  mProcess: THandle;
+  mBuffer: array[0..MAX_PATH * 4] of WideChar;
+  mSize: DWORD;
+  mInstalled: TArray<TPair<string, string>>;
+  mVersion: string;
+begin
+  Result := '';
+  mProcess := OpenProcess(cProcessQueryLimitedInformation, False, AProcessId);
+  if mProcess = 0 then
+  begin
+    Exit;
+  end;
+  try
+    mSize := Length(mBuffer);
+    if not QueryImageName(mProcess, 0, mBuffer, mSize) then
+    begin
+      Exit;
+    end;
+  finally
+    CloseHandle(mProcess);
+  end;
+  mInstalled := nil;
+  for mVersion in TDelphiInstallation.Versions do
+  begin
+    mInstalled := mInstalled + [TPair<string, string>.Create(mVersion, TDelphiInstallation.RootDirOf(mVersion))];
+  end;
+  Result := BdsVersionOfIde(string(PWideChar(@mBuffer[0])), mInstalled);
+end;
+{$ELSE}
+begin
+  Result := '';
+end;
+{$ENDIF}
 
 end.
