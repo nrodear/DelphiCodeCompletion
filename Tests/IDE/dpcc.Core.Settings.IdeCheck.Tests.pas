@@ -12,6 +12,10 @@
 // Betriebsart Server: die vier Code-Insight-Optionen für den Server (ServerTargets) beim Wechsel aus Aus und Plugin,
 // zurück nach Plugin und Aus, beim Start mit ausgeschalteten Optionen und mit den Merkern, die beim Nutzer vor dieser
 // Fassung standen (UserDelphi12, UserDelphi13).
+// CI-OPT A: Unter Delphi 12 ist der Satz von DelphiLSP der einzige Ort der Betriebsart dpcc (GetOptionSetName nennt
+// ihn); alte Merker an Borland.EditOptions.Pascal werden aufgeräumt; Plugin und Server teilen sich den Satz.
+// Fehler der IDE-Prüfung vom 28.11.2026: Wahl im Code-Insight-Dialog samt OK und Beenden, Hinweis bei Aus ↔ Server,
+// Merker je Registry-Profil, „wartet auf den Neustart“, Texte ohne Hauptschalter, Protokollzeile ohne Enabled.
 
 interface
 
@@ -57,25 +61,25 @@ type
     /// <summary>Fremd geänderter Wert (Nutzer oder IDE) bleibt beim Rückweg; nur der Merker entfällt.</summary>
     [Test]
     procedure RestoreKeepsForeignChange;
-    /// <summary>Delphi 12, dpcc gewählt (HI1): Plan und Prüfung an beiden vorhandenen Orten wie unter Delphi 13; Help
-    /// Insight, Declaration Information, ToolTip Watches dort False, Merker mit Wert davor (True bzw. keiner). Gibt
-    /// es nur den Ort von DelphiLSP, wird Borland.EditOptions.Pascal nicht angelegt.</summary>
+    /// <summary>Delphi 12, dpcc gewählt (CI-OPT A): Plan und Prüfung nur am Satz von DelphiLSP, auch wenn es
+    /// Borland.EditOptions.Pascal gibt; Help Insight, Declaration Information, ToolTip Watches dort False, Merker mit
+    /// Wert davor. Delphi 13 bleibt bei beiden vorhandenen Orten.</summary>
     [Test]
     procedure Delphi12DpccUsesExistingKeys;
-    /// <summary>Delphi 12 wie Delphi 13: nur vorhandene Orte, keiner angelegt; fehlen beide, gilt der Ort von
-    /// DelphiLSP. Hauptschalter aus dreht an beiden Orten zurück.</summary>
+    /// <summary>Delphi 12: immer der Satz von DelphiLSP (nur Pascal da, keiner da, beide da); Aus stellt alles wieder
+    /// her, Pascal bleibt unberührt.</summary>
     [Test]
     procedure Delphi12DpccUsesExistingKeysOnly;
     /// <summary>Delphi 12, zurück zu DelphiLSP (Hauptschalter aus bzw. DelphiLSP im Dialog der IDE): die Werte am Ort
     /// von DelphiLSP wieder True (geschrieben, nicht gelöscht), nichts an Borland.EditOptions.Pascal.</summary>
     [Test]
     procedure Delphi12BackToLspRestoresLspKey;
-    /// <summary>Delphi 12 mit den alten Merkern für Borland.EditOptions.Pascal (Stand vor D12KEY): Seit HI1 ist der
-    /// Schlüssel ein Ort der Betriebsart dpcc; die Merker bleiben gültig und werden nicht gegen das neue Schreiben
-    /// aufgeräumt. Der Ort von DelphiLSP wird zusätzlich gesetzt; der Rückweg stellt ihn auf True und löscht die von
-    /// dpcc angelegten Werte an Pascal; vom Nutzer geänderte bleiben in der Betriebsart IDE.</summary>
+    /// <summary>Delphi 12 mit alten Merkern für Borland.EditOptions.Pascal (CI-OPT A): Der Schlüssel ist unter 23.0
+    /// kein Ort der Betriebsart dpcc mehr; die Merker werden an ihrem Ort zurückgedreht (von dpcc angelegte Werte
+    /// gelöscht) und als „aufgeräumt (alter Ort)“ gemeldet, in jeder Betriebsart; vom Nutzer geänderte Werte bleiben.
+    /// </summary>
     [Test]
-    procedure Delphi12OldPascalMarkersStayValid;
+    procedure Delphi12OldPascalMarkersAreCleanedUp;
     /// <summary>Ein Merker an einem Ort unter Code Insight, der kein Ort der Betriebsart dpcc ist (anderer Anbieter):
     /// unter Delphi 12 und 13 an seinem eigenen Ort zurückgedreht, als „aufgeräumt (alter Ort)“ gemeldet.</summary>
     [Test]
@@ -216,6 +220,41 @@ type
     [TestCase('Delphi 12', 'Software\Embarcadero\BDS\23.0')]
     [TestCase('Delphi 13', 'Software\Embarcadero\BDS\37.0')]
     procedure PlanUnchangedForOffAndServer(ABaseKey: string);
+    /// <summary>Fehler 1: Wahl im Code-Insight-Dialog der IDE samt OK und Beenden, wie die IDE-Schicht sie abarbeitet
+    /// (ProviderChosen, AfterOptions mit dem Anlass aus der beim Ausführen gespeicherten Betriebsart, AtExit mit dem
+    /// letzten Anlass, Neustart): dpcc gewählt → Plugin, DelphiLSP unter Plugin → Aus, DelphiLSP unter Server →
+    /// Server. Der frühere Anlass aus der beim Schließen gelesenen Betriebsart drehte die Wahl zurück.</summary>
+    [Test]
+    procedure ChoiceInDialogSurvivesOkAndExit;
+    /// <summary>Fehler 2: Die Seite speichert die Betriebsart vor dem Plan; mit der Betriebsart davor gibt es den
+    /// Hinweis bei Aus → Server und Server → Aus.</summary>
+    [Test]
+    procedure NoticeOffServerWithModeBefore;
+    /// <summary>Fehler 3: Merker je Registry-Profil (Standardprofil unverändert, eigenes Profil mit Namen), ältere
+    /// Merker nur im Standardprofil, Betriebsart je Profil.</summary>
+    [Test]
+    procedure MarkersPerRegistryProfile;
+    /// <summary>Fehler 4a: „wartet auf den Neustart“ nach dem Anbieter der laufenden IDE, nicht nach dem schon
+    /// umgestellten Wert der Registry.</summary>
+    [Test]
+    procedure StatusShowsPendingRestart;
+    /// <summary>Fehler 5: Texte nennen die Betriebsart statt des Hauptschalters (de/en).</summary>
+    [Test]
+    procedure TextsNameOperatingMode;
+    /// <summary>Fehler 6: Protokollzeile ohne gespeicherte Betriebsart und ohne früheres Enabled: Vorgabe, nicht
+    /// „übernommen“.</summary>
+    [Test]
+    procedure TakeOverLogLineWithoutLegacy;
+    /// <summary>CI-OPT A: Delphi 12 mit einem Satz für Plugin und Server: alle Wechsel (Aus ↔ Plugin, Aus ↔ Server,
+    /// Plugin ↔ Server), Start in jeder Betriebsart ohne Änderung, gemeinsame Optionen bleiben stehen, gemerkt bleibt
+    /// der Wert des Nutzers, alter Merker an Pascal aufgeräumt, am Ende alles wie vorher.</summary>
+    [Test]
+    procedure Delphi12PluginAndServerShareLspSet;
+    /// <summary>Rückweg beim Beenden: Schreibt die IDE beim Beenden ihren Speicher zurück (gesehen in Delphi 12 nach
+    /// OK im Optionsdialog: Server → Aus ließ Programmierhilfe und Code-Parameter auf True), schreibt dpcc den Rückweg
+    /// erneut, aber nur, wo wieder der Wert von vor dem Rückweg steht.</summary>
+    [Test]
+    procedure ExitRepairsRestoreAfterIdeWriteBack;
   end;
 
 implementation
@@ -224,6 +263,7 @@ uses
   System.SysUtils,
   System.StrUtils,
   dpcc.Core.Localization.Language,
+  dpcc.Core.Editor.CodeInsightKeys,
   dpcc.Core.Settings.OperatingMode,
   dpcc.Core.Settings.Plugin,
   dpcc.Core.Settings.IdeCheck;
@@ -580,9 +620,9 @@ begin
   mInput := Delphi13Keys([cLsp, cPas]);
   mInput.BaseKey := 'Software\Embarcadero\BDS';
   Assert.AreEqual(cPas + ',' + cLsp, string.Join(',', TDpccIdeCheck.DpccKeys(mInput)), 'unbekannte Version');
-  // Unter 23.0 seit HI1 genauso: beide vorhandenen Orte (vorher nur der Ort von DelphiLSP).
+  // Unter 23.0 seit CI-OPT A nur der Satz von DelphiLSP (GetOptionSetName nennt ihn dort).
   mInput.BaseKey := cBase12;
-  Assert.AreEqual(cPas + ',' + cLsp, string.Join(',', TDpccIdeCheck.DpccKeys(mInput)), 'Delphi 12 wie Delphi 13');
+  Assert.AreEqual(cLsp, string.Join(',', TDpccIdeCheck.DpccKeys(mInput)), 'Delphi 12: Satz von DelphiLSP');
 end;
 
 procedure TDpccIdeCheckTests.MasterOnThenOffRestoresEverything(ABaseKey: string);
@@ -672,45 +712,36 @@ var
   mName: string;
 begin
   mInput := Delphi12;
-  // Im Code-Insight-Dialog der IDE dpcc gewählt, dpcc war aus. Borland.EditOptions.Pascal gibt es (leer); seit HI1
-  // zählt er unter 23.0 wie unter 37.0.
+  // Im Code-Insight-Dialog der IDE dpcc gewählt, dpcc war aus. Borland.EditOptions.Pascal gibt es (leer); seit CI-OPT
+  // A gehört er unter 23.0 nicht mehr dazu: Delphi 12 liest für dpcc den Satz von DelphiLSP (GetOptionSetName).
   mInput.SetValue(cSrc, TDpccIdeCheck.cProviderValue, TDpccIdeCheck.cDpccId);
   mInput.ProviderId := TDpccIdeCheck.cDpccId;
   mInput.Dpcc.Enabled := False;
   mInput.AddKey(cPas);
-  Assert.AreEqual(cPas + ',' + cLsp, string.Join(',', TDpccIdeCheck.DpccKeys(mInput)), 'beide vorhandenen Orte');
+  Assert.AreEqual(cLsp, string.Join(',', TDpccIdeCheck.DpccKeys(mInput)), 'nur der Satz von DelphiLSP');
   mResult := TDpccIdeCheck.Evaluate(mInput);
-  Assert.AreEqual(cPas, mResult.ActiveKey, 'erster vorhandener Ort, wie unter 37.0');
+  Assert.AreEqual(cLsp, mResult.ActiveKey, 'geprüft wird der Satz von DelphiLSP');
   Assert.IsFalse(mResult.ActiveKeyMissing, 'Schlüssel da');
   mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.Start);
   Assert.AreEqual(Ord(TDpccIdeMode.Dpcc), Ord(mPlan.Mode), 'Betriebsart dpcc');
-  Assert.IsTrue(mPlan.Enabled and mPlan.EnabledChanged, 'Hauptschalter an');
+  Assert.IsTrue(mPlan.Enabled and mPlan.EnabledChanged, 'Plugin an');
   Assert.IsFalse(mPlan.ProviderChanged, 'Anbieter ist schon dpcc');
   // Werte mit passender Vorgabe bzw. schon passend (Auto Code Completions, Verzögerung, Parameter) bleiben.
   Assert.IsFalse(HasWrite(mPlan, cLsp, TDpccIdeCheck.cAutoCodeCompletions, mWrite), 'passt schon');
   Assert.IsFalse(HasWrite(mPlan, cLsp, TDpccIdeCheck.cAutoInvokeDelay, mWrite), '-1 passt');
-  Assert.IsFalse(HasWrite(mPlan, cPas, TDpccIdeCheck.cAutoCodeCompletions, mWrite), 'fehlt = an, passt');
   for mName in cNames do
   begin
     Assert.IsTrue(HasWrite(mPlan, cLsp, mName, mWrite) and (mWrite.Value = 'False') and not mWrite.Delete,
       mName + ' am Ort von DelphiLSP');
-    Assert.IsTrue(HasWrite(mPlan, cPas, mName, mWrite) and (mWrite.Value = 'False') and not mWrite.Delete,
-      mName + ' an Borland.EditOptions.Pascal');
   end;
-  Assert.AreEqual(6, Integer(Length(mPlan.Writes)), 'Schreibaktionen');
-  Assert.AreEqual(6, Integer(Length(mPlan.MarkerWrites)), 'Merker');
+  Assert.IsFalse(WritesAt(mPlan, cPas), 'nichts an Borland.EditOptions.Pascal');
+  Assert.AreEqual(3, Integer(Length(mPlan.Writes)), 'Schreibaktionen');
+  Assert.AreEqual(3, Integer(Length(mPlan.MarkerWrites)), 'Merker');
   for mMarker in mPlan.MarkerWrites do
   begin
     Assert.IsTrue(StartsText('IdeSet 23.0 Code Insight\', mMarker.StoreName), mMarker.StoreName);
-    if SameText(mMarker.Key, cLsp) then
-    begin
-      Assert.IsTrue(mMarker.OriginalExists and (mMarker.Original = 'True'), mMarker.Name + ': davor True');
-    end
-    else
-    begin
-      Assert.AreEqual(cPas, mMarker.Key, mMarker.Name + ': Ort');
-      Assert.IsFalse(mMarker.OriginalExists, mMarker.Name + ': an Pascal gab es keinen Wert davor');
-    end;
+    Assert.AreEqual(cLsp, mMarker.Key, mMarker.Name + ': Ort');
+    Assert.IsTrue(mMarker.OriginalExists and (mMarker.Original = 'True'), mMarker.Name + ': davor True');
   end;
   Assert.IsTrue(ContainsText(mPlan.LogLine, 'gesetzt: Help Insight, Declaration Information, ToolTip Watches'),
     mPlan.LogLine);
@@ -718,20 +749,11 @@ begin
   mPlan.ApplyTo(mInput);
   mResult := TDpccIdeCheck.Evaluate(mInput);
   Assert.AreEqual(0, CountOf(mResult, TDpccIdeSeverity.Deviation), 'danach passt alles: ' + mResult.Report);
-  Assert.AreEqual(cPas + ',' + cLsp, string.Join(',', mResult.CheckedKeys), 'geprüfte Orte');
-  Assert.IsTrue(ContainsText(mResult.LogLine, 'geprüft ' + cPas + ' + ' + cLsp), mResult.LogLine);
+  Assert.AreEqual(cLsp, string.Join(',', mResult.CheckedKeys), 'geprüfter Ort');
   Assert.IsFalse(TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.MasterOn).HasChanges, 'Gegenprüfung: nichts');
-
-  // Stand des Prüfrechners (nur der Ort von DelphiLSP): wie vor HI1, Borland.EditOptions.Pascal wird nicht angelegt.
-  mInput := Delphi12;
-  mInput.SetValue(cSrc, TDpccIdeCheck.cProviderValue, TDpccIdeCheck.cDpccId);
-  mInput.ProviderId := TDpccIdeCheck.cDpccId;
-  Assert.AreEqual(cLsp, string.Join(',', TDpccIdeCheck.DpccKeys(mInput)), 'nur der Ort von DelphiLSP');
-  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.Start);
-  Assert.AreEqual(3, Integer(Length(mPlan.Writes)), 'Schreibaktionen ohne Pascal');
-  Assert.IsFalse(WritesAt(mPlan, cPas), 'nichts am fehlenden Borland.EditOptions.Pascal');
-  mPlan.ApplyTo(mInput);
-  Assert.IsFalse(mInput.HasKey(cPas), 'Borland.EditOptions.Pascal nicht angelegt');
+  // Delphi 13 mit denselben Orten bleibt bei beiden (gemessen: Delphi 13 liest für dpcc Borland.EditOptions.Pascal).
+  mInput := Delphi13Keys([cLsp, cPas]);
+  Assert.AreEqual(cPas + ',' + cLsp, string.Join(',', TDpccIdeCheck.DpccKeys(mInput)), 'Delphi 13: beide');
 end;
 
 procedure TDpccIdeCheckTests.Delphi12DpccUsesExistingKeysOnly;
@@ -741,30 +763,28 @@ var
   mWrite: TDpccIdeWrite;
   mValue: TDpccIdeRegValue;
 begin
-  // Nur Borland.EditOptions.Pascal: der Ort von DelphiLSP wird nicht angelegt.
+  // Unter Delphi 12 gilt immer der Satz von DelphiLSP, auch wenn es nur Borland.EditOptions.Pascal gibt.
   mInput := Delphi12Keys([cPas]);
-  Assert.AreEqual(cPas, string.Join(',', TDpccIdeCheck.DpccKeys(mInput)), 'nur Pascal');
+  Assert.AreEqual(cLsp, string.Join(',', TDpccIdeCheck.DpccKeys(mInput)), 'nur Pascal da: trotzdem DelphiLSP');
   mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.MasterOn);
-  Assert.IsTrue(HasWrite(mPlan, cPas, TDpccIdeCheck.cHelpInsight, mWrite), 'Help Insight an Pascal');
-  Assert.IsFalse(WritesAt(mPlan, cLsp), 'nichts am fehlenden Ort von DelphiLSP');
-  mPlan.ApplyTo(mInput);
-  Assert.IsFalse(mInput.HasKey(cLsp), 'Ort von DelphiLSP nicht angelegt');
-  // Keiner da: Ersatz ist der Ort von DelphiLSP, kein Pascal.
+  Assert.IsTrue(HasWrite(mPlan, cLsp, TDpccIdeCheck.cHelpInsight, mWrite), 'Help Insight im Satz von DelphiLSP');
+  Assert.IsFalse(WritesAt(mPlan, cPas), 'nichts an Pascal');
+  // Keiner da: der Satz von DelphiLSP.
   mInput := Delphi12Keys([]);
-  Assert.AreEqual(cLsp, string.Join(',', TDpccIdeCheck.DpccKeys(mInput)), 'Ersatz');
+  Assert.AreEqual(cLsp, string.Join(',', TDpccIdeCheck.DpccKeys(mInput)), 'keiner da');
   mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.MasterOn);
-  Assert.IsTrue(HasWrite(mPlan, cLsp, TDpccIdeCheck.cHelpInsight, mWrite), 'Help Insight am Ersatz');
+  Assert.IsTrue(HasWrite(mPlan, cLsp, TDpccIdeCheck.cHelpInsight, mWrite), 'Help Insight im Satz von DelphiLSP');
   Assert.IsFalse(WritesAt(mPlan, cPas), 'kein Pascal');
-  // Beide da: an beiden gesetzt und mit dem Hauptschalter aus an beiden wieder wie vorher.
+  // Beide da: nur DelphiLSP gesetzt, Pascal unberührt; Aus stellt alles wieder her.
   mInput := Delphi12Keys([cLsp, cPas]);
-  Assert.AreEqual(cPas + ',' + cLsp, string.Join(',', TDpccIdeCheck.DpccKeys(mInput)), 'beide');
+  Assert.AreEqual(cLsp, string.Join(',', TDpccIdeCheck.DpccKeys(mInput)), 'beide da: DelphiLSP');
   mBefore := mInput;
   mBefore.Values := Copy(mInput.Values);
   mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.MasterOn);
-  Assert.IsTrue(HasWrite(mPlan, cPas, TDpccIdeCheck.cHelpInsight, mWrite) and (mWrite.Value = 'False'), 'Pascal');
   Assert.IsTrue(HasWrite(mPlan, cLsp, TDpccIdeCheck.cHelpInsight, mWrite) and (mWrite.Value = 'False'), 'DelphiLSP');
+  Assert.IsFalse(WritesAt(mPlan, cPas), 'Pascal unberührt');
   mPlan.ApplyTo(mInput);
-  Assert.AreEqual('False', ValueOf(mInput, cPas, TDpccIdeCheck.cHelpInsight), 'Pascal danach');
+  Assert.AreEqual('True', ValueOf(mInput, cPas, TDpccIdeCheck.cHelpInsight), 'Pascal danach unverändert');
   Assert.AreEqual('False', ValueOf(mInput, cLsp, TDpccIdeCheck.cHelpInsight), 'DelphiLSP danach');
   mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.MasterOff);
   Assert.AreEqual(0, Integer(Length(mPlan.CleanedNames)), 'nichts als alter Ort aufgeräumt');
@@ -828,7 +848,7 @@ begin
   end;
 end;
 
-procedure TDpccIdeCheckTests.Delphi12OldPascalMarkersStayValid;
+procedure TDpccIdeCheckTests.Delphi12OldPascalMarkersAreCleanedUp;
 const
   cNames: array[0..2] of string = (TDpccIdeCheck.cHelpInsight, TDpccIdeCheck.cDeclarationInformation,
     TDpccIdeCheck.cToolTipWatches);
@@ -839,24 +859,23 @@ var
   mMarker, mOld: TDpccIdeMarker;
   mName: string;
 begin
-  // Betriebsart dpcc: Borland.EditOptions.Pascal ist seit HI1 auch unter 23.0 ein Ort der Betriebsart dpcc. Die
-  // Werte dort stehen schon so, wie dpcc sie will; die alten Merker bleiben, der Ort von DelphiLSP kommt dazu.
+  // Betriebsart Plugin: Borland.EditOptions.Pascal ist unter 23.0 kein Ort der Betriebsart dpcc mehr (CI-OPT A). Die
+  // alten Merker dort werden an ihrem Ort zurückgedreht (von dpcc ohne Wert davor angelegte Werte gelöscht) und als
+  // „aufgeräumt (alter Ort)“ gemeldet; gesetzt wird der Satz von DelphiLSP.
   mInput := Delphi12WithOldMarkers;
-  Assert.AreEqual(cPas + ',' + cLsp, string.Join(',', TDpccIdeCheck.DpccKeys(mInput)), 'beide Orte');
+  Assert.AreEqual(cLsp, string.Join(',', TDpccIdeCheck.DpccKeys(mInput)), 'nur DelphiLSP');
   mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.Start);
   Assert.AreEqual(Ord(TDpccIdeMode.Dpcc), Ord(mPlan.Mode), 'Betriebsart dpcc');
   for mName in cNames do
   begin
-    Assert.IsTrue(HasWrite(mPlan, cLsp, mName, mWrite), mName + ': am Ort von DelphiLSP gesetzt');
-    Assert.IsFalse(mWrite.Delete, mName + ': am Ort von DelphiLSP nie gelöscht');
-    Assert.AreEqual('False', mWrite.Value, mName);
-    Assert.IsFalse(HasWrite(mPlan, cPas, mName, mWrite), mName + ': an Pascal nicht gegen das Schreiben aufgeräumt');
+    Assert.IsTrue(HasWrite(mPlan, cLsp, mName, mWrite) and (mWrite.Value = 'False') and not mWrite.Delete,
+      mName + ': am Ort von DelphiLSP gesetzt');
+    Assert.IsTrue(HasWrite(mPlan, cPas, mName, mWrite) and mWrite.Delete, mName + ': an Pascal gelöscht');
     Assert.IsTrue(mInput.TryGetMarker(cPas, mName, mOld), mName + ': alter Merker');
-    Assert.IsFalse(MatchText(mOld.StoreName, mPlan.MarkerDeletes), mName + ': alter Merker bleibt');
+    Assert.IsTrue(MatchText(mOld.StoreName, mPlan.MarkerDeletes), mName + ': alter Merker entfällt');
+    Assert.IsTrue(MatchText(mName, mPlan.CleanedNames), mName + ': aufgeräumt');
   end;
-  Assert.AreEqual(0, Integer(Length(mPlan.CleanedNames)), 'nichts aufgeräumt');
-  Assert.AreEqual(0, Integer(Length(mPlan.RestoredNames)), 'nichts zurückgedreht');
-  Assert.IsFalse(ContainsText(mPlan.LogLine, 'aufgeräumt (alter Ort)'), mPlan.LogLine);
+  Assert.IsTrue(ContainsText(mPlan.LogLine, 'aufgeräumt (alter Ort)'), mPlan.LogLine);
   Assert.AreEqual(3, Integer(Length(mPlan.MarkerWrites)), 'neue Merker nur am Ort von DelphiLSP');
   for mMarker in mPlan.MarkerWrites do
   begin
@@ -864,41 +883,33 @@ begin
     Assert.IsTrue(mMarker.OriginalExists and (mMarker.Original = 'True'), mMarker.Name + ': davor True');
   end;
   mPlan.ApplyTo(mInput);
-  Assert.AreEqual('False', ValueOf(mInput, cPas, TDpccIdeCheck.cHelpInsight), 'Pascal bleibt False');
-  Assert.AreEqual(7, Integer(Length(mInput.Markers)), 'Anbieter, drei alte und drei neue Merker');
+  for mName in cNames do
+  begin
+    Assert.AreEqual('<fehlt>', ValueOf(mInput, cPas, mName), mName + ': an Pascal wieder ohne Wert');
+  end;
+  Assert.AreEqual(4, Integer(Length(mInput.Markers)), 'Anbieter und drei Merker am Ort von DelphiLSP');
   Assert.IsFalse(TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.Start).HasChanges, 'danach nichts mehr');
-  // Zurück zu DelphiLSP: am Ort von DelphiLSP wieder True, die von dpcc an Pascal angelegten Werte gelöscht.
-  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.MasterOff);
-  Assert.AreEqual(0, Integer(Length(mPlan.CleanedNames)), 'Rückweg: nichts als alter Ort gemeldet');
-  mPlan.ApplyTo(mInput);
+  // Zurück zu DelphiLSP: am Ort von DelphiLSP wieder die Werte des Nutzers, keine Merker.
+  TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.MasterOff).ApplyTo(mInput);
   for mName in cNames do
   begin
     Assert.AreEqual('True', ValueOf(mInput, cLsp, mName), mName + ': am Ort von DelphiLSP zurück');
-    Assert.AreEqual('<fehlt>', ValueOf(mInput, cPas, mName), mName + ': an Pascal wieder ohne Wert');
   end;
   Assert.AreEqual(TDpccIdeCheck.cDelphiLspId, mInput.ProviderId, 'Anbieter DelphiLSP');
   Assert.AreEqual(0, Integer(Length(mInput.Markers)), 'Merker entfallen');
 
-  // Betriebsart IDE (DelphiLSP gewählt) mit den alten Merkern: Der Ort von DelphiLSP bleibt unberührt, Pascal wird
-  // zurückgedreht (als zurückgedreht gemeldet, nicht als alter Ort).
+  // Betriebsart Aus mit den alten Merkern: Pascal zurückgedreht, der Ort von DelphiLSP unberührt.
   mInput := Delphi12WithOldMarkers;
   mInput.ProviderId := TDpccIdeCheck.cDelphiLspId;
   mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.Start);
   Assert.AreEqual(Ord(TDpccIdeMode.Ide), Ord(mPlan.Mode), 'Betriebsart IDE');
   Assert.IsFalse(WritesAt(mPlan, cLsp), 'Ort von DelphiLSP unberührt');
   Assert.IsTrue(HasWrite(mPlan, cPas, TDpccIdeCheck.cHelpInsight, mWrite) and mWrite.Delete, 'Pascal zurückgedreht');
-  Assert.IsTrue(MatchText(TDpccIdeCheck.cHelpInsight, mPlan.RestoredNames), 'als zurückgedreht gemeldet');
-  Assert.AreEqual(0, Integer(Length(mPlan.CleanedNames)), 'nicht als alter Ort');
   mPlan.ApplyTo(mInput);
-  for mName in cNames do
-  begin
-    Assert.AreEqual('True', ValueOf(mInput, cLsp, mName), mName + ': am Ort von DelphiLSP wie vorher');
-  end;
   Assert.AreEqual(0, Integer(Length(mInput.Markers)), 'Merker entfallen');
 
-  // Vom Nutzer an Pascal geänderter Wert: In der Betriebsart IDE bleibt er, nur der Merker entfällt.
+  // Vom Nutzer an Pascal geänderter Wert: bleibt (auch in der Betriebsart Plugin), nur der Merker entfällt.
   mInput := Delphi12WithOldMarkers;
-  mInput.ProviderId := TDpccIdeCheck.cDelphiLspId;
   mInput.SetValue(cPas, TDpccIdeCheck.cHelpInsight, 'True');
   mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.Start);
   Assert.IsFalse(HasWrite(mPlan, cPas, TDpccIdeCheck.cHelpInsight, mWrite), 'Wert des Nutzers bleibt');
@@ -906,19 +917,6 @@ begin
   mPlan.ApplyTo(mInput);
   Assert.AreEqual('True', ValueOf(mInput, cPas, TDpccIdeCheck.cHelpInsight), 'wie vom Nutzer gesetzt');
   Assert.IsFalse(mInput.TryGetMarker(cPas, TDpccIdeCheck.cHelpInsight, mOld), 'alter Merker entfällt');
-  // In der Betriebsart dpcc setzt dpcc ihn wie unter 37.0 erneut; der Merker behält „kein Wert davor“.
-  mInput := Delphi12WithOldMarkers;
-  mInput.SetValue(cPas, TDpccIdeCheck.cHelpInsight, 'True');
-  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.Start);
-  Assert.IsTrue(HasWrite(mPlan, cPas, TDpccIdeCheck.cHelpInsight, mWrite) and (mWrite.Value = 'False'),
-    'in der Betriebsart dpcc erneut gesetzt');
-  for mMarker in mPlan.MarkerWrites do
-  begin
-    if SameText(mMarker.Key, cPas) then
-    begin
-      Assert.IsFalse(mMarker.OriginalExists, 'Merker behält: kein Wert vor der ersten Änderung');
-    end;
-  end;
 end;
 
 procedure TDpccIdeCheckTests.MarkerOutsideDpccKeysIsCleanedUp(ABaseKey: string);
@@ -945,7 +943,16 @@ begin
   Assert.IsTrue(TDpccIdeContext.DecodeMarker(ABaseKey, TDpccIdeContext.MarkerName(ABaseKey, mForeign,
     TDpccIdeCheck.cHelpInsight), 'False'#9'=True', mMarker), 'Merker am fremden Ort');
   mInput.Markers := [mMarker];
-  Assert.AreEqual(cPas + ',' + cLsp, string.Join(',', TDpccIdeCheck.DpccKeys(mInput)), 'fremder Ort gehört nicht dazu');
+  // Delphi 12 (CI-OPT A): nur der Satz von DelphiLSP; Delphi 13: beide vorhandenen.
+  if ABaseKey = cBase12 then
+  begin
+    Assert.AreEqual(cLsp, string.Join(',', TDpccIdeCheck.DpccKeys(mInput)), 'fremder Ort gehört nicht dazu');
+  end
+  else
+  begin
+    Assert.AreEqual(cPas + ',' + cLsp, string.Join(',', TDpccIdeCheck.DpccKeys(mInput)),
+      'fremder Ort gehört nicht dazu');
+  end;
   mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.Start);
   Assert.AreEqual(Ord(TDpccIdeMode.Dpcc), Ord(mPlan.Mode), 'Betriebsart dpcc');
   Assert.IsTrue(HasWrite(mPlan, mForeign, TDpccIdeCheck.cHelpInsight, mWrite) and (mWrite.Value = 'True') and
@@ -954,7 +961,8 @@ begin
   Assert.IsTrue(MatchText(mMarker.StoreName, mPlan.MarkerDeletes), 'Merker entfällt');
   Assert.IsTrue(ContainsText(mPlan.LogLine, 'aufgeräumt (alter Ort): Help Insight'), mPlan.LogLine);
   // Die Orte der Betriebsart dpcc werden trotzdem gesetzt.
-  Assert.IsTrue(HasWrite(mPlan, cPas, TDpccIdeCheck.cHelpInsight, mWrite) and (mWrite.Value = 'False'), 'Pascal');
+  Assert.IsTrue((ABaseKey = cBase13) = (HasWrite(mPlan, cPas, TDpccIdeCheck.cHelpInsight, mWrite) and
+    (mWrite.Value = 'False')), 'Pascal nur unter Delphi 13');
   Assert.IsTrue(HasWrite(mPlan, cLsp, TDpccIdeCheck.cHelpInsight, mWrite) and (mWrite.Value = 'False'), 'DelphiLSP');
 end;
 
@@ -2272,6 +2280,408 @@ begin
       Assert.AreEqual(TDpccIdeCheck.Evaluate(mBase).LogLine, TDpccIdeCheck.Evaluate(mWith).LogLine, 'Prüfung');
     end;
   end;
+end;
+
+
+const
+  cTestProfile12 = 'Software\Embarcadero\dpccSwitchTest\23.0';
+  cTestProfile13 = 'Software\Embarcadero\dpccSwitchTest\37.0';
+  cBothBases: array[0..1] of string = (cBase12, cBase13);
+
+procedure TDpccIdeCheckTests.ChoiceInDialogSurvivesOkAndExit;
+var
+  mBase: string;
+  mInput, mChoice: TDpccIdeCheckInput;
+  mPlan: TDpccIdeContextPlan;
+  mTrigger: TDpccIdeContextTrigger;
+begin
+  for mBase in cBothBases do
+  begin
+    // Aus, im Code-Insight-Dialog dpcc gewählt, OK. ProviderChosen: Start mit dem gewählten Anbieter (die IDE hat ihn
+    // noch nicht geschrieben), Betriebsart gespeichert.
+    mInput := WithProvider(mBase, TDpccIdeCheck.cDelphiLspId, State(False, True, True));
+    mChoice := Clone(mInput);
+    mChoice.ProviderId := TDpccIdeCheck.cDpccId;
+    TDpccIdeContext.Plan(mChoice, TDpccIdeContextTrigger.Start).ApplyTo(mInput);
+    Assert.AreEqual(Ord(TDpccOperatingMode.Plugin), Ord(mInput.Dpcc.OperatingMode), mBase + ': Wahl dpcc → Plugin');
+    // Die IDE schreibt den gewählten Anbieter.
+    mInput.SetValue(cSrc, TDpccIdeCheck.cProviderValue, TDpccIdeCheck.cDpccId);
+    mInput.ProviderId := TDpccIdeCheck.cDpccId;
+    // Früher: AfterOptions mit der beim Schließen gelesenen Betriebsart (Aus) drehte die Wahl zurück.
+    mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContext.ModeTrigger(TDpccOperatingMode.Off));
+    Assert.IsTrue(mPlan.ProviderChanged and SameText(mPlan.ProviderAfter, TDpccIdeCheck.cDelphiLspId),
+      mBase + ': alter Anlass hätte zurückgedreht');
+    // Jetzt: Anlass aus der beim Ausführen gespeicherten Betriebsart.
+    mTrigger := TDpccIdeContext.ModeTrigger(mInput.Dpcc.OperatingMode);
+    Assert.AreEqual(Ord(TDpccIdeContextTrigger.MasterOn), Ord(mTrigger), mBase + ': Anlass Plugin');
+    mPlan := TDpccIdeContext.Plan(mInput, mTrigger);
+    Assert.IsFalse(mPlan.ProviderChanged, mBase + ': Anbieter bleibt dpcc');
+    mPlan.ApplyTo(mInput);
+    // Beim Beenden (AtExit, letzter Anlass): kein Anbieterwechsel.
+    mPlan := TDpccIdeContext.Plan(mInput, mTrigger);
+    Assert.IsFalse(WritesAt(mPlan, cSrc), mBase + ': beim Beenden bleibt der Anbieter');
+    Assert.AreEqual(TDpccIdeCheck.cDpccId, mInput.ProviderId, mBase + ': Anbieter dpcc');
+    // Neustart: Plugin ohne Wechsel.
+    mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.Start);
+    Assert.AreEqual(Ord(TDpccOperatingMode.Plugin), Ord(mPlan.OperatingMode), mBase + ': nach dem Neustart Plugin');
+    Assert.IsFalse(mPlan.HasChanges, mBase + ': nach dem Neustart nichts zu tun: ' + mPlan.LogLine);
+
+    // Plugin, im Dialog DelphiLSP gewählt, OK.
+    mChoice := Clone(mInput);
+    mChoice.ProviderId := TDpccIdeCheck.cDelphiLspId;
+    TDpccIdeContext.Plan(mChoice, TDpccIdeContextTrigger.Start).ApplyTo(mInput);
+    Assert.AreEqual(Ord(TDpccOperatingMode.Off), Ord(mInput.Dpcc.OperatingMode), mBase + ': DelphiLSP → Aus');
+    mInput.SetValue(cSrc, TDpccIdeCheck.cProviderValue, TDpccIdeCheck.cDelphiLspId);
+    mInput.ProviderId := TDpccIdeCheck.cDelphiLspId;
+    // Früher: Anlass Plugin (beim Schließen gelesen) schrieb dpcc wieder als Anbieter.
+    mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContext.ModeTrigger(TDpccOperatingMode.Plugin));
+    Assert.IsTrue(SameText(mPlan.ProviderAfter, TDpccIdeCheck.cDpccId), mBase + ': alter Anlass hätte dpcc geschrieben');
+    mTrigger := TDpccIdeContext.ModeTrigger(mInput.Dpcc.OperatingMode);
+    Assert.AreEqual(Ord(TDpccIdeContextTrigger.MasterOff), Ord(mTrigger), mBase + ': Anlass Aus');
+    TDpccIdeContext.Plan(mInput, mTrigger).ApplyTo(mInput);
+    mPlan := TDpccIdeContext.Plan(mInput, mTrigger);
+    Assert.IsFalse(mPlan.HasChanges, mBase + ': beim Beenden nichts: ' + mPlan.LogLine);
+    mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.Start);
+    Assert.AreEqual(Ord(TDpccOperatingMode.Off), Ord(mPlan.OperatingMode), mBase + ': nach dem Neustart Aus');
+    Assert.AreEqual(0, Integer(Length(mPlan.Notice)), mBase + ': keine Meldung: ' + mPlan.Notice);
+
+    // Server, im Dialog DelphiLSP gewählt (die IDE meldet keinen Wechsel): Server bleibt.
+    mInput := WithProvider(mBase, TDpccIdeCheck.cDelphiLspId, ServerState);
+    mTrigger := TDpccIdeContext.ModeTrigger(mInput.Dpcc.OperatingMode);
+    Assert.AreEqual(Ord(TDpccIdeContextTrigger.ServerOn), Ord(mTrigger), mBase + ': Anlass Server');
+    TDpccIdeContext.Plan(mInput, mTrigger).ApplyTo(mInput);
+    Assert.AreEqual(Ord(TDpccOperatingMode.Server),
+      Ord(TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.Start).OperatingMode), mBase + ': Server bleibt');
+  end;
+end;
+
+procedure TDpccIdeCheckTests.NoticeOffServerWithModeBefore;
+var
+  mInput: TDpccIdeCheckInput;
+  mPlan: TDpccIdeContextPlan;
+begin
+  // Aus → Server: Die Seite hat Server schon gespeichert.
+  mInput := WithProvider(cBase12, TDpccIdeCheck.cDelphiLspId, ServerState);
+  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.ServerOn);
+  Assert.AreEqual('', mPlan.Notice, 'ohne Betriebsart davor kein Hinweis (früherer Fehler)');
+  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.ServerOn, TDpccOperatingMode.Off);
+  Assert.IsTrue(ContainsText(mPlan.Notice, 'nächsten Start des Code-Insight-Servers'), mPlan.Notice);
+  Assert.IsFalse(mPlan.ProviderChanged, 'Anbieter bleibt');
+  // Server → Aus: Die Seite hat Aus schon gespeichert.
+  mInput := WithProvider(cBase13, TDpccIdeCheck.cDelphiLspId, State(False, True, True));
+  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.MasterOff);
+  Assert.AreEqual('', mPlan.Notice, 'ohne Betriebsart davor kein Hinweis (früherer Fehler)');
+  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.MasterOff, TDpccOperatingMode.Server);
+  Assert.IsTrue(ContainsText(mPlan.Notice, 'originale DelphiLSP'), mPlan.Notice);
+  // Ohne Wechsel kein Hinweis.
+  Assert.AreEqual('', TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.MasterOff,
+    TDpccOperatingMode.Off).Notice, 'Aus bleibt Aus');
+  mInput := WithProvider(cBase13, TDpccIdeCheck.cDelphiLspId, ServerState);
+  Assert.AreEqual('', TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.ServerOn,
+    TDpccOperatingMode.Server).Notice, 'Server bleibt Server');
+  TDpccTextLanguage.Current := TDpccLanguage.English;
+  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.ServerOn, TDpccOperatingMode.Off);
+  Assert.IsTrue(StartsText('Mode Server:', mPlan.Notice), mPlan.Notice);
+end;
+
+procedure TDpccIdeCheckTests.MarkersPerRegistryProfile;
+var
+  mInput: TDpccIdeCheckInput;
+  mPlan: TDpccIdeContextPlan;
+  mMarker: TDpccIdeMarker;
+  mDefaultName, mProfileName: string;
+begin
+  Assert.AreEqual('23.0', TDpccCodeInsightKeys.ScopeText(cBase12), 'Standardprofil: nur die Version');
+  Assert.AreEqual('37.0', TDpccCodeInsightKeys.ScopeText('\' + cBase13 + '\'), 'Standardprofil mit Backslashes');
+  Assert.AreEqual('dpccSwitchTest 23.0', TDpccCodeInsightKeys.ScopeText(cTestProfile12), 'eigenes Profil');
+  Assert.AreEqual('dpccSwitchTest', TDpccCodeInsightKeys.ProfileText(cTestProfile12), 'Profil');
+  Assert.AreEqual('BDS', TDpccCodeInsightKeys.ProfileText(cBase12), 'Profil BDS');
+  Assert.IsTrue(TDpccCodeInsightKeys.IsDefaultProfile(cBase12), 'BDS ist Standard');
+  Assert.IsFalse(TDpccCodeInsightKeys.IsDefaultProfile(cTestProfile12), 'Testprofil nicht');
+  Assert.AreEqual('', TDpccCodeInsightKeys.ScopeText(''), 'ohne Basis');
+  // Namen: im Standardprofil wie bisher (die Merker des Nutzers gelten weiter), sonst mit Profil.
+  mDefaultName := TDpccIdeContext.MarkerName(cBase12, cLsp, TDpccIdeCheck.cAutoCodeCompletions);
+  Assert.AreEqual('IdeSet 23.0 ' + cLsp + '\' + TDpccIdeCheck.cAutoCodeCompletions, mDefaultName, 'Standardprofil');
+  mProfileName := TDpccIdeContext.MarkerName(cTestProfile12, cLsp, TDpccIdeCheck.cAutoCodeCompletions);
+  Assert.AreEqual('IdeSet dpccSwitchTest 23.0 ' + cLsp + '\' + TDpccIdeCheck.cAutoCodeCompletions, mProfileName,
+    'eigenes Profil');
+  Assert.IsTrue(TDpccIdeContext.DecodeMarker(cBase12, mDefaultName, 'True'#9'=False', mMarker),
+    'Merker des Nutzers gelten weiter');
+  Assert.IsFalse(TDpccIdeContext.DecodeMarker(cTestProfile12, mDefaultName, 'True'#9'=False', mMarker),
+    'Testprofil liest die Merker des Standardprofils nicht (früherer Fehler)');
+  Assert.IsFalse(TDpccIdeContext.DecodeMarker(cBase12, mProfileName, 'True'#9'=False', mMarker),
+    'Standardprofil liest die Merker des Testprofils nicht');
+  Assert.IsTrue(TDpccIdeContext.DecodeMarker(cTestProfile12, mProfileName, 'True'#9'=False', mMarker),
+    'Testprofil liest seine eigenen');
+  Assert.AreEqual(cLsp, mMarker.Key, 'Ort');
+  Assert.AreEqual(TDpccIdeCheck.cAutoCodeCompletions, mMarker.Name, 'Wert');
+  // Ältere DWORD-Merker stammen aus der Zeit vor den Profilen: nur im Standardprofil.
+  Assert.IsTrue(TDpccIdeContext.DecodeLegacyMarker(cBase13, 'IdeHelpInsightDisabled', 1, mMarker), 'Standard');
+  Assert.IsFalse(TDpccIdeContext.DecodeLegacyMarker(cTestProfile13, 'IdeHelpInsightDisabled', 1, mMarker),
+    'Testprofil: alter Merker ohne Version');
+  Assert.IsFalse(TDpccIdeContext.DecodeLegacyMarker(cTestProfile13,
+    'IdeHelpInsightDisabled 37.0 Borland.EditOptions.Pascal', 1, mMarker), 'Testprofil: alter Merker mit Version');
+  // Der Plan im Testprofil schreibt Merker mit Profil.
+  mInput := WithProvider(cTestProfile12, TDpccIdeCheck.cDelphiLspId, State(True, True, True));
+  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.MasterOn);
+  Assert.IsTrue(Length(mPlan.MarkerWrites) > 0, 'Merker geschrieben');
+  for mMarker in mPlan.MarkerWrites do
+  begin
+    Assert.IsTrue(StartsText('IdeSet dpccSwitchTest 23.0 ', mMarker.StoreName), mMarker.StoreName);
+  end;
+  // Betriebsart und Merker „IdeAdopted <Version> …“ mit demselben Geltungsbereich.
+  Assert.AreEqual('OperatingMode dpccSwitchTest 23.0',
+    TDpccOperatingModes.ValueName(TDpccCodeInsightKeys.ScopeText(cTestProfile12)), 'Betriebsart je Profil');
+  Assert.AreEqual('OperatingMode 23.0', TDpccOperatingModes.ValueName(TDpccCodeInsightKeys.ScopeText(cBase12)),
+    'Betriebsart im Standardprofil unverändert');
+  Assert.AreEqual('IdeAdopted dpccSwitchTest 37.0 IdeFeatures', TDpccPluginSettings.AdoptedName(
+    TDpccPluginSettings.cAdoptedFeatures, TDpccCodeInsightKeys.ScopeText(cTestProfile13)), 'Übernahme je Profil');
+end;
+
+procedure TDpccIdeCheckTests.StatusShowsPendingRestart;
+var
+  mInput: TDpccIdeCheckInput;
+  mStatus: string;
+begin
+  // Aus → Plugin mit OK: dpcc hat den Anbieter in der Registry umgestellt, die IDE läuft weiter mit DelphiLSP.
+  mInput := WithProvider(cBase13, TDpccIdeCheck.cDelphiLspId, State(False, True, True));
+  mInput.RunningProviderId := TDpccIdeCheck.cDelphiLspId;
+  mInput.Dpcc.Enabled := True;
+  TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.MasterOn).ApplyTo(mInput);
+  Assert.AreEqual(TDpccIdeCheck.cDpccId, mInput.ProviderId, 'Registry: dpcc');
+  mStatus := TDpccIdeContext.StatusText(mInput);
+  Assert.IsTrue(StartsText('Betriebsart dpcc', mStatus), mStatus);
+  Assert.IsTrue(ContainsText(mStatus, 'Der Anbieter wird beim nächsten Start von Delphi dpcc.'), mStatus);
+  // Früher verglich die Zeile mit dem schon umgestellten Wert: ohne laufenden Anbieter keine Zeile.
+  mInput.RunningProviderId := '';
+  Assert.IsFalse(ContainsText(TDpccIdeContext.StatusText(mInput), 'nächsten Start'), 'ohne laufenden Anbieter');
+  // Nach dem Neustart arbeitet die IDE mit dpcc: nichts offen.
+  mInput.RunningProviderId := TDpccIdeCheck.cDpccId;
+  Assert.IsFalse(ContainsText(TDpccIdeContext.StatusText(mInput), 'nächsten Start'), 'nach dem Neustart');
+  // Plugin → Aus, die IDE läuft noch mit dpcc.
+  mInput.Dpcc.Enabled := False;
+  mInput.Dpcc.Mode := TDpccOperatingMode.Off;
+  TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.MasterOff).ApplyTo(mInput);
+  Assert.AreEqual(TDpccIdeCheck.cDelphiLspId, mInput.ProviderId, 'Registry: DelphiLSP');
+  mStatus := TDpccIdeContext.StatusText(mInput);
+  Assert.IsTrue(StartsText('Betriebsart IDE', mStatus), mStatus);
+  Assert.IsTrue(ContainsText(mStatus, 'beim nächsten Start von Delphi wieder DelphiLSP'), mStatus);
+  // Plugin → Server, die IDE läuft noch mit dpcc.
+  mInput.Dpcc.Mode := TDpccOperatingMode.Server;
+  mStatus := TDpccIdeContext.StatusText(mInput);
+  Assert.IsTrue(StartsText('Betriebsart Server', mStatus), mStatus);
+  Assert.IsTrue(ContainsText(mStatus, 'erst dann übernimmt dpcc.LspServer.exe'), mStatus);
+  TDpccTextLanguage.Current := TDpccLanguage.English;
+  mStatus := TDpccIdeContext.StatusText(mInput);
+  Assert.IsTrue(ContainsText(mStatus, 'only then dpcc.LspServer.exe takes over'), mStatus);
+end;
+
+procedure TDpccIdeCheckTests.TextsNameOperatingMode;
+var
+  mLanguage: TDpccLanguage;
+  mInput: TDpccIdeCheckInput;
+  mPlan: TDpccIdeContextPlan;
+  mReport: string;
+begin
+  for mLanguage := Low(TDpccLanguage) to High(TDpccLanguage) do
+  begin
+    TDpccTextLanguage.Current := mLanguage;
+    // Prüfbericht mit dpcc als Anbieter (Grund des Anbieters, Grund der Betriebsart Plugin).
+    mInput := WithProvider(cBase13, TDpccIdeCheck.cDpccId, State(True, True, True));
+    mReport := TDpccIdeCheck.Evaluate(mInput).Report;
+    Assert.IsFalse(ContainsText(mReport, 'Hauptschalter') or ContainsText(mReport, 'master switch'), mReport);
+    Assert.IsTrue(ContainsText(mReport, 'Server'), mReport);
+    // Hinweis „Anbieter nicht mehr dpcc“ beim Start.
+    mInput := UserDelphi13;
+    mInput.SetValue(cSrc, TDpccIdeCheck.cProviderValue, TDpccIdeCheck.cDelphiLspId);
+    mInput.ProviderId := TDpccIdeCheck.cDelphiLspId;
+    mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.Start);
+    Assert.IsTrue(mPlan.Notice <> '', 'Hinweis');
+    Assert.IsFalse(ContainsText(mPlan.Notice, 'Hauptschalter') or ContainsText(mPlan.Notice, 'master switch'),
+      mPlan.Notice);
+    Assert.IsTrue(ContainsText(mPlan.Notice, 'Plugin'), mPlan.Notice);
+  end;
+end;
+
+procedure TDpccIdeCheckTests.TakeOverLogLineWithoutLegacy;
+var
+  mLine: string;
+  mFromLegacy: Boolean;
+begin
+  // Weder eigener Wert noch Enabled: Vorgabe Plugin, kein „aus dem früheren Hauptschalter übernommen“.
+  Assert.AreEqual(Ord(TDpccOperatingMode.Plugin), Ord(TDpccOperatingModes.Resolve(False, '', False, 0, mFromLegacy)),
+    'Vorgabe');
+  Assert.IsTrue(mFromLegacy, 'ohne eigenen Wert');
+  mLine := TDpccOperatingModes.TakeOverLogLine('23.0', TDpccOperatingMode.Plugin, True);
+  Assert.IsFalse(ContainsText(mLine, 'übernommen'), mLine);
+  Assert.IsTrue(ContainsText(mLine, 'Vorgabe Plugin'), mLine);
+  Assert.IsTrue(ContainsText(mLine, 'Delphi 23.0'), mLine);
+  // Mit Enabled: übernommen.
+  mLine := TDpccOperatingModes.TakeOverLogLine('dpccSwitchTest 37.0', TDpccOperatingMode.Off, False);
+  Assert.AreEqual('Betriebsart für Delphi dpccSwitchTest 37.0 aus dem früheren Hauptschalter übernommen: Aus', mLine);
+end;
+
+procedure TDpccIdeCheckTests.Delphi12PluginAndServerShareLspSet;
+const
+  cShared: array[0..4] of string = (TDpccIdeCheck.cAutoCodeCompletions, TDpccIdeCheck.cAutoCodeParameters,
+    TDpccIdeCheck.cDeclarationInformation, TDpccIdeCheck.cHelpInsight, TDpccIdeCheck.cToolTipWatches);
+var
+  mInput, mStart: TDpccIdeCheckInput;
+  mPlan: TDpccIdeContextPlan;
+  mWrite: TDpccIdeWrite;
+  mValue: TDpccIdeRegValue;
+
+  procedure Switch(ATrigger: TDpccIdeContextTrigger; const AWhat: string);
+  begin
+    mPlan := TDpccIdeContext.Plan(mInput, ATrigger);
+    mPlan.ApplyTo(mInput);
+    // Gegenprüfung, Beenden und Neustart ändern danach nichts mehr.
+    Assert.IsFalse(TDpccIdeContext.Plan(mInput, ATrigger).HasChanges, AWhat + ': Gegenprüfung ohne Änderung');
+    Assert.IsFalse(TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.Start).HasChanges,
+      AWhat + ': Start danach ohne Änderung: ' + TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.Start).LogLine);
+  end;
+
+  procedure ExpectLsp(const AWhat: string; const AValues: array of string);
+  var
+    mIndex: Integer;
+  begin
+    for mIndex := 0 to High(cShared) do
+    begin
+      Assert.AreEqual(AValues[mIndex], ValueOf(mInput, cLsp, cShared[mIndex]), AWhat + ': ' + cShared[mIndex]);
+    end;
+  end;
+
+  procedure ExpectMarkers(const AWhat: string; const ANames: array of string);
+  var
+    mName: string;
+    mCount: Integer;
+    mMarker: TDpccIdeMarker;
+  begin
+    mCount := 0;
+    for mMarker in mInput.Markers do
+    begin
+      if SameText(mMarker.Key, cLsp) then
+      begin
+        Inc(mCount);
+      end;
+    end;
+    Assert.AreEqual(Integer(Length(ANames)), mCount, AWhat + ': Zahl der Merker im Satz von DelphiLSP');
+    for mName in ANames do
+    begin
+      Assert.IsTrue(mInput.TryGetMarker(cLsp, mName, mMarker), AWhat + ': Merker ' + mName);
+      Assert.AreEqual(ValueOf(mStart, cLsp, mName), mMarker.Original, AWhat + ': ' + mName + ' gemerkt vom Nutzer');
+    end;
+  end;
+
+begin
+  // Stand des Nutzers unter Delphi 12: Aus, Programmierhilfe und Code-Parameter aus, Tooltips an; an
+  // Borland.EditOptions.Pascal ein alter Merker (Help Insight = False, von dpcc ohne Wert davor angelegt).
+  mInput := Delphi12;
+  mInput.Dpcc := State(False, True, True);
+  mInput.SetValue(cLsp, TDpccIdeCheck.cAutoCodeCompletions, 'False');
+  mInput.SetValue(cLsp, TDpccIdeCheck.cAutoCodeParameters, 'False');
+  mInput.AddKey(cPas);
+  mInput.Add(cPas, TDpccIdeCheck.cHelpInsight, 'False');
+  mInput.Markers := [MarkerAt(cBase12, cPas, TDpccIdeCheck.cHelpInsight, 'False'#9'-')];
+  mStart := Clone(mInput);
+  Assert.AreEqual(cLsp, string.Join(',', TDpccIdeCheck.DpccKeys(mInput)), 'ein Satz für Plugin und Server');
+
+  // Aus → Plugin: alles im Satz von DelphiLSP, der alte Merker an Pascal aufgeräumt.
+  Switch(TDpccIdeContextTrigger.MasterOn, 'Aus → Plugin');
+  Assert.IsTrue(HasWrite(mPlan, cPas, TDpccIdeCheck.cHelpInsight, mWrite) and mWrite.Delete, 'Pascal aufgeräumt');
+  Assert.AreEqual(TDpccIdeCheck.cHelpInsight, string.Join(',', mPlan.CleanedNames), 'aufgeräumt (alter Ort)');
+  ExpectLsp('Aus → Plugin', ['True', 'True', 'False', 'False', 'False']);
+  ExpectMarkers('Aus → Plugin', cShared);
+  Assert.AreEqual(TDpccIdeCheck.cDpccId, mInput.ProviderId, 'Anbieter dpcc');
+
+  // Plugin → Server: gemeinsame Optionen bleiben stehen, Declaration Information an, Tooltips zurück.
+  Switch(TDpccIdeContextTrigger.ServerOn, 'Plugin → Server');
+  Assert.IsFalse(HasWrite(mPlan, cLsp, TDpccIdeCheck.cAutoCodeCompletions, mWrite), 'Programmierhilfe bleibt');
+  Assert.IsFalse(HasWrite(mPlan, cLsp, TDpccIdeCheck.cAutoCodeParameters, mWrite), 'Code-Parameter bleiben');
+  Assert.IsFalse(WritesAt(mPlan, cPas), 'nichts an Pascal');
+  ExpectLsp('Plugin → Server', ['True', 'True', 'True', 'True', 'True']);
+  ExpectMarkers('Plugin → Server', [TDpccIdeCheck.cAutoCodeCompletions, TDpccIdeCheck.cAutoCodeParameters,
+    TDpccIdeCheck.cDeclarationInformation]);
+  Assert.AreEqual(TDpccIdeCheck.cDelphiLspId, mInput.ProviderId, 'Anbieter DelphiLSP');
+
+  // Server → Plugin.
+  Switch(TDpccIdeContextTrigger.MasterOn, 'Server → Plugin');
+  Assert.IsFalse(HasWrite(mPlan, cLsp, TDpccIdeCheck.cAutoCodeCompletions, mWrite), 'Programmierhilfe bleibt');
+  Assert.IsFalse(HasWrite(mPlan, cLsp, TDpccIdeCheck.cAutoCodeParameters, mWrite), 'Code-Parameter bleiben');
+  Assert.IsFalse(WritesAt(mPlan, cPas), 'nichts an Pascal');
+  ExpectLsp('Server → Plugin', ['True', 'True', 'False', 'False', 'False']);
+  ExpectMarkers('Server → Plugin', cShared);
+
+  // Plugin → Aus: alles auf die Werte des Nutzers.
+  Switch(TDpccIdeContextTrigger.MasterOff, 'Plugin → Aus');
+  ExpectLsp('Plugin → Aus', ['False', 'False', 'True', 'True', 'True']);
+  Assert.AreEqual(0, Integer(Length(mInput.Markers)), 'Plugin → Aus: keine Merker');
+  Assert.AreEqual(TDpccIdeCheck.cDelphiLspId, mInput.ProviderId, 'Anbieter DelphiLSP');
+
+  // Aus → Server und zurück.
+  Switch(TDpccIdeContextTrigger.ServerOn, 'Aus → Server');
+  Assert.IsFalse(WritesAt(mPlan, cPas), 'nichts an Pascal');
+  ExpectLsp('Aus → Server', ['True', 'True', 'True', 'True', 'True']);
+  ExpectMarkers('Aus → Server', [TDpccIdeCheck.cAutoCodeCompletions, TDpccIdeCheck.cAutoCodeParameters]);
+  Switch(TDpccIdeContextTrigger.MasterOff, 'Server → Aus');
+  ExpectLsp('Server → Aus', ['False', 'False', 'True', 'True', 'True']);
+  Assert.AreEqual(0, Integer(Length(mInput.Markers)), 'Server → Aus: keine Merker');
+
+  // Am Ende alles wie vorher (außer dem aufgeräumten alten Wert an Pascal).
+  for mValue in mStart.Values do
+  begin
+    if SameText(mValue.Key, cPas) then
+    begin
+      Continue;
+    end;
+    Assert.AreEqual(mValue.Value, ValueOf(mInput, mValue.Key, mValue.Name), 'am Ende: ' + mValue.Key + '\' +
+      mValue.Name);
+  end;
+  Assert.AreEqual('<fehlt>', ValueOf(mInput, cPas, TDpccIdeCheck.cHelpInsight), 'alter Wert an Pascal entfernt');
+end;
+
+procedure TDpccIdeCheckTests.ExitRepairsRestoreAfterIdeWriteBack;
+var
+  mInput, mBefore: TDpccIdeCheckInput;
+  mPlan: TDpccIdeContextPlan;
+  mUndos: TArray<TDpccIdeUndo>;
+  mRepairs: TArray<TDpccIdeWrite>;
+begin
+  // Delphi 12, Server mit den Werten des Nutzers (Programmierhilfe und Code-Parameter aus): Aus dreht zurück.
+  mInput := Delphi12;
+  mInput.Dpcc := State(False, True, True);
+  mInput.SetValue(cLsp, TDpccIdeCheck.cAutoCodeCompletions, 'False');
+  mInput.SetValue(cLsp, TDpccIdeCheck.cAutoCodeParameters, 'False');
+  mUndos := nil;
+  mBefore := Clone(mInput);
+  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.ServerOn);
+  mPlan.ApplyTo(mInput);
+  TDpccIdeContext.TrackUndos(mUndos, mBefore, mPlan);
+  Assert.AreEqual(0, Integer(Length(mUndos)), 'Server setzt mit Merkern: kein Rückweg ohne Merker');
+  mBefore := Clone(mInput);
+  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.MasterOff, TDpccOperatingMode.Server);
+  mPlan.ApplyTo(mInput);
+  TDpccIdeContext.TrackUndos(mUndos, mBefore, mPlan);
+  Assert.AreEqual(2, Integer(Length(mUndos)), 'zwei Rückwege');
+  Assert.AreEqual(0, Integer(Length(TDpccIdeContext.ExitRepairs(mInput, mUndos))), 'nichts überschrieben: nichts');
+  // Beim Beenden schreibt die IDE ihren Speicher (Stand beim Start: True) zurück; gesehen am 28.11.2026.
+  mInput.SetValue(cLsp, TDpccIdeCheck.cAutoCodeCompletions, 'True');
+  mInput.SetValue(cLsp, TDpccIdeCheck.cAutoCodeParameters, 'True');
+  mRepairs := TDpccIdeContext.ExitRepairs(mInput, mUndos);
+  Assert.AreEqual(2, Integer(Length(mRepairs)), 'beide erneut');
+  Assert.AreEqual('False', mRepairs[0].Value, 'Wert des Nutzers');
+  // Hat der Nutzer etwas anderes eingestellt (hier: Wert entfernt), bleibt es.
+  mInput.RemoveValue(cLsp, TDpccIdeCheck.cAutoCodeParameters);
+  Assert.AreEqual(1, Integer(Length(TDpccIdeContext.ExitRepairs(mInput, mUndos))), 'nur der überschriebene');
+  // Setzt ein späterer Plan den Wert wieder mit Merker, entfällt der Rückweg.
+  mInput.SetValue(cLsp, TDpccIdeCheck.cAutoCodeParameters, 'False');
+  mInput.SetValue(cLsp, TDpccIdeCheck.cAutoCodeCompletions, 'False');
+  mInput.Dpcc := State(True, True, True);
+  mBefore := Clone(mInput);
+  mPlan := TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.MasterOn);
+  mPlan.ApplyTo(mInput);
+  TDpccIdeContext.TrackUndos(mUndos, mBefore, mPlan);
+  Assert.AreEqual(0, Integer(Length(mUndos)), 'Plugin setzt beide mit Merkern');
 end;
 
 initialization

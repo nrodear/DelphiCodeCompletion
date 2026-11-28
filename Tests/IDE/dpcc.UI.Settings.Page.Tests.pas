@@ -93,6 +93,14 @@ type
     [TestCase('Deutsch', 'False')]
     [TestCase('Englisch', 'True')]
     procedure LabelsDoNotOverlapFields(AEnglish: Boolean);
+    /// <summary>Fehler 4c: Die gedämpften Sätze (Betriebsart, „Index neu aufbauen“, Abschnitt IDE) behalten die Schrift
+    /// des Dialogs (ParentFont): Früher setzte Font.Color eine eigene Schrift, die bei 120 dpi zu groß war.</summary>
+    [Test]
+    procedure InfoLabelsUseDialogFont;
+    /// <summary>Fehler 4b: Die Zeile des Abschnitts IDE wächst mit den Statuszeilen; nichts wird abgeschnitten
+    /// (früher fest 64 Punkte).</summary>
+    [Test]
+    procedure IdeStatusRowGrowsWithLines;
   end;
 
 implementation
@@ -1016,6 +1024,74 @@ begin
   finally
     mPage.Free;
     TDpccStrings.Language := Low(TDpccLanguage);
+  end;
+end;
+
+procedure TDpccSettingsPageTests.InfoLabelsUseDialogFont;
+var
+  mPage: TDpccSettingsPage;
+  mIndex, mCount: Integer;
+  mLabel: TLabel;
+begin
+  mPage := TDpccSettingsPage.Create(nil);
+  try
+    mPage.Font.Size := 11;
+    mCount := 0;
+    for mIndex := 0 to mPage.ComponentCount - 1 do
+    begin
+      if mPage.Components[mIndex].ClassName = 'TDpccInfoLabel' then
+      begin
+        mLabel := mPage.Components[mIndex] as TLabel;
+        Inc(mCount);
+        Assert.IsTrue(mLabel.ParentFont, 'ParentFont: ' + mLabel.Caption);
+        Assert.AreEqual(mPage.Font.Height, mLabel.Font.Height, 'Schrift des Dialogs: ' + mLabel.Caption);
+      end;
+    end;
+    // Drei Sätze der Betriebsart, „dpcc.LspServer.exe fehlt“, Ergebnis von „Index neu aufbauen“, Abschnitt IDE.
+    Assert.AreEqual(6, mCount, 'gedämpfte Sätze');
+    Assert.AreEqual('TDpccInfoLabel', mPage.IdeStatus.ClassName, 'Statuszeilen');
+    Assert.IsTrue(mPage.IdeStatus.ParentFont, 'Statuszeilen in der Schrift des Dialogs');
+  finally
+    mPage.Free;
+  end;
+end;
+
+procedure TDpccSettingsPageTests.IdeStatusRowGrowsWithLines;
+var
+  mPage: TDpccSettingsPage;
+  mBitmap: Vcl.Graphics.TBitmap;
+  mLines: string;
+  mNeeded, mPageHeight: Integer;
+begin
+  mLines := 'Betriebsart dpcc: dpcc ist der Code-Insight-Anbieter (dpcc.CodeInsight).' + sLineBreak +
+    'Der Anbieter wird beim nächsten Start von Delphi dpcc.' + sLineBreak +
+    'Von dpcc gesetzt: Insight Manager, Auto Code Completions, Auto Code Parameters, Declaration Information, ' +
+    'Help Insight, ToolTip Watches' + sLineBreak + '1 Abweichung: Auto Code Completions' + sLineBreak +
+    'Zeile 5' + sLineBreak + 'Zeile 6';
+  mPage := TDpccSettingsPage.Create(nil);
+  mBitmap := Vcl.Graphics.TBitmap.Create;
+  try
+    mPage.LoadFrom(TDpccPluginSettings.Defaults);
+    mPageHeight := mPage.Height;
+    mPage.OnIdeStatus :=
+      function: string
+      begin
+        Result := mLines;
+      end;
+    mBitmap.Canvas.Font.Assign(mPage.IdeStatus.Font);
+    // Mindestens sechs Zeilen Text: früher hatte die Zeile fest 64 Punkte (vier Zeilen).
+    mNeeded := 6 * mBitmap.Canvas.TextHeight('Ag');
+    Assert.IsTrue(mPage.IdeStatus.Height >= mNeeded, Format('Statuszeilen %d < %d', [mPage.IdeStatus.Height,
+      mNeeded]));
+    Assert.IsTrue(mPage.IdeStatus.Parent.Height >= mPage.IdeStatus.Height, 'Zeile so hoch wie die Statuszeilen');
+    Assert.IsTrue(mPage.Height > mPageHeight, 'Seite wächst mit');
+    // Wieder kurz: die Zeile schrumpft auf die Mindesthöhe.
+    mLines := 'Betriebsart IDE';
+    mPage.CheckIde.Click;
+    Assert.IsTrue(mPage.IdeStatus.Height < mNeeded, 'schrumpft wieder');
+  finally
+    mBitmap.Free;
+    mPage.Free;
   end;
 end;
 

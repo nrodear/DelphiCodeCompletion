@@ -43,6 +43,11 @@ type
       ALegacyValue: Integer; out AFromLegacy: Boolean): TDpccOperatingMode; static;
     /// <summary>Name fürs Protokoll (nie übersetzt): Aus, Plugin, Server.</summary>
     class function LogName(AMode: TDpccOperatingMode): string; static;
+    /// <summary>Protokollzeile (nie übersetzt), wenn die IDE-Schicht die Betriebsart ohne eigenen Wert für AScope
+    /// (Version, bei eigenem Profil mit Profil) festschreibt: aus dem früheren Enabled oder, wenn es auch das nicht
+    /// gab (AFromDefault), die Vorgabe nach der Installation.</summary>
+    class function TakeOverLogLine(const AScope: string; AMode: TDpccOperatingMode; AFromDefault: Boolean): string;
+      static;
   end;
 
 implementation
@@ -116,6 +121,22 @@ end;
 class function TDpccOperatingModes.LogName(AMode: TDpccOperatingMode): string;
 begin
   Result := cLogNames[AMode];
+end;
+
+class function TDpccOperatingModes.TakeOverLogLine(const AScope: string; AMode: TDpccOperatingMode;
+  AFromDefault: Boolean): string;
+begin
+  if AFromDefault then
+  begin
+    // Weder eigener Wert noch früheres Enabled: kein „übernommen“, sondern die Vorgabe.
+    Result := Format('Betriebsart für Delphi %s: kein gespeicherter Wert und kein früherer Hauptschalter, Vorgabe %s',
+      [AScope, LogName(AMode)]);
+  end
+  else
+  begin
+    Result := Format('Betriebsart für Delphi %s aus dem früheren Hauptschalter übernommen: %s', [AScope,
+      LogName(AMode)]);
+  end;
 end;
 
 end.

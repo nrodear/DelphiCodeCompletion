@@ -25,8 +25,8 @@ type
     /// <summary>Beim Abbau höchstens so lange warten, bis kein Aufruf mehr im Hook steckt.</summary>
     cDrainMs = 5000;
   public
-    /// <summary>Hook einbauen (Hauptthread, beim Anmelden). AVersion: Version der IDE ("23.0", "37.0") für den
-    /// Registry-Namen der Betriebsart.</summary>
+    /// <summary>Hook einbauen (Hauptthread, beim Anmelden). AVersion: Version der IDE ("23.0", "37.0"), mit eigenem
+    /// Registry-Profil davor das Profil (TDpccIdeSettings.IdeScope), für den Registry-Namen der Betriebsart.</summary>
     class procedure Install(const AVersion: string); static;
     /// <summary>Hook abbauen (Abmelden, finalization); mehrfach aufrufbar.</summary>
     class procedure Uninstall; static;

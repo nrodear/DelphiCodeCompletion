@@ -17,7 +17,9 @@
 // Seit Stufe 2 von dpcc.LspServer.exe gilt die Betriebsart (Aus, Plugin, Server) je Delphi-Version
 // ("OperatingMode 23.0" bzw. "OperatingMode 37.0", Version nach CompilerVersion, IdeVersion). Fehlt der Wert einer
 // Version, überführt EnsureLoaded den früheren gemeinsamen DWORD Enabled (0 → Aus, sonst Plugin, ohne ihn Plugin) und
-// schreibt das Ergebnis sofort unter dem Namen der Version; Enabled schreibt dpcc nicht mehr.
+// schreibt das Ergebnis sofort unter dem Namen der Version; Enabled schreibt dpcc nicht mehr. Mit eigenem Registry-Profil
+// (bds -r) gilt der Wert je Profil und Version ("OperatingMode dpccSwitchTest 23.0", IdeScope); das Standardprofil BDS
+// behält die bisherigen Namen.
 // Seit CI-OPT speichert SaveAdoption beim Start die einmal aus der IDE übernommenen Startwerte (OpenAfterDot,
 // completion.keywords) und die Merker „IdeAdopted …“; die übrigen Werte schreibt weiter nur Update.
 
@@ -52,6 +54,9 @@ type
     class procedure Release; static;
     /// <summary>Version der IDE, deren Betriebsart gilt ("23.0" für Delphi 12, "37.0" für Delphi 13).</summary>
     class function IdeVersion: string; static;
+    /// <summary>Geltungsbereich der Namen je Version (TDpccCodeInsightKeys.ScopeText): im Standardprofil IdeVersion,
+    /// mit eigenem Registry-Profil (bds -r) Profil und Version, z. B. "dpccSwitchTest 23.0".</summary>
+    class function IdeScope: string; static;
     /// <summary>Einmal True, wenn beim Laden für diese Version weder ein eigener Wert der Betriebsart noch das frühere
     /// Enabled stand (erster Start nach der Installation): Dann gilt die Vorgabe Plugin auch gegen DelphiLSP.</summary>
     class function TakeFreshDefault: Boolean; static;
@@ -72,7 +77,9 @@ uses
   dpcc.Core.Files.TextFile,
   dpcc.Core.Settings.Scopes,
   dpcc.Core.Settings.OperatingMode,
-  dpcc.Core.Diagnostics.Guard;
+  dpcc.Core.Editor.CodeInsightKeys,
+  dpcc.Core.Diagnostics.Guard,
+  ToolsAPI;
 
 type
   TRegistryStore = class(TInterfacedObject, IDpccSettingsStore)
@@ -189,6 +196,8 @@ var
   GState: TSettingsState;
   /// <summary>Beim ersten Laden ohne jeden gespeicherten Wert der Betriebsart (TakeFreshDefault).</summary>
   GFreshDefault: Boolean;
+  /// <summary>IdeScope, einmal ermittelt; '' = noch nicht.</summary>
+  GScope: string;
 
 function GlobalFile: string;
 begin
@@ -268,8 +277,9 @@ begin
   end;
   LoadGlobal(mContent);
   mStore := TDpccRoutedSettingsStore.Create(TRegistryStore.Create(False), mContent.Text);
-  // Betriebsart je Delphi-Version: Load liest "OperatingMode <Version>", ohne ihn das frühere Enabled.
-  GState.Settings.IdeVersion := IdeVersion;
+  // Betriebsart je Delphi-Version (mit eigenem Registry-Profil je Profil und Version, IdeScope): Load liest
+  // "OperatingMode <Version>", ohne ihn das frühere Enabled.
+  GState.Settings.IdeVersion := IdeScope;
   GState.Settings.Load(mStore);
   GState.Loaded := True;
   // Weder eigener Wert noch früheres Enabled: erster Start nach der Installation, Vorgabe Plugin (ApplyAtStart).
@@ -281,10 +291,26 @@ begin
     // (andere Versionen ohne eigenen Wert überführen ihn genauso).
     GState.Settings.ModeFromLegacy := False;
     mStore := TRegistryStore.Create(True);
-    mStore.WriteString(TDpccOperatingModes.ValueName(IdeVersion), TDpccOperatingModes.IdOf(GState.Settings.Mode));
-    TDpccGuard.Log(Format('Betriebsart für Delphi %s aus dem früheren Hauptschalter übernommen: %s', [IdeVersion,
-      TDpccOperatingModes.LogName(GState.Settings.Mode)]));
+    mStore.WriteString(TDpccOperatingModes.ValueName(IdeScope), TDpccOperatingModes.IdOf(GState.Settings.Mode));
+    TDpccGuard.Log(TDpccOperatingModes.TakeOverLogLine(IdeScope, GState.Settings.Mode, GFreshDefault));
   end;
+end;
+
+class function TDpccIdeSettings.IdeScope: string;
+var
+  mServices: IOTAServices;
+begin
+  // Einmal ermitteln (zuerst beim Laden im Hauptthread): Version, mit eigenem Profil (bds -r) davor das Profil.
+  if GScope = '' then
+  begin
+    GScope := IdeVersion;
+    if Supports(BorlandIDEServices, IOTAServices, mServices) and
+      (TDpccCodeInsightKeys.VersionText(mServices.GetBaseRegistryKey) = IdeVersion) then
+    begin
+      GScope := TDpccCodeInsightKeys.ScopeText(mServices.GetBaseRegistryKey);
+    end;
+  end;
+  Result := GScope;
 end;
 
 class function TDpccIdeSettings.TakeFreshDefault: Boolean;
@@ -322,7 +348,7 @@ begin
   EnsureLoaded;
   mNext := ASettings;
   // Immer unter der Version dieser IDE (die Betriebsart gilt je Version).
-  mNext.IdeVersion := IdeVersion;
+  mNext.IdeVersion := IdeScope;
   mNext.ModeFromLegacy := False;
   mNext.Normalize;
   // Diagnose (LOG1) setzt der Support auch von Hand in der Registry: Ändert der Aufrufer den Wert nicht (gezogene
@@ -358,7 +384,7 @@ var
 begin
   EnsureLoaded;
   mNext := ASettings;
-  mNext.IdeVersion := IdeVersion;
+  mNext.IdeVersion := IdeScope;
   mNext.ModeFromLegacy := False;
   mNext.Normalize;
   GState.Settings := mNext;

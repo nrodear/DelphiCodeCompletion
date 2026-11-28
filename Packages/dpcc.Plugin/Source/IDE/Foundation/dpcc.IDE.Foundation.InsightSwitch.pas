@@ -21,6 +21,10 @@
 //     Plan an wie die Gegenprüfung nach OK (Werte nachsetzen, Merker pflegen): dpcc gewählt mit MasterOn, ein anderer
 //     Anbieter mit MasterOff.
 //   - Beim Beenden (AtExit): den zuletzt gewollten Stand noch einmal schreiben, falls die IDE ihn überschrieben hat.
+//     Zuletzt gewollt ist der Anlass des letzten Plans (Apply und Recheck setzen ihn). AfterOptions plant mit der
+//     Betriebsart, die beim Ausführen gespeichert ist (nach einer Wahl im Code-Insight-Dialog die gewählte), nicht mit
+//     der beim Schließen gelesenen; sonst drehte es die Wahl zurück, und AtExit schrieb den alten Stand.
+// Hinweise stehen im eigenen Reiter „dpcc“ des Meldungsfensters (nicht in „Erzeugen“, den ein Build leert).
 // Jede Änderung hält ein Merker unter HKCU\Software\dpcc\IdePlugin fest (je Version); zurückgedreht wird nur, was
 // noch so steht, wie dpcc es geschrieben hat. Ältere Merker (IdeHelpInsightDisabled, IdeTooltipWatchesDisabled)
 // gelten weiter und gehen beim nächsten Schreiben in die neuen über. Den Anbieterwechsel liest die IDE erst beim
@@ -59,9 +63,12 @@ type
     /// <summary>Plan ausführen: Registry der IDE und Merker schreiben; mit AUpdateSettings auch den Hauptschalter
     /// speichern. True, wenn alles geschrieben werden konnte.</summary>
     class function Execute(const APlan: TDpccIdeContextPlan; AUpdateSettings: Boolean): Boolean; static;
-    /// <summary>Lesen, planen, ausführen, protokollieren, Hinweis zeigen.</summary>
+    /// <summary>Lesen, planen, ausführen, protokollieren, Hinweis zeigen. AModeBefore: Betriebsart vor dem Anlass
+    /// (nach OK schon gespeichert); ohne ihn die gespeicherte.</summary>
     class function Apply(ATrigger: TDpccIdeContextTrigger; const AProviderOverride: string;
-      AUpdateSettings: Boolean): TDpccIdeContextPlan; static;
+      AUpdateSettings: Boolean): TDpccIdeContextPlan; overload; static;
+    class function Apply(ATrigger: TDpccIdeContextTrigger; const AProviderOverride: string;
+      AUpdateSettings: Boolean; AModeBefore: TDpccOperatingMode): TDpccIdeContextPlan; overload; static;
   public const
     /// <summary>Takt, in dem die Gegenprüfung nach der Wahl im Dialog nachsieht, ob der Dialog zu ist.</summary>
     cRecheckPollMs = 500;
@@ -78,8 +85,11 @@ type
     class procedure Release; static;
     /// <summary>Beim Start von Delphi: Betriebsart nach dem gewählten Anbieter (eine Zeile ins Protokoll).</summary>
     class procedure ApplyAtStart; static;
-    /// <summary>Nach OK im Optionsdialog (in die Warteschlange gestellt): Betriebsart vorher und nachher.</summary>
-    class procedure AfterOptions(AWasMode, AIsMode: TDpccOperatingMode); static;
+    /// <summary>Nach OK im Optionsdialog (in die Warteschlange gestellt): AWasMode = Betriebsart beim Schließen vor
+    /// dem Speichern der Seite, APageMode = gespeicherte Betriebsart der Seite (gleich AWasMode, wenn die Seite nicht
+    /// offen war). Es gilt die Betriebsart, die beim Ausführen gespeichert ist: Eine Wahl im Code-Insight-Dialog der
+    /// IDE im selben OK (ProviderChosen, vorher in der Warteschlange) hat sie schon umgestellt.</summary>
+    class procedure AfterOptions(AWasMode, APageMode: TDpccOperatingMode); static;
     /// <summary>Wahl im Code-Insight-Dialog der IDE: ASelected = dpcc gewählt.</summary>
     class procedure ProviderChosen(ASelected: Boolean); static;
     /// <summary>Beim Beenden: den zuletzt gewollten Stand erneut schreiben (nur Registry, ohne Einstellungen).
@@ -121,11 +131,19 @@ type
     procedure Arm(ATrigger: TDpccIdeContextTrigger; const AProvider: string);
   end;
 
+const
+  /// <summary>Reiter des Meldungsfensters für die Hinweise (wie dpcc.IDE.Foundation.Host).</summary>
+  cMessageGroup = 'dpcc';
+
 var
-  // Zuletzt gewollter Anlass dieser Sitzung (für AtExit); Applied = es wurde schon einmal geplant.
+  // Zuletzt gewollter Anlass dieser Sitzung (für AtExit); Applied = es wurde schon einmal geplant. Jeder Plan, der
+  // schreibt (Apply, Recheck), setzt ihn: Beim Beenden gilt der zuletzt gewollte Stand.
   LastTrigger: TDpccIdeContextTrigger = TDpccIdeContextTrigger.Start;
   LastProvider: string;
   Applied: Boolean;
+  // Rückwege dieser Sitzung ohne Merker danach (TDpccIdeContext.TrackUndos); AtExit schreibt sie erneut, wenn die IDE
+  // beim Beenden ihre Editoroptionen aus dem Speicher zurückgeschrieben hat.
+  SessionUndos: TArray<TDpccIdeUndo>;
   // Schon gezeigte Hinweise dieser Sitzung (jeder nur einmal, kein Dauernerv).
   ShownNotices: TArray<string>;
   // Wartende Gegenprüfung nach der Wahl im Code-Insight-Dialog; nil ohne.
@@ -218,10 +236,18 @@ begin
     procedure
     var
       mMessages: IOTAMessageServices;
+      mGroup: IOTAMessageGroup;
     begin
       if Supports(BorlandIDEServices, IOTAMessageServices, mMessages) then
       begin
-        mMessages.AddTitleMessage('dpcc: ' + mText);
+        // Eigener Reiter „dpcc“ wie die übrigen Meldungen von dpcc: Ohne Gruppe landete der Hinweis im Reiter
+        // „Erzeugen“, den der nächste Build leert.
+        mGroup := mMessages.GetGroup(cMessageGroup);
+        if mGroup = nil then
+        begin
+          mGroup := mMessages.AddMessageGroup(cMessageGroup);
+        end;
+        mMessages.AddTitleMessage('dpcc: ' + mText, mGroup);
       end;
     end);
 end;
@@ -307,6 +333,12 @@ end;
 
 class function TDpccIdeInsightSwitch.Apply(ATrigger: TDpccIdeContextTrigger; const AProviderOverride: string;
   AUpdateSettings: Boolean): TDpccIdeContextPlan;
+begin
+  Result := Apply(ATrigger, AProviderOverride, AUpdateSettings, TDpccIdeSettings.Current.Mode);
+end;
+
+class function TDpccIdeInsightSwitch.Apply(ATrigger: TDpccIdeContextTrigger; const AProviderOverride: string;
+  AUpdateSettings: Boolean; AModeBefore: TDpccOperatingMode): TDpccIdeContextPlan;
 var
   mInput: TDpccIdeCheckInput;
 begin
@@ -315,7 +347,7 @@ begin
   begin
     mInput.ProviderId := AProviderOverride;
   end;
-  Result := TDpccIdeContext.Plan(mInput, ATrigger);
+  Result := TDpccIdeContext.Plan(mInput, ATrigger, AModeBefore);
   Applied := True;
   LastTrigger := ATrigger;
   LastProvider := AProviderOverride;
@@ -323,6 +355,7 @@ begin
   begin
     TDpccGuard.Log('IDE-Kontext: nicht alles geschrieben');
   end;
+  TDpccIdeContext.TrackUndos(SessionUndos, mInput, Result);
   if Result.HasChanges or (ATrigger = TDpccIdeContextTrigger.Start) then
   begin
     TDpccGuard.Log(Result.LogLine);
@@ -441,6 +474,9 @@ begin
       TDpccGuard.Log('Help Insight in der Registry: nicht gelesen: ' + TDpccGuard.ErrorText(E));
     end;
   end;
+  // Mit diesem Anbieter arbeitet die IDE in dieser Sitzung (sie hat ihn vor dem Laden von dpcc gelesen); stellt dpcc
+  // ihn um, wartet das auf den Neustart (StatusText).
+  TDpccIdeSettingsCheck.RunningProvider := TDpccIdeSettingsCheck.Read(TDpccIdeSettings.Current).ProviderId;
   // Ohne ausdrücklichen Anbieter: AtExit folgt dann dem, was in der Registry steht (wählt der Nutzer im Dialog der
   // IDE DelphiLSP, schreibt dpcc beim Beenden den Anbieter nicht wieder auf dpcc).
   if TDpccIdeSettings.TakeFreshDefault then
@@ -479,27 +515,33 @@ begin
   TDpccGuard.Log(TDpccIdeCheck.Evaluate(mInput).LogLine);
 end;
 
-class procedure TDpccIdeInsightSwitch.AfterOptions(AWasMode, AIsMode: TDpccOperatingMode);
+class procedure TDpccIdeInsightSwitch.AfterOptions(AWasMode, APageMode: TDpccOperatingMode);
 var
   mTrigger: TDpccIdeContextTrigger;
+  mIsMode, mBefore: TDpccOperatingMode;
 begin
-  // Es gilt die Betriebsart der Seite: Plugin = Betriebsart dpcc, Aus = IDE, Server = IDE mit Anbieter DelphiLSP und
-  // Umleitung auf dpcc.LspServer.exe (auch ohne Umschalten, etwa wenn der Wechsel noch auf den Neustart wartet oder
-  // sich der Tooltip geändert hat).
-  case AIsMode of
-    TDpccOperatingMode.Plugin:
-      mTrigger := TDpccIdeContextTrigger.MasterOn;
-    TDpccOperatingMode.Server:
-      mTrigger := TDpccIdeContextTrigger.ServerOn;
-  else
-    mTrigger := TDpccIdeContextTrigger.MasterOff;
-  end;
-  if AWasMode <> AIsMode then
+  // Es gilt die Betriebsart, die jetzt gespeichert ist: Plugin = Betriebsart dpcc, Aus = IDE, Server = IDE mit
+  // Anbieter DelphiLSP und Umleitung auf dpcc.LspServer.exe (auch ohne Umschalten, etwa wenn der Wechsel noch auf den
+  // Neustart wartet, sich der Tooltip geändert hat oder die IDE ihre Editoroptionen zurückgeschrieben hat). Nicht die
+  // beim Schließen gelesene: Wählt der Nutzer im selben OK im Code-Insight-Dialog der IDE einen Anbieter, hat
+  // ProviderChosen die Betriebsart schon danach umgestellt; ein Plan mit der alten Betriebsart drehte die Wahl zurück
+  // und hinterließe AtExit den falschen Anlass.
+  mIsMode := TDpccIdeSettings.Current.Mode;
+  mTrigger := TDpccIdeContext.ModeTrigger(mIsMode);
+  mBefore := mIsMode;
+  if AWasMode <> APageMode then
   begin
     TDpccGuard.Log(Format('IDE-Kontext: Betriebsart mit OK umgestellt: %s → %s', [TDpccOperatingModes.LogName(AWasMode),
-      TDpccOperatingModes.LogName(AIsMode)]));
+      TDpccOperatingModes.LogName(APageMode)]));
+    // Die Seite hat die neue Betriebsart schon gespeichert: Für die Hinweise (Aus ↔ Server) gilt die davor.
+    mBefore := AWasMode;
   end;
-  Apply(mTrigger, '', False);
+  if mIsMode <> APageMode then
+  begin
+    TDpccGuard.Log(Format('IDE-Kontext: Betriebsart nach der Wahl im Code-Insight-Dialog: %s',
+      [TDpccOperatingModes.LogName(mIsMode)]));
+  end;
+  Apply(mTrigger, '', False, mBefore);
   // Gegenprüfung nach dem Rückschreiben der IDE: was überschrieben ist, erneut schreiben.
   TDpccMainThread.ForceQueue(TDpccFeature.Settings,
     procedure
@@ -524,11 +566,16 @@ begin
     mInput.ProviderId := AProviderOverride;
   end;
   mCheck := TDpccIdeContext.Plan(mInput, ATrigger);
+  // Der zuletzt gewollte Stand gilt auch beim Beenden (AtExit).
+  Applied := True;
+  LastTrigger := ATrigger;
+  LastProvider := AProviderOverride;
   if (Length(mCheck.Writes) > 0) or (Length(mCheck.MarkerWrites) > 0) or (Length(mCheck.MarkerDeletes) > 0) then
   begin
     TDpccGuard.Log('IDE-Kontext: Gegenprüfung ' + AReason + ', von der IDE überschrieben, erneut geschrieben');
     // Nur Registry und Merker; den Hauptschalter hat der Anlass selbst schon gesetzt.
     Execute(mCheck, False);
+    TDpccIdeContext.TrackUndos(SessionUndos, mInput, mCheck);
     TDpccGuard.Log(mCheck.LogLine);
   end
   else
@@ -566,6 +613,15 @@ begin
         var
           mPlan: TDpccIdeContextPlan;
         begin
+          // Die IDE arbeitet ab jetzt mit dem gewählten Anbieter (Statuszeilen der Optionsseite).
+          if mSelected then
+          begin
+            TDpccIdeSettingsCheck.RunningProvider := TDpccIdeCheck.cDpccId;
+          end
+          else
+          begin
+            TDpccIdeSettingsCheck.RunningProvider := TDpccIdeCheck.cDelphiLspId;
+          end;
           if mSelected then
           begin
             TDpccGuard.Log('IDE-Kontext: dpcc im Code-Insight-Dialog der IDE gewählt');
@@ -594,7 +650,9 @@ end;
 class procedure TDpccIdeInsightSwitch.AtExit;
 var
   mInput: TDpccIdeCheckInput;
-  mPlan: TDpccIdeContextPlan;
+  mPlan, mRepair: TDpccIdeContextPlan;
+  mWrite: TDpccIdeWrite;
+  mNames: TArray<string>;
 begin
   if not Applied then
   begin
@@ -610,6 +668,22 @@ begin
   begin
     Execute(mPlan, False);
     TDpccGuard.Log('IDE-Kontext beim Beenden erneut geschrieben: ' + mPlan.LogLine);
+  end;
+  // Rückwege ohne Merker (Aus, Server → Aus, Tooltip aus): Hat die IDE beim Beenden die Werte von vor dem Rückweg
+  // aus ihrem Speicher zurückgeschrieben (gesehen in Delphi 12 nach einem OK im Optionsdialog), noch einmal.
+  mInput := TDpccIdeSettingsCheck.Read(TDpccIdeSettings.Current);
+  mRepair := Default(TDpccIdeContextPlan);
+  mRepair.Writes := TDpccIdeContext.ExitRepairs(mInput, SessionUndos);
+  if Length(mRepair.Writes) > 0 then
+  begin
+    Execute(mRepair, False);
+    mNames := nil;
+    for mWrite in mRepair.Writes do
+    begin
+      mNames := mNames + [mWrite.Name];
+    end;
+    TDpccGuard.Log('IDE-Kontext beim Beenden: Rückweg erneut geschrieben (die IDE hatte ihn überschrieben): ' +
+      string.Join(', ', mNames));
   end;
 end;
 

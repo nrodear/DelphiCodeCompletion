@@ -116,22 +116,24 @@ end;
 procedure TDpccAddInOptions.DialogClosed(Accepted: Boolean);
 var
   mSettings: TDpccPluginSettings;
-  mWasMode, mIsMode: TDpccOperatingMode;
+  mWasMode, mPageMode: TDpccOperatingMode;
 begin
   try
     mWasMode := TDpccIdeSettings.Current.Mode;
+    mPageMode := mWasMode;
     if Accepted and (FPage <> nil) then
     begin
       // Gespeicherter Stand, darüber die Werte der Seite; was die Seite nicht zeigt, bleibt, wie es ist.
       mSettings := TDpccIdeSettings.Current;
       FPage.SaveTo(mSettings);
       TDpccIdeSettings.Update(mSettings);
+      mPageMode := mSettings.Mode;
     end;
-    mIsMode := TDpccIdeSettings.Current.Mode;
     // Betriebsart (IDECHECK) erst nach dem Dialog: Mit OK schreibt die IDE danach ihre Editoroptionen aus dem
     // Speicher zurück, auch die Schalter, die dpcc gesetzt hat. Plugin stellt den Anbieter der IDE auf dpcc, Aus
     // wieder zurück, Server auf DelphiLSP; ein Anbieterwechsel wirkt nach dem Neustart von Delphi. Die
-    // Strukturhervorhebung der IDE fasst dpcc seit S9 nicht mehr an.
+    // Strukturhervorhebung der IDE fasst dpcc seit S9 nicht mehr an. Welche Betriebsart gilt, liest AfterOptions erst
+    // beim Ausführen: Eine Wahl im Code-Insight-Dialog der IDE im selben OK steht vorher in der Warteschlange.
     if Accepted then
     begin
       TDpccMainThread.ForceQueue(TDpccFeature.Settings,
@@ -140,7 +142,7 @@ begin
           TDpccGuard.Run(TDpccFeature.Settings,
             procedure
             begin
-              TDpccIdeInsightSwitch.AfterOptions(mWasMode, mIsMode);
+              TDpccIdeInsightSwitch.AfterOptions(mWasMode, mPageMode);
             end);
         end);
     end;

@@ -75,8 +75,10 @@ type
     /// Registry als Text unter "OperatingMode &lt;IdeVersion&gt;". Fehlt er, gilt beim Laden der frühere gemeinsame
     /// DWORD Enabled (0 → Aus, sonst Plugin; ohne Wert Plugin), und ModeFromLegacy ist gesetzt.</summary>
     Mode: TDpccOperatingMode;
-    /// <summary>Version der IDE, deren Betriebsart Load und Save lesen bzw. schreiben ("23.0", "37.0"); '' = ohne
-    /// Version (Tests). Nicht gespeichert; Load lässt sie stehen.</summary>
+    /// <summary>Version der IDE, deren Betriebsart Load und Save lesen bzw. schreiben ("23.0", "37.0"); mit eigenem
+    /// Registry-Profil (bds -r) davor das Profil ("dpccSwitchTest 23.0", TDpccCodeInsightKeys.ScopeText), damit es
+    /// die Betriebsart des Standardprofils nicht ändert; '' = ohne Version (Tests). Nicht gespeichert; Load lässt sie
+    /// stehen.</summary>
     IdeVersion: string;
     /// <summary>Nach Load: Die Betriebsart kam aus dem früheren Enabled (oder der Vorgabe), nicht aus einem eigenen
     /// Wert dieser Version. Nicht gespeichert.</summary>

@@ -231,9 +231,9 @@ const
   cTexts: array[TDpccLanguage, TNavigationText] of string = (
     ('dpcc ist in den Optionen der IDE als Code-Insight-Anbieter für Delphi gewählt. Strg+Klick und „Deklaration ' +
      'suchen“ laufen über dpcc; ohne Ziel (etwa in Units ohne Quelltext) springt die IDE nicht. Error Insight ' +
-     '(Fehlermarkierungen im Editor) und die übrigen Dienste von DelphiLSP fehlen dann. Wer sie braucht, schaltet ' +
-     'den Hauptschalter der Seite dpcc aus oder wählt in den Optionen der IDE wieder DelphiLSP; dpcc ist dann ab ' +
-     'dem nächsten Start aus.',
+     '(Fehlermarkierungen im Editor) und die übrigen Dienste von DelphiLSP fehlen dann. Wer sie braucht, wählt auf ' +
+     'der Seite dpcc die Betriebsart Aus oder Server oder in den Optionen der IDE wieder DelphiLSP; dpcc ist dann ab ' +
+     'dem nächsten Start nicht mehr der Anbieter.',
      'Strg+Alt+↑/↓',
      'Kein Sprungziel: Unit %s liegt nur als Package vor (kein Quelltext). Quellordner unter Tools › Optionen › ' +
      'Drittanbieter › dpcc › Zusätzliche Quellordner eintragen.',
@@ -259,8 +259,8 @@ const
     ('dpcc is selected as the Code Insight provider for Delphi in the IDE options. Ctrl+click and “Find ' +
      'Declaration” go through dpcc; without a target (for example in units without source) the IDE does not ' +
      'jump. Error Insight (error marks in the editor) and the other DelphiLSP services are missing then. If you ' +
-     'need them, turn off the master switch on the dpcc page or select DelphiLSP in the IDE options again; dpcc ' +
-     'is then off from the next start.',
+     'need them, choose mode Off or Server on the dpcc page or select DelphiLSP in the IDE options again; dpcc ' +
+     'is then no longer the provider from the next start.',
      'Ctrl+Alt+↑/↓',
      'No jump target: unit %s is only available as a package (no source). Add its source folder under Tools › ' +
      'Options › Third Party › dpcc › Additional source folders.',

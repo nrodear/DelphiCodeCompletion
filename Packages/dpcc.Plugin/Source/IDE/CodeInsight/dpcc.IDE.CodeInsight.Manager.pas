@@ -1557,8 +1557,14 @@ end;
 
 function TDpccCodeInsightManager.GetOptionSetName: string;
 begin
-  // Dieselben Editoreinstellungen wie der eingebaute Delphi-Manager.
+  // Optionssatz, den die IDE für dpcc liest (Code Insight\Borland.EditOptions.<Satz>). Delphi 13 liest dafür
+  // Borland.EditOptions.Pascal (gemessen am 28.11.2026). Delphi 12 las mit diesem Namen gar keinen Satz aus der Registry
+  // (Block, Templates, Liste immer an); dort nennt dpcc den Satz von DelphiLSP (CI-OPT A, TDpccIdeCheck.DpccKeys).
+{$IF CompilerVersion >= 37.0}
   Result := 'Borland.EditOptions.Pascal';
+{$ELSE}
+  Result := 'Borland.EditOptions.Borland.CodeInsight.LSP.Pascal';
+{$IFEND}
 end;
 
 class function TDpccCodeInsightManager.OwnTooltip: Boolean;

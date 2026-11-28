@@ -60,6 +60,14 @@
 //     fehlt, ohne Merker. Nicht im Plan: Der Plan läuft auch nach OK, nach dem Dialog und beim Beenden und dreht jedes
 //     Schreiben über Merker zurück; diese Werte gehören danach dem Nutzer und haben keinen Rückweg.
 // Plan, Targets, ServerTargets und Evaluate sind dafür unverändert (Betriebsarten Aus und Server wie bisher).
+// CI-OPT A (Delphi 12, freigegeben am 28.11.2026): Der dpcc-Manager nennt unter Delphi 12 als Optionssatz den von
+// DelphiLSP (GetOptionSetName = Borland.EditOptions.Borland.CodeInsight.LSP.Pascal); DpccKeys ist dort nur cLspKey.
+// Plugin und Server teilen sich unter Delphi 12 damit einen Ort: Gemeinsame Ziele (Auto Code Completions, Auto Invoke,
+// Auto Code Parameters) bleiben beim Wechsel stehen (Ensure, kein Zurück und wieder Vor), Declaration Information geht
+// zwischen False (Plugin mit eigenem Tooltip) und True (Server), der Merker behält den Wert vor dem ersten Eingriff.
+// Merker am alten Ort Borland.EditOptions.Pascal unter 23.0 räumt der nächste Plan auf (IsOrphan, CleanedNames).
+// Merker gelten je Registry-Profil: Im Standardprofil (BDS) heißen sie wie bisher „IdeSet 23.0 …“, mit eigenem Profil
+// (bds -r) „IdeSet <Profil> 23.0 …“ (TDpccCodeInsightKeys.ScopeText); ältere DWORD-Merker nur im Standardprofil.
 
 interface
 
@@ -135,9 +143,13 @@ type
     Values: TArray<TDpccIdeRegValue>;
     /// <summary>Schlüssel, die es gibt (auch ohne einen der gelesenen Werte).</summary>
     Keys: TArray<string>;
-    /// <summary>Merker dieser Version.</summary>
+    /// <summary>Merker dieser Version (und dieses Registry-Profils, TDpccCodeInsightKeys.ScopeText).</summary>
     Markers: TArray<TDpccIdeMarker>;
     Dpcc: TDpccIdeDpccState;
+    /// <summary>Anbieter, mit dem die laufende IDE arbeitet (beim Start gelesen bzw. im Code-Insight-Dialog der IDE
+    /// gewählt); '' = wie ProviderId. Weicht ProviderId davon ab (dpcc hat den Anbieter umgestellt), wartet der
+    /// Wechsel auf den Neustart (StatusText).</summary>
+    RunningProviderId: string;
     procedure Add(const AKey, AName, AValue: string; AIsDword: Boolean = False);
     /// <summary>Den Schlüssel AKey gibt es.</summary>
     procedure AddKey(const AKey: string);
@@ -212,6 +224,14 @@ type
     Value: string;
   end;
 
+  /// <summary>Ein Rückweg dieser Sitzung ohne Merker danach: dpcc hat Write geschrieben, wo vorher Replaced stand
+  /// (bzw. kein Wert). Für die Reparatur beim Beenden (TDpccIdeContext.ExitRepairs).</summary>
+  TDpccIdeUndo = record
+    Write: TDpccIdeWrite;
+    ReplacedExists: Boolean;
+    Replaced: string;
+  end;
+
   TDpccIdeContextPlan = record
     Trigger: TDpccIdeContextTrigger;
     Mode: TDpccIdeMode;
@@ -265,6 +285,9 @@ type
     /// DpccKeys, wenn es den Schlüssel gibt (HI1; die Sonderregel cAllKeysVersion für Delphi 12 ist entfallen).
     /// </summary>
     cPascalKey = 'Code Insight\Borland.EditOptions.Pascal';
+    /// <summary>Erste Hauptversion, deren dpcc-Manager den Satz Borland.EditOptions.Pascal nennt (Delphi 13, BDS 37).
+    /// Darunter (Delphi 12) nennt GetOptionSetName den Satz von DelphiLSP, und DpccKeys ist nur cLspKey.</summary>
+    cPascalSetVersion = 37;
     cGlobalKey = 'InsightGlobalOptions';
     cAutoCodeCompletions = 'Auto Code Completions';
     cAutoInvokeDelay = 'Auto Invoke Delay';
@@ -300,9 +323,9 @@ type
     class function FeatureValueNames: TArray<string>; static;
     /// <summary>Ort, den die IDE für den gewählten Anbieter liest (siehe Kopf der Unit).</summary>
     class function ActiveKey(const AInput: TDpccIdeCheckInput): string; static;
-    /// <summary>Orte der Code-Insight-Schalter in der Betriebsart dpcc (siehe Kopf der Unit): unter Delphi 12, 13 und
-    /// unbekannter Version jeder vorhandene aus cPascalKey und cLspKey, ohne einen davon nur cLspKey. Nie leer.
-    /// </summary>
+    /// <summary>Orte der Code-Insight-Schalter in der Betriebsart dpcc (siehe Kopf der Unit): unter Delphi 12 nur
+    /// cLspKey (der Satz, den GetOptionSetName dort nennt); unter Delphi 13 und unbekannter Version jeder vorhandene
+    /// aus cPascalKey und cLspKey, ohne einen davon nur cLspKey. Nie leer.</summary>
     class function DpccKeys(const AInput: TDpccIdeCheckInput): TArray<string>; static;
     /// <summary>Prüfen ohne zu ändern: mit Hauptschalter an gegen Targets, in der Betriebsart Server gegen
     /// ServerTargets (dazu Error Insight), sonst die Regeln für DelphiLSP.</summary>
@@ -338,10 +361,32 @@ type
     /// <summary>Passt der Wert (fehlend: Vorgabe der IDE) zu ATarget?</summary>
     class function Matches(AExists: Boolean; const AValue: TDpccIdeRegValue; const ATarget: string;
       AKind: TDpccIdeValueKind): Boolean; static;
-    /// <summary>Schreibaktionen für den Anlass ATrigger (siehe Kopf der Unit).</summary>
+    /// <summary>Schreibaktionen für den Anlass ATrigger (siehe Kopf der Unit); die Betriebsart davor ist die
+    /// gespeicherte (AInput.Dpcc).</summary>
     class function Plan(const AInput: TDpccIdeCheckInput; ATrigger: TDpccIdeContextTrigger): TDpccIdeContextPlan;
-      static;
-    /// <summary>Name des Merkers für AKey\AName unter der Version von ABaseKey.</summary>
+      overload; static;
+    /// <summary>Wie oben mit der Betriebsart vor dem Anlass (AModeBefore): Die Seite dpcc speichert die neue
+    /// Betriebsart schon mit OK, der Plan danach sähe sonst keinen Wechsel (Hinweise bei Aus ↔ Server).</summary>
+    class function Plan(const AInput: TDpccIdeCheckInput; ATrigger: TDpccIdeContextTrigger;
+      AModeBefore: TDpccOperatingMode): TDpccIdeContextPlan; overload; static;
+    /// <summary>Anlass, der eine Betriebsart herstellt: Plugin = MasterOn, Server = ServerOn, Aus = MasterOff. Nach OK
+    /// im Optionsdialog gilt die Betriebsart, die beim Ausführen gespeichert ist (auch eine Wahl im Code-Insight-Dialog
+    /// der IDE im selben OK), nicht die beim Schließen gelesene.</summary>
+    class function ModeTrigger(AMode: TDpccOperatingMode): TDpccIdeContextTrigger; static;
+    /// <summary>Rückwege der Sitzung nach einem ausgeführten Plan fortschreiben: Jedes Schreiben von APlan, für das
+    /// der Plan keinen Merker schreibt (zurückgedreht, Merker entfällt), kommt mit dem Wert davor aus AInput (Stand vor
+    /// dem Plan) in die Liste; ein späteres Schreiben desselben Werts ersetzt den Eintrag, ein Merker (der Wert gehört
+    /// wieder dpcc) entfernt ihn.</summary>
+    class procedure TrackUndos(var AUndos: TArray<TDpccIdeUndo>; const AInput: TDpccIdeCheckInput;
+      const APlan: TDpccIdeContextPlan); static;
+    /// <summary>Beim Beenden: Die IDE schreibt ihre Editoroptionen aus dem Speicher zurück (nach einem OK im
+    /// Optionsdialog auch Delphi 12), also oft die Werte von vor dem Rückweg. Für jeden Rückweg, dessen Wert jetzt
+    /// wieder genau so steht wie vor dem Rückweg (Replaced), dasselbe Schreiben noch einmal; steht etwas anderes da
+    /// (Nutzer), bleibt es.</summary>
+    class function ExitRepairs(const AInput: TDpccIdeCheckInput; const AUndos: TArray<TDpccIdeUndo>):
+      TArray<TDpccIdeWrite>; static;
+    /// <summary>Name des Merkers für AKey\AName unter der Version (und dem Profil) von ABaseKey: „IdeSet 23.0 …“ im
+    /// Standardprofil, „IdeSet dpccSwitchTest 23.0 …“ mit eigenem Profil (TDpccCodeInsightKeys.ScopeText).</summary>
     class function MarkerName(const ABaseKey, AKey, AName: string): string; static;
     /// <summary>Inhalt eines Merkers: geschriebener Wert, Tab, "=" und Wert davor bzw. "-" ohne.</summary>
     class function EncodeMarker(const AMarker: TDpccIdeMarker): string; static;
@@ -414,7 +459,7 @@ const
      'Kurzhinweis Ausdrucksauswertung',
      'Error Insight',
      'Code-Vervollständigung mit dem Parameter-Insight öffnen',
-     'Hauptschalter an: dpcc bedient Delphi-Dateien selbst.',
+     'Betriebsart Plugin: dpcc bedient Delphi-Dateien selbst.',
      'Aus: Nach „.“ öffnet keine Liste.',
      'Ab 0 öffnet die IDE beim Tippen nach dieser Verzögerung zusätzlich ihre eigene Liste.',
      'Aus: Der Parameter-Hint öffnet bei „(“ und „,“ nicht von selbst.',
@@ -424,7 +469,7 @@ const
      'Aus: Die Fehlermarkierungen von DelphiLSP fehlen im Editor.',
      'An: Die IDE öffnet mit dem Parameter-Hint zusätzlich ihre eigene Liste.',
      'dpcc ist der Code-Insight-Anbieter: Error Insight fehlt, Strg+Klick läuft über dpcc. Zurück zu DelphiLSP: ' +
-       'Hauptschalter aus oder in den Optionen der IDE DelphiLSP wählen.',
+       'auf der Seite dpcc die Betriebsart Aus oder Server wählen oder in den Optionen der IDE DelphiLSP wählen.',
      'Der gewählte Anbieter ließ sich nicht ermitteln; geprüft wird der Ort von DelphiLSP.',
      'Gewählt ist ein anderer Anbieter (%s); dpcc ist aus.',
      'Ort der Code-Insight-Schalter',
@@ -456,7 +501,8 @@ const
      'dpcc hat den Code-Insight-Anbieter der IDE wieder auf %s gestellt; wirkt nach dem Neustart von Delphi. Bis ' +
        'dahin ruft die IDE weiter den bisherigen Anbieter.',
      'Der Code-Insight-Anbieter ist nicht mehr dpcc (in den Optionen der IDE geändert oder von der IDE ' +
-       'zurückgeschrieben); dpcc ist aus. Zum Einschalten den Hauptschalter der Seite dpcc wieder setzen.',
+       'zurückgeschrieben); dpcc ist aus (Betriebsart Aus). Zum Einschalten auf der Seite dpcc die Betriebsart Plugin ' +
+       'wählen.',
      'Automatisch aufrufen',
      'Aus: Die IDE ruft die Vervollständigung nach „.“ nicht von selbst auf.',
      'Betriebsart Server: dpcc hat den Code-Insight-Anbieter der IDE auf DelphiLSP gestellt; wirkt nach dem ' +
@@ -482,7 +528,7 @@ const
      'Tooltip expression evaluation',
      'Error Insight',
      'Open code completion with parameter insight',
-     'Master switch on: dpcc serves Delphi files itself.',
+     'Mode Plugin: dpcc serves Delphi files itself.',
      'Off: no list opens after “.”.',
      'From 0 on, the IDE additionally opens its own list while typing after this delay.',
      'Off: the parameter hint does not open on “(” and “,” by itself.',
@@ -492,7 +538,7 @@ const
      'Off: the DelphiLSP error marks are missing in the editor.',
      'On: the IDE additionally opens its own list with the parameter hint.',
      'dpcc is the Code Insight provider: Error Insight is missing, Ctrl+click goes through dpcc. Back to DelphiLSP: ' +
-       'master switch off or select DelphiLSP in the IDE options.',
+       'choose mode Off or Server on the dpcc page or select DelphiLSP in the IDE options.',
      'The selected provider could not be determined; the DelphiLSP location is checked.',
      'Another provider is selected (%s); dpcc is off.',
      'Location of the Code Insight switches',
@@ -524,7 +570,7 @@ const
      'dpcc switched the IDE''s Code Insight provider back to %s; takes effect after restarting Delphi. Until then ' +
        'the IDE keeps calling the previous provider.',
      'The Code Insight provider is no longer dpcc (changed in the IDE options or written back by the IDE); dpcc ' +
-       'is off. To turn it on, set the master switch on the dpcc page again.',
+       'is off (mode Off). To turn it on, choose mode Plugin on the dpcc page.',
      'Auto invoke',
      'Off: the IDE does not invoke code completion after “.” by itself.',
      'Mode Server: dpcc switched the IDE''s Code Insight provider to DelphiLSP; takes effect after restarting ' +
@@ -1015,8 +1061,19 @@ begin
 end;
 
 class function TDpccIdeCheck.DpccKeys(const AInput: TDpccIdeCheckInput): TArray<string>;
+var
+  mMajor: Integer;
 begin
   Result := nil;
+  // Delphi 12 (CI-OPT A): Der dpcc-Manager nennt dort als Optionssatz den von DelphiLSP (GetOptionSetName); die IDE
+  // liest für dpcc genau diesen Satz. Plugin und Server teilen sich damit einen Ort; Borland.EditOptions.Pascal gehört
+  // unter 23.0 nicht mehr dazu (alte Merker dort räumt der Plan auf, IsOrphan).
+  mMajor := TDpccCodeInsightKeys.MajorVersion(AInput.BaseKey);
+  if (mMajor > 0) and (mMajor < cPascalSetVersion) then
+  begin
+    AddName(Result, cLspKey);
+    Exit;
+  end;
   // Delphi 12 wie Delphi 13 (HI1, auch ohne bekannte Version): welcher Ort gilt, ist nicht belegt; jeder vorhandene,
   // keinen anlegen.
   if AInput.HasKey(cPascalKey) then
@@ -1486,8 +1543,26 @@ begin
   Result := False;
 end;
 
+class function TDpccIdeContext.ModeTrigger(AMode: TDpccOperatingMode): TDpccIdeContextTrigger;
+begin
+  case AMode of
+    TDpccOperatingMode.Plugin:
+      Result := TDpccIdeContextTrigger.MasterOn;
+    TDpccOperatingMode.Server:
+      Result := TDpccIdeContextTrigger.ServerOn;
+  else
+    Result := TDpccIdeContextTrigger.MasterOff;
+  end;
+end;
+
 class function TDpccIdeContext.Plan(const AInput: TDpccIdeCheckInput;
   ATrigger: TDpccIdeContextTrigger): TDpccIdeContextPlan;
+begin
+  Result := Plan(AInput, ATrigger, AInput.Dpcc.OperatingMode);
+end;
+
+class function TDpccIdeContext.Plan(const AInput: TDpccIdeCheckInput; ATrigger: TDpccIdeContextTrigger;
+  AModeBefore: TDpccOperatingMode): TDpccIdeContextPlan;
 var
   mTargets: TArray<TDpccIdeTarget>;
   mTarget: TDpccIdeTarget;
@@ -1627,14 +1702,12 @@ begin
     Result.Notice := Format(Txt(TIdeCheckText.NoticeSwitchedToIde),
       [ProviderName(TDpccIdeCheck.ProviderOf(Result.ProviderAfter), Result.ProviderAfter)]);
   end
-  else if (ATrigger = TDpccIdeContextTrigger.ServerOn) and
-    (AInput.Dpcc.OperatingMode <> TDpccOperatingMode.Server) then
+  else if (ATrigger = TDpccIdeContextTrigger.ServerOn) and (AModeBefore <> TDpccOperatingMode.Server) then
   begin
     // Schon im LSP-Betrieb: Die Umleitung greift beim nächsten Serverstart der IDE, ohne Neustart von Delphi.
     Result.Notice := Txt(TIdeCheckText.NoticeServerNextStart);
   end
-  else if (ATrigger = TDpccIdeContextTrigger.MasterOff) and
-    (AInput.Dpcc.OperatingMode = TDpccOperatingMode.Server) then
+  else if (ATrigger = TDpccIdeContextTrigger.MasterOff) and (AModeBefore = TDpccOperatingMode.Server) then
   begin
     Result.Notice := Txt(TIdeCheckText.NoticeOffNextStart);
   end
@@ -1661,6 +1734,86 @@ begin
     else
     begin
       Result.Notice := Result.Notice + ' ' + mOptionsNotice;
+    end;
+  end;
+end;
+
+class procedure TDpccIdeContext.TrackUndos(var AUndos: TArray<TDpccIdeUndo>; const AInput: TDpccIdeCheckInput;
+  const APlan: TDpccIdeContextPlan);
+
+  procedure Drop(const AKey, AName: string);
+  var
+    mIndex: Integer;
+  begin
+    for mIndex := High(AUndos) downto 0 do
+    begin
+      if SameText(AUndos[mIndex].Write.Key, AKey) and SameText(AUndos[mIndex].Write.Name, AName) then
+      begin
+        Delete(AUndos, mIndex, 1);
+      end;
+    end;
+  end;
+
+var
+  mWrite: TDpccIdeWrite;
+  mMarker: TDpccIdeMarker;
+  mUndo: TDpccIdeUndo;
+  mValue: TDpccIdeRegValue;
+  mOwned: Boolean;
+begin
+  for mWrite in APlan.Writes do
+  begin
+    Drop(mWrite.Key, mWrite.Name);
+    // Mit Merker gehört der Wert dpcc: Den stellt der Plan beim Beenden ohnehin wieder her.
+    mOwned := False;
+    for mMarker in APlan.MarkerWrites do
+    begin
+      if SameText(mMarker.Key, mWrite.Key) and SameText(mMarker.Name, mWrite.Name) then
+      begin
+        mOwned := True;
+        Break;
+      end;
+    end;
+    if mOwned then
+    begin
+      Continue;
+    end;
+    mUndo := Default(TDpccIdeUndo);
+    mUndo.Write := mWrite;
+    mUndo.ReplacedExists := AInput.TryGet(mWrite.Key, mWrite.Name, mValue);
+    if mUndo.ReplacedExists then
+    begin
+      mUndo.Replaced := mValue.Value;
+    end;
+    AUndos := AUndos + [mUndo];
+  end;
+  for mMarker in APlan.MarkerWrites do
+  begin
+    Drop(mMarker.Key, mMarker.Name);
+  end;
+end;
+
+class function TDpccIdeContext.ExitRepairs(const AInput: TDpccIdeCheckInput;
+  const AUndos: TArray<TDpccIdeUndo>): TArray<TDpccIdeWrite>;
+var
+  mUndo: TDpccIdeUndo;
+  mValue: TDpccIdeRegValue;
+  mExists: Boolean;
+begin
+  Result := nil;
+  for mUndo in AUndos do
+  begin
+    mExists := AInput.TryGet(mUndo.Write.Key, mUndo.Write.Name, mValue);
+    // Nur wenn wieder der Wert von vor dem Rückweg steht (die IDE hat ihren Speicher zurückgeschrieben).
+    if not mExists or not mUndo.ReplacedExists then
+    begin
+      Continue;
+    end;
+    if Matches(True, mValue, mUndo.Replaced, KindOf(mUndo.Write.Key, mUndo.Write.Name)) and
+      not (not mUndo.Write.Delete and Matches(True, mValue, mUndo.Write.Value,
+      KindOf(mUndo.Write.Key, mUndo.Write.Name))) then
+    begin
+      Result := Result + [mUndo.Write];
     end;
   end;
 end;
@@ -1698,7 +1851,9 @@ end;
 
 class function TDpccIdeContext.MarkerName(const ABaseKey, AKey, AName: string): string;
 begin
-  Result := cMarkerPrefix + TDpccCodeInsightKeys.VersionText(ABaseKey) + ' ' + AKey + '\' + AName;
+  // Im Standardprofil unverändert "IdeSet 23.0 …" (vorhandene Merker gelten weiter); mit eigenem Profil (bds -r)
+  // "IdeSet <Profil> 23.0 …", damit sich die Profile einer Version ihre Merker nicht gegenseitig nehmen.
+  Result := cMarkerPrefix + TDpccCodeInsightKeys.ScopeText(ABaseKey) + ' ' + AKey + '\' + AName;
 end;
 
 class function TDpccIdeContext.EncodeMarker(const AMarker: TDpccIdeMarker): string;
@@ -1722,7 +1877,7 @@ var
 begin
   AMarker := Default(TDpccIdeMarker);
   Result := False;
-  mVersion := TDpccCodeInsightKeys.VersionText(ABaseKey);
+  mVersion := TDpccCodeInsightKeys.ScopeText(ABaseKey);
   mPrefix := cMarkerPrefix + mVersion + ' ';
   if (mVersion = '') or not AStoreName.StartsWith(mPrefix, True) then
   begin
@@ -1766,7 +1921,8 @@ var
 begin
   AMarker := Default(TDpccIdeMarker);
   Result := False;
-  if AValue = 0 then
+  // Ältere Merker stammen aus der Zeit vor den Profilen: Sie gehören zum Standardprofil.
+  if (AValue = 0) or not TDpccCodeInsightKeys.IsDefaultProfile(ABaseKey) then
   begin
     Exit;
   end;
@@ -1819,38 +1975,42 @@ class function TDpccIdeContext.StatusText(const AInput: TDpccIdeCheckInput): str
 var
   mLines: TStringList;
   mResult: TDpccIdeCheckResult;
-  mProvider: TDpccIdeProvider;
+  mProvider, mRunning: TDpccIdeProvider;
   mSet: TArray<string>;
   mMarker: TDpccIdeMarker;
 begin
   mProvider := TDpccIdeCheck.ProviderOf(AInput.ProviderId);
+  // Anbieter der laufenden IDE: Den umgestellten Wert in der Registry liest sie erst beim nächsten Start.
+  mRunning := mProvider;
+  if Trim(AInput.RunningProviderId) <> '' then
+  begin
+    mRunning := TDpccIdeCheck.ProviderOf(AInput.RunningProviderId);
+  end;
   mResult := TDpccIdeCheck.Evaluate(AInput);
   mLines := TStringList.Create;
   try
-    if mProvider = TDpccIdeProvider.Dpcc then
-    begin
-      mLines.Add(Format(Txt(TIdeCheckText.StatusModeDpcc), [Trim(AInput.ProviderId)]));
-    end
-    else if AInput.Dpcc.OperatingMode = TDpccOperatingMode.Server then
-    begin
-      mLines.Add(Format(Txt(TIdeCheckText.StatusModeServer), [ProviderName(mProvider, Trim(AInput.ProviderId))]));
-    end
+    // Erste Zeile nach der gespeicherten Betriebsart, mit dem Anbieter, der in der Registry steht.
+    case AInput.Dpcc.OperatingMode of
+      TDpccOperatingMode.Plugin:
+        mLines.Add(Format(Txt(TIdeCheckText.StatusModeDpcc), [Trim(AInput.ProviderId)]));
+      TDpccOperatingMode.Server:
+        mLines.Add(Format(Txt(TIdeCheckText.StatusModeServer), [ProviderName(mProvider, Trim(AInput.ProviderId))]));
     else
-    begin
       mLines.Add(Format(Txt(TIdeCheckText.StatusModeIde), [ProviderName(mProvider, Trim(AInput.ProviderId))]));
     end;
-    // Betriebsart und Anbieter passen nicht zusammen: Der Wechsel wirkt erst nach dem Neustart.
-    if AInput.Dpcc.Enabled and (mProvider <> TDpccIdeProvider.Dpcc) then
+    // Betriebsart und Anbieter der laufenden IDE passen nicht zusammen: Der Wechsel wirkt erst nach dem Neustart.
+    if (AInput.Dpcc.OperatingMode = TDpccOperatingMode.Plugin) and (mRunning <> TDpccIdeProvider.Dpcc) then
     begin
       mLines.Add(Txt(TIdeCheckText.StatusPendingDpcc));
     end
-    else if (AInput.Dpcc.OperatingMode = TDpccOperatingMode.Server) and (mProvider = TDpccIdeProvider.Dpcc) then
+    else if (AInput.Dpcc.OperatingMode = TDpccOperatingMode.Server) and (mRunning = TDpccIdeProvider.Dpcc) then
     begin
       mLines.Add(Txt(TIdeCheckText.StatusPendingServer));
     end
-    else if not AInput.Dpcc.Enabled and (mProvider = TDpccIdeProvider.Dpcc) then
+    else if (AInput.Dpcc.OperatingMode = TDpccOperatingMode.Off) and (mRunning = TDpccIdeProvider.Dpcc) then
     begin
-      mLines.Add(Format(Txt(TIdeCheckText.StatusPendingIde), ['DelphiLSP']));
+      mLines.Add(Format(Txt(TIdeCheckText.StatusPendingIde),
+        [ProviderName(TDpccIdeCheck.ProviderOf(TDpccIdeCheck.cDelphiLspId), TDpccIdeCheck.cDelphiLspId)]));
     end;
     mSet := nil;
     for mMarker in AInput.Markers do

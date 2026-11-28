@@ -16,7 +16,13 @@ uses
 
 type
   TDpccIdeSettingsCheck = class
+  private class var
+    FRunningProvider: string;
   public
+    /// <summary>Anbieter, mit dem die laufende IDE arbeitet: beim Start gelesen (InsightSwitch.ApplyAtStart), nach
+    /// einer Wahl im Code-Insight-Dialog der gewählte; '' = unbekannt. Read gibt ihn als RunningProviderId mit
+    /// (Zeile „wartet auf den Neustart“ der Optionsseite).</summary>
+    class property RunningProvider: string read FRunningProvider write FRunningProvider;
     /// <summary>Basisschlüssel der IDE ohne führenden und abschließenden Backslash; '' ohne IDE.</summary>
     class function BaseKey: string; static;
     /// <summary>Kennung des Code-Insight-Anbieters, den die IDE für Delphi-Dateien ruft; '' wenn sie keinen nennt.
@@ -206,6 +212,7 @@ begin
     // Kein Wert in der Registry (Vorgabe der IDE): die IDE fragen.
     Result.ProviderId := ServicesProviderId;
   end;
+  Result.RunningProviderId := FRunningProvider;
 end;
 
 class function TDpccIdeSettingsCheck.Run(const ASettings: TDpccPluginSettings): TDpccIdeCheckResult;

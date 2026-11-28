@@ -159,6 +159,8 @@ type
     procedure BuildItem(const AItem: TDpccPageItem);
     /// <summary>Spalte der Felder, Breiten und Lage abhängiger Elemente nach Schrift und Breite der Seite.</summary>
     procedure ArrangeRows;
+    /// <summary>Höhe einer Zeile setzen; ohne Ausrichtung durch die IDE wächst die Seite mit.</summary>
+    procedure FitRowHeight(ARow: TControl; AHeight: Integer);
     function CheckWidth(ACheck: TCheckBox): Integer;
     procedure ToggleClick(Sender: TObject);
     procedure ResetHistoryClick(Sender: TObject);
@@ -264,6 +266,41 @@ uses
   dpcc.Core.Completion.Ranking,
   dpcc.Core.Style.Look;
 
+type
+  /// <summary>Gedämpfter, umbrechender Satz (Betriebsart, „Index neu aufbauen“, Abschnitt IDE) in der Schrift des
+  /// Dialogs: ParentFont bleibt an, die graue Farbe setzt erst das Zeichnen. Früher setzte Font.Color die Schrift auf
+  /// eine eigene (ParentFont aus); die skalierte die VCL bei 120 dpi ein zweites Mal, die Sätze waren zu groß, und das
+  /// Thema der IDE färbte sie schwarz.</summary>
+  TDpccInfoLabel = class(TLabel)
+  protected
+    procedure DoDrawText(var Rect: TRect; Flags: Longint); override;
+  public
+    constructor Create(AOwner: TComponent); override;
+  end;
+
+constructor TDpccInfoLabel.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  AutoSize := False;
+  WordWrap := True;
+  ShowAccelChar := False;
+  Transparent := True;
+  // Die Farbe setzt DoDrawText aus dem IDE-Thema; der Stil soll sie nicht durch die Textfarbe ersetzen.
+  StyleElements := StyleElements - [seFont];
+end;
+
+procedure TDpccInfoLabel.DoDrawText(var Rect: TRect; Flags: Longint);
+var
+  mText: string;
+begin
+  mText := GetLabelText;
+  Canvas.Font := Font;
+  Canvas.Font.Color := StyleServices.GetSystemColor(clGrayText);
+  Canvas.Brush.Style := bsClear;
+  Flags := DrawTextBiDiModeFlags(Flags) or DT_NOPREFIX;
+  Winapi.Windows.DrawText(Canvas.Handle, PChar(mText), Length(mText), Rect, Flags);
+end;
+
 const
   /// <summary>Einrückung der Optionen unter einer Überschrift bzw. unter „Eigener Tooltip“ (bei 96 dpi).</summary>
   cIndent = 16;
@@ -272,7 +309,8 @@ const
   cFieldHeight = 25;
   cTitleHeight = 26;
   cButtonHeight = 29;
-  /// <summary>Höhe der Zeile mit „Jetzt prüfen“ und bis zu vier Statuszeilen (bei 96 dpi).</summary>
+  /// <summary>Mindesthöhe der Zeile mit „Jetzt prüfen“ und den Statuszeilen (bei 96 dpi); ArrangeRows vergrößert sie
+  /// nach dem Umbruch der Zeilen.</summary>
   cIdeStatusHeight = 64;
   /// <summary>Anfangshöhe der Zeile mit der Betriebsart (bei 96 dpi); ArrangeModes setzt sie nach dem Umbruch.
   /// </summary>
@@ -371,13 +409,10 @@ end;
 /// <summary>Gedämpfter, umbrechender Satz in ARow (Betriebsart).</summary>
 function NewInfoLabel(AOwner: TComponent; ARow: TWinControl; const AText: string): TLabel;
 begin
-  Result := TLabel.Create(AOwner);
+  // Schrift des Dialogs (ParentFont), grau erst beim Zeichnen (TDpccInfoLabel).
+  Result := TDpccInfoLabel.Create(AOwner);
   Result.Parent := ARow;
-  Result.AutoSize := False;
-  Result.WordWrap := True;
-  Result.ShowAccelChar := False;
   Result.Caption := AText;
-  Result.Font.Color := StyleServices.GetSystemColor(clGrayText);
 end;
 
 procedure TDpccSettingsPage.BuildItem(const AItem: TDpccPageItem);
@@ -540,14 +575,10 @@ begin
     FRebuild.Top := ScaleValue(2);
     FRebuild.Caption := TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsIndexRebuild);
     FRebuild.OnClick := RebuildClick;
-    FRebuildInfo := TLabel.Create(Self);
+    // Gedämpfter Text in der Farbe des IDE-Themas (hell und dunkel), Schrift des Dialogs.
+    FRebuildInfo := TDpccInfoLabel.Create(Self);
     FRebuildInfo.Parent := mRow;
-    FRebuildInfo.AutoSize := False;
-    FRebuildInfo.WordWrap := True;
-    FRebuildInfo.ShowAccelChar := False;
     FRebuildInfo.Top := 0;
-    // Gedämpfter Text in der Farbe des IDE-Themas (hell und dunkel).
-    FRebuildInfo.Font.Color := StyleServices.GetSystemColor(clGrayText);
     AddEntry(AItem, FRebuild, nil);
   end
   else if AItem.Name = cPageCheckIde then
@@ -559,13 +590,9 @@ begin
     FCheckIde.Top := ScaleValue(2);
     FCheckIde.Caption := TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsCheckIde);
     FCheckIde.OnClick := CheckIdeClick;
-    FIdeStatus := TLabel.Create(Self);
+    FIdeStatus := TDpccInfoLabel.Create(Self);
     FIdeStatus.Parent := mRow;
-    FIdeStatus.AutoSize := False;
-    FIdeStatus.WordWrap := True;
-    FIdeStatus.ShowAccelChar := False;
     FIdeStatus.Top := 0;
-    FIdeStatus.Font.Color := StyleServices.GetSystemColor(clGrayText);
     AddEntry(AItem, FCheckIde, nil);
   end
   else if AItem.Name = 'Diagnose' then
@@ -788,7 +815,7 @@ end;
 procedure TDpccSettingsPage.ArrangeRows;
 var
   mEntry: TDpccSettingsPageEntry;
-  mFieldLeft, mRowWidth: Integer;
+  mFieldLeft, mRowWidth, mWidth, mHeight: Integer;
 begin
   if not FBuilt then
   begin
@@ -842,9 +869,33 @@ begin
   // „Jetzt prüfen“ mit den Statuszeilen rechts daneben (Abschnitt IDE).
   FCheckIde.SetBounds(ScaleValue(cIndent), FCheckIde.Top,
     Max(ScaleValue(cButtonMinWidth), TextWidthFor(FCheckIde, FCheckIde.Caption) + ScaleValue(24)), FCheckIde.Height);
-  FIdeStatus.SetBounds(FCheckIde.Left + FCheckIde.Width + ScaleValue(cGap), 0,
-    Max(ScaleValue(60), FIdeStatus.Parent.Width - FCheckIde.Left - FCheckIde.Width - ScaleValue(cGap)),
-    FIdeStatus.Parent.Height);
+  // Die Statuszeilen umbrechen; die Zeile wächst mit ihnen (früher fest 64 Punkte: die letzte Zeile fehlte).
+  mWidth := Max(ScaleValue(60), FIdeStatus.Parent.Width - FCheckIde.Left - FCheckIde.Width - ScaleValue(cGap));
+  if mWidth <= ScaleValue(60) then
+  begin
+    // Ohne Fenster richtet die VCL die Zeilen noch nicht aus (Breite 0): die Breite der Seite samt Rändern.
+    mWidth := Max(ScaleValue(60), Width - ScaleValue(8) - FCheckIde.Left - FCheckIde.Width - ScaleValue(cGap));
+  end;
+  mHeight := Max(ScaleValue(cIdeStatusHeight), WrappedHeight(FIdeStatus, mWidth) + ScaleValue(4));
+  FIdeStatus.SetBounds(FCheckIde.Left + FCheckIde.Width + ScaleValue(cGap), 0, mWidth, mHeight);
+  FitRowHeight(FIdeStatus.Parent, mHeight);
+end;
+
+procedure TDpccSettingsPage.FitRowHeight(ARow: TControl; AHeight: Integer);
+var
+  mDelta: Integer;
+begin
+  if ARow.Height = AHeight then
+  begin
+    Exit;
+  end;
+  mDelta := AHeight - ARow.Height;
+  ARow.Height := AHeight;
+  // Ohne Ausrichtung durch die IDE wächst bzw. schrumpft die Seite mit (wie Build sie aus den Zeilen berechnet).
+  if Align = alNone then
+  begin
+    Height := Height + mDelta;
+  end;
 end;
 
 procedure TDpccSettingsPage.CreateWnd;
@@ -1160,6 +1211,8 @@ begin
     FIdeStatus.Caption := '';
   end;
   UpdateLocks;
+  // Höhe der Zeile nach den neuen Statuszeilen.
+  ArrangeRows;
 end;
 
 procedure TDpccSettingsPage.CheckIdeClick(Sender: TObject);
@@ -1174,6 +1227,7 @@ begin
   Screen.Cursor := crHourGlass;
   try
     FIdeStatus.Caption := FOnIdeStatus();
+    ArrangeRows;
   finally
     Screen.Cursor := mCursor;
   end;

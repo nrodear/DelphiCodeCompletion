@@ -606,7 +606,8 @@ end;
 /// <summary>Hook für die Betriebsart Server einbauen (dpcc.IDE.Foundation.LspRedirect).</summary>
 procedure InstallLspRedirect;
 begin
-  TDpccLspRedirectHook.Install(TDpccIdeSettings.IdeVersion);
+  // Betriebsart unter dem Namen dieses Profils und dieser Version (IdeScope; Standardprofil: "OperatingMode 23.0").
+  TDpccLspRedirectHook.Install(TDpccIdeSettings.IdeScope);
   // Gegenseitiger Ausschluss, im Protokoll belegt: Nur Plugin startet den eingebauten Server (bei Bedarf); Aus und
   // Server nie (ein späterer Wechsel meldet RequestStart, dpcc.IDE.CodeInsight.Manager.Session).
   if TDpccIdeSettings.Current.Enabled then
