@@ -39,9 +39,8 @@
 //   dpcc-Teil der Antwort des Servers (HoverHtml, HoverCaption).
 // - textDocument/definition, declaration, typeDefinition, implementation: ein Location-Objekt (kein Array), die URI
 //   in der Schreibweise, in der die IDE die Datei geöffnet hat. definition und implementation führen wie DelphiLSP
-//   zum Rumpf einer Bibliotheks-Routine: Der Index führt ihn dort nicht als Symbol, nur seine Zeile am
-//   interface-Symbol (ImplementationLine); der Server springt deshalb zur Deklaration, der Übersetzer an den Anfang
-//   der Zeile des Rumpfs. Liegt das Ziel im Dokument der Anfrage, paart der Server beide selbst (Baum des Editors).
+//   zum Rumpf einer Bibliotheks-Routine (Anfang seiner Zeile); das regelt der Kern (TLspDefinition,
+//   LibraryBodyTarget) für Plugin und Server gleich, der Übersetzer reicht das Ziel unverändert durch.
 // - Benachrichtigungen und Anfragen des Servers an den Client (window/logMessage, $/progress, dpcc/…) gehen nicht an
 //   die IDE; sie kennt sie nicht.
 // Threadsicher: WriteMessage kommt aus Worker-Threads, ReadMessage nur aus dem Lese-Thread der Verbindung.
@@ -136,7 +135,6 @@ type
     /// <summary>Zeigt ALocation (Location der IDE) auf die Deklaration einer Bibliotheks-Routine, deren Rumpf der
     /// Index nur als Zeile kennt, dann auf den Anfang dieser Zeile; sonst und im Dokument ARequestUri unverändert.
     /// </summary>
-    procedure MoveToLibraryBody(ALocation: TJSONValue; const ARequestUri: string);
     /// <summary>AUri in der Schreibweise, in der die IDE die Datei geöffnet hat; sonst unverändert.</summary>
     function IdeUri(const AUri: string): string;
     procedure RememberItems(AServerItems, ARadItems: TList<TJSONObject>);
@@ -1907,19 +1905,10 @@ begin
   begin
     Result := HoverAnswer(AResult);
   end
-  else if (mMethod = cDefinitionMethod) or (mMethod = cImplementationMethod) then
+  else if (mMethod = cDefinitionMethod) or (mMethod = cImplementationMethod) or (mMethod = cDeclarationMethod) or
+    (mMethod = cTypeDefinitionMethod) then
   begin
-    Result := LocationAnswer(AResult);
-    try
-      MoveToLibraryBody(Result, APending.Uri);
-    except
-      // Lieber das Ziel des Servers als keines.
-      on Exception do
-        ;
-    end;
-  end
-  else if (mMethod = cDeclarationMethod) or (mMethod = cTypeDefinitionMethod) then
-  begin
+    // Den Rumpf einer Bibliotheks-Routine liefert der Kern schon bei definition und implementation.
     Result := LocationAnswer(AResult);
   end;
 end;
@@ -3118,79 +3107,6 @@ begin
   Result := TJSONObject.Create;
   TJSONObject(Result).AddPair('uri', IdeUri(mUri));
   TJSONObject(Result).AddPair('range', TJSONObject(mRange.Clone));
-end;
-
-/// <summary>{"line": ALine, "character": ACharacter}.</summary>
-function PositionJson(ALine, ACharacter: Integer): TJSONObject;
-begin
-  Result := TJSONObject.Create;
-  Result.AddPair('line', TJSONNumber.Create(ALine));
-  Result.AddPair('character', TJSONNumber.Create(ACharacter));
-end;
-
-procedure TRadStudioDialect.MoveToLibraryBody(ALocation: TJSONValue; const ARequestUri: string);
-var
-  mLocation, mRange: TJSONObject;
-  mUri: string;
-  mLine, mCharacter, mBody, mIndex: Integer;
-  mSymbols: TArray<TIndexSymbol>;
-  mFound: Boolean;
-begin
-  if not (ALocation is TJSONObject) then
-  begin
-    Exit;
-  end;
-  mLocation := TJSONObject(ALocation);
-  mUri := mLocation.GetValue<string>('uri', '');
-  // Im Dokument der Anfrage paart der Server Deklaration und Rumpf selbst (Baum des Editors); dort wechselt dieselbe
-  // Taste zwischen beiden.
-  if (mUri = '') or ((ARequestUri <> '') and TDocumentUris.SameFile(mUri, ARequestUri)) then
-  begin
-    Exit;
-  end;
-  mLine := mLocation.GetValue<Integer>('range.start.line', -1);
-  mCharacter := mLocation.GetValue<Integer>('range.start.character', -1);
-  if mLine < 0 then
-  begin
-    Exit;
-  end;
-  mSymbols := nil;
-  mFound := False;
-  if Assigned(FUnitSymbols) then
-  begin
-    try
-      mFound := FUnitSymbols(TDocumentUris.ToPath(mUri), mSymbols);
-    except
-      // Ohne Symbole bleibt das Ziel des Servers.
-      on Exception do
-        mFound := False;
-    end;
-  end;
-  if not mFound then
-  begin
-    Exit;
-  end;
-  mBody := -1;
-  for mIndex := 0 to High(mSymbols) do
-  begin
-    if IsRoutineKind(mSymbols[mIndex].Kind) and (mSymbols[mIndex].SelectionRange.StartPos.Line = mLine) and
-      (mSymbols[mIndex].SelectionRange.StartPos.Character = mCharacter) then
-    begin
-      // Nur Bibliotheks-Units tragen die Zeile (sonst ist der Rumpf ein eigenes Symbol und schon das Ziel).
-      mBody := mSymbols[mIndex].ImplementationLine;
-      Break;
-    end;
-  end;
-  if (mBody < 0) or (mBody = mLine) then
-  begin
-    Exit;
-  end;
-  // Der Index kennt nur die Zeile: ihr Anfang, wie DelphiLSP.
-  mRange := TJSONObject.Create;
-  mRange.AddPair('start', PositionJson(mBody, 0));
-  mRange.AddPair('end', PositionJson(mBody, 0));
-  mLocation.RemovePair('range').Free;
-  mLocation.AddPair('range', mRange);
 end;
 
 end.

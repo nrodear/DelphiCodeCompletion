@@ -175,7 +175,7 @@ windows thus look as they do with the original, only the content may differ.
 
 Known differences in content: the heading of the parameter help does not name the class or unit (`function Add(…)` instead of `function TProbe.Add(…)`; not visible in the IDE's parameter hint); the uses clause list only holds units with source (no plain namespaces such as `System`, no units that exist only as .dcu), the identifier list no qualified class members such as `TThread.Queue`.
 
-Delphi version: the server takes the version of the IDE that starts it (from `processId` in `initialize`) even before its project data, also when the .dproj was last saved by another version. It neither keeps units of another installation in the index nor takes them from a cache; in earlier versions Delphi 12 could jump into the Delphi 13 sources this way, for example for `TStringList`.
+Delphi version: the server takes the version of the IDE that starts it (from `processId` in `initialize`) even before its project data, also when the .dproj was last saved by another version. It neither keeps units of another installation in the index nor takes them from a cache, except folders the project itself names (as in the plugin, see [Index and cache](index-cache.md#other-delphi-installations)); in earlier versions Delphi 12 could jump into the Delphi 13 sources this way, for example for `TStringList`. The body of a library routine for definition and implementation comes from the shared core, in the plugin as in the server.
 
 ## See also
 

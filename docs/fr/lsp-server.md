@@ -180,7 +180,7 @@ fenêtres de l’IDE ont donc le même aspect qu’avec l’original, seul le co
 
 Différences de contenu connues : le titre de l’aide aux paramètres ne nomme ni la classe ni l’unité (`function Add(…)` au lieu de `function TProbe.Add(…)` ; invisible dans l’indication de paramètres de l’IDE) ; la liste de la clause uses ne contient que des unités avec source (pas de simples espaces de noms comme `System`, pas d’unités seulement en .dcu), la liste des identificateurs pas de membres de classe qualifiés comme `TThread.Queue`.
 
-Version de Delphi : le serveur prend la version de l’IDE qui le lance (d’après `processId` dans `initialize`) dès avant ses données de projet, même si le .dproj a été enregistré en dernier par une autre version. Il ne garde dans l’index ni ne reprend d’un cache des unités d’une autre installation ; dans les versions précédentes, Delphi 12 pouvait ainsi sauter dans les sources de Delphi 13, par exemple pour `TStringList`.
+Version de Delphi : le serveur prend la version de l’IDE qui le lance (d’après `processId` dans `initialize`) dès avant ses données de projet, même si le .dproj a été enregistré en dernier par une autre version. Il ne garde dans l’index ni ne reprend d’un cache des unités d’une autre installation, sauf les dossiers que le projet nomme lui-même (comme le plugin, voir [Index et cache](index-cache.md#autres-installations-de-delphi)) ; dans les versions précédentes, Delphi 12 pouvait ainsi sauter dans les sources de Delphi 13, par exemple pour `TStringList`. Le corps d’une routine de bibliothèque pour definition et implementation vient du noyau commun, dans le plugin comme dans le serveur.
 
 ## Voir aussi
 

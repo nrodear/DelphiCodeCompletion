@@ -176,7 +176,7 @@ damit aus wie mit dem Original, nur der Inhalt kann abweichen.
 
 Bekannte Unterschiede im Inhalt: Die Kopfzeile der Parameterhilfe nennt Klasse bzw. Unit nicht (`function Add(…)` statt `function TProbe.Add(…)`; im Parameter-Hint der IDE nicht sichtbar); die Liste der uses-Klausel enthält nur Units mit Quelltext (keine reinen Namespaces wie `System`, keine Units nur als .dcu), die Bezeichnerliste keine qualifizierten Klassenmitglieder wie `TThread.Queue`.
 
-Delphi-Version: Der Server nimmt die Version der IDE, die ihn startet (aus `processId` in `initialize`), schon vor deren Projektdaten, auch wenn die .dproj zuletzt mit einer anderen Version gespeichert wurde. Units einer anderen Installation nimmt er weder in den Index noch aus einem Cache; in früheren Fassungen konnte Delphi 12 so etwa bei `TStringList` in die Quellen von Delphi 13 springen.
+Delphi-Version: Der Server nimmt die Version der IDE, die ihn startet (aus `processId` in `initialize`), schon vor deren Projektdaten, auch wenn die .dproj zuletzt mit einer anderen Version gespeichert wurde. Units einer anderen Installation nimmt er weder in den Index noch aus einem Cache, ausgenommen Ordner, die das Projekt selbst nennt (wie im Plugin, siehe [Index und Cache](index-cache.md#andere-delphi-installationen)); in früheren Fassungen konnte Delphi 12 so etwa bei `TStringList` in die Quellen von Delphi 13 springen. Den Rumpf einer Bibliotheks-Routine bei definition und implementation liefert der gemeinsame Kern, im Plugin wie im Server.
 
 ## Siehe auch
 

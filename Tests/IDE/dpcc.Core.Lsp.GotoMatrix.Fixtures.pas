@@ -5,6 +5,8 @@
 // UGenerisch (TPaar und TPaar<T> mit gleichnamiger Methode), ULetzte (Ziel in der letzten Zeile, ohne Umbruch am
 // Ende), Such\USuch (nur über DCC_UnitSearchPath zu finden), Teile.inc (Deklaration im interface über {$I}),
 // Methoden.inc (Methodendeklaration im Klassenrumpf über {$I}) und Leer.inc (über {$INCLUDE}, nur ein Kommentar).
+// UBibliothek ruft Routinen der installierten RTL (System.SysUtils, System.Classes); deren Dateien nennen die Zeilen
+// mit Platzhaltern (cLibSysUtils, cLibClasses), die der Test über den Sprung aus der uses-Liste auflöst.
 // Jede Zeile der Tabelle (TJumpCase) ist eine Variante: Ausgangsstelle → erwartetes Ziel → Rückweg. Der Rückweg ist
 // ein zweiter Strg+Klick auf dem Ziel (Gegensprung): ToOrigin (Deklaration ↔ Implementierung), Stays (Ziel ist schon
 // die Deklaration, kein Gegenstück), ToOther (Deklaration einer Routine → ihre Implementierung). Die Rückkehr zur
@@ -16,6 +18,9 @@
 //   - Strg+Klick während des Indexaufbaus: sofort, ohne Sprung, mit der Meldung „Index wird aufgebaut, bitte erneut
 //     klicken“ statt „kein Ziel“ (cTagNew).
 //   - Dateiname in {$I …} bzw. {$INCLUDE …}: die Datei öffnen, Zeile 1 (cTagNew); {$R *.dfm} bleibt ohne Sprung.
+// Entscheidung des Nutzers vom 28.11.2026 („Ja, auch im Plugin“): Deklaration und Rumpf einer Bibliotheks-Routine
+// bilden ein Paar wie in eigenen Units; vom Aufruf wie dort zur Deklaration, von ihr zum Rumpf und zurück, Routinen
+// ohne Rumpf bleiben stehen (Abschnitt E). Der Rumpf liegt hinter dem Index nur als Zeile vor: Rückwege nur zeilengenau.
 // Nicht vom Nutzer entschieden, Erwartung = heutiges Verhalten (cTagToday): Verwendung einer Methode → Deklaration
 // (alle Zeilen Usage…Method/Overload/Helper), Result → Kopf der Routine, "System" in System.SysUtils → Unit
 // System.SysUtils; einen eigenen Rücksprung-Verlauf führt dpcc nicht (hier nicht geprüft).
@@ -129,7 +134,14 @@ type
     NegativeUnknownName,
     NegativeResourceDirective,
     NegativeOperator,
-    NegativePastLineEnd);
+    NegativePastLineEnd,
+    // E. Bibliothek (RTL der installierten Delphi-Version): Deklaration ↔ Rumpf wie in eigenen Units
+    LibraryCallToDeclarationThenBody,
+    LibraryBodyToDeclaration,
+    LibraryOverloadInt64FromDeclaration,
+    LibraryOverloadFormat,
+    LibraryMethodOfClass,
+    LibraryAbstractMethodStays);
 
 {$SCOPEDENUMS OFF}
 
@@ -159,6 +171,8 @@ type
     Tag: string;
     /// <summary>Ohne Ziel erwartet, und zwar mit der Meldung zum Indexaufbau (Index noch nicht fertig).</summary>
     ExpectIndexing: Boolean;
+    /// <summary>Rückweg nur zeilengenau (Bibliothek: vom Rumpf kennt der Index nur die Zeile).</summary>
+    BackLineOnly: Boolean;
     function Named(const ACaption: string): TJumpRow;
     /// <summary>Nicht vom Nutzer entschieden: die Zeile hält das HEUTIGE Verhalten fest.</summary>
     function Today: TJumpRow;
@@ -173,6 +187,7 @@ type
     function Stays: TJumpRow;
     function BackTo(const AFile, AMarker, AName: string): TJumpRow;
     function LineOnly: TJumpRow;
+    function BackByLine: TJumpRow;
   end;
 
   TJumpFixture = record
@@ -185,6 +200,13 @@ type
     cTeile = 'Teile.inc';
     cMethoden = 'Methoden.inc';
     cLeer = 'Leer.inc';
+    cBibliothek = 'UBibliothek.pas';
+    /// <summary>Platzhalter für Units der installierten RTL; der Test setzt den Pfad ein, zu dem der Sprung aus der
+    /// uses-Liste von UBibliothek führt.</summary>
+    cLibSysUtils = '<SysUtils>';
+    cLibClasses = '<Classes>';
+    /// <summary>Stelle in UBibliothek, von der aus der Test die Platzhalter auflöst.</summary>
+    cLibUses = 'System.SysUtils, System.Classes; // uses Bibliothek';
     cDprName = 'SprungProbe.dpr';
     cDprojName = 'SprungProbe.dproj';
     cTagToday = 'Erwartung = heutiges Verhalten, nicht vom Nutzer entschieden';
@@ -214,6 +236,9 @@ const
   cT = TJumpFixture.cTeile;
   cM = TJumpFixture.cMethoden;
   cE = TJumpFixture.cLeer;
+  cBib = TJumpFixture.cBibliothek;
+  cSU = TJumpFixture.cLibSysUtils;
+  cCl = TJumpFixture.cLibClasses;
   /// <summary>"{äöü} " vor dem Namen: Zeichen jenseits von ASCII vor der Zielspalte.</summary>
   cUmlautPrefix = '{'#$00E4#$00F6#$00FC'} ';
 
@@ -481,6 +506,40 @@ begin
     'end.']);
 end;
 
+function BibliothekLines: TArray<string>;
+begin
+  Result := [
+    'unit UBibliothek;',
+    '',
+    'interface',
+    '',
+    'uses',
+    '  ' + TJumpFixture.cLibUses,
+    '',
+    'procedure Nutze;',
+    '',
+    'implementation',
+    '',
+    'procedure Nutze;',
+    'var',
+    '  Klein: Integer;',
+    '  Liste: TStringList;',
+    '  Allgemein: TStrings;',
+    '  Text: string;',
+    'begin',
+    '  Klein := 1;',
+    '  Text := IntToStr(Klein); // Bibliothek IntToStr Integer',
+    '  Text := Format(''%d'', [Klein]); // Bibliothek Format',
+    '  Liste := TStringList.Create;',
+    '  Liste.Add(Text); // Bibliothek Methode',
+    '  Allgemein := Liste;',
+    '  Allgemein.Clear; // Bibliothek abstrakt',
+    '  Liste.Free;',
+    'end;',
+    '',
+    'end.'];
+end;
+
 function LetzteText: string;
 begin
   // Ohne Umbruch am Ende; die Implementierung steht in der letzten Zeile.
@@ -575,7 +634,7 @@ begin
   Result := [mNutzer, mBasis, FileOf(cGenerisch, GenerischText), FileOf(cLetzte, LetzteText),
     FileOf(cSuch, SuchText), FileOf(cTeile, Lines(['procedure AusInclude; // AusInclude Dekl'])),
     FileOf(cMethoden, Lines(['procedure AusIncludeMethode; // AusIncludeMethode Dekl'])),
-    FileOf(cLeer, Lines(['// Leer.inc: nur ein Kommentar']))];
+    FileOf(cLeer, Lines(['// Leer.inc: nur ein Kommentar'])), FileOf(cBibliothek, Lines(BibliothekLines))];
 end;
 
 /// <summary>Pfad von UBasis in dpr und dproj; bei DprojDotSegments über "Unter\..\".</summary>
@@ -600,7 +659,8 @@ begin
     '  UNutzer in ''UNutzer.pas'',',
     '  UBasis in ''' + BasisReference(ASetup) + ''',',
     '  UGenerisch in ''UGenerisch.pas'',',
-    '  ULetzte in ''ULetzte.pas'';',
+    '  ULetzte in ''ULetzte.pas'',',
+    '  UBibliothek in ''UBibliothek.pas'';',
     'begin',
     'end.']);
 end;
@@ -633,6 +693,7 @@ begin
     '        <DCCReference Include="' + BasisReference(ASetup) + '"/>',
     '        <DCCReference Include="UGenerisch.pas"/>',
     '        <DCCReference Include="ULetzte.pas"/>',
+    '        <DCCReference Include="UBibliothek.pas"/>',
     '    </ItemGroup>',
     '    <ProjectExtensions>',
     '        <Borland.Personality>Delphi.Personality.12</Borland.Personality>',
@@ -736,6 +797,12 @@ function TJumpRow.LineOnly: TJumpRow;
 begin
   Result := Self;
   Result.CheckCharacter := False;
+end;
+
+function TJumpRow.BackByLine: TJumpRow;
+begin
+  Result := Self;
+  Result.BackLineOnly := True;
 end;
 
 { Tabelle }
@@ -1026,6 +1093,32 @@ begin
       Result := NoJump(cN, 'Lokal := 42;', ':=');
     TJumpCase.NegativePastLineEnd:
       Result := NoJump(cN, 'Unbekannt; // Negativ unbekannt', 'Unbekannt').Clicked(TJumpClick.PastLineEnd);
+
+    // E. Bibliothek: wie eigene Units (Nutzer 28.11.2026). Marker sind ganze Zeilen der RTL, #10 trennt Zeilen.
+    TJumpCase.LibraryCallToDeclarationThenBody:
+      Result := Jump(cBib, 'Text := IntToStr(Klein); // Bibliothek IntToStr Integer', 'IntToStr', cSU,
+        'function IntToStr(Value: Integer): string; overload;', 'IntToStr')
+        .BackTo(cSU, #10'function IntToStr(Value: Integer): string;'#10, 'IntToStr').BackByLine;
+    TJumpCase.LibraryBodyToDeclaration:
+      Result := Jump(cSU, #10'function IntToStr(Value: Integer): string;'#10, 'IntToStr', cSU,
+        'function IntToStr(Value: Integer): string; overload;', 'IntToStr').BothWays.BackByLine;
+    TJumpCase.LibraryOverloadInt64FromDeclaration:
+      // Zweite Überladung: Deklaration → ihr Rumpf, nicht der der ersten.
+      Result := Jump(cSU, 'function IntToStr(Value: Int64): string; overload;', 'IntToStr', cSU,
+        #10'function IntToStr(Value: Int64): string;'#10, 'IntToStr').LineOnly.BothWays.BackByLine;
+    TJumpCase.LibraryOverloadFormat:
+      Result := Jump(cBib, 'Text := Format(''%d'', [Klein]); // Bibliothek Format', 'Format', cSU,
+        'function Format(const Format: string;'#10'  const Args: array of const): string; overload;', 'Format')
+        .BackTo(cSU, #10'function Format(const Format: string; const Args: array of const): string;'#10, 'Format')
+        .BackByLine;
+    TJumpCase.LibraryMethodOfClass:
+      Result := Jump(cBib, 'Liste.Add(Text); // Bibliothek Methode', 'Add', cCl,
+        '    function Add(const S: string): Integer; override;', 'Add')
+        .BackTo(cCl, #10'function TStringList.Add(const S: string): Integer;'#10, 'Add').BackByLine;
+    TJumpCase.LibraryAbstractMethodStays:
+      // Erste abstrakte Clear in System.Classes ist die von TStrings.
+      Result := Jump(cBib, 'Allgemein.Clear; // Bibliothek abstrakt', 'Clear', cCl,
+        'procedure Clear; virtual; abstract;', 'Clear').Stays;
   else
     raise EArgumentOutOfRangeException.Create('Sprungmatrix: Zeile fehlt');
   end;

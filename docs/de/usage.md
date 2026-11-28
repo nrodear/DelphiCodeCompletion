@@ -78,6 +78,11 @@ daran nicht beteiligt.
   die Variante mit denselben Parametertypen.
 - Deklarationen ohne Rumpf (abstrakte Methoden, Methoden eines Interface, `external`): Strg+Klick bleibt dort stehen,
   auch bei Überladungen; es springt nicht zu einer anderen Variante.
+- Routinen der Bibliothek (RTL, VCL, zusätzliche Quellordner) bilden Paare wie eigene: vom Aufruf zur Deklaration im
+  interface, von dort zum Rumpf im implementation-Teil und zurück, bei Überladungen und Methoden wie `TStringList.Add`
+  die passende Variante. Ohne Rumpf (`abstract`, Interface) bleibt es stehen, Units ohne Quelltext haben kein Ziel.
+  „Zur Implementierung“ (textDocument/definition) führt von einem Aufruf direkt zum Rumpf, an den Anfang seiner Zeile
+  wie bei DelphiLSP.
 - `inherited;` ohne Namen springt wie `inherited Name` zur gleichnamigen Methode im Vorfahren.
 - Ziele: über Units, Unit-Namen in `uses` (Anfang der Datei), Dateinamen in `{$I …}` bzw. `{$INCLUDE …}` (Anfang der
   eingebundenen Datei; `{$R …}` springt nicht), lokale Variablen und Parameter, Typen, Felder hinter

@@ -80,6 +80,11 @@ comme d'habitude via DelphiLSP ; dpcc n'y participe pas.
   Pour les surcharges, c'est la variante avec les mêmes types de paramètres qui compte.
 - Déclarations sans corps (méthodes abstraites, méthodes d'une interface, `external`) : Ctrl+clic reste sur place,
   aussi pour les surcharges ; il ne saute pas vers une autre variante.
+- Les routines de la bibliothèque (RTL, VCL, dossiers source supplémentaires) forment des paires comme les vôtres : de
+  l'appel à la déclaration dans la section interface, de là au corps dans la section implementation et retour, pour
+  les surcharges et les méthodes comme `TStringList.Add` la variante qui correspond. Sans corps (`abstract`,
+  interface), il reste sur place ; les unités sans source n'ont pas de cible. « Aller à l'implémentation »
+  (textDocument/definition) mène d'un appel directement au corps, au début de sa ligne comme DelphiLSP.
 - `inherited;` sans nom saute, comme `inherited Nom`, vers la méthode de même nom de l'ancêtre.
 - Cibles : à travers les unités, noms d'unités dans `uses` (début du fichier), noms de fichiers dans `{$I …}` ou
   `{$INCLUDE …}` (début du fichier inclus ; `{$R …}` ne saute pas), variables locales et paramètres,

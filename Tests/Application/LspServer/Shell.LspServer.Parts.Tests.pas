@@ -76,8 +76,9 @@ type
     /// ausgeschaltet wie bisher.</summary>
     [Test]
     procedure KeywordsWithEnableKeyWordCompletion;
-    /// <summary>definition und implementation auf eine Bibliotheks-Routine: Anfang der Zeile ihres Rumpfs
-    /// (ImplementationLine); declaration, Routinen ohne Zeile und Anfragen aus der Unit selbst unverändert.</summary>
+    /// <summary>definition, implementation und declaration: Der Übersetzer reicht das Ziel des Servers durch; den
+    /// Rumpf einer Bibliotheks-Routine (Anfang seiner Zeile) liefert seit dem 28.11.2026 der Kern selbst
+    /// (Sprungmatrix, LibraryDefinitionRequestToBody), ein Ziel auf der Deklaration bleibt dort.</summary>
     [Test]
     procedure DefinitionToLibraryBody;
     /// <summary>definition, implementation, declaration: ein Location-Objekt, URI wie von der IDE geöffnet, leere
@@ -1464,73 +1465,44 @@ end;
 
 procedure TLspServerPartsTests.DefinitionToLibraryBody;
 const
-  cLibraryFile = 'C:\Studio\source\rtl\sys\System.SysUtils.pas';
   cLibraryUri = 'file:///C%3A/Studio/source/rtl/sys/System.SysUtils.pas';
 var
   mSession: TDialectSession;
   mResponse: TJSONObject;
-  mSymbols: TArray<TIndexSymbol>;
-  mHere, mThere: string;
+  mHere: string;
 begin
-  // Bibliotheks-Unit wie im Index: Überladungen im interface mit der Zeile ihres Rumpfs (der Rumpf selbst fehlt),
-  // eine Routine ohne Zeile.
-  mSymbols := [
-    Placed(Symbol(TIndexSymbolKind.Routine, 'IntToStr', 'function IntToStr(Value: Integer): string; overload;',
-    'string', ['overload', 'impl:8591']), '', 1329, 9),
-    Placed(Symbol(TIndexSymbolKind.Routine, 'IntToStr', 'function IntToStr(Value: Int64): string; overload;',
-    'string', ['overload', 'impl:8596']), '', 1330, 9),
-    Placed(Symbol(TIndexSymbolKind.Routine, 'Beep', 'procedure Beep;', '', nil), '', 1400, 10)];
   mHere := '"params":{"textDocument":{"uri":"' + cProbeUri + '"},"position":{"line":9,"character":4}}}';
-  mThere := '"params":{"textDocument":{"uri":"' + cLibraryUri + '"},"position":{"line":8591,"character":9}}}';
   mSession := TDialectSession.Create('RAD Studio');
   try
-    mSession.Dialect.UnitSymbols :=
-      function(const AFileName: string; out ASymbols: TArray<TIndexSymbol>): Boolean
-      begin
-        Result := SameText(AFileName, cLibraryFile);
-        ASymbols := nil;
-        if Result then
-        begin
-          ASymbols := mSymbols;
-        end;
-      end;
     mSession.Open(cProbeUri, cProbeText);
-    // Gemessen: DelphiLSP springt von IntToStr( zum Rumpf (Anfang der Zeile), der Server zur Deklaration.
+    // Gemessen: DelphiLSP springt von IntToStr( zum Rumpf (Anfang der Zeile); das Ziel kommt so vom Kern.
     mSession.FromIde('{"jsonrpc":"2.0","id":50,"method":"textDocument/definition",' + mHere).Free;
-    mResponse := mSession.FromServer(LocationResponse(50, cLibraryUri, 1330, 9, 8));
+    mResponse := mSession.FromServer(LocationResponse(50, cLibraryUri, 8596, 0, 0));
     try
       Assert.AreEqual(cLibraryUri, mResponse.GetValue<string>('result.uri'));
-      Assert.AreEqual('8596:0-8596:0', RangeText(mResponse, 'result.range'), 'Rumpf der zweiten Überladung');
+      Assert.AreEqual('8596:0-8596:0', RangeText(mResponse, 'result.range'), 'Rumpf vom Kern, unverändert');
     finally
       mResponse.Free;
     end;
     mSession.FromIde('{"jsonrpc":"2.0","id":51,"method":"textDocument/implementation",' + mHere).Free;
-    mResponse := mSession.FromServer(LocationResponse(51, cLibraryUri, 1329, 9, 8));
+    mResponse := mSession.FromServer(LocationResponse(51, cLibraryUri, 8591, 0, 0));
     try
       Assert.AreEqual('8591:0-8591:0', RangeText(mResponse, 'result.range'), 'implementation wie definition');
     finally
       mResponse.Free;
     end;
-    mSession.FromIde('{"jsonrpc":"2.0","id":52,"method":"textDocument/declaration",' + mHere).Free;
+    // Liefert der Kern die Deklaration (Routine ohne Rumpf), macht der Übersetzer keinen Rumpf daraus.
+    mSession.FromIde('{"jsonrpc":"2.0","id":52,"method":"textDocument/definition",' + mHere).Free;
     mResponse := mSession.FromServer(LocationResponse(52, cLibraryUri, 1329, 9, 8));
     try
+      Assert.AreEqual('1329:9-1329:17', RangeText(mResponse, 'result.range'), 'Deklaration bleibt');
+    finally
+      mResponse.Free;
+    end;
+    mSession.FromIde('{"jsonrpc":"2.0","id":53,"method":"textDocument/declaration",' + mHere).Free;
+    mResponse := mSession.FromServer(LocationResponse(53, cLibraryUri, 1329, 9, 8));
+    try
       Assert.AreEqual('1329:9-1329:17', RangeText(mResponse, 'result.range'), 'declaration bleibt');
-    finally
-      mResponse.Free;
-    end;
-    mSession.FromIde('{"jsonrpc":"2.0","id":53,"method":"textDocument/definition",' + mHere).Free;
-    mResponse := mSession.FromServer(LocationResponse(53, cLibraryUri, 1400, 10, 4));
-    try
-      Assert.AreEqual('1400:10-1400:14', RangeText(mResponse, 'result.range'), 'ohne Zeile des Rumpfs');
-    finally
-      mResponse.Free;
-    end;
-    // Aus der Bibliotheks-Unit selbst paart der Server Deklaration und Rumpf über den Baum des Editors.
-    mSession.Open(cLibraryUri, 'unit System.SysUtils;');
-    mSession.FromIde('{"jsonrpc":"2.0","id":54,"method":"textDocument/definition",' + mThere).Free;
-    mResponse := mSession.FromServer(LocationResponse(54, cLibraryUri, 1329, 9, 8));
-    try
-      Assert.AreEqual('1329:9-1329:17', RangeText(mResponse, 'result.range'), 'Anfrage aus der Unit selbst');
     finally
       mResponse.Free;
     end;

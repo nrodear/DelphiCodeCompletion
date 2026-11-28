@@ -2,7 +2,8 @@
 
 // Sprungmatrix für Strg+Klick: alle Varianten „von → nach und
 // zurück“ auf dem Weg der IDE, wie dpcc.Core.Lsp.GotoBothWays.Tests, aber in einem Projekt mit mehreren Units, Suchpfad
-// und Include-Dateien (dpcc.Core.Lsp.GotoMatrix.Fixtures). Je Variante ein eigener Test (Name = Zeile von TJumpCase),
+// und Include-Dateien (dpcc.Core.Lsp.GotoMatrix.Fixtures), dazu Routinen der installierten RTL (Abschnitt E, Rumpf
+// einer Bibliotheks-Routine). Je Variante ein eigener Test (Name = Zeile von TJumpCase),
 // damit ein roter Test sofort sagt, welche Variante bricht.
 // Weg: TLspSession.Sync der Datei, in der geklickt wird (wie der Hauptthread für den aktiven Puffer), dann
 // GotoTargetAt mit der Zeile aus dem abgeglichenen Text (declaration, bei OnTarget auch definition) gegen den echten
@@ -75,6 +76,12 @@ type
     /// <summary>Erwartetes Ziel der Zeile ARow (Unit-Ziel: Zeile 0, Zeichen 0).</summary>
     function TargetSpot(const ARow: TJumpRow): TJumpSpot;
     procedure Run(ACase: TJumpCase);
+    /// <summary>Pfad der RTL-Unit zum Platzhalter (TJumpFixture.cLibSysUtils, cLibClasses): wohin der Sprung aus der
+    /// uses-Liste von UBibliothek führt. Die Datei kommt mit ihrem Text (Zeilenenden LF) als TJumpFile unter ihrem
+    /// vollen Pfad dazu, damit Marker, Sync und Rückweg wie bei Projektdateien gehen.</summary>
+    function LibraryFile(const APlaceholder: string): string;
+    /// <summary>Ersetzt die Platzhalter in den Dateien von ARow durch die Pfade (LibraryFile).</summary>
+    procedure ResolveLibrary(var ARow: TJumpRow);
   public
     [SetupFixture]
     procedure CreateRoot;
@@ -301,6 +308,24 @@ type
     procedure NegativeOperator;
     [Test]
     procedure NegativePastLineEnd;
+    // E. Bibliothek
+    [Test]
+    procedure LibraryCallToDeclarationThenBody;
+    [Test]
+    procedure LibraryBodyToDeclaration;
+    [Test]
+    procedure LibraryOverloadInt64FromDeclaration;
+    [Test]
+    procedure LibraryOverloadFormat;
+    [Test]
+    procedure LibraryMethodOfClass;
+    [Test]
+    procedure LibraryAbstractMethodStays;
+    /// <summary>textDocument/definition auf einem Aufruf einer RTL-Routine führt wie DelphiLSP zum Anfang der Zeile
+    /// ihres Rumpfs (Kern, auch dpcc.LspServer.exe), declaration zur Deklaration; eine Routine ohne Rumpf bleibt bei
+    /// der Deklaration.</summary>
+    [Test]
+    procedure LibraryDefinitionRequestToBody;
   end;
 
 implementation
@@ -524,6 +549,11 @@ end;
 
 function TGotoMatrixTests.PathOf(const AName: string): string;
 begin
+  // RTL-Units der Bibliothek (LibraryFile) stehen mit vollem Pfad in FFiles.
+  if TPath.IsPathRooted(AName) then
+  begin
+    Exit(AName);
+  end;
   Result := TPath.Combine(FFolder, AName);
   case FSetup of
     TJumpSetup.PathCaseDiffers:
@@ -682,6 +712,7 @@ var
 begin
   mRow := TJumpFixture.RowOf(ACase);
   Start(mRow.Setup);
+  ResolveLibrary(mRow);
   if (mRow.Setup = TJumpSetup.PathShortForm) and SameText(ShortPathOf(FFolder), FFolder) then
   begin
     // Ohne 8.3-Namen auf diesem Laufwerk gibt es keine Kurzform zu prüfen.
@@ -742,8 +773,8 @@ begin
       // Der Rückweg startet an der erwarteten Zielstelle, auch wenn der Hinweg danebenlag: So zeigt jede Richtung
       // ihren eigenen Befund.
       mBackFound := JumpFrom(mTo, TJumpClick.First, mBackLocation, mBackWhy, mBackMs);
-      mExpected := mExpected + '; zurück ' + SpotText(mBackSpot, True);
-      mActual := mActual + '; zurück ' + PlaceText(mBackFound, mBackLocation, True, False);
+      mExpected := mExpected + '; zurück ' + SpotText(mBackSpot, not mRow.BackLineOnly);
+      mActual := mActual + '; zurück ' + PlaceText(mBackFound, mBackLocation, not mRow.BackLineOnly, False);
       mDetails := mDetails + Format(', zurück %d ms, Grund %s', [mBackMs, TDpccNoTarget.CodeOf(mBackWhy.Reason)]);
     end;
   end;
@@ -757,6 +788,63 @@ begin
   // Server noch im Test abbauen (LEAK1, wie CheckPairs in GotoBothWays).
   Stop;
   Assert.AreEqual(mExpected, mActual, 'Zeilen und Zeichen 0-basiert' + mDetails);
+end;
+
+function TGotoMatrixTests.LibraryFile(const APlaceholder: string): string;
+var
+  mWord: string;
+  mLocation: TLspLocation;
+  mWhy: TDpccNoTarget;
+  mMs: Int64;
+  mFile: TJumpFile;
+  mBytes: TBytes;
+  mText: string;
+begin
+  mWord := Copy(APlaceholder, 2, Length(APlaceholder) - 2);
+  for mFile in FFiles do
+  begin
+    if SameText(ExtractFileName(mFile.Name), 'System.' + mWord + '.pas') and TPath.IsPathRooted(mFile.Name) then
+    begin
+      Exit(mFile.Name);
+    end;
+  end;
+  if not JumpFrom(SpotOf(TJumpFixture.cBibliothek, TJumpFixture.cLibUses, mWord), TJumpClick.First, mLocation, mWhy,
+    mMs) or not SameText(ExtractFileName(mLocation.FileName), 'System.' + mWord + '.pas') then
+  begin
+    raise Exception.CreateFmt('Testaufbau: RTL-Unit System.%s nicht gefunden (%s)', [mWord, mLocation.FileName]);
+  end;
+  Result := mLocation.FileName;
+  mBytes := TFile.ReadAllBytes(Result);
+  if (Length(mBytes) >= 3) and (mBytes[0] = $EF) and (mBytes[1] = $BB) and (mBytes[2] = $BF) then
+  begin
+    mText := TEncoding.UTF8.GetString(mBytes, 3, Length(mBytes) - 3);
+  end
+  else
+  begin
+    mText := TEncoding.UTF8.GetString(mBytes);
+  end;
+  mFile := Default(TJumpFile);
+  mFile.Name := Result;
+  // Marker der Tabelle trennen Zeilen mit #10; die Zeilennummern bleiben gleich.
+  mFile.Text := StringReplace(mText, #13#10, #10, [rfReplaceAll]);
+  mFile.Encoding := TJumpEncoding.Utf8;
+  FFiles := FFiles + [mFile];
+end;
+
+procedure TGotoMatrixTests.ResolveLibrary(var ARow: TJumpRow);
+
+  procedure Resolve(var AName: string);
+  begin
+    if StartsText('<', AName) then
+    begin
+      AName := LibraryFile(AName);
+    end;
+  end;
+
+begin
+  Resolve(ARow.FromFile);
+  Resolve(ARow.ToFile);
+  Resolve(ARow.BackFile);
 end;
 
 procedure TGotoMatrixTests.DeclImplOverrideInDescendant;
@@ -1207,6 +1295,97 @@ end;
 procedure TGotoMatrixTests.NegativePastLineEnd;
 begin
   Run(TJumpCase.NegativePastLineEnd);
+end;
+
+procedure TGotoMatrixTests.LibraryCallToDeclarationThenBody;
+begin
+  Run(TJumpCase.LibraryCallToDeclarationThenBody);
+end;
+
+procedure TGotoMatrixTests.LibraryBodyToDeclaration;
+begin
+  Run(TJumpCase.LibraryBodyToDeclaration);
+end;
+
+procedure TGotoMatrixTests.LibraryOverloadInt64FromDeclaration;
+begin
+  Run(TJumpCase.LibraryOverloadInt64FromDeclaration);
+end;
+
+procedure TGotoMatrixTests.LibraryOverloadFormat;
+begin
+  Run(TJumpCase.LibraryOverloadFormat);
+end;
+
+procedure TGotoMatrixTests.LibraryMethodOfClass;
+begin
+  Run(TJumpCase.LibraryMethodOfClass);
+end;
+
+procedure TGotoMatrixTests.LibraryAbstractMethodStays;
+begin
+  Run(TJumpCase.LibraryAbstractMethodStays);
+end;
+
+procedure TGotoMatrixTests.LibraryDefinitionRequestToBody;
+
+  /// <summary>„Datei Zeile:Zeichen“ des ersten Ziels von definition bzw. declaration an ASpot.</summary>
+  function Ask(const ASpot: TJumpSpot; ADeclaration: Boolean): string;
+  var
+    mFound: TArray<TLspLocation>;
+    mFirst: TLspLocation;
+  begin
+    FSession.Sync(PathOf(ASpot.FileName), TextOf(ASpot.FileName));
+    if ADeclaration then
+    begin
+      mFound := FSession.Declarations(PathOf(ASpot.FileName), ASpot.Line, ASpot.Character);
+    end
+    else
+    begin
+      mFound := FSession.Definitions(PathOf(ASpot.FileName), ASpot.Line, ASpot.Character);
+    end;
+    mFirst := Default(TLspLocation);
+    if Length(mFound) > 0 then
+    begin
+      mFirst := mFound[0];
+    end;
+    Result := PlaceText(Length(mFound) > 0, mFirst, True, False);
+  end;
+
+  function Expected(const AFile, AMarker, AWord: string; ALineStart: Boolean): string;
+  var
+    mSpot: TJumpSpot;
+  begin
+    mSpot := SpotOf(AFile, AMarker, AWord);
+    if ALineStart then
+    begin
+      mSpot.Character := 0;
+    end;
+    Result := SpotText(mSpot, True);
+  end;
+
+var
+  mSysUtils, mClasses, mExpected, mActual: string;
+begin
+  Start(TJumpSetup.Standard);
+  try
+    mSysUtils := LibraryFile(TJumpFixture.cLibSysUtils);
+    mClasses := LibraryFile(TJumpFixture.cLibClasses);
+    mExpected := 'definition ' + Expected(mSysUtils, #10'function IntToStr(Value: Integer): string;'#10, 'IntToStr',
+      True) + '; declaration ' + Expected(mSysUtils, 'function IntToStr(Value: Integer): string; overload;',
+      'IntToStr', False) + '; Methode ' + Expected(mClasses, #10'function TStringList.Add(const S: string): Integer;'#10,
+      'Add', True) + '; abstrakt ' + Expected(mClasses, 'procedure Clear; virtual; abstract;', 'Clear', False);
+    mActual := 'definition ' + Ask(SpotOf(TJumpFixture.cBibliothek,
+      'Text := IntToStr(Klein); // Bibliothek IntToStr Integer', 'IntToStr'), False) + '; declaration ' +
+      Ask(SpotOf(TJumpFixture.cBibliothek, 'Text := IntToStr(Klein); // Bibliothek IntToStr Integer', 'IntToStr'),
+      True) + '; Methode ' + Ask(SpotOf(TJumpFixture.cBibliothek, 'Liste.Add(Text); // Bibliothek Methode', 'Add'),
+      False) + '; abstrakt ' + Ask(SpotOf(TJumpFixture.cBibliothek, 'Allgemein.Clear; // Bibliothek abstrakt',
+      'Clear'), False);
+    mActual := mActual + FErrors;
+  finally
+    Stop;
+  end;
+  Assert.AreEqual(mExpected, mActual, 'Zeilen und Zeichen 0-basiert');
 end;
 
 initialization

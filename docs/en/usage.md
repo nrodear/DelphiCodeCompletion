@@ -75,6 +75,11 @@ involved.
   the variant with the same parameter types counts.
 - Declarations without a body (abstract methods, interface methods, `external`): Ctrl+click stays there, also for
   overloads; it does not jump to another variant.
+- Library routines (RTL, VCL, additional source folders) form pairs like your own: from a call to the declaration in
+  the interface section, from there to the body in the implementation section and back, for overloads and methods
+  such as `TStringList.Add` the matching variant. Without a body (`abstract`, interface) it stays, units without
+  source have no target. "Go to implementation" (textDocument/definition) leads from a call straight to the body, to
+  the start of its line as with DelphiLSP.
 - `inherited;` without a name jumps, like `inherited Name`, to the method of the same name in the ancestor.
 - Targets: across units, unit names in `uses` (start of the file), file names in `{$I …}` or `{$INCLUDE …}` (start of
   the included file; `{$R …}` does not jump), local variables and parameters, types, fields

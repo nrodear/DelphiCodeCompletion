@@ -1196,9 +1196,47 @@ begin
   end;
 end;
 
+/// <summary>Rumpf der Routine AResolved, wenn ihre Unit im Index eine Bibliotheks-Unit ist (L1): Dort fehlt der
+/// Rumpf als Symbol (DropImplementationDuplicates), seine Zeile steht an der Deklaration (ImplementationLine). Ziel
+/// ist der Anfang dieser Zeile wie bei DelphiLSP (gemessen in Delphi 12: IntToStr → 8591:0). False ohne Unit im
+/// Index, ohne passendes Symbol oder ohne Zeile (external ohne Rumpf, abstract, Interface-Methode).</summary>
+function LibraryBodyTarget(const AIndex: ISymbolIndex; const AResolved: TResolvedSymbol;
+  out ATarget: TDefinitionTarget): Boolean;
+var
+  mUnit: TUnitIndex;
+  mSymbol: TIndexSymbol;
+  mLine: Integer;
+  mAt: TTextRange;
+begin
+  Result := False;
+  ATarget := Default(TDefinitionTarget);
+  if (AResolved.FileName = '') or not TIndexFiles.UnitOf(AIndex, AResolved.FileName, mUnit) then
+  begin
+    Exit;
+  end;
+  for mSymbol in mUnit.Symbols do
+  begin
+    if (mSymbol.Kind in cRoutineKinds) and
+      (mSymbol.SelectionRange.StartPos.Line = AResolved.SelectionRange.StartPos.Line) and
+      (mSymbol.SelectionRange.StartPos.Character = AResolved.SelectionRange.StartPos.Character) and
+      SameText(mUnit.SymbolFile(mSymbol), AResolved.FileName) then
+    begin
+      mLine := mSymbol.ImplementationLine;
+      if (mLine < 0) or (mLine = mSymbol.SelectionRange.StartPos.Line) then
+      begin
+        Exit;
+      end;
+      mAt := TTextRange.Create(TTextPosition.Create(mLine, 0), TTextPosition.Create(mLine, 0));
+      ATarget := Target(AResolved.FileName, mAt, mAt);
+      Exit(True);
+    end;
+  end;
+end;
+
 function RoutineTargets(AResolver: TNameResolver; const AIndex: ISymbolIndex; const AQuery: TDefinitionQuery;
   const AResolved: TResolvedSymbol): TArray<TDefinitionTarget>;
 var
+  mBody: TDefinitionTarget;
   mHere, mOwnerUnit: TUnitIndex;
   mVariant: TArray<TIndexSymbol>;
   mFirst, mLast, mChosen: TIndexSymbol;
@@ -1221,6 +1259,19 @@ begin
       RoutinePair(mOwnerUnit, HostResolved(mOwnerUnit, AResolved, AQuery.FileName), mWanted, mVariant, mWay) and
       ReachesOtherFile(mOwnerUnit, mVariant, AQuery.FileName)) then
     begin
+      // Bibliotheks-Routine (L1): Deklaration und Rumpf bilden ein Paar wie in eigenen Units, nur kennt der Index vom
+      // Rumpf allein die Zeile. definition springt von der Deklaration (oder einem Aufruf) dorthin, declaration bleibt
+      // bei der Deklaration; vom Rumpf zurück führt der Baum der offenen Unit (RoutinePair oben).
+      if not AQuery.Declaration and LibraryBodyTarget(AIndex, AResolved, mBody) then
+      begin
+        Result := [mBody];
+        if TRequestDiagnostics.IsOpen then
+        begin
+          TRequestDiagnostics.Note('pair', 'found:libraryBody');
+          TRequestDiagnostics.Note('pairChosen', 'implementation');
+        end;
+        Exit;
+      end;
       // Diagnoselog (LOG1): Gezählt wird in der Unit, in der RoutinePair zuerst suchte (bei derselben Datei der Baum,
       // sonst die Unit des Ziels im Index).
       if TRequestDiagnostics.IsOpen then
