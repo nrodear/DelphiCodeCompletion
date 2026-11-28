@@ -49,6 +49,17 @@
 // Protokoll und die Optionsseite); TDpccIdeContext.Plan liefert die Schreibaktionen, die die IDE-Schicht
 // (dpcc.IDE.Foundation.InsightSwitch) ausführt. Die IDE liest die Werte beim Start; ein Wechsel wirkt nach dem
 // nächsten Start von Delphi.
+// Seit CI-OPT (Plugin-Betrieb, Messung vom 28.11.2026: Delphi 13 liest für dpcc Borland.EditOptions.Pascal, Delphi 12
+// keinen Satz der Registry) zwei Wege neben dem Plan, beide nur im Startweg:
+//   - TDpccIdeStartValues: Startwerte der Schalter „Nach dem Punkt automatisch öffnen“ (Auto Code Completions und
+//     Auto Invoke) und „Reservierte Wörter in der Liste zeigen“ (Show Reserved Words) einmal aus dem Satz von
+//     DelphiLSP; steht ein Merker „IdeSet“, gilt der Wert des Nutzers davor. Danach liest dpcc sie nie wieder aus der
+//     IDE.
+//   - TDpccIdeContext.FeatureCopies: unter Delphi 13 in der Betriebsart Plugin Blockvervollständigung, Vorlagen und
+//     Hinweise der Synchron-Bearbeitung aus dem Satz von DelphiLSP in Borland.EditOptions.Pascal, nur wo der Wert dort
+//     fehlt, ohne Merker. Nicht im Plan: Der Plan läuft auch nach OK, nach dem Dialog und beim Beenden und dreht jedes
+//     Schreiben über Merker zurück; diese Werte gehören danach dem Nutzer und haben keinen Rückweg.
+// Plan, Targets, ServerTargets und Evaluate sind dafür unverändert (Betriebsarten Aus und Server wie bisher).
 
 interface
 
@@ -266,14 +277,27 @@ type
     cToolTipWatches = 'ToolTip Watches';
     cErrorInsight = 'Error Insight';
     cAutoInvokeOnParameterInsight = 'AutoInvokeCompletionOnParameterInsight';
+    /// <summary>„Reservierte Wörter anzeigen“ (Startwert von „Reservierte Wörter in der Liste zeigen“, CI-OPT).
+    /// </summary>
+    cShowReservedWords = 'Show Reserved Words';
+    /// <summary>Funktionen, die die IDE selbst ausführt (Blockvervollständigung, Vorlagen; CI-OPT): dpcc übernimmt sie
+    /// unter Delphi 13 einmal aus dem Satz von DelphiLSP in den Satz von dpcc, wo sie dort fehlen.</summary>
+    cAutoBlockCompletion = 'Auto-block Completion';
+    cBlockWrapStyle = 'Block Wrap Style';
+    cCodeTemplates = 'Code Templates';
+    cAutoCompleteTemplates = 'Auto Complete Templates';
+    cSyncEditHints = 'Sync Edit Hints';
   public
     class function ProviderOf(const AId: string): TDpccIdeProvider; static;
     /// <summary>Ort der Schalter eines Anbieters: Code Insight\Borland.EditOptions.&lt;AId&gt;.</summary>
     class function ProviderKey(const AId: string): string; static;
     /// <summary>Schlüssel, deren Code-Insight-Werte die IDE-Schicht lesen soll (ohne Doppel).</summary>
     class function KeysToRead(const AProviderId: string): TArray<string>; static;
-    /// <summary>Wertnamen unter Code Insight\…, die die Regeln brauchen.</summary>
+    /// <summary>Wertnamen unter Code Insight\…, die die Regeln, die Startwerte (TDpccIdeStartValues) und die Übernahme
+    /// der IDE-Funktionen (TDpccIdeContext.FeatureCopies) brauchen.</summary>
     class function CodeInsightValueNames: TArray<string>; static;
+    /// <summary>Die Funktionen der IDE, die dpcc unter Delphi 13 in den Satz von dpcc übernimmt (CI-OPT).</summary>
+    class function FeatureValueNames: TArray<string>; static;
     /// <summary>Ort, den die IDE für den gewählten Anbieter liest (siehe Kopf der Unit).</summary>
     class function ActiveKey(const AInput: TDpccIdeCheckInput): string; static;
     /// <summary>Orte der Code-Insight-Schalter in der Betriebsart dpcc (siehe Kopf der Unit): unter Delphi 12, 13 und
@@ -289,7 +313,17 @@ type
   public const
     /// <summary>Anfang der Merker-Namen: "IdeSet &lt;Version&gt; &lt;Schlüssel&gt;\&lt;Wert&gt;".</summary>
     cMarkerPrefix = 'IdeSet ';
+    /// <summary>Erste Hauptversion, deren IDE für dpcc den Satz Borland.EditOptions.Pascal liest (Delphi 13, gemessen
+    /// am 28.11.2026); nur dort übernimmt FeatureCopies die Funktionen der IDE.</summary>
+    cFeatureCopyVersion = 37;
   public
+    /// <summary>Funktionen der IDE in den Satz von dpcc (CI-OPT; Startweg, nicht Teil von Plan): nur unter Delphi 13
+    /// (Hauptversion ab cFeatureCopyVersion) und nur in der Betriebsart Plugin (AMode, wie der Plan beim Start sie
+    /// ergibt) je ein Schreiben nach TDpccIdeCheck.cPascalKey für jeden Wert aus TDpccIdeCheck.FeatureValueNames, der
+    /// dort fehlt und im Satz von DelphiLSP (cLspKey) steht, mit dessen Wert. Gibt es cPascalKey nicht, nichts (kein
+    /// Schlüssel wird angelegt). Ohne Merker: Der Wert gehört danach dem Nutzer, kein Rückweg.</summary>
+    class function FeatureCopies(const AInput: TDpccIdeCheckInput; AMode: TDpccOperatingMode): TArray<TDpccIdeWrite>;
+      static;
     /// <summary>Werte, die dpcc in der Betriebsart dpcc setzt, nach den dpcc-Einstellungen in AInput.Dpcc (der
     /// Hauptschalter selbst zählt nicht): Anbieter = dpcc; an jedem Ort aus TDpccIdeCheck.DpccKeys(AInput) Auto Code
     /// Completions = True, Auto Invoke = True, Auto Invoke Delay = -1, Auto Code Parameters = True, bei eigenem
@@ -323,6 +357,28 @@ type
     /// <summary>Statuszeilen für die Optionsseite (aktuelle Sprache): Betriebsart und Anbieter, was dpcc gesetzt
     /// hat, Ergebnis der Prüfung.</summary>
     class function StatusText(const AInput: TDpccIdeCheckInput): string; static;
+  end;
+
+  /// <summary>Startwerte der Schalter „Nach dem Punkt automatisch öffnen“ und „Reservierte Wörter in der Liste
+  /// zeigen“ (CI-OPT): einmal nach dem Update aus dem Satz von DelphiLSP (TDpccIdeCheck.cLspKey) der laufenden Version
+  /// unter ihrem Basisschlüssel (auch mit eigenem Profil, bds -r), danach nie wieder.</summary>
+  TDpccIdeStartValues = class
+  public
+    /// <summary>Wert des Nutzers für AName im Satz von DelphiLSP: Steht dafür ein Merker „IdeSet“ und der Wert noch
+    /// so, wie dpcc ihn schrieb (oder fehlt er), gilt der gemerkte Wert davor (ohne Wert davor ADefault); sonst der
+    /// gelesene Wert; fehlt er, ADefault.</summary>
+    class function UserFlag(const AInput: TDpccIdeCheckInput; const AName: string; ADefault: Boolean): Boolean;
+      static;
+    /// <summary>„Nach dem Punkt“: Auto Code Completions und Auto Invoke (je fehlend = an, Vorgabe der IDE).</summary>
+    class function OpenAfterDot(const AInput: TDpccIdeCheckInput): Boolean; static;
+    /// <summary>„Reservierte Wörter“: Show Reserved Words (fehlend = an).</summary>
+    class function ShowKeywords(const AInput: TDpccIdeCheckInput): Boolean; static;
+    /// <summary>Einmalige Übernahme: Für jeden der beiden Schalter ohne Merker „übernommen“ den Startwert aus AInput
+    /// setzen (stand schon ein eigener Wert im Speicher, bleibt er) und den Merker setzen. Ohne Basisschlüssel (keine
+    /// IDE) nichts. Liefert je übernommenem Schalter eine Angabe fürs Protokoll (nie übersetzt); leer = nichts zu
+    /// speichern.</summary>
+    class function Adopt(const AInput: TDpccIdeCheckInput; var ASettings: TDpccPluginSettings): TArray<string>;
+      static;
   end;
 
 implementation
@@ -911,6 +967,8 @@ begin
 end;
 
 class function TDpccIdeCheck.CodeInsightValueNames: TArray<string>;
+var
+  mName: string;
 begin
   Result := nil;
   AddName(Result, cAutoCodeCompletions);
@@ -921,6 +979,17 @@ begin
   AddName(Result, cHelpInsight);
   AddName(Result, cToolTipWatches);
   AddName(Result, cErrorInsight);
+  // CI-OPT: Startwert der reservierten Wörter und die Funktionen der IDE (nur gelesen, Evaluate prüft sie nicht).
+  AddName(Result, cShowReservedWords);
+  for mName in FeatureValueNames do
+  begin
+    AddName(Result, mName);
+  end;
+end;
+
+class function TDpccIdeCheck.FeatureValueNames: TArray<string>;
+begin
+  Result := [cAutoBlockCompletion, cBlockWrapStyle, cCodeTemplates, cAutoCompleteTemplates, cSyncEditHints];
 end;
 
 /// <summary>Orte in der Reihenfolge, in der ActiveKey sie versucht; der erste ist der Ersatz, wenn keiner da ist.
@@ -1596,6 +1665,37 @@ begin
   end;
 end;
 
+class function TDpccIdeContext.FeatureCopies(const AInput: TDpccIdeCheckInput;
+  AMode: TDpccOperatingMode): TArray<TDpccIdeWrite>;
+var
+  mName: string;
+  mValue, mExisting: TDpccIdeRegValue;
+  mWrite: TDpccIdeWrite;
+begin
+  Result := nil;
+  // Delphi 12 liest für dpcc keinen Satz der Registry (gemessen am 28.11.2026): dort wäre jedes Schreiben wirkungslos.
+  if (AMode <> TDpccOperatingMode.Plugin) or
+    (TDpccCodeInsightKeys.MajorVersion(AInput.BaseKey) < cFeatureCopyVersion) or
+    not AInput.HasKey(TDpccIdeCheck.cPascalKey) then
+  begin
+    Exit;
+  end;
+  for mName in TDpccIdeCheck.FeatureValueNames do
+  begin
+    // Nur in eine Lücke: Ein vorhandener Wert gehört dem Nutzer (oder der IDE), auch wenn er von DelphiLSP abweicht.
+    if AInput.TryGet(TDpccIdeCheck.cPascalKey, mName, mExisting) or
+      not AInput.TryGet(TDpccIdeCheck.cLspKey, mName, mValue) then
+    begin
+      Continue;
+    end;
+    mWrite := Default(TDpccIdeWrite);
+    mWrite.Key := TDpccIdeCheck.cPascalKey;
+    mWrite.Name := mName;
+    mWrite.Value := mValue.Value;
+    Result := Result + [mWrite];
+  end;
+end;
+
 class function TDpccIdeContext.MarkerName(const ABaseKey, AKey, AName: string): string;
 begin
   Result := cMarkerPrefix + TDpccCodeInsightKeys.VersionText(ABaseKey) + ' ' + AKey + '\' + AName;
@@ -1876,6 +1976,90 @@ begin
   end;
   AInput.Dpcc.Enabled := Enabled;
   AInput.Dpcc.Mode := OperatingMode;
+end;
+
+{ TDpccIdeStartValues }
+
+class function TDpccIdeStartValues.UserFlag(const AInput: TDpccIdeCheckInput; const AName: string;
+  ADefault: Boolean): Boolean;
+var
+  mValue, mOriginal: TDpccIdeRegValue;
+  mExists: Boolean;
+  mMarker: TDpccIdeMarker;
+begin
+  mExists := AInput.TryGet(TDpccIdeCheck.cLspKey, AName, mValue);
+  // Von dpcc gesetzt (Betriebsart Plugin oder Server) und seither nicht geändert: Der Wert gehört dpcc, der des
+  // Nutzers steht im Merker. Hat der Nutzer oder die IDE ihn seither geändert, gilt der gelesene Wert.
+  if AInput.TryGetMarker(TDpccIdeCheck.cLspKey, AName, mMarker) and
+    (not mExists or TDpccIdeContext.Matches(True, mValue, mMarker.Written, TDpccIdeValueKind.Flag)) then
+  begin
+    if not mMarker.OriginalExists then
+    begin
+      Exit(ADefault);
+    end;
+    mOriginal := Default(TDpccIdeRegValue);
+    mOriginal.Value := mMarker.Original;
+    Exit(FlagOf(mOriginal, ADefault));
+  end;
+  if not mExists then
+  begin
+    Exit(ADefault);
+  end;
+  Result := FlagOf(mValue, ADefault);
+end;
+
+class function TDpccIdeStartValues.OpenAfterDot(const AInput: TDpccIdeCheckInput): Boolean;
+begin
+  // Die IDE öffnet nach „.“ nur, wenn beide an sind.
+  Result := UserFlag(AInput, TDpccIdeCheck.cAutoCodeCompletions, True) and
+    UserFlag(AInput, TDpccIdeCheck.cAutoInvoke, True);
+end;
+
+class function TDpccIdeStartValues.ShowKeywords(const AInput: TDpccIdeCheckInput): Boolean;
+begin
+  Result := UserFlag(AInput, TDpccIdeCheck.cShowReservedWords, True);
+end;
+
+class function TDpccIdeStartValues.Adopt(const AInput: TDpccIdeCheckInput;
+  var ASettings: TDpccPluginSettings): TArray<string>;
+begin
+  Result := nil;
+  // Ohne IDE (kein Basisschlüssel) gibt es nichts zu lesen; der nächste Start versucht es erneut.
+  if AInput.BaseKey = '' then
+  begin
+    Exit;
+  end;
+  if not ASettings.OpenAfterDotAdopted then
+  begin
+    if ASettings.OpenAfterDotStored then
+    begin
+      Result := Result + [TDpccPluginSettings.cOpenAfterDotName + ' = ' + SwitchText(ASettings.OpenAfterDot) +
+        ' (eigener Wert)'];
+    end
+    else
+    begin
+      ASettings.OpenAfterDot := OpenAfterDot(AInput);
+      Result := Result + [TDpccPluginSettings.cOpenAfterDotName + ' = ' + SwitchText(ASettings.OpenAfterDot) +
+        ' (IDE: ' + TDpccIdeCheck.cAutoCodeCompletions + ' und ' + TDpccIdeCheck.cAutoInvoke + ')'];
+    end;
+    ASettings.OpenAfterDotAdopted := True;
+  end;
+  if not ASettings.KeywordsAdopted then
+  begin
+    // Ein Wert completion.keywords in settings.json stand schon vor dem Schalter: Er gilt weiter.
+    if ASettings.KeywordsStored then
+    begin
+      Result := Result + [TDpccPluginSettings.cKeywordsName + ' = ' + SwitchText(ASettings.ShowKeywords) +
+        ' (eigener Wert)'];
+    end
+    else
+    begin
+      ASettings.ShowKeywords := ShowKeywords(AInput);
+      Result := Result + [TDpccPluginSettings.cKeywordsName + ' = ' + SwitchText(ASettings.ShowKeywords) +
+        ' (IDE: ' + TDpccIdeCheck.cShowReservedWords + ')'];
+    end;
+    ASettings.KeywordsAdopted := True;
+  end;
 end;
 
 initialization

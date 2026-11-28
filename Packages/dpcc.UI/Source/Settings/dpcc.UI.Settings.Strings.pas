@@ -6,7 +6,9 @@
 // Seit OPT1 nur noch die Texte der einen Seite „dpcc“: Hauptschalter, vier Abschnitte, dreizehn Optionen (seit LOOK1
 // mit „Darstellung der Popups“), zwei Knöpfe
 // und die Meldungen von „Index neu aufbauen“; seit IDECHECK der Abschnitt „IDE“ mit „Jetzt prüfen“, seit LOG1 dort
-// „Ablauf protokollieren (Log)“ samt Hint und den Zeilen im Meldungsfenster. Texte der Reiter, des Baums, der Suche, des Filters, der
+// „Ablauf protokollieren (Log)“ samt Hint und den Zeilen im Meldungsfenster; seit CI-OPT im Abschnitt
+// Vervollständigung „Nach dem Punkt automatisch öffnen“ und „Reservierte Wörter in der Liste zeigen“ samt Hint.
+// Texte der Reiter, des Baums, der Suche, des Filters, der
 // Geändert-Markierung, der experimentellen Funktionen, der Favoritenliste und der fest verdrahteten Optionen sind
 // entfallen.
 
@@ -39,7 +41,10 @@ type
     // Betriebsart statt Hauptschalter (Stufe 2 von dpcc.LspServer.exe): je Art Beschriftung und erklärender Satz, in
     // der Reihenfolge von TDpccOperatingMode; Hinweis, wenn dpcc.LspServer.exe fehlt, und Hint mit ihrem Ort.
     SettingsModeOff, SettingsModePlugin, SettingsModeServer, SettingsModeOffInfo, SettingsModePluginInfo,
-    SettingsModeServerInfo, SettingsModeServerMissing, SettingsModeServerFile);
+    SettingsModeServerInfo, SettingsModeServerMissing, SettingsModeServerFile,
+    // Vervollständigung (CI-OPT): nach „.“ von selbst öffnen und reservierte Wörter in der Liste, je mit Hint (ab
+    // wann der Schalter wirkt).
+    SettingsOpenAfterDot, SettingsOpenAfterDotHint, SettingsKeywords, SettingsKeywordsHint);
 
   TDpccSettingsStrings = class
   public
@@ -110,7 +115,13 @@ const
      'von oder zu Plugin wirkt nach dem Neustart von Delphi, zwischen Aus und Server beim nächsten Öffnen einer ' +
      'Projektgruppe; die vier Optionen liest die IDE aber erst beim nächsten Start von Delphi.',
      'Nicht wählbar: dpcc.LspServer.exe ist nicht installiert (im Setup die Komponente „LSP-Server“ wählen).',
-     'Programm: %s'),
+     'Programm: %s',
+     'Nach dem Punkt automatisch öffnen',
+     'Aus: Nach „.“ öffnet die Liste nicht von selbst; Strg+Leertaste öffnet sie weiter. Wirkt nach OK ohne ' +
+     'Neustart.',
+     'Reservierte Wörter in der Liste zeigen',
+     'Schlüsselwörter wie begin, if oder procedure, passend zur Stelle und erst ab einem getippten Zeichen, nie ' +
+     'nach „.“. Liegt als completion.keywords in settings.json; wirkt nach OK ohne Neustart ab der nächsten Liste.'),
     ('Mode',
      'Completion',
      'When accepting',
@@ -165,7 +176,14 @@ const
      'restarting Delphi, between Off and Server the next time a project group is opened; the IDE reads the four ' +
      'options only at the next start of Delphi, though.',
      'Not available: dpcc.LspServer.exe is not installed (select the component “LSP server” in the setup).',
-     'Program: %s'));
+     'Program: %s',
+     'Open automatically after the dot',
+     'Off: the list does not open by itself after “.”; Ctrl+Space still opens it. Takes effect after OK without a ' +
+     'restart.',
+     'Show reserved words in the list',
+     'Keywords such as begin, if or procedure, depending on the position and only after a typed character, never ' +
+     'after “.”. Stored as completion.keywords in settings.json; takes effect after OK without a restart, from the ' +
+     'next list on.'));
 
 { TDpccSettingsStrings }
 

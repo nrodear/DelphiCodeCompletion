@@ -1,8 +1,9 @@
 ﻿unit dpcc.Core.Settings.Scopes;
 
-// Wo die Plugin-Einstellungen liegen (#227): fast alle in der Registry (HKCU\Software\dpcc\IdePlugin), zwei in
+// Wo die Plugin-Einstellungen liegen (#227): fast alle in der Registry (HKCU\Software\dpcc\IdePlugin), drei in
 // %APPDATA%\dpcc\settings.json, weil der Server sie aus derselben Datei liest:
 // - index.extraSourceFolders (L2, Text mit ";"): Option der Seite „dpcc“, gelesen und geschrieben;
+// - completion.keywords (CI-OPT, true/false): „Reservierte Wörter in der Liste zeigen“, gelesen und geschrieben;
 // - hints.xmlDocMaxLines: nur gelesen; über settings.json einstellbar, dpcc schreibt den Wert nicht.
 // TDpccRoutedSettingsStore leitet diese Namen in den Text von settings.json um, alle übrigen in die Registry. Steht
 // ein umgeleiteter Wert noch nicht in der Datei, gilt ein alter Registry-Wert (aus der Zeit vor der Umleitung), sonst
@@ -105,7 +106,10 @@ begin
     // denselben Wert.
     ReadOnlySetting('XmlDocMaxLines', 'hints.xmlDocMaxLines', False),
     // L2: zusätzliche Quellordner (Text mit ";"); der Server liest denselben Wert.
-    TextSetting('IndexExtraSourceFolders', 'index.extraSourceFolders')];
+    TextSetting('IndexExtraSourceFolders', 'index.extraSourceFolders'),
+    // CI-OPT: „Reservierte Wörter in der Liste zeigen“ (true/false); der Server filtert damit seine Liste (ListCase)
+    // und liest die Datei neu, sobald sie sich ändert.
+    Setting(TDpccPluginSettings.cKeywordsName, 'completion.keywords', True)];
 end;
 
 class function TDpccSettingsScopes.TryRouted(const AName: string; out ASetting: TDpccRoutedSetting): Boolean;

@@ -8,7 +8,8 @@
 // Abschnitt IDE mit „Jetzt prüfen“ und den Statuszeilen (OnIdeStatus). Seit LOOK1 dreizehn Optionen: zuletzt im
 // Abschnitt Parameter-Hint und Tooltip die Auswahl „Darstellung der Popups“ (Intensiv, Dezent, Unscheinbar). Seit LOG1
 // vierzehn Optionen: zuletzt im Abschnitt IDE das Häkchen „Ablauf protokollieren (Log)“ (Diagnose), nicht am
-// Hauptschalter, mit der Protokolldatei im Hint.
+// Hauptschalter, mit der Protokolldatei im Hint. Seit CI-OPT sechzehn Optionen: im Abschnitt Vervollständigung zuerst
+// „Nach dem Punkt automatisch öffnen“ und vor dem Lernen „Reservierte Wörter in der Liste zeigen“, je mit Hint.
 
 interface
 
@@ -22,10 +23,18 @@ type
     /// <summary>Einmalige Belegungen der VCL (Stil, Schriften) vor der Leckmessung der Tests.</summary>
     [SetupFixture]
     procedure Prewarm;
-    /// <summary>Genau Hauptschalter, (seit LOG1) vierzehn Optionen und drei Knöpfe, in der Reihenfolge der Seite und
+    /// <summary>Genau Hauptschalter, (seit CI-OPT) sechzehn Optionen und drei Knöpfe, in der Reihenfolge der Seite und
     /// unter der richtigen Überschrift; fünf Überschriften in Großbuchstaben.</summary>
     [Test]
-    procedure PageHasFourteenOptionsAndThreeButtonsInSections;
+    procedure PageHasSixteenOptionsAndThreeButtonsInSections;
+    /// <summary>CI-OPT: „Nach dem Punkt automatisch öffnen“ und „Reservierte Wörter in der Liste zeigen“ (englisch
+    /// „Open automatically after the dot“, „Show reserved words in the list“) als Häkchen im Abschnitt
+    /// Vervollständigung; Vorgabe an; Hint sagt, ab wann sie wirken; geladen und gespeichert über OpenAfterDot und
+    /// ShowKeywords; grau außerhalb der Betriebsart Plugin.</summary>
+    [Test]
+    [TestCase('Deutsch', 'False')]
+    [TestCase('Englisch', 'True')]
+    procedure CompletionSwitchesCheckBoxes(AEnglish: Boolean);
     /// <summary>LOG1: „Ablauf protokollieren (Log)“ (englisch „Log the flow (log file)“) als Häkchen zuletzt im
     /// Abschnitt IDE; Vorgabe aus, geladen und gespeichert über TDpccPluginSettings.Diagnose; hängt nicht am
     /// Hauptschalter; der Hint nennt die Datei, sobald die IDE-Schicht sie setzt.</summary>
@@ -137,14 +146,15 @@ begin
   TDpccStrings.Language := Low(TDpccLanguage);
 end;
 
-procedure TDpccSettingsPageTests.PageHasFourteenOptionsAndThreeButtonsInSections;
+procedure TDpccSettingsPageTests.PageHasSixteenOptionsAndThreeButtonsInSections;
 const
-  cNames: array[0..17] of string = ('OperatingMode', 'AutoMinChars', 'CompletionListMode', 'VisibleRows', 'ListWidth',
-    'Learning', 'ResetHistory', 'AutoParentheses', 'CommitCharacters', 'AutoUses', 'ParameterHints', 'HoverTooltip',
-    'DebugHoverValues', 'PopupLook', 'IndexExtraSourceFolders', 'RebuildIndex', 'CheckIde', 'Diagnose');
-  cSections: array[0..17] of TDpccPageSection = (psMaster, psCompletion, psCompletion, psCompletion, psCompletion,
-    psCompletion, psCompletion, psCommit, psCommit, psCommit, psHints, psHints, psHints, psHints, psIndex, psIndex,
-    psIde, psIde);
+  cNames: array[0..19] of string = ('OperatingMode', 'OpenAfterDot', 'AutoMinChars', 'CompletionListMode',
+    'VisibleRows', 'ListWidth', 'CompletionKeywords', 'Learning', 'ResetHistory', 'AutoParentheses',
+    'CommitCharacters', 'AutoUses', 'ParameterHints', 'HoverTooltip', 'DebugHoverValues', 'PopupLook',
+    'IndexExtraSourceFolders', 'RebuildIndex', 'CheckIde', 'Diagnose');
+  cSections: array[0..19] of TDpccPageSection = (psMaster, psCompletion, psCompletion, psCompletion, psCompletion,
+    psCompletion, psCompletion, psCompletion, psCompletion, psCommit, psCommit, psCommit, psHints, psHints, psHints,
+    psHints, psIndex, psIndex, psIde, psIde);
   cTitles: array[TDpccPageSection] of string = ('', 'VERVOLLSTÄNDIGUNG', 'BEIM ÜBERNEHMEN',
     'PARAMETER-HINT UND TOOLTIP', 'INDEX', 'IDE');
 var
@@ -204,10 +214,12 @@ begin
       end;
       Assert.AreEqual(Ord(mEntry.Item.Section), Ord(mFound), cNames[mIndex] + ': unter der Überschrift');
     end;
-    Assert.AreEqual(14, mOptions, 'Optionen');
+    Assert.AreEqual(16, mOptions, 'Optionen');
     Assert.AreEqual(3, mButtons, 'Knöpfe');
     // Art der Elemente.
     Assert.IsTrue(mPage.ControlOf('OperatingMode') = mPage.ModeButton[TDpccOperatingMode.Plugin], 'Betriebsart');
+    Assert.IsTrue(mPage.ControlOf('OpenAfterDot') = mPage.OpenAfterDot, 'Nach dem Punkt');
+    Assert.IsTrue(mPage.ControlOf('CompletionKeywords') = mPage.Keywords, 'Reservierte Wörter');
     Assert.IsTrue(mPage.ControlOf('Diagnose') = mPage.DiagnoseLog, 'Ablauf protokollieren');
     Assert.IsTrue(mPage.ControlOf('PopupLook') = mPage.PopupLookChoice, 'Darstellung der Popups');
     Assert.IsTrue(mPage.ControlOf('ListWidth') = mPage.AutoWidth, 'Breite automatisch');
@@ -393,6 +405,8 @@ begin
   // Alle Werte der Seite abweichend von der Vorgabe.
   mLoaded := TDpccPluginSettings.Defaults;
   mLoaded.Mode := TDpccOperatingMode.Server;
+  mLoaded.OpenAfterDot := False;
+  mLoaded.ShowKeywords := False;
   mLoaded.AutoMinChars := 4;
   mLoaded.CompletionListMode := 'rest';
   mLoaded.VisibleRows := 13;
@@ -411,6 +425,8 @@ begin
   try
     mPage.LoadFrom(mLoaded);
     Assert.IsTrue(mPage.DiagnoseLog.Checked, 'Ablauf protokollieren');
+    Assert.IsFalse(mPage.OpenAfterDot.Checked, 'Nach dem Punkt');
+    Assert.IsFalse(mPage.Keywords.Checked, 'Reservierte Wörter');
     Assert.AreEqual(4, mPage.AutoMinCharsChoice.Choice, 'Auswahl ab Zeichen');
     Assert.AreEqual(Ord(TDpccLookLevel.Plain), mPage.PopupLookChoice.Choice, 'Darstellung der Popups');
     Assert.AreEqual(13 - TDpccPluginSettings.cMinVisibleRows, mPage.VisibleRowsChoice.Choice, 'Auswahl Zeilen');
@@ -424,6 +440,8 @@ begin
     mPage.SaveTo(mTarget);
     Assert.AreEqual(Ord(TDpccOperatingMode.Server), Ord(mTarget.Mode), 'Betriebsart');
     Assert.IsFalse(mTarget.Enabled, 'Enabled');
+    Assert.IsFalse(mTarget.OpenAfterDot, 'OpenAfterDot');
+    Assert.IsFalse(mTarget.ShowKeywords, 'ShowKeywords');
     Assert.AreEqual(4, mTarget.AutoMinChars, 'AutoMinChars');
     Assert.AreEqual('rest', mTarget.CompletionListMode, 'CompletionListMode');
     Assert.AreEqual(13, mTarget.VisibleRows, 'VisibleRows');
@@ -445,6 +463,7 @@ begin
     mTarget := mLoaded;
     mPage.SaveTo(mTarget);
     Assert.IsTrue(mTarget.Enabled, 'Enabled Vorgabe');
+    Assert.IsTrue(mTarget.OpenAfterDot and mTarget.ShowKeywords, 'Vorgabe der beiden Schalter an');
     Assert.AreEqual(TDpccPluginSettings.Defaults.AutoMinChars, mTarget.AutoMinChars, 'AutoMinChars Vorgabe');
     Assert.AreEqual(TDpccPluginSettings.Defaults.VisibleRows, mTarget.VisibleRows, 'VisibleRows Vorgabe');
     Assert.AreEqual(TDpccPluginSettings.Defaults.CompletionListMode, mTarget.CompletionListMode, 'Listenmodus');
@@ -910,9 +929,12 @@ begin
     // Passt ohne Rollen in einen Bereich üblicher Größe (bei 96 dpi etwa 640 Punkte hoch und 520 breit; seit IDECHECK
     // mit dem Abschnitt IDE, vorher 500; seit LOOK1 mit der Zeile „Darstellung der Popups“, vorher 580; seit LOG1 mit
     // der Zeile „Ablauf protokollieren (Log)“, vorher 610; seit der Betriebsart mit drei Optionsfeldern samt
-    // erklärenden Sätzen und dem Hinweis zur fehlenden dpcc.LspServer.exe 900, vorher 640). Der Bereich der IDE rollt,
-    // wenn er kleiner ist.
-    Assert.IsTrue(mPage.Height <= mPage.ScaleValue(900), 'Höhe ' + IntToStr(mPage.Height));
+    // erklärenden Sätzen und dem Hinweis zur fehlenden dpcc.LspServer.exe 900, vorher 640; seit CI-OPT mit zwei
+    // Zeilen mehr im Abschnitt Vervollständigung 950). Der Bereich der IDE rollt, wenn er kleiner ist.
+    Assert.IsTrue(mPage.Height <= mPage.ScaleValue(950), 'Höhe ' + IntToStr(mPage.Height));
+    // CI-OPT: die beiden Häkchen eingerückt wie die übrigen Optionen.
+    Assert.AreEqual(mPage.ControlOf('Learning').Left, mPage.OpenAfterDot.Left, 'Einrückung Nach dem Punkt');
+    Assert.AreEqual(mPage.ControlOf('Learning').Left, mPage.Keywords.Left, 'Einrückung Reservierte Wörter');
     // Die Sätze der Betriebsart brechen in der Breite der Seite um, nicht in einer schmalen Ersatzbreite.
     Assert.IsTrue(mPage.ModeButton[TDpccOperatingMode.Server].Parent.Height <= mPage.ScaleValue(300),
       'Zeile der Betriebsart ' + IntToStr(mPage.ModeButton[TDpccOperatingMode.Server].Parent.Height));
@@ -920,6 +942,77 @@ begin
     Assert.AreEqual(mPage.ControlOf('Learning').Left, mPage.DiagnoseLog.Left, 'Einrückung Ablauf protokollieren');
     Assert.IsTrue(mPage.ResetHistory.Left + mPage.ResetHistory.Width <= mPage.ScaleValue(520),
       'Breite der Lernen-Zeile ' + IntToStr(mPage.ResetHistory.Left + mPage.ResetHistory.Width));
+  finally
+    mPage.Free;
+    TDpccStrings.Language := Low(TDpccLanguage);
+  end;
+end;
+
+procedure TDpccSettingsPageTests.CompletionSwitchesCheckBoxes(AEnglish: Boolean);
+var
+  mPage: TDpccSettingsPage;
+  mSettings: TDpccPluginSettings;
+  mFirst: TDpccSettingsPageEntry;
+begin
+  if AEnglish then
+  begin
+    TDpccStrings.Language := High(TDpccLanguage);
+  end
+  else
+  begin
+    TDpccStrings.Language := Low(TDpccLanguage);
+  end;
+  mPage := TDpccSettingsPage.Create(nil);
+  try
+    // Lage: „Nach dem Punkt“ erste Option des Abschnitts Vervollständigung, „Reservierte Wörter“ direkt vor dem
+    // Lernen.
+    mFirst := mPage.Entries[1];
+    Assert.AreEqual('OpenAfterDot', mFirst.Item.Name, 'erste Option');
+    Assert.AreEqual(Ord(psCompletion), Ord(mFirst.Item.Section), 'Abschnitt');
+    Assert.IsTrue(mFirst.Control = mPage.OpenAfterDot, 'Häkchen');
+    Assert.IsTrue(mPage.Keywords.Parent.Top < mPage.ControlOf('Learning').Parent.Top, 'vor dem Lernen');
+    Assert.IsTrue(mPage.Keywords.Parent.Top > mPage.AutoWidth.Parent.Top, 'nach den sichtbaren Zeilen');
+    if AEnglish then
+    begin
+      Assert.AreEqual('Open automatically after the dot', mPage.OpenAfterDot.Caption, 'Beschriftung');
+      Assert.AreEqual('Show reserved words in the list', mPage.Keywords.Caption, 'Beschriftung');
+      Assert.IsTrue(ContainsText(mPage.OpenAfterDot.Hint, 'without a restart'), mPage.OpenAfterDot.Hint);
+      Assert.IsTrue(ContainsText(mPage.Keywords.Hint, 'completion.keywords'), mPage.Keywords.Hint);
+    end
+    else
+    begin
+      Assert.AreEqual('Nach dem Punkt automatisch öffnen', mPage.OpenAfterDot.Caption, 'Beschriftung');
+      Assert.AreEqual('Reservierte Wörter in der Liste zeigen', mPage.Keywords.Caption, 'Beschriftung');
+      Assert.IsTrue(ContainsText(mPage.OpenAfterDot.Hint, 'ohne Neustart'), mPage.OpenAfterDot.Hint);
+      Assert.IsTrue(ContainsText(mPage.OpenAfterDot.Hint, 'Strg+Leertaste'), mPage.OpenAfterDot.Hint);
+      Assert.IsTrue(ContainsText(mPage.Keywords.Hint, 'completion.keywords'), mPage.Keywords.Hint);
+      Assert.IsTrue(ContainsText(mPage.Keywords.Hint, 'ohne Neustart'), mPage.Keywords.Hint);
+    end;
+    Assert.IsTrue(mPage.OpenAfterDot.ShowHint and mPage.Keywords.ShowHint, 'Hint an');
+    // Vorgabe an; geladen und gespeichert.
+    mPage.LoadFrom(TDpccPluginSettings.Defaults);
+    Assert.IsTrue(mPage.OpenAfterDot.Checked and mPage.Keywords.Checked, 'Vorgabe an');
+    mSettings := TDpccPluginSettings.Defaults;
+    mSettings.OpenAfterDot := False;
+    mPage.LoadFrom(mSettings);
+    Assert.IsFalse(mPage.OpenAfterDot.Checked, 'geladen aus');
+    Assert.IsTrue(mPage.Keywords.Checked, 'unabhängig');
+    mPage.OpenAfterDot.Checked := True;
+    mPage.Keywords.Checked := False;
+    mPage.SaveTo(mSettings);
+    Assert.IsTrue(mSettings.OpenAfterDot, 'gespeichert an');
+    Assert.IsFalse(mSettings.ShowKeywords, 'gespeichert aus');
+    // Merker der Übernahme zeigt die Seite nicht; SaveTo lässt sie stehen.
+    mSettings.OpenAfterDotAdopted := True;
+    mPage.SaveTo(mSettings);
+    Assert.IsTrue(mSettings.OpenAfterDotAdopted, 'Merker bleibt');
+    // Gesperrt außerhalb der Betriebsart Plugin, wie die übrigen Optionen.
+    mPage.Mode := TDpccOperatingMode.Off;
+    Assert.IsFalse(mPage.OpenAfterDot.Enabled or mPage.Keywords.Enabled, 'Aus: grau');
+    mPage.Mode := TDpccOperatingMode.Server;
+    Assert.IsFalse(mPage.OpenAfterDot.Enabled or mPage.Keywords.Enabled, 'Server: grau');
+    mPage.Mode := TDpccOperatingMode.Plugin;
+    Assert.IsTrue(mPage.OpenAfterDot.Enabled and mPage.Keywords.Enabled, 'Plugin: frei');
   finally
     mPage.Free;
     TDpccStrings.Language := Low(TDpccLanguage);

@@ -7,7 +7,10 @@
 //   mit zwölf Optionen und zwei Knöpfen; seit IDECHECK zuletzt der Abschnitt IDE mit dem Knopf „Jetzt prüfen“
 //   (Statuszeilen zur Betriebsart, keine Einstellung); seit LOOK1 als dreizehnte Option „Darstellung der Popups“
 //   (PopupLook) zuletzt im Abschnitt Parameter-Hint und Tooltip; seit LOG1 als vierzehnte Option „Ablauf
-//   protokollieren (Log)“ (Diagnose, derselbe Registry-Wert wie das frühere Diagnose = 1) zuletzt im Abschnitt IDE.
+//   protokollieren (Log)“ (Diagnose, derselbe Registry-Wert wie das frühere Diagnose = 1) zuletzt im Abschnitt IDE;
+//   seit CI-OPT sechzehn Optionen: im Abschnitt Vervollständigung zuerst „Nach dem Punkt automatisch öffnen“
+//   (OpenAfterDot) und vor dem Lernen „Reservierte Wörter in der Liste zeigen“ (CompletionKeywords,
+//   completion.keywords in settings.json).
 //   Die Seite (dpcc.UI.Settings.Page) baut genau diese Liste, und TDpccPluginSettings speichert genau diese Optionen;
 //   die Tests prüfen beides gegeneinander.
 // - TDpccFixedSettings: Optionen, die es seit OPT1 nicht mehr auf der Seite gibt, gelten mit ihrer bisherigen Vorgabe.
@@ -46,15 +49,17 @@ const
   /// <summary>Aufbau der Seite „dpcc“ (OPT1): Hauptschalter, dreizehn Optionen in vier Abschnitten (seit LOOK1 mit
   /// „Darstellung der Popups“) und zwei Knöpfe; dazu der Abschnitt IDE mit „Jetzt prüfen“ (IDECHECK) und seit LOG1
   /// „Ablauf protokollieren (Log)“ (Diagnose). ListWidth ist „Breite automatisch“ (0 = automatisch) in der Zeile der
-  /// sichtbaren Zeilen.</summary>
-  cPageItems: array[0..17] of TDpccPageItem = (
+  /// sichtbaren Zeilen. Seit CI-OPT sechzehn Optionen (OpenAfterDot, CompletionKeywords).</summary>
+  cPageItems: array[0..19] of TDpccPageItem = (
     // Seit Stufe 2 von dpcc.LspServer.exe die Betriebsart (Aus, Plugin, Server) statt des Hauptschalters; der Name
     // ohne Version (TDpccOperatingModes.ValueName('')), gespeichert wird je Version „OperatingMode <Version>“.
     (Section: psMaster; Kind: pkSetting; Name: 'OperatingMode'),
+    (Section: psCompletion; Kind: pkSetting; Name: 'OpenAfterDot'),
     (Section: psCompletion; Kind: pkSetting; Name: 'AutoMinChars'),
     (Section: psCompletion; Kind: pkSetting; Name: 'CompletionListMode'),
     (Section: psCompletion; Kind: pkSetting; Name: 'VisibleRows'),
     (Section: psCompletion; Kind: pkSetting; Name: 'ListWidth'),
+    (Section: psCompletion; Kind: pkSetting; Name: 'CompletionKeywords'),
     (Section: psCompletion; Kind: pkSetting; Name: 'Learning'),
     (Section: psCompletion; Kind: pkButton; Name: cPageResetHistory),
     (Section: psCommit; Kind: pkSetting; Name: 'AutoParentheses'),

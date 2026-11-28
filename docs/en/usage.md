@@ -28,7 +28,9 @@ in one of three modes, selected per Delphi version under **Tools › Options ›
 [Settings](settings.md#operating-mode) and [What dpcc changes in the IDE](settings.md#what-dpcc-changes-in-the-ide)):
 
 - **Plugin** (default after installation): dpcc is the provider. The list after “.”, the parameter hint on “(” and
-  “,”, Ctrl+Space, Ctrl+Shift+Space and the tooltip come from dpcc. dpcc sets the IDE switches it needs itself.
+  “,”, Ctrl+Space, Ctrl+Shift+Space and the tooltip come from dpcc. dpcc sets the IDE switches it needs itself. What
+  dpcc handles is on the dpcc page and hidden in the IDE's Code Insight dialog; “Open automatically after the dot”
+  turns the list after “.” off (see [IDE Code Insight](settings.md#ide-code-insight)).
 - **Off**: DelphiLSP is the provider, dpcc shows no windows. If DelphiLSP is selected when Delphi starts, Off applies
   unless Server is selected.
 - **Server**: DelphiLSP stays the provider, and the IDE shows its own windows; the answers come from
@@ -125,8 +127,10 @@ would often have more than a thousand entries for a short start and take noticea
 - Ctrl+Space opens the list immediately as before, with any number of characters.
 - While the list is open (also when opened with Ctrl+Space with fewer characters), each further character only
   filters; typing does not ask again.
-- After “.” the threshold does not apply: the member list comes with the dot as before. The other triggers are
-  unchanged as well (“[”, “(” after a name, “;” and Enter after an accepted constructor).
+- After “.” the threshold does not apply: the member list comes with the dot as before, as long as “Open
+  automatically after the dot” is on (default). With the switch off, only Ctrl+Space opens the list after “.”; this
+  takes effect after OK without a restart. The other triggers are unchanged (“[”, “(” after a name, “;” and Enter
+  after an accepted constructor).
 - Typing opens nothing in comments (including `{$…}`), strings, numbers and in the middle of a word. If the server
   finds nothing (for example in a comment spanning several lines), the list stays closed without a message.
 - In `uses`, after `raise` and in attribute brackets the same threshold applies; as with Ctrl+Space, the server
@@ -218,6 +222,7 @@ What appears depends on the position. The server checks the cases in a fixed ord
 | after `Expression.` | members of the type including inherited ones; for units their interface symbols |
 | after `Expression.` with a known type | in addition postfix templates (see below) |
 | otherwise | all visible names: local, own class, own unit, units from `uses` |
+| from one typed character on (never after “.”) | also keywords depending on the position (`begin`, `if`, `procedure` …); can be turned off with “Show reserved words in the list” (`completion.keywords`, takes effect after OK without a restart from the next list on) |
 | from two typed characters on | also symbols from units that are not yet in `uses`, with “+” and the name of the unit; project units before libraries |
 | in the `uses` section | known units in groups: Project, RTL/VCL, Third party; a hint if a unit is already in the other section; tag “Circular reference” |
 | after `inherited ` | methods of the ancestors; the method with the same name first, with arguments from the own parameters |

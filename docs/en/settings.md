@@ -70,10 +70,12 @@ The three radio buttons and their text on the page:
 
 | Option | Registry value | Key | Default | Effect |
 |---|---|---|---|---|
+| Open automatically after the dot | `OpenAfterDot` | – | on; start value taken once from the IDE (see [After updating](#after-updating)) | After “.” the list opens by itself. Off: dpcc reports no Code Insight to the IDE after “.” (`GetCodeInsightType('.')` returns “none”), no list opens; Ctrl+Space still opens it, the other triggers (“(”, “[”, “<” in XMLDoc, “;” after a constructor) stay. Takes effect after OK immediately, without a restart. Under Delphi 13 the IDE in addition opens after “.” only if Code completion and Auto invoke are on in dpcc's set; dpcc sets both itself in the Plugin mode (see [Switches in the Plugin mode](#switches-in-the-plugin-mode)). Replaces “Auto invoke” in the IDE dialog (see [IDE Code Insight](#ide-code-insight)). Locked outside the Plugin mode. |
 | Open on typing from characters (0 = never): | `AutoMinChars` | `completion.autoMinChars` | 0 | 0 to 10; default 0 = off (as before opening while typing existed), to switch it on set e.g. 5. When you type a name without a dot before it, the list opens only once the word before the cursor has this many characters; below that dpcc does not ask the server. 0 = typing never opens it. Ctrl+Space opens it at any length; nothing changes after “.” and for the other triggers. So that the IDE does not additionally open its own list while typing, dpcc sets `Auto Invoke Delay` = -1 in the Plugin mode (see [below](#what-dpcc-changes-in-the-ide)). See [Usage](usage.md#opening-while-typing). |
 | While typing, show: | `CompletionListMode` | `completion.listMode` | Only matches | “Only matches” (`filter`), “All entries, matches on top” (`all`), “Matches, then the rest dimmed” (`rest`, under the heading “More entries”). Applies to member lists after “.” (fixed). |
 | Visible rows of the list: | `VisibleRows` | `completion.visibleRows` | 9 | 5 to 20 rows. |
 | Automatic width | `ListWidth` | `completion.listWidth` | on (`ListWidth` = 0) | In the same row as “Visible rows of the list”. On: the list grows with the widest entry. Off: the width last dragged (240 to 720). Dragging the right edge of the list also sets the width. |
+| Show reserved words in the list | – | `completion.keywords` | on; start value taken once from the IDE (see [After updating](#after-updating)) | Keywords such as `begin`, `if` or `procedure` in the list, depending on the position and only after a typed character, never after “.”. Off: the server leaves them out. Stored in `%APPDATA%\dpcc\settings.json` under the key the server reads; a value already set there applies and shows on the page. Takes effect after OK without a restart, from the next list on: the server reads the file again as soon as it changes. Because `dpcc.LspServer.exe` reads the same file, the value also applies in the Server mode. Replaces “Show reserved words” in the IDE dialog. Locked outside the Plugin mode. |
 | Frequently and recently chosen entries first | `Learning` | `completion.learning` | on | Learned ranking: accepted entries get a bonus in the ranking. From 5 acceptances on, an entry counts as “frequent”. Stored in `%APPDATA%\dpcc\usage.json`, at most 5,000 entries. |
 | Button “Reset history” | – | – | – | To the right of “Frequently and recently chosen entries first”. Clears the learned ranking immediately; after that the button stays grayed out until the dialog closes. |
 
@@ -179,13 +181,41 @@ These options are no longer on the page. They have fixed values, the former defa
 - New in the **IDE** section: “Log the flow (log file)”. It switches the same diagnostic log as the registry value
   `Diagnose` = 1 that used to be set by hand only, now without a restart. Since then OK also writes `Diagnose`; if you
   set the value by hand, the check box shows as checked.
+- New in the **Completion** section: “Open automatically after the dot” and “Show reserved words in the list”. dpcc
+  hides the matching fields in the IDE's Code Insight dialog (see [IDE Code Insight](#ide-code-insight)).
+- Start values of the two switches: once at the first start after the update in which the Plugin mode applies (in
+  the Off and Server modes dpcc reads and writes nothing for this), from the DelphiLSP set of the running
+  version (`HKCU\<base>\Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal`; with an own profile,
+  `bds -r`, its base key).
+  - “Open automatically after the dot” = `Auto Code Completions` and `Auto Invoke` (both on).
+  - “Show reserved words in the list” = `Show Reserved Words`.
+  - A missing value counts as on.
+  - If there is a marker `IdeSet <version> <key>\<value>` for one of the values, the remembered value from before
+    applies (the user's), not the one dpcc wrote; without a value before, on applies.
+  - If `completion.keywords` was already in `settings.json`, that value applies; dpcc reads nothing from the IDE for
+    it.
+  - After that dpcc never reads the values from the IDE again. The markers `IdeAdopted OpenAfterDot` and
+    `IdeAdopted CompletionKeywords` (DWORD 1, per switch, for all Delphi versions) record this. So the Delphi version
+    that first starts in the Plugin mode provides the start values. The log line reads “Startwerte aus den Code-Insight-Optionen der IDE
+    übernommen (einmalig, …): OpenAfterDot = …; CompletionKeywords = …” (log lines are always German).
+- IDE features in dpcc's set, only under **Delphi 13** and only in the Plugin mode: if `Auto-block Completion`,
+  `Block Wrap Style`, `Code Templates`, `Auto Complete Templates` or `Sync Edit Hints` are missing in
+  `Code Insight\Borland.EditOptions.Pascal`, dpcc takes the value from the DelphiLSP set once at the first start.
+  - Only into gaps: existing values stay, a missing key is not created.
+  - Without an `IdeSet` marker: the value belongs to the user afterwards, Off does not turn it back.
+  - The marker `IdeAdopted 37.0 IdeFeatures` records that this is done, even if nothing was missing. Usually the set is
+    complete; then the log says “IDE-Funktionen: im Satz von dpcc nichts zu übernehmen”.
+- **Delphi 12**: dpcc writes nothing for this. Delphi 12 reads no registry set for dpcc (see
+  [IDE Code Insight](#ide-code-insight)); block completion and templates follow the IDE default there.
+- “Finish incomplete properties” (`Finish properties`) is shared by all providers under `<base>\Class Completion`;
+  dpcc does not touch it.
 
 ## Storage
 
 | Location | Contents |
 |---|---|
-| `HKCU\Software\dpcc\IdePlugin` | all options on the page except `index.extraSourceFolders`. Switches and numbers as DWORD (switches 0/1), choices as text (`CompletionListMode`: `filter`, `all`, `rest`; `PopupLook`: `intense`, `subtle`, `plain`; the operating mode per version as `OperatingMode 23.0` or `OperatingMode 37.0`: `off`, `plugin`, `server`). The former master switch `Enabled` (DWORD, shared by all versions) is only read, see below. Also the markers for the IDE switches (below) and `PathOverrideBackup` from `Tools\IdePath.ps1`. Read only, never written: the support switch `LogNames` (see [Troubleshooting](troubleshooting.md)). `Diagnose` (“Log the flow (log file)”) is now one of the page's values; OK writes it as 0 or 1, a value set by hand still applies. Old values of the fixed and the removed options stay in place but have no effect; dpcc no longer writes them. |
-| `%APPDATA%\dpcc\settings.json` | `index.extraSourceFolders` (from the page) and `hints.xmlDocMaxLines` (adjustable only in the file). The in-process server reads the file itself and watches it. dpcc only reads `hints.xmlDocMaxLines` and never writes the key; if it is missing from the file, a registry value `XmlDocMaxLines` from an older version applies, otherwise 0. dpcc does not touch other keys in the file. An old value `hints.xmlDocExpand` or `hints.xmlDocFull` has no effect. |
+| `HKCU\Software\dpcc\IdePlugin` | all options on the page except `index.extraSourceFolders` and `completion.keywords`, among them `OpenAfterDot` (“Open automatically after the dot”). Also the markers of the one-time adoption from the IDE (`IdeAdopted OpenAfterDot`, `IdeAdopted CompletionKeywords`, `IdeAdopted 37.0 IdeFeatures`, DWORD 1; see [After updating](#after-updating)); OK does not write them. Switches and numbers as DWORD (switches 0/1), choices as text (`CompletionListMode`: `filter`, `all`, `rest`; `PopupLook`: `intense`, `subtle`, `plain`; the operating mode per version as `OperatingMode 23.0` or `OperatingMode 37.0`: `off`, `plugin`, `server`). The former master switch `Enabled` (DWORD, shared by all versions) is only read, see below. Also the markers for the IDE switches (below) and `PathOverrideBackup` from `Tools\IdePath.ps1`. Read only, never written: the support switch `LogNames` (see [Troubleshooting](troubleshooting.md)). `Diagnose` (“Log the flow (log file)”) is now one of the page's values; OK writes it as 0 or 1, a value set by hand still applies. Old values of the fixed and the removed options stay in place but have no effect; dpcc no longer writes them. |
+| `%APPDATA%\dpcc\settings.json` | `index.extraSourceFolders` and `completion.keywords` (both from the page) and `hints.xmlDocMaxLines` (adjustable only in the file). If `completion.keywords` is missing from the file, a registry value `CompletionKeywords` applies, otherwise on. The in-process server reads the file itself and watches it. dpcc only reads `hints.xmlDocMaxLines` and never writes the key; if it is missing from the file, a registry value `XmlDocMaxLines` from an older version applies, otherwise 0. dpcc does not touch other keys in the file. An old value `hints.xmlDocExpand` or `hints.xmlDocFull` has no effect. |
 | `%APPDATA%\dpcc\settings-history.json` | only from older versions: earlier states of the settings. dpcc no longer writes or reads the file; it can be deleted. |
 | `%APPDATA%\dpcc\usage.json` | history of the learned ranking |
 | `%APPDATA%\dpcc\favorites.json` | pinned favorites |
@@ -297,6 +327,51 @@ without restarting Delphi; in the Off and Server modes the IDE's Help Insight is
 reason. At
 startup the log also has a line “Help Insight in der Registry (…)” with the value read at the DelphiLSP location,
 `Borland.EditOptions.Pascal` and `Borland.EditOptions.HTML` (log lines are always German).
+
+### IDE Code Insight
+
+Applies in the Plugin mode, when dpcc is selected as the provider under **Tools › Options › Editor › Language › Code
+Insight**. What dpcc does itself is set on the dpcc page; dpcc hides these fields in the IDE dialog. What the IDE does
+on its own stays there. The Off and Server modes do not change: there DelphiLSP is selected, and the dialog shows its
+fields.
+
+| Field in the IDE dialog | Registry value | Handled by | In the dialog |
+|---|---|---|---|
+| Code completion | `Auto Code Completions` | stays with the IDE; dpcc sets it on in the Plugin mode. “Open automatically after the dot” turns the list after “.” off. | visible (no query in the Open Tools API) |
+| Auto invoke, with the delay | `Auto Invoke`, `Auto Invoke Delay` | “Open automatically after the dot”; dpcc sets the delay to -1 | hidden |
+| Auto parenthesis | `CodeCompleteAutoParens` | “Add parentheses to methods” | hidden |
+| History | `History` | “Frequently and recently chosen entries first” | hidden |
+| Show reserved words | `Show Reserved Words` | “Show reserved words in the list” | hidden |
+| Finish incomplete properties | `Finish properties` (under `Class Completion`, for all providers) | stays with the IDE | visible (no query) |
+| Code parameters | `Auto Code Parameters` | “Parameter hint on “(” and “,”” | hidden |
+| Tooltip expression evaluation | `ToolTip Watches` | “Show values while debugging” | hidden |
+| Tooltip symbol insight | `Declaration Information` | “Own tooltip when hovering identifiers” | hidden |
+| Tooltip help insight | `Help Insight` | “Own tooltip when hovering identifiers” | hidden |
+| Block completion | `Auto-block Completion` | stays with the IDE | visible |
+| Block wrap style | `Block Wrap Style` | stays with the IDE | visible |
+| Code template completion | `Code Templates` | stays with the IDE | visible (no query) |
+| Auto complete (templates) | `Auto Complete Templates` | stays with the IDE | visible (no query) |
+| Hints | `Sync Edit Hints` | stays with the IDE | visible (no query) |
+| Generate LSP Config | `CodeInsightLSPGenerate` | concerns DelphiLSP only, no effect with dpcc | hidden |
+| Use Visual Assist | `CodeCompleteUseVA` | stays with the IDE | as before |
+| Error Insight (own tab) | `Error Insight` | stays with the IDE | visible as before |
+
+- dpcc hides via `IOTACodeInsightManagerEnvOptions` (same in Delphi 12 and 13), “Generate LSP Config” via
+  `IOTACodeInsightManagerEnvOptions270` (declared the same in both versions). There is no query for Code completion,
+  the templates, the hints and the incomplete properties; they stay visible. “Block completion” and its wrap style
+  have a query; dpcc keeps them visible.
+- The field names are those of the English IDE, shortened; the registry value is what counts. A hidden field keeps its
+  value; the IDE writes it with OK as before.
+
+Which registry set the IDE reads with dpcc as the provider (measured on 28 Nov 2026 in the Plugin mode with swapped
+values in `Code Insight\Borland.EditOptions.Pascal`, in the DelphiLSP set, `Borland.EditOptions.dpcc.CodeInsight`,
+HTML and StyleSheet; checked with begin+Enter, todo+Space and opening after “.”):
+
+| | Delphi 12 (BDS 23.0) | Delphi 13 (BDS 37.0) |
+|---|---|---|
+| Set the IDE reads for dpcc | none; block completion, templates and opening after “.” were always on in four runs | `Code Insight\Borland.EditOptions.Pascal` (the name from `GetOptionSetName`); block completion, templates and opening after “.” followed exactly this set in two swapped runs |
+| On exit | does not write `Borland.EditOptions.Pascal` back | writes `Borland.EditOptions.Pascal` back |
+| Consequence | values dpcc writes there have no effect. Only “Open automatically after the dot” turns the list after “.” off. | dpcc takes the IDE features once into gaps of this set (see [After updating](#after-updating)). |
 
 ### Options in the Server mode
 

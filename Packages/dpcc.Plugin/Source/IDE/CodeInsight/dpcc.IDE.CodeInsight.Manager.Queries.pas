@@ -2,7 +2,8 @@
 
 // Fragen des Code Insight-Managers an den Editor: Welche Code Insight löst eine Taste aus (Vervollständigung nach
 // ".", Parameterhilfe nach "(", XMLDoc-Tags nach "<" in ///-Zeilen #435, Mengen nach "[" #448, try…finally nach ";"
-// #489, Mitglieder nach "{" in Wertdarstellungen #854, Feldnamen nach ' in FieldByName #461)? Dazu die Stelle eines
+// #489, Mitglieder nach "{" in Wertdarstellungen #854, Feldnamen nach ' in FieldByName #461; "." nur mit „Nach dem
+// Punkt automatisch öffnen“, CI-OPT)? Dazu die Stelle eines
 // Symbolhinweises (GetHintText, mit Wert im angehaltenen Debugger #891) und eines Sprungwunschs für Strg+Klick und
 // „Deklaration suchen“ (Auftrag NAV) an der Klickstelle bzw. am Cursor. Gefragt wird der Server im Hintergrund
 // (dpcc.IDE.CodeInsight.Manager, dpcc.Core.Lsp.LateAnswers); hier steht nur, was der Hauptthread dafür vom Editor
@@ -109,6 +110,7 @@ uses
   dpcc.Core.Diagnostics.Hangs,
   dpcc.Core.Hover.DebugValue,
   dpcc.Core.Completion.Word,
+  dpcc.Core.Completion.AutoOpen,
   dpcc.Core.Lsp.IdeMembers,
   dpcc.Core.Editor.TabStops,
   dpcc.IDE.Foundation.Settings,
@@ -240,6 +242,12 @@ class function TDpccCodeInsightQueries.InsightType(AChar: Char; AElement: Intege
   const AGuardPending: TFunc<Boolean>; out AInvoke: TOTAInvokeType): TOTACodeInsightType;
 begin
   Result := FixedType(AChar, AInvoke);
+  // CI-OPT: „Nach dem Punkt automatisch öffnen“ aus → nach „.“ keine Code Insight; Strg+Leertaste (#0) bleibt.
+  if not TDpccAutoOpen.TriggerAllowed(AChar, TDpccIdeSettings.Current.OpenAfterDot) then
+  begin
+    AInvoke := itManual;
+    Exit(citNone);
+  end;
   if CharInSet(AChar, [';', '{', '''']) and ContextType(AChar, AGuardPending) then
   begin
     Result := citCodeInsight;

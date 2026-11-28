@@ -80,10 +80,12 @@ Les trois boutons radio et leur texte sur la page :
 
 | Option | Valeur de registre | Clé | Par défaut | Effet |
 |---|---|---|---|---|
+| Open automatically after the dot (ouvrir automatiquement après le point) | `OpenAfterDot` | – | activé ; valeur de départ reprise une fois de l'IDE (voir [Après la mise à jour](#après-la-mise-à-jour)) | Après « . », la liste s'ouvre d'elle-même. Désactivé : dpcc ne signale à l'IDE aucun Code Insight après « . » (`GetCodeInsightType('.')` renvoie « aucun »), aucune liste ne s'ouvre ; Ctrl+Espace l'ouvre toujours, les autres déclencheurs (« ( », « [ », « < » en XMLDoc, « ; » après un constructeur) restent. Prend effet après OK immédiatement, sans redémarrage. Sous Delphi 13, l'IDE n'ouvre en outre après « . » que si Code completion et Auto invoke sont activés dans le jeu de dpcc ; dpcc règle les deux lui-même dans le mode Plugin (voir [Réglages dans le mode Plugin](#réglages-dans-le-mode-plugin)). Remplace « Auto invoke » dans la boîte de dialogue de l'IDE (voir [Code Insight de l'IDE](#code-insight-de-lide)). Verrouillé hors du mode Plugin. |
 | Open on typing from characters (0 = never): (ouvrir lors de la saisie à partir de … caractères ; 0 = jamais) | `AutoMinChars` | `completion.autoMinChars` | 0 | 0 à 10 ; par défaut 0 = désactivé (comme avant l'ouverture pendant la saisie), pour l'activer régler par exemple 5. Lorsqu'on saisit un nom sans point devant, la liste ne s'ouvre que lorsque le mot situé avant le curseur compte ce nombre de caractères ; en dessous, dpcc n'interroge pas le serveur. 0 = la saisie ne l'ouvre jamais. Ctrl+Espace l'ouvre quelle que soit la longueur ; rien ne change après « . » ni pour les autres déclencheurs. Pour que l'IDE n'ouvre pas en plus sa propre liste pendant la saisie, dpcc règle `Auto Invoke Delay` = -1 dans le mode Plugin (voir [plus bas](#ce-que-dpcc-modifie-dans-lide)). Voir [Utilisation](usage.md#ouverture-pendant-la-saisie). |
 | While typing, show: (pendant la saisie, afficher) | `CompletionListMode` | `completion.listMode` | Only matches | « Only matches » (`filter`, uniquement les résultats), « All entries, matches on top » (`all`, toutes les entrées, résultats en haut), « Matches, then the rest dimmed » (`rest`, résultats, puis le reste atténué, sous l'en-tête « More entries », autres entrées). S'applique aux listes des membres après « . » (valeur fixe). |
 | Visible rows of the list: (lignes visibles de la liste) | `VisibleRows` | `completion.visibleRows` | 9 | 5 à 20 lignes. |
 | Automatic width (largeur automatique) | `ListWidth` | `completion.listWidth` | activé (`ListWidth` = 0) | Sur la même ligne que « Visible rows of the list ». Activé : la liste s'élargit avec l'entrée la plus large. Désactivé : la dernière largeur tirée (240 à 720). Tirer le bord droit de la liste définit aussi la largeur. |
+| Show reserved words in the list (afficher les mots réservés dans la liste) | – | `completion.keywords` | activé ; valeur de départ reprise une fois de l'IDE (voir [Après la mise à jour](#après-la-mise-à-jour)) | Mots-clés comme `begin`, `if` ou `procedure` dans la liste, selon la position et seulement à partir d'un caractère saisi, jamais après « . ». Désactivé : le serveur les omet. Enregistré dans `%APPDATA%\dpcc\settings.json` sous la clé que lit le serveur ; une valeur déjà réglée là s'applique et apparaît sur la page. Prend effet après OK sans redémarrage, à partir de la liste suivante : le serveur relit le fichier dès qu'il change. Comme `dpcc.LspServer.exe` lit le même fichier, la valeur s'applique aussi dans le mode Server. Remplace « Show reserved words » dans la boîte de dialogue de l'IDE. Verrouillé hors du mode Plugin. |
 | Frequently and recently chosen entries first (entrées choisies fréquemment et récemment en tête) | `Learning` | `completion.learning` | activé | Pondération apprise : les entrées acceptées reçoivent un bonus dans le classement. À partir de 5 acceptations, une entrée est considérée comme « frequent » (fréquente). Enregistré dans `%APPDATA%\dpcc\usage.json`, au plus 5 000 entrées. |
 | Bouton « Reset history » (réinitialiser l'historique) | – | – | – | À droite de « Frequently and recently chosen entries first ». Vide immédiatement la pondération apprise ; le bouton reste ensuite grisé jusqu'à la fermeture de la boîte de dialogue. |
 
@@ -199,13 +201,45 @@ Ces options ne figurent plus sur la page. Elles ont une valeur fixe, leur ancien
   journal de diagnostic que la valeur de registre `Diagnose` = 1, réglée jusqu'ici uniquement à la main, désormais
   sans redémarrage. Depuis, OK écrit aussi `Diagnose` ; si vous aviez réglé la valeur à la main, la case apparaît
   cochée.
+- Nouveau dans la section **Completion** : « Open automatically after the dot » et « Show reserved words in the
+  list ». dpcc masque les champs correspondants dans la boîte de dialogue Code Insight de l'IDE (voir
+  [Code Insight de l'IDE](#code-insight-de-lide)).
+- Valeurs de départ des deux interrupteurs : une seule fois au premier démarrage après la mise à jour où le mode Plugin s'applique
+  (dans les modes Off et Server, dpcc ne lit ni n'écrit rien pour cela), depuis le jeu
+  de DelphiLSP de la version en cours (`HKCU\<base>\Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` ;
+  avec un profil propre, `bds -r`, sa clé de base).
+  - « Open automatically after the dot » = `Auto Code Completions` et `Auto Invoke` (les deux activés).
+  - « Show reserved words in the list » = `Show Reserved Words`.
+  - Une valeur absente compte comme activée.
+  - S'il existe un marqueur `IdeSet <version> <clé>\<valeur>` pour l'une des valeurs, c'est la valeur mémorisée
+    d'avant (celle de l'utilisateur) qui s'applique, pas celle écrite par dpcc ; sans valeur d'avant, activé.
+  - Si `completion.keywords` figurait déjà dans `settings.json`, cette valeur s'applique ; dpcc ne lit rien de l'IDE
+    pour elle.
+  - Ensuite, dpcc ne relit plus jamais ces valeurs dans l'IDE. Les marqueurs `IdeAdopted OpenAfterDot` et
+    `IdeAdopted CompletionKeywords` (DWORD 1, par interrupteur, pour toutes les versions de Delphi) le consignent. La
+    version de Delphi qui démarre en premier dans le mode Plugin fournit donc les valeurs de départ. La ligne du journal est
+    « Startwerte aus den Code-Insight-Optionen der IDE übernommen (einmalig, …): OpenAfterDot = …;
+    CompletionKeywords = … » (les lignes du journal sont toujours en allemand).
+- Fonctions de l'IDE dans le jeu de dpcc, seulement sous **Delphi 13** et seulement dans le mode Plugin : si
+  `Auto-block Completion`, `Block Wrap Style`, `Code Templates`, `Auto Complete Templates` ou `Sync Edit Hints`
+  manquent dans `Code Insight\Borland.EditOptions.Pascal`, dpcc reprend une fois la valeur du jeu de DelphiLSP au
+  premier démarrage.
+  - Seulement dans les lacunes : les valeurs existantes restent, une clé absente n'est pas créée.
+  - Sans marqueur `IdeSet` : la valeur appartient ensuite à l'utilisateur, Off ne la remet pas en arrière.
+  - Le marqueur `IdeAdopted 37.0 IdeFeatures` consigne que c'est fait, même si rien ne manquait. En général le jeu
+    est complet ; le journal indique alors « IDE-Funktionen: im Satz von dpcc nichts zu übernehmen ».
+- **Delphi 12** : dpcc n'écrit rien pour cela. Delphi 12 ne lit aucun jeu du registre pour dpcc (voir
+  [Code Insight de l'IDE](#code-insight-de-lide)) ; la complétion de blocs et les modèles y suivent la valeur par
+  défaut de l'IDE.
+- « Finish incomplete properties » (`Finish properties`) est commun à tous les fournisseurs sous
+  `<base>\Class Completion` ; dpcc n'y touche pas.
 
 ## Stockage
 
 | Emplacement | Contenu |
 |---|---|
-| `HKCU\Software\dpcc\IdePlugin` | toutes les options de la page sauf `index.extraSourceFolders`. Interrupteurs et nombres en DWORD (interrupteurs 0/1), choix en texte (`CompletionListMode` : `filter`, `all`, `rest` ; `PopupLook` : `intense`, `subtle`, `plain` ; le mode de fonctionnement par version sous `OperatingMode 23.0` ou `OperatingMode 37.0` : `off`, `plugin`, `server`). L'ancien interrupteur principal `Enabled` (DWORD, commun à toutes les versions) n'est plus que lu, voir plus bas. En plus, les marqueurs pour les réglages de l'IDE (plus bas) et `PathOverrideBackup` de `Tools\IdePath.ps1`. Lu seulement, jamais écrit : l'interrupteur de support `LogNames` (voir [Dépannage](troubleshooting.md)). `Diagnose` (« Log the flow (log file) ») fait désormais partie des valeurs de la page ; OK l'écrit sous forme 0 ou 1, une valeur réglée à la main reste valable. Les anciennes valeurs des options fixes et des options supprimées restent en place, mais sans effet ; dpcc ne les écrit plus. |
-| `%APPDATA%\dpcc\settings.json` | `index.extraSourceFolders` (depuis la page) et `hints.xmlDocMaxLines` (réglable uniquement dans le fichier). Le serveur dans le processus de l'IDE lit lui-même le fichier et le surveille. dpcc lit seulement `hints.xmlDocMaxLines` et n'écrit jamais la clé ; si elle manque dans le fichier, une valeur de registre `XmlDocMaxLines` d'une version antérieure s'applique, sinon 0. dpcc ne touche pas aux autres clés du fichier. Une ancienne valeur `hints.xmlDocExpand` ou `hints.xmlDocFull` reste sans effet. |
+| `HKCU\Software\dpcc\IdePlugin` | toutes les options de la page sauf `index.extraSourceFolders` et `completion.keywords`, dont `OpenAfterDot` (« Open automatically after the dot »). En plus, les marqueurs de la reprise unique depuis l'IDE (`IdeAdopted OpenAfterDot`, `IdeAdopted CompletionKeywords`, `IdeAdopted 37.0 IdeFeatures`, DWORD 1 ; voir [Après la mise à jour](#après-la-mise-à-jour)) ; OK ne les écrit pas. Interrupteurs et nombres en DWORD (interrupteurs 0/1), choix en texte (`CompletionListMode` : `filter`, `all`, `rest` ; `PopupLook` : `intense`, `subtle`, `plain` ; le mode de fonctionnement par version sous `OperatingMode 23.0` ou `OperatingMode 37.0` : `off`, `plugin`, `server`). L'ancien interrupteur principal `Enabled` (DWORD, commun à toutes les versions) n'est plus que lu, voir plus bas. En plus, les marqueurs pour les réglages de l'IDE (plus bas) et `PathOverrideBackup` de `Tools\IdePath.ps1`. Lu seulement, jamais écrit : l'interrupteur de support `LogNames` (voir [Dépannage](troubleshooting.md)). `Diagnose` (« Log the flow (log file) ») fait désormais partie des valeurs de la page ; OK l'écrit sous forme 0 ou 1, une valeur réglée à la main reste valable. Les anciennes valeurs des options fixes et des options supprimées restent en place, mais sans effet ; dpcc ne les écrit plus. |
+| `%APPDATA%\dpcc\settings.json` | `index.extraSourceFolders` et `completion.keywords` (tous deux depuis la page) et `hints.xmlDocMaxLines` (réglable uniquement dans le fichier). Si `completion.keywords` manque dans le fichier, une valeur de registre `CompletionKeywords` s'applique, sinon activé. Le serveur dans le processus de l'IDE lit lui-même le fichier et le surveille. dpcc lit seulement `hints.xmlDocMaxLines` et n'écrit jamais la clé ; si elle manque dans le fichier, une valeur de registre `XmlDocMaxLines` d'une version antérieure s'applique, sinon 0. dpcc ne touche pas aux autres clés du fichier. Une ancienne valeur `hints.xmlDocExpand` ou `hints.xmlDocFull` reste sans effet. |
 | `%APPDATA%\dpcc\settings-history.json` | uniquement issu de versions antérieures : états antérieurs des réglages. dpcc n'écrit ni ne lit plus ce fichier ; il peut être supprimé. |
 | `%APPDATA%\dpcc\usage.json` | historique de la pondération apprise |
 | `%APPDATA%\dpcc\favorites.json` | favoris épinglés |
@@ -327,6 +361,52 @@ THelpInsightWindow verborgen … »), avec « Log the flow (log file) » chaq
 journal contient aussi une ligne « Help Insight in der Registry (…) » avec la valeur lue à l'emplacement de
 DelphiLSP, dans `Borland.EditOptions.Pascal` et dans `Borland.EditOptions.HTML` (les lignes du journal sont toujours
 en allemand).
+
+### Code Insight de l'IDE
+
+S'applique dans le mode Plugin, lorsque dpcc est choisi comme fournisseur sous **Tools › Options › Editor ›
+Language › Code Insight**. Ce que dpcc fait lui-même se règle sur la page dpcc ; dpcc masque ces champs dans la boîte
+de dialogue de l'IDE. Ce que l'IDE fait seule y reste. Les modes Off et Server ne changent pas : DelphiLSP y est
+choisi, et la boîte de dialogue affiche ses champs.
+
+| Champ de la boîte de dialogue de l'IDE | Valeur de registre | Réglé par | Dans la boîte de dialogue |
+|---|---|---|---|
+| Code completion | `Auto Code Completions` | reste à l'IDE ; dpcc l'active dans le mode Plugin. « Open automatically after the dot » désactive la liste après « . ». | visible (aucune requête dans l'Open Tools API) |
+| Auto invoke, avec le délai | `Auto Invoke`, `Auto Invoke Delay` | « Open automatically after the dot » ; dpcc règle le délai sur -1 | masqué |
+| Auto parenthesis | `CodeCompleteAutoParens` | « Add parentheses to methods » | masqué |
+| History | `History` | « Frequently and recently chosen entries first » | masqué |
+| Show reserved words | `Show Reserved Words` | « Show reserved words in the list » | masqué |
+| Finish incomplete properties | `Finish properties` (sous `Class Completion`, pour tous les fournisseurs) | reste à l'IDE | visible (aucune requête) |
+| Code parameters | `Auto Code Parameters` | « Parameter hint on “(” and “,” » | masqué |
+| Tooltip expression evaluation | `ToolTip Watches` | « Show values while debugging » | masqué |
+| Tooltip symbol insight | `Declaration Information` | « Own tooltip when hovering identifiers » | masqué |
+| Tooltip help insight | `Help Insight` | « Own tooltip when hovering identifiers » | masqué |
+| Block completion | `Auto-block Completion` | reste à l'IDE | visible |
+| Block wrap style | `Block Wrap Style` | reste à l'IDE | visible |
+| Code template completion | `Code Templates` | reste à l'IDE | visible (aucune requête) |
+| Auto complete (modèles) | `Auto Complete Templates` | reste à l'IDE | visible (aucune requête) |
+| Hints | `Sync Edit Hints` | reste à l'IDE | visible (aucune requête) |
+| Generate LSP Config | `CodeInsightLSPGenerate` | ne concerne que DelphiLSP, sans effet avec dpcc | masqué |
+| Use Visual Assist | `CodeCompleteUseVA` | reste à l'IDE | comme avant |
+| Error Insight (onglet propre) | `Error Insight` | reste à l'IDE | visible comme avant |
+
+- dpcc masque via `IOTACodeInsightManagerEnvOptions` (identique dans Delphi 12 et 13), « Generate LSP Config » via
+  `IOTACodeInsightManagerEnvOptions270` (déclarée de la même façon dans les deux versions). Il n'existe pas de requête
+  pour Code completion, les modèles, les hints et les propriétés incomplètes ; ils restent visibles. « Block
+  completion » et son style de retour à la ligne ont une requête ; dpcc les laisse visibles.
+- Les noms des champs sont ceux de l'IDE anglaise, abrégés ; seule la valeur de registre fait foi. Un champ masqué
+  garde sa valeur ; l'IDE l'écrit avec OK comme avant.
+
+Quel jeu du registre l'IDE lit avec dpcc comme fournisseur (mesuré le 28/11/2026 dans le mode Plugin avec des valeurs
+interverties dans `Code Insight\Borland.EditOptions.Pascal`, dans le jeu de DelphiLSP,
+`Borland.EditOptions.dpcc.CodeInsight`, HTML et StyleSheet ; vérifié avec begin+Entrée, todo+Espace et l'ouverture
+après « . ») :
+
+| | Delphi 12 (BDS 23.0) | Delphi 13 (BDS 37.0) |
+|---|---|---|
+| Jeu que l'IDE lit pour dpcc | aucun ; complétion de blocs, modèles et ouverture après « . » étaient toujours activés en quatre essais | `Code Insight\Borland.EditOptions.Pascal` (le nom de `GetOptionSetName`) ; complétion de blocs, modèles et ouverture après « . » ont suivi exactement ce jeu en deux essais intervertis |
+| À la fermeture | ne réécrit pas `Borland.EditOptions.Pascal` | réécrit `Borland.EditOptions.Pascal` |
+| Conséquence | les valeurs que dpcc y écrit sont sans effet. Seul « Open automatically after the dot » désactive la liste après « . ». | dpcc reprend une fois les fonctions de l'IDE dans les lacunes de ce jeu (voir [Après la mise à jour](#après-la-mise-à-jour)). |
 
 ### Options dans le mode Server
 

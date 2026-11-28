@@ -30,7 +30,9 @@ Delphi sous **Tools › Options › Third Party › dpcc** (détails sous [Régl
 
 - **Plugin** (par défaut après l'installation) : dpcc est le fournisseur. La liste après « . », l'aide aux paramètres
   sur « ( » et « , », Ctrl+Espace, Ctrl+Maj+Espace et l'infobulle viennent de dpcc. dpcc règle lui-même les options
-  de l'IDE dont il a besoin.
+  de l'IDE dont il a besoin. Ce que dpcc règle figure sur la page dpcc et est masqué dans la boîte de dialogue Code
+  Insight de l'IDE ; « Open automatically after the dot » désactive la liste après « . » (voir
+  [Code Insight de l'IDE](settings.md#code-insight-de-lide)).
 - **Off** : DelphiLSP est le fournisseur, dpcc n'affiche aucune fenêtre. Si DelphiLSP est choisi au démarrage de
   Delphi, Off s'applique, à moins que Server ne soit choisi.
 - **Server** : DelphiLSP reste le fournisseur et l'IDE affiche ses propres fenêtres ; les réponses viennent de
@@ -132,7 +134,9 @@ demanderait un temps de calcul sensible.
 - Ctrl+Espace ouvre la liste immédiatement comme avant, quel que soit le nombre de caractères.
 - Tant que la liste est ouverte (y compris ouverte par Ctrl+Espace avec moins de caractères), chaque caractère
   supplémentaire ne fait que filtrer ; la saisie ne relance pas de requête.
-- Après « . » le seuil ne s'applique pas : la liste des membres vient avec le point comme avant. Les autres
+- Après « . » le seuil ne s'applique pas : la liste des membres vient avec le point comme avant, tant que « Open
+  automatically after the dot » est activé (par défaut). Interrupteur désactivé, seul Ctrl+Espace ouvre la liste
+  après « . » ; cela prend effet après OK sans redémarrage. Les autres
   déclencheurs restent eux aussi inchangés (« [ », « ( » après un nom, « ; » et Entrée après un constructeur
   accepté).
 - La saisie n'ouvre rien dans les commentaires (y compris `{$…}`), les chaînes, les nombres et au milieu d'un mot.
@@ -229,6 +233,7 @@ Ce qui apparaît dépend de l'endroit. Le serveur examine les cas dans un ordre 
 | après `Expression.` | membres du type, y compris hérités ; pour les unités, leurs symboles de la partie interface |
 | après `Expression.` avec un type connu | en plus, modèles postfixes (voir plus bas) |
 | ailleurs | tous les noms visibles : locaux, classe propre, unité propre, unités de `uses` |
+| à partir d'un caractère saisi (jamais après « . ») | en plus les mots-clés selon la position (`begin`, `if`, `procedure` …) ; désactivables avec « Show reserved words in the list » (`completion.keywords`, prend effet après OK sans redémarrage à partir de la liste suivante) |
 | à partir de deux caractères saisis | aussi les symboles d'unités qui ne figurent pas encore dans `uses`, avec « + » et le nom de l'unité ; unités du projet avant les bibliothèques |
 | dans la section `uses` | unités connues par groupes : « Project » (projet), « RTL/VCL », « Third party » (tiers) ; remarque si une unité figure déjà dans l'autre section ; marque « Circular reference » (référence circulaire) |
 | après `inherited ` | méthodes des ancêtres ; la méthode de même nom d'abord, avec des arguments tirés des paramètres propres |

@@ -18,6 +18,8 @@
 // ("OperatingMode 23.0" bzw. "OperatingMode 37.0", Version nach CompilerVersion, IdeVersion). Fehlt der Wert einer
 // Version, überführt EnsureLoaded den früheren gemeinsamen DWORD Enabled (0 → Aus, sonst Plugin, ohne ihn Plugin) und
 // schreibt das Ergebnis sofort unter dem Namen der Version; Enabled schreibt dpcc nicht mehr.
+// Seit CI-OPT speichert SaveAdoption beim Start die einmal aus der IDE übernommenen Startwerte (OpenAfterDot,
+// completion.keywords) und die Merker „IdeAdopted …“; die übrigen Werte schreibt weiter nur Update.
 
 interface
 
@@ -38,6 +40,10 @@ type
     /// <summary>Übernimmt und speichert ASettings: die Werte der Seite in die Registry, index.extraSourceFolders
     /// nach settings.json.</summary>
     class procedure Update(const ASettings: TDpccPluginSettings); static;
+    /// <summary>Beim Start (CI-OPT): übernimmt ASettings als aktuellen Stand und speichert nur die aus der IDE
+    /// übernommenen Startwerte samt Merkern „IdeAdopted …“ (TDpccPluginSettings.SaveAdoption; completion.keywords
+    /// nach settings.json). Löst OnChanged nicht aus.</summary>
+    class procedure SaveAdoption(const ASettings: TDpccPluginSettings); static;
     /// <summary>„Ablauf protokollieren“ (LOG1, DWORD Diagnose) neu aus der Registry in den aktuellen Stand: Der Support
     /// setzt den Wert auch von Hand, während die IDE läuft. Vor dem Laden der Optionsseite; ändert sonst nichts und
     /// löst OnChanged nicht aus.</summary>
@@ -339,6 +345,32 @@ begin
   if Assigned(FOnChanged) then
   begin
     FOnChanged();
+  end;
+end;
+
+class procedure TDpccIdeSettings.SaveAdoption(const ASettings: TDpccPluginSettings);
+var
+  mContent: TDpccTextFileContent;
+  mReadable: Boolean;
+  mRouted: TDpccRoutedSettingsStore;
+  mStore: IDpccSettingsStore;
+  mNext: TDpccPluginSettings;
+begin
+  EnsureLoaded;
+  mNext := ASettings;
+  mNext.IdeVersion := IdeVersion;
+  mNext.ModeFromLegacy := False;
+  mNext.Normalize;
+  GState.Settings := mNext;
+  GState.Loaded := True;
+  // Wie Update: settings.json frisch lesen und nur schreiben, wenn sie lesbar war.
+  mReadable := LoadGlobal(mContent);
+  mRouted := TDpccRoutedSettingsStore.Create(TRegistryStore.Create(True), mContent.Text);
+  mStore := mRouted;
+  GState.Settings.SaveAdoption(mStore);
+  if mReadable then
+  begin
+    SaveGlobal(mContent, mRouted.Text);
   end;
 end;
 

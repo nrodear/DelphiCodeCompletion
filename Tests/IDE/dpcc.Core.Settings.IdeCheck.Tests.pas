@@ -185,6 +185,37 @@ type
     /// Werten.</summary>
     [Test]
     procedure UserMarkersBeforeUpdate;
+    /// <summary>CI-OPT: Startwerte ohne Merker aus dem Satz von DelphiLSP (Delphi 12 und 13): „Nach dem Punkt
+    /// automatisch öffnen“ = Auto Code Completions und Auto Invoke, „Reservierte Wörter in der Liste zeigen“ = Show
+    /// Reserved Words; fehlend = an, DWORD 0 = aus; der Satz von dpcc zählt nicht.</summary>
+    [Test]
+    [TestCase('Delphi 12', 'Software\Embarcadero\BDS\23.0')]
+    [TestCase('Delphi 13', 'Software\Embarcadero\BDS\37.0')]
+    procedure StartValuesWithoutMarkers(ABaseKey: string);
+    /// <summary>CI-OPT: Steht ein Merker „IdeSet“ (Delphi 12 mit den Merkern des Nutzers, Delphi 13 nach dem Plan der
+    /// Betriebsart Plugin), gilt der Wert des Nutzers davor, nicht der von dpcc geschriebene; ohne Wert davor die
+    /// Vorgabe.</summary>
+    [Test]
+    procedure StartValuesWithMarkers;
+    /// <summary>CI-OPT: Übernahme einmalig: Merker „IdeAdopted …“ mit den Werten gespeichert (SaveAdoption, sonst
+    /// nichts) und geladen; der zweite Start liest nichts mehr aus der IDE, auch nicht nach einer Änderung auf der
+    /// Seite; ein schon gespeicherter eigener Wert gilt; ohne Basisschlüssel keine Übernahme; der Merker der
+    /// Funktionen der IDE gilt je Version.</summary>
+    [Test]
+    procedure StartValuesAdoptedOnce;
+    /// <summary>CI-OPT: Funktionen der IDE (Blockvervollständigung, Umbruchstil, Vorlagen, Hinweise) nur unter
+    /// Delphi 13 (auch mit eigenem Profil), nur in der Betriebsart Plugin, nur in fehlende Werte von
+    /// Borland.EditOptions.Pascal,
+    /// nur wenn der Schlüssel da ist und DelphiLSP den Wert hat; danach nichts mehr zu tun.</summary>
+    [Test]
+    procedure FeatureCopiesOnlyIntoGapsUnderDelphi13;
+    /// <summary>CI-OPT: Der Plan (Start, Plugin, Aus, Server) ist mit den neu gelesenen Werten (Show Reserved Words und
+    /// die Funktionen der IDE) derselbe wie ohne sie und schreibt keinen davon, für die Betriebsarten Aus, Server und
+    /// Plugin unter Delphi 12 und 13.</summary>
+    [Test]
+    [TestCase('Delphi 12', 'Software\Embarcadero\BDS\23.0')]
+    [TestCase('Delphi 13', 'Software\Embarcadero\BDS\37.0')]
+    procedure PlanUnchangedForOffAndServer(ABaseKey: string);
   end;
 
 implementation
@@ -194,6 +225,7 @@ uses
   System.StrUtils,
   dpcc.Core.Localization.Language,
   dpcc.Core.Settings.OperatingMode,
+  dpcc.Core.Settings.Plugin,
   dpcc.Core.Settings.IdeCheck;
 
 const
@@ -1920,6 +1952,326 @@ begin
   Assert.IsTrue(HasWrite(mPlan, cLsp, TDpccIdeCheck.cHelpInsight, mWrite) and (mWrite.Value = 'True'),
     'Help Insight zurück');
   Assert.IsTrue(MatchText(mMarker.StoreName, mPlan.MarkerDeletes), 'DWORD-Merker entfällt');
+end;
+
+/// <summary>Wert, den AWrites für AName schreibt (CI-OPT, FeatureCopies); False ohne.</summary>
+function CopyOf(const AWrites: TArray<TDpccIdeWrite>; const AName: string; out AValue: string): Boolean;
+var
+  mWrite: TDpccIdeWrite;
+begin
+  for mWrite in AWrites do
+  begin
+    if SameText(mWrite.Name, AName) then
+    begin
+      AValue := mWrite.Value;
+      Exit(True);
+    end;
+  end;
+  AValue := '';
+  Result := False;
+end;
+
+/// <summary>Delphi 13 bzw. 12 (ABaseKey), Betriebsart Plugin mit dpcc als Anbieter, beide Orte; DelphiLSP mit allen
+/// fünf Funktionen der IDE, der Satz von dpcc nur mit Blockvervollständigung und Code-Vorlagen (Werte des Nutzers).
+/// </summary>
+function FeatureInput(const ABaseKey: string): TDpccIdeCheckInput;
+begin
+  Result := WithProvider(ABaseKey, TDpccIdeCheck.cDpccId, State(True, True, True));
+  Result.SetValue(cLsp, TDpccIdeCheck.cAutoBlockCompletion, 'False');
+  Result.SetValue(cLsp, TDpccIdeCheck.cBlockWrapStyle, '2');
+  Result.SetValue(cLsp, TDpccIdeCheck.cCodeTemplates, 'False');
+  Result.SetValue(cLsp, TDpccIdeCheck.cAutoCompleteTemplates, 'False');
+  Result.SetValue(cLsp, TDpccIdeCheck.cSyncEditHints, 'False');
+  Result.SetValue(cPas, TDpccIdeCheck.cAutoBlockCompletion, 'True');
+  Result.SetValue(cPas, TDpccIdeCheck.cCodeTemplates, 'True');
+end;
+
+/// <summary>Alles, was ein Plan tut, als Text (Vergleich zweier Pläne).</summary>
+function PlanText(const APlan: TDpccIdeContextPlan): string;
+var
+  mWrite: TDpccIdeWrite;
+  mMarker: TDpccIdeMarker;
+  mName: string;
+begin
+  Result := APlan.LogLine + ' | ' + APlan.Notice + ' | ' + APlan.ProviderAfter + ' | ' +
+    IntToStr(Ord(APlan.OperatingMode)) + ' |';
+  for mWrite in APlan.Writes do
+  begin
+    Result := Result + ' ' + mWrite.Key + '\' + mWrite.Name + '=' + mWrite.Value + BoolToStr(mWrite.Delete, True);
+  end;
+  for mMarker in APlan.MarkerWrites do
+  begin
+    Result := Result + ' +' + mMarker.StoreName + '=' + TDpccIdeContext.EncodeMarker(mMarker);
+  end;
+  for mName in APlan.MarkerDeletes do
+  begin
+    Result := Result + ' -' + mName;
+  end;
+end;
+
+procedure TDpccIdeCheckTests.StartValuesWithoutMarkers(ABaseKey: string);
+var
+  mInput: TDpccIdeCheckInput;
+  mSettings: TDpccPluginSettings;
+  mAdopted: TArray<string>;
+begin
+  // Delphi12Keys/Delphi13Keys legen Auto Invoke und Show Reserved Words nicht an: fehlend = an.
+  mInput := Delphi13Keys([cLsp, cPas]);
+  mInput.BaseKey := ABaseKey;
+  Assert.IsTrue(TDpccIdeStartValues.OpenAfterDot(mInput), 'fehlend: an');
+  Assert.IsTrue(TDpccIdeStartValues.ShowKeywords(mInput), 'fehlend: an');
+  // Die IDE öffnet nach „.“ nur mit beiden.
+  mInput.SetValue(cLsp, TDpccIdeCheck.cAutoInvoke, 'False');
+  Assert.IsFalse(TDpccIdeStartValues.OpenAfterDot(mInput), 'Automatisch aufrufen aus');
+  mInput.SetValue(cLsp, TDpccIdeCheck.cAutoInvoke, 'True');
+  mInput.SetValue(cLsp, TDpccIdeCheck.cAutoCodeCompletions, 'False');
+  Assert.IsFalse(TDpccIdeStartValues.OpenAfterDot(mInput), 'Programmierhilfe aus');
+  mInput.SetValue(cLsp, TDpccIdeCheck.cAutoCodeCompletions, 'True');
+  Assert.IsTrue(TDpccIdeStartValues.OpenAfterDot(mInput), 'beide an');
+  mInput.SetValue(cLsp, TDpccIdeCheck.cShowReservedWords, 'False');
+  Assert.IsFalse(TDpccIdeStartValues.ShowKeywords(mInput), 'Reservierte Wörter aus');
+  // Nur der Satz von DelphiLSP zählt, nicht der von dpcc.
+  mInput.SetValue(cPas, TDpccIdeCheck.cShowReservedWords, 'True');
+  mInput.SetValue(cPas, TDpccIdeCheck.cAutoInvoke, 'False');
+  Assert.IsFalse(TDpccIdeStartValues.ShowKeywords(mInput), 'Satz von dpcc zählt nicht');
+  Assert.IsTrue(TDpccIdeStartValues.OpenAfterDot(mInput), 'Satz von dpcc zählt nicht');
+  // DWORD wie TDpccIdeRegValue sie liest: 0 = aus.
+  mInput.RemoveValue(cLsp, TDpccIdeCheck.cShowReservedWords);
+  mInput.Add(cLsp, TDpccIdeCheck.cShowReservedWords, '0', True);
+  Assert.IsFalse(TDpccIdeStartValues.ShowKeywords(mInput), 'DWORD 0');
+  // Übernahme in die Plugin-Einstellungen.
+  mSettings := TDpccPluginSettings.Defaults;
+  mAdopted := TDpccIdeStartValues.Adopt(mInput, mSettings);
+  Assert.AreEqual(2, Integer(Length(mAdopted)), string.Join('; ', mAdopted));
+  Assert.IsTrue(mSettings.OpenAfterDot, 'Nach dem Punkt');
+  Assert.IsFalse(mSettings.ShowKeywords, 'Reservierte Wörter');
+  Assert.IsTrue(mSettings.OpenAfterDotAdopted and mSettings.KeywordsAdopted, 'Merker gesetzt');
+  Assert.IsTrue(ContainsText(mAdopted[1], TDpccIdeCheck.cShowReservedWords), mAdopted[1]);
+end;
+
+procedure TDpccIdeCheckTests.StartValuesWithMarkers;
+var
+  mInput: TDpccIdeCheckInput;
+begin
+  // Delphi 12 (Stand des Nutzers): dpcc hatte Auto Code Completions von False auf True gestellt; Auto Invoke fehlt.
+  mInput := UserDelphi12;
+  Assert.AreEqual('True', ValueOf(mInput, cLsp, TDpccIdeCheck.cAutoCodeCompletions), 'von dpcc gesetzt');
+  Assert.IsFalse(TDpccIdeStartValues.UserFlag(mInput, TDpccIdeCheck.cAutoCodeCompletions, True),
+    'Wert des Nutzers davor');
+  Assert.IsFalse(TDpccIdeStartValues.OpenAfterDot(mInput), 'Nach dem Punkt wie vor dpcc: aus');
+  // Merker ohne Wert davor ("-"): die Vorgabe.
+  mInput.SetValue(cLsp, TDpccIdeCheck.cAutoInvoke, 'False');
+  mInput.Markers := mInput.Markers + [MarkerAt(cBase12, cLsp, TDpccIdeCheck.cAutoInvoke, 'False'#9'-')];
+  Assert.IsTrue(TDpccIdeStartValues.UserFlag(mInput, TDpccIdeCheck.cAutoInvoke, True), 'ohne Wert davor: an');
+  Assert.IsFalse(TDpccIdeStartValues.UserFlag(mInput, TDpccIdeCheck.cAutoInvoke, False), 'ohne Wert davor: Vorgabe');
+  // Merker auch für Show Reserved Words: der Wert davor, nicht der geschriebene.
+  mInput.SetValue(cLsp, TDpccIdeCheck.cShowReservedWords, 'False');
+  mInput.Markers := mInput.Markers + [MarkerAt(cBase12, cLsp, TDpccIdeCheck.cShowReservedWords, 'False'#9'=True')];
+  Assert.IsTrue(TDpccIdeStartValues.ShowKeywords(mInput), 'Reservierte Wörter: Wert davor');
+  // Fehlt der Wert inzwischen, gilt der Merker ebenso.
+  mInput.RemoveValue(cLsp, TDpccIdeCheck.cAutoCodeCompletions);
+  Assert.IsFalse(TDpccIdeStartValues.UserFlag(mInput, TDpccIdeCheck.cAutoCodeCompletions, True), 'Wert fehlt');
+  // Delphi 13: Der Plan der Betriebsart Plugin stellt Programmierhilfe am Ort von DelphiLSP auf True; der Startwert
+  // bleibt der des Nutzers (False).
+  mInput := Delphi13;
+  mInput.SetValue(cSrc, TDpccIdeCheck.cProviderValue, TDpccIdeCheck.cDpccId);
+  mInput.ProviderId := TDpccIdeCheck.cDpccId;
+  Assert.IsFalse(TDpccIdeStartValues.OpenAfterDot(mInput), 'vor dem Plan');
+  TDpccIdeContext.Plan(mInput, TDpccIdeContextTrigger.Start).ApplyTo(mInput);
+  Assert.AreEqual('True', ValueOf(mInput, cLsp, TDpccIdeCheck.cAutoCodeCompletions), 'vom Plan gesetzt');
+  Assert.IsFalse(TDpccIdeStartValues.OpenAfterDot(mInput), 'nach dem Plan: Wert des Nutzers');
+end;
+
+procedure TDpccIdeCheckTests.StartValuesAdoptedOnce;
+var
+  mInput: TDpccIdeCheckInput;
+  mSettings, mLoaded: TDpccPluginSettings;
+  mStore: IDpccMemorySettingsStore;
+  mAdopted: TArray<string>;
+begin
+  mInput := Delphi13Keys([cLsp, cPas]);
+  mInput.SetValue(cLsp, TDpccIdeCheck.cAutoInvoke, 'False');
+  mInput.SetValue(cLsp, TDpccIdeCheck.cShowReservedWords, 'False');
+  // Erster Start nach dem Update: noch nichts gespeichert.
+  mStore := TDpccMemorySettingsStore.Create;
+  mSettings := TDpccPluginSettings.Defaults;
+  mSettings.IdeVersion := '37.0';
+  mSettings.Load(mStore);
+  Assert.IsFalse(mSettings.OpenAfterDotAdopted or mSettings.KeywordsAdopted, 'noch nicht übernommen');
+  Assert.IsFalse(mSettings.OpenAfterDotStored or mSettings.KeywordsStored, 'kein eigener Wert');
+  Assert.IsTrue(mSettings.OpenAfterDot and mSettings.ShowKeywords, 'Vorgaben');
+  mAdopted := TDpccIdeStartValues.Adopt(mInput, mSettings);
+  Assert.AreEqual(2, Integer(Length(mAdopted)), string.Join('; ', mAdopted));
+  Assert.IsFalse(mSettings.OpenAfterDot, 'aus der IDE: Nach dem Punkt');
+  Assert.IsFalse(mSettings.ShowKeywords, 'aus der IDE: Reservierte Wörter');
+  // Gespeichert werden genau die beiden Werte und ihre Merker.
+  mSettings.SaveAdoption(mStore);
+  Assert.AreEqual(4, Integer(Length(mStore.Names)), string.Join(', ', mStore.Names));
+  Assert.AreEqual('0', mStore.Text(TDpccPluginSettings.cOpenAfterDotName), 'OpenAfterDot');
+  Assert.AreEqual('0', mStore.Text(TDpccPluginSettings.cKeywordsName), 'CompletionKeywords');
+  Assert.AreEqual('1', mStore.Text('IdeAdopted OpenAfterDot'), 'Merker OpenAfterDot');
+  Assert.AreEqual('1', mStore.Text('IdeAdopted CompletionKeywords'), 'Merker CompletionKeywords');
+  // Zweiter Start: Die IDE steht inzwischen anders; dpcc liest nichts mehr aus ihr.
+  mInput.SetValue(cLsp, TDpccIdeCheck.cAutoInvoke, 'True');
+  mInput.SetValue(cLsp, TDpccIdeCheck.cShowReservedWords, 'True');
+  mLoaded := TDpccPluginSettings.Defaults;
+  mLoaded.IdeVersion := '37.0';
+  mLoaded.Load(mStore);
+  Assert.IsTrue(mLoaded.OpenAfterDotAdopted and mLoaded.KeywordsAdopted, 'Merker geladen');
+  Assert.AreEqual(0, Integer(Length(TDpccIdeStartValues.Adopt(mInput, mLoaded))), 'zweiter Start liest nicht');
+  Assert.IsFalse(mLoaded.OpenAfterDot or mLoaded.ShowKeywords, 'Werte von der Übernahme');
+  // Der Nutzer stellt auf der Seite um (OK): Das gilt; Save fasst die Merker nicht an.
+  mLoaded.OpenAfterDot := True;
+  mLoaded.Save(mStore);
+  Assert.AreEqual('1', mStore.Text('IdeAdopted OpenAfterDot'), 'Merker bleibt nach OK');
+  mLoaded.Load(mStore);
+  Assert.AreEqual(0, Integer(Length(TDpccIdeStartValues.Adopt(mInput, mLoaded))), 'auch danach nicht');
+  Assert.IsTrue(mLoaded.OpenAfterDot, 'Wert des Nutzers');
+  // Je Schalter: Ist nur „Nach dem Punkt“ übernommen, wird nur der andere gelesen; ein schon gespeicherter eigener
+  // Wert (completion.keywords stand in settings.json) gilt, und nur der Merker kommt dazu.
+  mStore := TDpccMemorySettingsStore.Create;
+  mStore.WriteInteger('IdeAdopted OpenAfterDot', 1);
+  mStore.WriteInteger(TDpccPluginSettings.cOpenAfterDotName, 1);
+  mStore.WriteInteger(TDpccPluginSettings.cKeywordsName, 1);
+  mLoaded := TDpccPluginSettings.Defaults;
+  mLoaded.Load(mStore);
+  Assert.IsTrue(mLoaded.KeywordsStored, 'eigener Wert gelesen');
+  mInput.SetValue(cLsp, TDpccIdeCheck.cAutoInvoke, 'False');
+  mInput.SetValue(cLsp, TDpccIdeCheck.cShowReservedWords, 'False');
+  mAdopted := TDpccIdeStartValues.Adopt(mInput, mLoaded);
+  Assert.AreEqual(1, Integer(Length(mAdopted)), string.Join('; ', mAdopted));
+  Assert.IsTrue(ContainsText(mAdopted[0], 'eigener Wert'), mAdopted[0]);
+  Assert.IsTrue(mLoaded.OpenAfterDot, 'schon übernommen: bleibt');
+  Assert.IsTrue(mLoaded.ShowKeywords, 'eigener Wert gilt');
+  Assert.IsTrue(mLoaded.KeywordsAdopted, 'Merker gesetzt');
+  // Ohne Basisschlüssel (keine IDE): keine Übernahme, kein Merker.
+  mInput.BaseKey := '';
+  mLoaded := TDpccPluginSettings.Defaults;
+  Assert.AreEqual(0, Integer(Length(TDpccIdeStartValues.Adopt(mInput, mLoaded))), 'ohne IDE');
+  Assert.IsFalse(mLoaded.OpenAfterDotAdopted or mLoaded.KeywordsAdopted, 'ohne IDE kein Merker');
+  // Der Merker der Funktionen der IDE gilt je Version.
+  mSettings := TDpccPluginSettings.Defaults;
+  mSettings.IdeVersion := '37.0';
+  mSettings.IdeFeaturesAdopted := True;
+  mStore := TDpccMemorySettingsStore.Create;
+  mSettings.SaveAdoption(mStore);
+  Assert.AreEqual(1, Integer(Length(mStore.Names)), string.Join(', ', mStore.Names));
+  Assert.AreEqual('1', mStore.Text('IdeAdopted 37.0 IdeFeatures'), 'Merker je Version');
+  mLoaded := TDpccPluginSettings.Defaults;
+  mLoaded.IdeVersion := '23.0';
+  mLoaded.Load(mStore);
+  Assert.IsFalse(mLoaded.IdeFeaturesAdopted, 'andere Version');
+  mLoaded.IdeVersion := '37.0';
+  mLoaded.Load(mStore);
+  Assert.IsTrue(mLoaded.IdeFeaturesAdopted, 'dieselbe Version');
+end;
+
+procedure TDpccIdeCheckTests.FeatureCopiesOnlyIntoGapsUnderDelphi13;
+var
+  mInput: TDpccIdeCheckInput;
+  mWrites: TArray<TDpccIdeWrite>;
+  mWrite: TDpccIdeWrite;
+  mMode: TDpccOperatingMode;
+  mValue: string;
+begin
+  // Delphi 13, Plugin: genau die drei Lücken im Satz von dpcc, mit den Werten von DelphiLSP.
+  mInput := FeatureInput(cBase13);
+  mWrites := TDpccIdeContext.FeatureCopies(mInput, TDpccOperatingMode.Plugin);
+  Assert.AreEqual(3, Integer(Length(mWrites)), 'drei Lücken');
+  for mWrite in mWrites do
+  begin
+    Assert.AreEqual(cPas, mWrite.Key, mWrite.Name + ': Ort');
+    Assert.IsFalse(mWrite.Delete, mWrite.Name + ': schreiben');
+  end;
+  Assert.IsTrue(CopyOf(mWrites, TDpccIdeCheck.cBlockWrapStyle, mValue) and (mValue = '2'), 'Block Wrap Style');
+  Assert.IsTrue(CopyOf(mWrites, TDpccIdeCheck.cAutoCompleteTemplates, mValue) and (mValue = 'False'),
+    'Auto Complete Templates');
+  Assert.IsTrue(CopyOf(mWrites, TDpccIdeCheck.cSyncEditHints, mValue) and (mValue = 'False'), 'Sync Edit Hints');
+  Assert.IsFalse(CopyOf(mWrites, TDpccIdeCheck.cAutoBlockCompletion, mValue), 'vorhandener Wert bleibt');
+  Assert.IsFalse(CopyOf(mWrites, TDpccIdeCheck.cCodeTemplates, mValue), 'vorhandener Wert bleibt');
+  // Angewandt: danach nichts mehr zu tun; die Werte des Nutzers stehen unverändert.
+  for mWrite in mWrites do
+  begin
+    mInput.SetValue(mWrite.Key, mWrite.Name, mWrite.Value);
+  end;
+  Assert.AreEqual(0, Integer(Length(TDpccIdeContext.FeatureCopies(mInput, TDpccOperatingMode.Plugin))),
+    'zweiter Lauf');
+  Assert.AreEqual('True', ValueOf(mInput, cPas, TDpccIdeCheck.cAutoBlockCompletion), 'Wert des Nutzers');
+  Assert.AreEqual('True', ValueOf(mInput, cPas, TDpccIdeCheck.cCodeTemplates), 'Wert des Nutzers');
+  // Nur in der Betriebsart Plugin.
+  for mMode in [TDpccOperatingMode.Off, TDpccOperatingMode.Server] do
+  begin
+    Assert.AreEqual(0, Integer(Length(TDpccIdeContext.FeatureCopies(FeatureInput(cBase13), mMode))),
+      'Betriebsart ' + IntToStr(Ord(mMode)));
+  end;
+  // Delphi 12 liest für dpcc keinen Satz: nichts.
+  Assert.AreEqual(0, Integer(Length(TDpccIdeContext.FeatureCopies(FeatureInput(cBase12),
+    TDpccOperatingMode.Plugin))), 'Delphi 12');
+  // Ohne den Schlüssel Borland.EditOptions.Pascal: nichts, kein Schlüssel wird angelegt.
+  mInput := WithProvider(cBase13, TDpccIdeCheck.cDpccId, State(True, True, True));
+  mInput.Keys := [cSrc, cLsp];
+  mInput.Values := nil;
+  mInput.Add(cSrc, TDpccIdeCheck.cProviderValue, TDpccIdeCheck.cDpccId);
+  mInput.Add(cLsp, TDpccIdeCheck.cBlockWrapStyle, '2');
+  Assert.IsFalse(mInput.HasKey(cPas), 'Satz von dpcc fehlt');
+  Assert.AreEqual(0, Integer(Length(TDpccIdeContext.FeatureCopies(mInput, TDpccOperatingMode.Plugin))),
+    'ohne Schlüssel');
+  // Fehlt der Wert auch bei DelphiLSP, bleibt die Lücke (die IDE nimmt ihre Vorgabe).
+  mInput := FeatureInput(cBase13);
+  mInput.RemoveValue(cLsp, TDpccIdeCheck.cSyncEditHints);
+  mWrites := TDpccIdeContext.FeatureCopies(mInput, TDpccOperatingMode.Plugin);
+  Assert.AreEqual(2, Integer(Length(mWrites)), 'ohne Wert bei DelphiLSP');
+  Assert.IsFalse(CopyOf(mWrites, TDpccIdeCheck.cSyncEditHints, mValue), 'Sync Edit Hints fehlt bei DelphiLSP');
+  // Eigenes Profil (bds -r): Basisschlüssel des Profils, die Version aus seinem letzten Teil.
+  Assert.AreEqual(3, Integer(Length(TDpccIdeContext.FeatureCopies(FeatureInput('Software\Embarcadero\Test\37.0'),
+    TDpccOperatingMode.Plugin))), 'eigenes Profil');
+end;
+
+procedure TDpccIdeCheckTests.PlanUnchangedForOffAndServer(ABaseKey: string);
+const
+  cTriggers: array[0..3] of TDpccIdeContextTrigger = (TDpccIdeContextTrigger.Start,
+    TDpccIdeContextTrigger.MasterOn, TDpccIdeContextTrigger.MasterOff, TDpccIdeContextTrigger.ServerOn);
+var
+  mStates: TArray<TDpccIdeDpccState>;
+  mState: TDpccIdeDpccState;
+  mProvider, mName: string;
+  mTrigger: TDpccIdeContextTrigger;
+  mBase, mWith: TDpccIdeCheckInput;
+  mPlan: TDpccIdeContextPlan;
+  mWrite: TDpccIdeWrite;
+  mNew: TArray<string>;
+begin
+  mNew := TDpccIdeCheck.FeatureValueNames + [TDpccIdeCheck.cShowReservedWords];
+  // Aus, Server und zum Vergleich Plugin.
+  mStates := [State(False, True, True), ServerState, State(True, True, True)];
+  for mState in mStates do
+  begin
+    for mProvider in [TDpccIdeCheck.cDelphiLspId, TDpccIdeCheck.cDpccId] do
+    begin
+      mBase := WithProvider(ABaseKey, mProvider, mState);
+      // Dieselbe Eingabe mit den neu gelesenen Werten: Show Reserved Words an beiden Orten, die Funktionen nur bei
+      // DelphiLSP (Lücken im Satz von dpcc).
+      mWith := Clone(mBase);
+      mWith.SetValue(cLsp, TDpccIdeCheck.cShowReservedWords, 'False');
+      mWith.SetValue(cPas, TDpccIdeCheck.cShowReservedWords, 'False');
+      for mName in TDpccIdeCheck.FeatureValueNames do
+      begin
+        mWith.SetValue(cLsp, mName, 'False');
+      end;
+      for mTrigger in cTriggers do
+      begin
+        mPlan := TDpccIdeContext.Plan(mWith, mTrigger);
+        Assert.AreEqual(PlanText(TDpccIdeContext.Plan(mBase, mTrigger)), PlanText(mPlan),
+          Format('Plan %d, Anbieter %s, Betriebsart %d', [Ord(mTrigger), mProvider, Ord(mState.OperatingMode)]));
+        for mWrite in mPlan.Writes do
+        begin
+          Assert.IsFalse(MatchText(mWrite.Name, mNew), mWrite.Name + ' geschrieben');
+        end;
+      end;
+      // Die Prüfung ebenso.
+      Assert.AreEqual(TDpccIdeCheck.Evaluate(mBase).LogLine, TDpccIdeCheck.Evaluate(mWith).LogLine, 'Prüfung');
+    end;
+  end;
 end;
 
 initialization

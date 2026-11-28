@@ -30,7 +30,9 @@ deshalb nicht nebeneinander, sondern in einer von drei Betriebsarten, je Delphi-
 
 - **Plugin** (Vorgabe nach der Installation): dpcc ist der Anbieter. Die Liste nach „.“, die Parameterhilfe bei „(“
   und „,“, Strg+Leertaste, Strg+Umschalt+Leertaste und der Tooltip kommen von dpcc. dpcc stellt die nötigen Schalter
-  der IDE selbst.
+  der IDE selbst. Was dpcc regelt, steht auf der Seite dpcc und ist im Code-Insight-Dialog der IDE ausgeblendet; die
+  Liste nach „.“ schaltet „Nach dem Punkt automatisch öffnen“ ab (siehe
+  [Code Insight der IDE](settings.md#code-insight-der-ide)).
 - **Aus**: DelphiLSP ist der Anbieter, dpcc zeigt keine Fenster. Ist beim Start von Delphi DelphiLSP gewählt, gilt
   Aus, sofern nicht Server gewählt ist.
 - **Server**: DelphiLSP bleibt der Anbieter, und die IDE zeigt ihre eigenen Fenster; die Antworten liefert
@@ -126,8 +128,10 @@ Anfang oft über tausend Einträge und bräuchte spürbar Rechenzeit.
 - Strg+Leertaste öffnet die Liste wie bisher sofort, bei jeder Zahl von Zeichen.
 - Ist die Liste offen (auch mit Strg+Leertaste bei weniger Zeichen geöffnet), filtert jedes weitere Zeichen nur;
   Tippen fragt nicht neu.
-- Nach „.“ gilt die Schwelle nicht: Die Mitgliederliste kommt wie bisher mit dem Punkt. Ebenso bleiben die übrigen
-  Auslöser unverändert („[“, „(“ hinter einem Namen, „;“ und Enter hinter einem übernommenen Konstruktor).
+- Nach „.“ gilt die Schwelle nicht: Die Mitgliederliste kommt wie bisher mit dem Punkt, solange „Nach dem Punkt
+  automatisch öffnen“ an ist (Vorgabe). Ist der Schalter aus, öffnet nach „.“ nur Strg+Leertaste die Liste; das wirkt
+  nach OK ohne Neustart. Die übrigen Auslöser bleiben unverändert („[“, „(“ hinter einem Namen, „;“ und Enter hinter
+  einem übernommenen Konstruktor).
 - In Kommentaren (auch `{$…}`), Strings, Zahlen und mitten in einem Wort öffnet Tippen nichts. Findet der Server
   nichts (etwa in einem mehrzeiligen Kommentar), bleibt die Liste ohne Meldung zu.
 - In `uses`, nach `raise` und in Attributklammern gilt dieselbe Schwelle; welche Liste kommt, entscheidet wie bei
@@ -221,6 +225,7 @@ antwortet.
 | nach `Ausdruck.` | Mitglieder des Typs samt geerbter; bei Units deren interface-Symbole |
 | nach `Ausdruck.` mit bekanntem Typ | zusätzlich Postfix-Vorlagen (siehe unten) |
 | sonst | alle sichtbaren Namen: lokal, eigene Klasse, eigene Unit, Units aus `uses` |
+| ab einem getippten Zeichen (nie nach „.“) | dazu Schlüsselwörter passend zur Stelle (`begin`, `if`, `procedure` …); abschaltbar mit „Reservierte Wörter in der Liste zeigen“ (`completion.keywords`, wirkt nach OK ohne Neustart ab der nächsten Liste) |
 | ab zwei getippten Zeichen | auch Symbole aus Units, die noch nicht in `uses` stehen, mit „+“ und dem Namen der Unit; Projekt-Units vor Bibliotheken |
 | im `uses`-Abschnitt | bekannte Units in Gruppen: Projekt, RTL/VCL, Drittanbieter; Hinweis, wenn eine Unit schon im anderen Abschnitt steht; Kennzeichen „Zirkelbezug“ |
 | nach `inherited ` | Methoden der Vorfahren; die gleichnamige Methode zuerst, mit Argumenten aus den eigenen Parametern |

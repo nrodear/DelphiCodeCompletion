@@ -14,6 +14,10 @@
 // Registry.
 // Seit LOG1 vierzehn Optionen: zuletzt im Abschnitt IDE (nach „Jetzt prüfen“) „Ablauf protokollieren (Log)“ (DWORD
 // Diagnose, derselbe Wert wie das frühere Diagnose = 1); OK schreibt damit vierzehn Werte in die Registry.
+// Seit CI-OPT sechzehn Optionen: im Abschnitt Vervollständigung zuerst „Nach dem Punkt automatisch öffnen“ (DWORD
+// OpenAfterDot) und vor dem Lernen „Reservierte Wörter in der Liste zeigen“ (CompletionKeywords, umgeleitet nach
+// completion.keywords in settings.json); OK schreibt fünfzehn Werte in die Registry und zwei in settings.json. Die
+// Merker der Übernahme aus der IDE („IdeAdopted …“) schreibt nur SaveAdoption.
 
 interface
 
@@ -24,14 +28,21 @@ type
   [TestFixture]
   TDpccCompletionViewTests = class
   public
-    /// <summary>OPT1: Die Seite zeigt genau den Hauptschalter und (seit LOG1) vierzehn Optionen in fünf Abschnitten,
+    /// <summary>OPT1: Die Seite zeigt genau den Hauptschalter und (seit CI-OPT) sechzehn Optionen in fünf Abschnitten,
     /// dazu drei Knöpfe; gespeichert werden genau diese Optionen (OPT2).</summary>
     [Test]
-    procedure PageShowsExactlyFourteenOptions;
-    /// <summary>OPT2: OK schreibt nur die Werte der Seite: vierzehn in die Registry, index.extraSourceFolders nach
-    /// settings.json; keine weiteren Namen und keine weiteren Schlüssel der Datei.</summary>
+    procedure PageShowsExactlySixteenOptions;
+    /// <summary>OPT2: OK schreibt nur die Werte der Seite: fünfzehn in die Registry, index.extraSourceFolders und
+    /// (seit CI-OPT) completion.keywords nach settings.json; keine weiteren Namen und keine weiteren Schlüssel der
+    /// Datei.</summary>
     [Test]
     procedure SaveWritesOnlyPageValues;
+    /// <summary>CI-OPT: „Nach dem Punkt automatisch öffnen“ (DWORD OpenAfterDot) und „Reservierte Wörter in der Liste
+    /// zeigen“ (completion.keywords in settings.json): Vorgaben an, gespeichert und geladen, Weiterleitung nach
+    /// settings.json (der Server liest denselben Wert, ein alter Registry-Wert gilt ohne Eintrag in der Datei), ob ein
+    /// eigener Wert stand, Reihenfolge beim Speichern; Merker „IdeAdopted …“ nur gelesen.</summary>
+    [Test]
+    procedure CompletionSwitchesStoredAndRouted;
     /// <summary>LOOK1: Darstellung der Popups: Vorgabe Dezent; alle drei Stufen als Text gespeichert und wieder
     /// gelesen; ungültiger, leerer oder fehlender Text ergibt die Vorgabe; gespeichert nach „Werte beim Debuggen“.
     /// </summary>
@@ -87,15 +98,17 @@ uses
   dpcc.Common.Configuration.Contract,
   dpcc.Common.Configuration.Parser;
 
-/// <summary>Die Registry-Namen der Seite ohne index.extraSourceFolders (liegt in settings.json).</summary>
+/// <summary>Die Registry-Namen der Seite ohne die nach settings.json umgeleiteten (index.extraSourceFolders, seit
+/// CI-OPT completion.keywords).</summary>
 function RegistryPageNames: TArray<string>;
 var
   mName: string;
+  mRouted: TDpccRoutedSetting;
 begin
   Result := nil;
   for mName in TDpccCompletionView.SettingNames do
   begin
-    if not SameText(mName, 'IndexExtraSourceFolders') then
+    if not TDpccSettingsScopes.TryRouted(mName, mRouted) then
     begin
       Result := Result + [mName];
     end;
@@ -132,18 +145,20 @@ end;
 
 { TDpccCompletionViewTests }
 
-procedure TDpccCompletionViewTests.PageShowsExactlyFourteenOptions;
+procedure TDpccCompletionViewTests.PageShowsExactlySixteenOptions;
 const
   // Erwarteter Aufbau der Seite (Auftrag OPT1): Abschnitt und Element; Knöpfe mit ihrer Kennung.
   // Seit IDECHECK zuletzt der Abschnitt IDE mit „Jetzt prüfen“ (keine Einstellung); seit LOOK1 „Darstellung der
   // Popups“ zuletzt im Abschnitt Parameter-Hint und Tooltip; seit LOG1 „Ablauf protokollieren (Log)“ zuletzt im
-  // Abschnitt IDE.
-  cSections: array[0..17] of TDpccPageSection = (psMaster, psCompletion, psCompletion, psCompletion, psCompletion,
-    psCompletion, psCompletion, psCommit, psCommit, psCommit, psHints, psHints, psHints, psHints, psIndex, psIndex,
-    psIde, psIde);
-  cNames: array[0..17] of string = ('OperatingMode', 'AutoMinChars', 'CompletionListMode', 'VisibleRows', 'ListWidth',
-    'Learning', 'ResetHistory', 'AutoParentheses', 'CommitCharacters', 'AutoUses', 'ParameterHints', 'HoverTooltip',
-    'DebugHoverValues', 'PopupLook', 'IndexExtraSourceFolders', 'RebuildIndex', 'CheckIde', 'Diagnose');
+  // Abschnitt IDE; seit CI-OPT „Nach dem Punkt automatisch öffnen“ zuerst und „Reservierte Wörter in der Liste
+  // zeigen“ vor dem Lernen im Abschnitt Vervollständigung.
+  cSections: array[0..19] of TDpccPageSection = (psMaster, psCompletion, psCompletion, psCompletion, psCompletion,
+    psCompletion, psCompletion, psCompletion, psCompletion, psCommit, psCommit, psCommit, psHints, psHints, psHints,
+    psHints, psIndex, psIndex, psIde, psIde);
+  cNames: array[0..19] of string = ('OperatingMode', 'OpenAfterDot', 'AutoMinChars', 'CompletionListMode',
+    'VisibleRows', 'ListWidth', 'CompletionKeywords', 'Learning', 'ResetHistory', 'AutoParentheses',
+    'CommitCharacters', 'AutoUses', 'ParameterHints', 'HoverTooltip', 'DebugHoverValues', 'PopupLook',
+    'IndexExtraSourceFolders', 'RebuildIndex', 'CheckIde', 'Diagnose');
 var
   mIndex, mOptions, mButtons: Integer;
   mName: string;
@@ -165,24 +180,27 @@ begin
       Inc(mOptions);
     end;
   end;
-  Assert.AreEqual(14, mOptions, 'Optionen unter dem Hauptschalter');
+  Assert.AreEqual(16, mOptions, 'Optionen unter dem Hauptschalter');
   Assert.AreEqual(3, mButtons, 'Knöpfe');
-  Assert.AreEqual(cPageResetHistory, cPageItems[6].Name);
-  Assert.AreEqual(cPageRebuildIndex, cPageItems[15].Name);
-  Assert.AreEqual(cPageCheckIde, cPageItems[16].Name);
+  Assert.AreEqual(cPageResetHistory, cPageItems[8].Name);
+  Assert.AreEqual(cPageRebuildIndex, cPageItems[17].Name);
+  Assert.AreEqual(cPageCheckIde, cPageItems[18].Name);
   // LOG1: „Ablauf protokollieren (Log)“ als Einstellung zuletzt im Abschnitt IDE, unter dem Registry-Namen Diagnose.
-  Assert.AreEqual('Diagnose', cPageItems[17].Name, 'Ablauf protokollieren');
-  Assert.AreEqual(Ord(psIde), Ord(cPageItems[17].Section), 'Diagnose: Abschnitt');
-  Assert.AreEqual(Ord(pkSetting), Ord(cPageItems[17].Kind), 'Diagnose: Einstellung');
+  Assert.AreEqual('Diagnose', cPageItems[19].Name, 'Ablauf protokollieren');
+  Assert.AreEqual(Ord(psIde), Ord(cPageItems[19].Section), 'Diagnose: Abschnitt');
+  Assert.AreEqual(Ord(pkSetting), Ord(cPageItems[19].Kind), 'Diagnose: Einstellung');
   // LOOK1: letzte Option im Abschnitt Parameter-Hint und Tooltip, direkt vor dem Abschnitt Index.
-  Assert.AreEqual('PopupLook', cPageItems[13].Name, 'Darstellung der Popups');
-  Assert.AreEqual(Ord(psHints), Ord(cPageItems[13].Section), 'PopupLook: Abschnitt');
-  Assert.AreEqual(Ord(pkSetting), Ord(cPageItems[13].Kind), 'PopupLook: Einstellung');
-  Assert.AreEqual(Ord(psIndex), Ord(cPageItems[14].Section), 'danach der Abschnitt Index');
-  Assert.AreEqual(15, Integer(Length(TDpccCompletionView.SettingNames)), 'Einstellungen samt Hauptschalter');
+  Assert.AreEqual('PopupLook', cPageItems[15].Name, 'Darstellung der Popups');
+  Assert.AreEqual(Ord(psHints), Ord(cPageItems[15].Section), 'PopupLook: Abschnitt');
+  Assert.AreEqual(Ord(pkSetting), Ord(cPageItems[15].Kind), 'PopupLook: Einstellung');
+  Assert.AreEqual(Ord(psIndex), Ord(cPageItems[16].Section), 'danach der Abschnitt Index');
+  // CI-OPT: die beiden Schalter im Abschnitt Vervollständigung, unter ihren Registry-Namen.
+  Assert.AreEqual(TDpccPluginSettings.cOpenAfterDotName, cPageItems[1].Name, 'Nach dem Punkt');
+  Assert.AreEqual(TDpccPluginSettings.cKeywordsName, cPageItems[6].Name, 'Reservierte Wörter');
+  Assert.AreEqual(17, Integer(Length(TDpccCompletionView.SettingNames)), 'Einstellungen samt Hauptschalter');
   // Gespeichert werden genau die Einstellungen der Seite, jede einmal.
   mStored := TDpccPluginSettings.StoredNames;
-  Assert.AreEqual(15, Integer(Length(mStored)), 'gespeicherte Namen: ' + string.Join(', ', mStored));
+  Assert.AreEqual(17, Integer(Length(mStored)), 'gespeicherte Namen: ' + string.Join(', ', mStored));
   for mName in TDpccCompletionView.SettingNames do
   begin
     Assert.IsTrue(MatchText(mName, mStored), mName + ' gespeichert');
@@ -219,20 +237,22 @@ begin
   mRouted := TDpccRoutedSettingsStore.Create(mRegistry, cBefore);
   mStore := mRouted;
   mSettings.Save(mStore);
-  // Registry: genau die vierzehn Werte der Seite (Hauptschalter und dreizehn Optionen samt PopupLook seit LOOK1 und
-  // Diagnose seit LOG1; die Quellordner liegen in der Datei).
-  Assert.AreEqual(14, Integer(Length(mRegistry.Names)), 'Registry: ' + string.Join(', ', mRegistry.Names));
+  // Registry: genau die fünfzehn Werte der Seite (Hauptschalter und vierzehn Optionen samt PopupLook seit LOOK1,
+  // Diagnose seit LOG1 und OpenAfterDot seit CI-OPT; Quellordner und reservierte Wörter liegen in der Datei).
+  Assert.AreEqual(15, Integer(Length(mRegistry.Names)), 'Registry: ' + string.Join(', ', mRegistry.Names));
   for mName in RegistryPageNames do
   begin
     Assert.IsTrue(MatchText(mName, mRegistry.Names), mName + ' in der Registry');
   end;
   Assert.IsFalse(MatchText('IndexExtraSourceFolders', mRegistry.Names), 'Quellordner in der Registry');
+  Assert.IsFalse(MatchText(TDpccPluginSettings.cKeywordsName, mRegistry.Names), 'reservierte Wörter in der Registry');
   Assert.AreEqual('12', mRegistry.Text('VisibleRows'), 'VisibleRows');
-  // settings.json: nur index.extraSourceFolders dazu; das Übrige bleibt, wie es war.
+  // settings.json: nur index.extraSourceFolders und completion.keywords (Vorgabe an, wie es schon stand); das Übrige
+  // bleibt, wie es war.
   Assert.AreEqual('"C:\\A;C:\\B"', JsonAt(mRouted.Text, 'index.extraSourceFolders'), 'Quellordner');
   Assert.IsTrue(ContainsText(mRouted.Text, '// eigene Notiz'), 'Kommentar bleibt');
   Assert.AreEqual('"de"', JsonAt(mRouted.Text, 'language'), 'language bleibt');
-  Assert.AreEqual('true', JsonAt(mRouted.Text, 'completion.keywords'), 'completion.keywords bleibt');
+  Assert.AreEqual('true', JsonAt(mRouted.Text, 'completion.keywords'), 'completion.keywords von der Seite');
   mRoot := TDpccJsonText.Parse(mRouted.Text);
   try
     Assert.IsTrue(mRoot <> nil, 'gültiges JSON');
@@ -355,7 +375,7 @@ begin
   begin
     Assert.AreEqual('alt', mStore.Text(mName), mName + ' bleibt liegen');
   end;
-  Assert.AreEqual(Integer(Length(cOldIntegers) + Length(cOldStrings) + 15), Integer(Length(mStore.Names)),
+  Assert.AreEqual(Integer(Length(cOldIntegers) + Length(cOldStrings) + 17), Integer(Length(mStore.Names)),
     'nur die Seite dazu');
   // In einen leeren Speicher: keiner der alten Namen.
   mSaved := TDpccMemorySettingsStore.FromSettings(mSettings);
@@ -528,11 +548,12 @@ var
   mPath: string;
   mIssues: TArray<TConfigurationIssue>;
 begin
-  // Umgeleitet sind nur noch die beiden Werte der Seite bzw. des Tooltips.
-  Assert.AreEqual(2, Integer(Length(TDpccSettingsScopes.Routed)), 'umgeleitete Werte');
+  // Umgeleitet sind nur noch die Werte der Seite (seit CI-OPT auch completion.keywords) bzw. des Tooltips.
+  Assert.AreEqual(3, Integer(Length(TDpccSettingsScopes.Routed)), 'umgeleitete Werte');
   for mSetting in TDpccSettingsScopes.Routed do
   begin
-    Assert.IsTrue(MatchText(mSetting.Path, ['hints.xmlDocMaxLines', 'index.extraSourceFolders']), mSetting.Path);
+    Assert.IsTrue(MatchText(mSetting.Path, ['hints.xmlDocMaxLines', 'index.extraSourceFolders',
+      'completion.keywords']), mSetting.Path);
   end;
   for mPath in ['SlashCommands', 'CodeLensMetrics', 'Metrics', 'ExperimentalEnabled', 'CompileOnSave',
     'ArchitectureEnabled', 'QueryEnabled', 'RuleChecksEnabled', 'HotspotsEnabled', 'ReferencesInferred', 'SymbolPath',
@@ -627,6 +648,98 @@ begin
     Assert.IsFalse(MatchText(mName, TDpccPluginSettings.ReadOnlyNames), mName + ' gelesen');
     Assert.IsFalse(TDpccSettingsScopes.TryRouted(mName, mRouted), mName + ' umgeleitet');
   end;
+end;
+
+procedure TDpccCompletionViewTests.CompletionSwitchesStoredAndRouted;
+var
+  mRegistry: IDpccMemorySettingsStore;
+  mRouted: TDpccRoutedSettingsStore;
+  mStore: IDpccSettingsStore;
+  mSettings, mLoaded: TDpccPluginSettings;
+  mSetting: TDpccRoutedSetting;
+  mStored: TArray<string>;
+  mServer: TServerSettings;
+  mIssues: TArray<TConfigurationIssue>;
+begin
+  // Vorgaben: beide an; nichts gespeichert, nichts übernommen.
+  mSettings := TDpccPluginSettings.Defaults;
+  Assert.IsTrue(mSettings.OpenAfterDot, 'Vorgabe Nach dem Punkt');
+  Assert.IsTrue(mSettings.ShowKeywords, 'Vorgabe Reservierte Wörter');
+  Assert.IsTrue(TServerSettings.Default.Completion.Keywords, 'wie die Vorgabe des Servers');
+  Assert.IsFalse(mSettings.OpenAfterDotAdopted or mSettings.KeywordsAdopted or mSettings.IdeFeaturesAdopted,
+    'nichts übernommen');
+  // Weiterleitung: nur die reservierten Wörter liegen in settings.json, als Wahrheitswert.
+  Assert.IsTrue(TDpccSettingsScopes.TryRouted(TDpccPluginSettings.cKeywordsName, mSetting), 'umgeleitet');
+  Assert.AreEqual('completion.keywords', mSetting.Path, 'Schlüssel');
+  Assert.IsTrue(mSetting.Flag and not mSetting.Text and not mSetting.ReadOnly, 'Wahrheitswert, geschrieben');
+  Assert.IsFalse(TDpccSettingsScopes.TryRouted(TDpccPluginSettings.cOpenAfterDotName, mSetting),
+    'Nach dem Punkt in der Registry');
+  // Speichern: OpenAfterDot als DWORD in der Registry, completion.keywords in die Datei.
+  mSettings.OpenAfterDot := False;
+  mSettings.ShowKeywords := False;
+  mRegistry := TDpccMemorySettingsStore.Create;
+  mRouted := TDpccRoutedSettingsStore.Create(mRegistry, '{"language": "de"}');
+  mStore := mRouted;
+  mSettings.Save(mStore);
+  Assert.IsTrue(mRegistry.HasInteger(TDpccPluginSettings.cOpenAfterDotName), 'DWORD');
+  Assert.AreEqual('0', mRegistry.Text(TDpccPluginSettings.cOpenAfterDotName), 'Nach dem Punkt aus');
+  Assert.IsFalse(MatchText(TDpccPluginSettings.cKeywordsName, mRegistry.Names), 'nicht in der Registry');
+  Assert.AreEqual('false', JsonAt(mRouted.Text, 'completion.keywords'), 'in settings.json');
+  Assert.AreEqual('"de"', JsonAt(mRouted.Text, 'language'), 'übrige Schlüssel bleiben');
+  // Der Server liest denselben Wert aus der Datei.
+  mServer := TConfigurationParser.Parse(mRouted.Text, mIssues);
+  Assert.AreEqual(0, Integer(Length(mIssues)), 'Meldungen: ' + IssuesText(mIssues));
+  Assert.IsFalse(mServer.Completion.Keywords, 'Server: keine Schlüsselwörter');
+  // Laden: beide zurück, als eigene Werte erkannt.
+  mLoaded := TDpccPluginSettings.Defaults;
+  mLoaded.Load(mStore);
+  Assert.IsFalse(mLoaded.OpenAfterDot, 'geladen: Nach dem Punkt');
+  Assert.IsFalse(mLoaded.ShowKeywords, 'geladen: Reservierte Wörter');
+  Assert.IsTrue(mLoaded.OpenAfterDotStored and mLoaded.KeywordsStored, 'eigene Werte');
+  // Wieder an: Die Datei folgt.
+  mLoaded.ShowKeywords := True;
+  mLoaded.Save(mStore);
+  Assert.AreEqual('true', JsonAt(mRouted.Text, 'completion.keywords'), 'wieder an');
+  // Ein von Hand gesetzter Wert in settings.json gilt auf der Seite.
+  mRouted := TDpccRoutedSettingsStore.Create(TDpccMemorySettingsStore.Create, '{"completion": {"keywords": false}}');
+  mStore := mRouted;
+  mLoaded.Load(mStore);
+  Assert.IsFalse(mLoaded.ShowKeywords, 'aus settings.json');
+  Assert.IsTrue(mLoaded.KeywordsStored, 'als eigener Wert');
+  Assert.IsFalse(mLoaded.OpenAfterDotStored, 'Nach dem Punkt ohne Wert');
+  Assert.IsTrue(mLoaded.OpenAfterDot, 'Vorgabe');
+  // Ohne Eintrag in der Datei gilt ein Registry-Wert, ohne beides die Vorgabe (und kein eigener Wert).
+  mRegistry := TDpccMemorySettingsStore.Create;
+  mRegistry.WriteInteger(TDpccPluginSettings.cKeywordsName, 0);
+  mRouted := TDpccRoutedSettingsStore.Create(mRegistry, '');
+  mStore := mRouted;
+  mLoaded.Load(mStore);
+  Assert.IsFalse(mLoaded.ShowKeywords, 'Registry-Wert');
+  mRouted := TDpccRoutedSettingsStore.Create(TDpccMemorySettingsStore.Create, '{}');
+  mStore := mRouted;
+  mLoaded.Load(mStore);
+  Assert.IsTrue(mLoaded.ShowKeywords, 'Vorgabe');
+  Assert.IsFalse(mLoaded.KeywordsStored, 'kein eigener Wert');
+  // Reihenfolge beim Speichern wie auf der Seite: Nach dem Punkt direkt nach der Betriebsart, Reservierte Wörter
+  // zwischen Breite und Lernen.
+  mStored := TDpccPluginSettings.StoredNames;
+  Assert.AreEqual(TDpccPluginSettings.cOpenAfterDotName, mStored[1], 'nach der Betriebsart');
+  Assert.AreEqual('AutoMinChars', mStored[2], 'davor AutoMinChars');
+  Assert.AreEqual('ListWidth', mStored[IndexText(TDpccPluginSettings.cKeywordsName, mStored) - 1], 'nach ListWidth');
+  Assert.AreEqual('Learning', mStored[IndexText(TDpccPluginSettings.cKeywordsName, mStored) + 1], 'vor Learning');
+  // Die Merker der Übernahme aus der IDE schreibt Save nicht; Load liest sie.
+  Assert.IsFalse(MatchText(TDpccPluginSettings.AdoptedName(TDpccPluginSettings.cOpenAfterDotName), mStored),
+    'Merker gespeichert');
+  Assert.IsTrue(MatchText(TDpccPluginSettings.AdoptedName(TDpccPluginSettings.cKeywordsName),
+    TDpccPluginSettings.ReadOnlyNames), 'Merker nur gelesen');
+  mRegistry := TDpccMemorySettingsStore.Create;
+  mRegistry.WriteInteger('IdeAdopted CompletionKeywords', 1);
+  mLoaded := TDpccPluginSettings.Defaults;
+  mLoaded.Load(mRegistry);
+  Assert.IsTrue(mLoaded.KeywordsAdopted and not mLoaded.OpenAfterDotAdopted, 'Merker je Schalter');
+  mLoaded.Save(mRegistry);
+  Assert.AreEqual('1', mRegistry.Text('IdeAdopted CompletionKeywords'), 'Save lässt den Merker stehen');
+  Assert.IsFalse(MatchText('IdeAdopted OpenAfterDot', mRegistry.Names), 'Save legt keinen Merker an');
 end;
 
 initialization

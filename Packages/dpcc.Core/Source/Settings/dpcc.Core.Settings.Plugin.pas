@@ -21,6 +21,11 @@
 // Alle übrigen früheren Namen (Reiter Editor, Befehle, Debuggen, Willkommensseite …, Tasten, Modul-Schalter,
 // experimentelle Schalter, Einstellungsverlauf) liest und schreibt dpcc nicht mehr; vorhandene Werte bleiben in der
 // Registry liegen und wirken nicht.
+// Seit CI-OPT zwei Schalter mehr im Abschnitt Vervollständigung (sechzehn Optionen): „Nach dem Punkt automatisch
+// öffnen“ (DWORD OpenAfterDot, nur Plugin) und „Reservierte Wörter in der Liste zeigen“ (CompletionKeywords, liegt als
+// completion.keywords in settings.json, der Server liest denselben Wert). Ihre Startwerte übernimmt dpcc einmal aus
+// den Code-Insight-Optionen der IDE (TDpccIdeStartValues in dpcc.Core.Settings.IdeCheck); was schon übernommen ist,
+// halten die Merker „IdeAdopted …“ fest. Sie schreibt nur SaveAdoption, nie Save (sie stehen nicht auf der Seite).
 
 interface
 
@@ -57,6 +62,14 @@ type
     cMaxAutoMinChars = 10;
     /// <summary>Wie THintSettings.cMaxXmlDocLines des Servers.</summary>
     cMaxXmlDocLines = 50;
+    /// <summary>Registry-Namen der beiden Schalter aus CI-OPT (CompletionKeywords liegt in settings.json).</summary>
+    cOpenAfterDotName = 'OpenAfterDot';
+    cKeywordsName = 'CompletionKeywords';
+    /// <summary>Anfang der Merker „aus der IDE übernommen“ (DWORD 1): "IdeAdopted OpenAfterDot",
+    /// "IdeAdopted CompletionKeywords" (je Schalter, für alle Delphi-Versionen) und "IdeAdopted &lt;Version&gt;
+    /// IdeFeatures" (je Version: Funktionen der IDE in den Satz von dpcc übernommen).</summary>
+    cAdoptedPrefix = 'IdeAdopted ';
+    cAdoptedFeatures = 'IdeFeatures';
   public
     /// <summary>Betriebsart dieser Delphi-Version (Aus, Plugin, Server; dpcc.Core.Settings.OperatingMode), in der
     /// Registry als Text unter "OperatingMode &lt;IdeVersion&gt;". Fehlt er, gilt beim Laden der frühere gemeinsame
@@ -71,6 +84,22 @@ type
     /// <summary>Nach Load: weder ein eigener Wert dieser Version noch das frühere Enabled, also die Vorgabe nach der
     /// Installation (Plugin). Nicht gespeichert.</summary>
     ModeFromDefault: Boolean;
+    /// <summary>Nach „.“ öffnet die Liste von selbst (CI-OPT, DWORD OpenAfterDot); aus: GetCodeInsightType('.')
+    /// meldet der IDE keine Code Insight, Strg+Leertaste öffnet weiter. Vorgabe an.</summary>
+    OpenAfterDot: Boolean;
+    /// <summary>Reservierte Wörter (Schlüsselwörter) in der Liste (CI-OPT, completion.keywords in settings.json);
+    /// Vorgabe an.</summary>
+    ShowKeywords: Boolean;
+    /// <summary>Nach Load: Für OpenAfterDot bzw. completion.keywords stand schon ein Wert im Speicher (dann gilt er,
+    /// und die Übernahme aus der IDE liest nichts). Nicht gespeichert.</summary>
+    OpenAfterDotStored: Boolean;
+    KeywordsStored: Boolean;
+    /// <summary>Merker „aus der IDE übernommen“ (nur gelesen; geschrieben von SaveAdoption): die Startwerte von
+    /// OpenAfterDot bzw. ShowKeywords (für alle Versionen) und die Funktionen der IDE im Satz von dpcc (je Version
+    /// IdeVersion).</summary>
+    OpenAfterDotAdopted: Boolean;
+    KeywordsAdopted: Boolean;
+    IdeFeaturesAdopted: Boolean;
     /// <summary>Beim Tippen eines Bezeichners ohne Punkt davor öffnet die Liste erst ab so vielen Zeichen
     /// (L5, completion.autoMinChars); 0 = Tippen öffnet nie. Strg+Leertaste gilt immer.</summary>
     AutoMinChars: Integer;
@@ -128,6 +157,12 @@ type
     class function StoredNames: TArray<string>; static;
     /// <summary>Namen, die Load nur liest.</summary>
     class function ReadOnlyNames: TArray<string>; static;
+    /// <summary>Name eines Merkers „aus der IDE übernommen“: AName = cOpenAfterDotName, cKeywordsName (für alle
+    /// Versionen) bzw. cAdoptedFeatures (je Version AVersion).</summary>
+    class function AdoptedName(const AName: string; const AVersion: string = ''): string; static;
+    /// <summary>Die übernommenen Startwerte (OpenAfterDot, ShowKeywords) und die gesetzten Merker „IdeAdopted …“
+    /// nach AStore; sonst nichts (die übrigen Werte schreibt nur Save mit OK).</summary>
+    procedure SaveAdoption(const AStore: IDpccSettingsStore);
   end;
 
   /// <summary>Einstellungen im Arbeitsspeicher (Tests); Namen ohne Groß-/Kleinschreibung wie in der Registry.
@@ -175,6 +210,13 @@ begin
   Result.IdeVersion := '';
   Result.ModeFromLegacy := False;
   Result.ModeFromDefault := False;
+  Result.OpenAfterDot := True;
+  Result.ShowKeywords := True;
+  Result.OpenAfterDotStored := False;
+  Result.KeywordsStored := False;
+  Result.OpenAfterDotAdopted := False;
+  Result.KeywordsAdopted := False;
+  Result.IdeFeaturesAdopted := False;
   Result.AutoMinChars := cDefaultAutoMinChars;
   Result.CompletionListMode := cCompletionListModeNames[0];
   Result.VisibleRows := 9;
@@ -238,7 +280,7 @@ const
   cMissingNumber = Low(Integer);
 var
   mPopupLook, mMode: string;
-  mLegacy: Integer;
+  mLegacy, mStored: Integer;
 begin
   // Betriebsart je Delphi-Version; beim Lesen ohne eigenen Wert die Überführung aus dem früheren Enabled. Enabled
   // selbst schreibt dpcc nicht mehr (andere Versionen ohne eigenen Wert überführen ihn weiter so, wie er war).
@@ -257,10 +299,39 @@ begin
       ModeFromLegacy);
     ModeFromDefault := ModeFromLegacy and (mLegacy = cMissingNumber);
   end;
+  // CI-OPT: Beim Lesen auch, ob ein Wert da war (dann übernimmt dpcc keinen Startwert aus der IDE).
+  if AIo.Writing then
+  begin
+    AIo.Flag(cOpenAfterDotName, OpenAfterDot); // nur Plugin, kein Schlüssel in settings.json
+  end
+  else
+  begin
+    mStored := cMissingNumber;
+    AIo.Number(cOpenAfterDotName, mStored);
+    OpenAfterDotStored := mStored <> cMissingNumber;
+    if OpenAfterDotStored then
+    begin
+      OpenAfterDot := mStored <> 0;
+    end;
+  end;
   AIo.Number('AutoMinChars', AutoMinChars); // completion.autoMinChars
   AIo.Text('CompletionListMode', CompletionListMode); // completion.listMode
   AIo.Number('VisibleRows', VisibleRows); // completion.visibleRows
   AIo.Number('ListWidth', ListWidth); // completion.listWidth
+  if AIo.Writing then
+  begin
+    AIo.Flag(cKeywordsName, ShowKeywords); // completion.keywords (settings.json)
+  end
+  else
+  begin
+    mStored := cMissingNumber;
+    AIo.Number(cKeywordsName, mStored);
+    KeywordsStored := mStored <> cMissingNumber;
+    if KeywordsStored then
+    begin
+      ShowKeywords := mStored <> 0;
+    end;
+  end;
   AIo.Flag('Learning', Learning); // completion.learning
   AIo.Flag('AutoParentheses', AutoParentheses); // completion.autoParentheses
   AIo.Flag('CommitCharacters', CommitCharacters); // completion.commitCharacters
@@ -292,6 +363,13 @@ begin
   // Nur gelesen: Save schreibt sie nicht zurück.
   mReader.Number('XmlDocMaxLines', XmlDocMaxLines); // hints.xmlDocMaxLines (settings.json)
   mReader.Flag('LogNames', LogNames); // diagnostics.log.names
+  // CI-OPT: Merker der einmaligen Übernahme aus der IDE (schreibt nur SaveAdoption).
+  mReader.Flag(AdoptedName(cOpenAfterDotName), OpenAfterDotAdopted);
+  mReader.Flag(AdoptedName(cKeywordsName), KeywordsAdopted);
+  if IdeVersion <> '' then
+  begin
+    mReader.Flag(AdoptedName(cAdoptedFeatures, IdeVersion), IdeFeaturesAdopted);
+  end;
   Normalize;
 end;
 
@@ -299,6 +377,38 @@ procedure TDpccPluginSettings.Save(const AStore: IDpccSettingsStore);
 begin
   Normalize;
   Exchange(TDpccSettingsExchange.Writer(AStore));
+end;
+
+class function TDpccPluginSettings.AdoptedName(const AName, AVersion: string): string;
+begin
+  Result := cAdoptedPrefix + AName;
+  if AVersion <> '' then
+  begin
+    Result := cAdoptedPrefix + AVersion + ' ' + AName;
+  end;
+end;
+
+procedure TDpccPluginSettings.SaveAdoption(const AStore: IDpccSettingsStore);
+var
+  mWriter: TDpccSettingsExchange;
+begin
+  Normalize;
+  mWriter := TDpccSettingsExchange.Writer(AStore);
+  // Wert und Merker zusammen: Ohne Merker liest der nächste Start den Wert erneut aus der IDE.
+  if OpenAfterDotAdopted then
+  begin
+    mWriter.Flag(cOpenAfterDotName, OpenAfterDot);
+    mWriter.Flag(AdoptedName(cOpenAfterDotName), OpenAfterDotAdopted);
+  end;
+  if KeywordsAdopted then
+  begin
+    mWriter.Flag(cKeywordsName, ShowKeywords);
+    mWriter.Flag(AdoptedName(cKeywordsName), KeywordsAdopted);
+  end;
+  if IdeFeaturesAdopted and (IdeVersion <> '') then
+  begin
+    mWriter.Flag(AdoptedName(cAdoptedFeatures, IdeVersion), IdeFeaturesAdopted);
+  end;
 end;
 
 class function TDpccPluginSettings.StoredNames: TArray<string>;
@@ -311,8 +421,11 @@ end;
 
 class function TDpccPluginSettings.ReadOnlyNames: TArray<string>;
 begin
-  // Enabled: der frühere Hauptschalter, nur noch Quelle der Überführung der Betriebsart.
-  Result := ['XmlDocMaxLines', 'LogNames', TDpccOperatingModes.cLegacyName];
+  // Enabled: der frühere Hauptschalter, nur noch Quelle der Überführung der Betriebsart. Die Merker der Übernahme aus
+  // der IDE (CI-OPT) schreibt nur SaveAdoption; der Merker je Version ("IdeAdopted <Version> IdeFeatures") hängt an
+  // IdeVersion und steht deshalb nicht in dieser Liste.
+  Result := ['XmlDocMaxLines', 'LogNames', TDpccOperatingModes.cLegacyName, AdoptedName(cOpenAfterDotName),
+    AdoptedName(cKeywordsName)];
 end;
 
 { TDpccMemorySettingsStore }

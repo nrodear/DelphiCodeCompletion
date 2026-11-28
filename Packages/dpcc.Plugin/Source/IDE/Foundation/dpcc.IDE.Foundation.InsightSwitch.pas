@@ -40,6 +40,12 @@
 // Borland.EditOptions.Pascal und dem Ort von DelphiLSP, TDpccIdeCheck.DpccKeys). Weil der Registry-Wert unter
 // Delphi 12 nicht sicher wirkt, verbirgt dpcc.IDE.Hover.HelpInsightHide das Fenster zusätzlich zur Laufzeit; beim
 // Start steht der gelesene Wert "Help Insight" je Ort als eine Zeile im Protokoll (ApplyAtStart).
+// CI-OPT (nur Startweg, Plan unverändert): Nach dem Abgleich in der Betriebsart Plugin übernimmt ApplyAtStart einmal
+// die Startwerte der Schalter „Nach dem Punkt automatisch öffnen“ und „Reservierte Wörter in der Liste zeigen“ aus dem
+// Satz von DelphiLSP (AdoptStartValues, Merker „IdeAdopted …“) und unter Delphi 13 einmal die Funktionen der IDE
+// (Blockvervollständigung, Vorlagen, Hinweise) nach Borland.EditOptions.Pascal, nur in Lücken und ohne Merker
+// (CopyIdeFeatures, Merker „IdeAdopted 37.0 IdeFeatures“). Unter Delphi 12 schreibt dpcc dafür nichts; in den
+// Betriebsarten Aus und Server keins von beiden.
 
 interface
 
@@ -94,6 +100,7 @@ uses
   Vcl.ExtCtrls,
   ToolsAPI,
   dpcc.Core.Settings.Plugin,
+  dpcc.Core.Editor.CodeInsightKeys,
   dpcc.IDE.Foundation.Settings,
   dpcc.IDE.Foundation.IdeSettingsCheck;
 
@@ -323,9 +330,106 @@ begin
   ShowNotice(Result.Notice);
 end;
 
+/// <summary>CI-OPT: Startwerte von „Nach dem Punkt automatisch öffnen“ und „Reservierte Wörter in der Liste zeigen“
+/// einmal aus dem Satz von DelphiLSP dieser Version (TDpccIdeStartValues), beim ersten Start in der Betriebsart Plugin
+/// (AMode, wie der Plan ihn ergibt); danach nie wieder. Nach dem Abgleich: Was der Plan am Ort von DelphiLSP gesetzt
+/// hat, trägt einen Merker, und es gilt der Wert des Nutzers davor. In den Betriebsarten Aus und Server nichts, damit
+/// sich dort nichts ändert (completion.keywords läse auch dpcc.LspServer.exe).</summary>
+procedure AdoptStartValues(AMode: TDpccOperatingMode);
+var
+  mInput: TDpccIdeCheckInput;
+  mSettings: TDpccPluginSettings;
+  mAdopted: TArray<string>;
+begin
+  mSettings := TDpccIdeSettings.Current;
+  if (AMode <> TDpccOperatingMode.Plugin) or (mSettings.OpenAfterDotAdopted and mSettings.KeywordsAdopted) then
+  begin
+    Exit;
+  end;
+  mInput := TDpccIdeSettingsCheck.Read(mSettings);
+  mAdopted := TDpccIdeStartValues.Adopt(mInput, mSettings);
+  if Length(mAdopted) = 0 then
+  begin
+    Exit;
+  end;
+  TDpccIdeSettings.SaveAdoption(mSettings);
+  TDpccGuard.Log('Startwerte aus den Code-Insight-Optionen der IDE übernommen (einmalig, ' +
+    TDpccIdeCheck.cLspKey + '): ' + string.Join('; ', mAdopted));
+end;
+
+/// <summary>CI-OPT: unter Delphi 13 in der Betriebsart Plugin die Funktionen der IDE (Blockvervollständigung,
+/// Vorlagen, Hinweise) einmal aus dem Satz von DelphiLSP nach Borland.EditOptions.Pascal, nur wo der Wert dort fehlt
+/// (TDpccIdeContext.FeatureCopies); ohne Merker, der Wert gehört danach dem Nutzer. Unter Delphi 12 nichts: Die IDE
+/// liest dort für dpcc keinen Satz.</summary>
+procedure CopyIdeFeatures(AMode: TDpccOperatingMode);
+var
+  mSettings: TDpccPluginSettings;
+  mInput: TDpccIdeCheckInput;
+  mWrites: TArray<TDpccIdeWrite>;
+  mWrite: TDpccIdeWrite;
+  mBase: string;
+  mRegistry: TRegistry;
+  mNames: TArray<string>;
+begin
+  mSettings := TDpccIdeSettings.Current;
+  if mSettings.IdeFeaturesAdopted or (AMode <> TDpccOperatingMode.Plugin) or
+    (TDpccCodeInsightKeys.MajorVersion(TDpccIdeSettingsCheck.BaseKey) < TDpccIdeContext.cFeatureCopyVersion) then
+  begin
+    Exit;
+  end;
+  mInput := TDpccIdeSettingsCheck.Read(mSettings);
+  mWrites := TDpccIdeContext.FeatureCopies(mInput, AMode);
+  mBase := mInput.BaseKey;
+  mNames := nil;
+  if (mBase <> '') and (Length(mWrites) > 0) then
+  begin
+    mRegistry := TRegistry.Create(KEY_READ or KEY_WRITE);
+    try
+      mRegistry.RootKey := HKEY_CURRENT_USER;
+      try
+        for mWrite in mWrites do
+        begin
+          // Den Schlüssel gibt es (FeatureCopies prüft das); nicht anlegen.
+          if mRegistry.OpenKey(mBase + '\' + mWrite.Key, False) then
+          begin
+            mRegistry.WriteString(mWrite.Name, mWrite.Value);
+            mNames := mNames + [mWrite.Name + ' = ' + mWrite.Value];
+          end;
+          mRegistry.CloseKey;
+        end;
+      except
+        on E: ERegistryException do
+        begin
+          TDpccGuard.Log('IDE-Funktionen: Registry nicht beschreibbar: ' + TDpccGuard.ErrorText(E));
+          Exit;
+        end;
+      end;
+    finally
+      mRegistry.Free;
+    end;
+  end;
+  if mBase = '' then
+  begin
+    Exit;
+  end;
+  // Einmalig je Version: Auch ohne Lücke gilt die Übernahme als erledigt.
+  mSettings.IdeFeaturesAdopted := True;
+  TDpccIdeSettings.SaveAdoption(mSettings);
+  if Length(mNames) > 0 then
+  begin
+    TDpccGuard.Log('IDE-Funktionen in den Satz von dpcc übernommen (einmalig, ' + TDpccIdeCheck.cPascalKey +
+      ', nur fehlende Werte): ' + string.Join('; ', mNames));
+  end
+  else
+  begin
+    TDpccGuard.Log('IDE-Funktionen: im Satz von dpcc nichts zu übernehmen (' + TDpccIdeCheck.cPascalKey + ')');
+  end;
+end;
+
 class procedure TDpccIdeInsightSwitch.ApplyAtStart;
 var
   mInput: TDpccIdeCheckInput;
+  mPlan: TDpccIdeContextPlan;
 begin
   // Diagnose (HI1): "Help Insight" an den Orten von DelphiLSP, dpcc und HTML, wie die IDE sie beim Start vorfand
   // (vor dem Abgleich; nur gelesen). Ein Fehler hier kostet nur diese Zeile, nie den Abgleich.
@@ -344,11 +448,31 @@ begin
     // Erster Start nach der Installation (kein gespeicherter Wert, auch kein früheres Enabled): Vorgabe Plugin, also
     // wie Plugin mit OK (Anbieter dpcc, wirkt nach dem Neustart), statt beim gewählten DelphiLSP auszuschalten.
     TDpccGuard.Log('IDE-Kontext: erster Start ohne gespeicherte Betriebsart, Vorgabe Plugin');
-    Apply(TDpccIdeContextTrigger.MasterOn, '', True);
+    mPlan := Apply(TDpccIdeContextTrigger.MasterOn, '', True);
   end
   else
   begin
-    Apply(TDpccIdeContextTrigger.Start, '', True);
+    mPlan := Apply(TDpccIdeContextTrigger.Start, '', True);
+  end;
+  // CI-OPT: Startwerte der beiden Schalter, nur in der Betriebsart Plugin, nach dem Abgleich (hat der Plan am Ort von
+  // DelphiLSP geschrieben, gilt über den Merker der Wert des Nutzers). Ein Fehler kostet nur die Übernahme.
+  try
+    AdoptStartValues(mPlan.OperatingMode);
+  except
+    on E: Exception do
+    begin
+      TDpccGuard.Log('Startwerte aus der IDE: nicht übernommen: ' + TDpccGuard.ErrorText(E));
+    end;
+  end;
+  // CI-OPT: nur in der Betriebsart Plugin und nur unter Delphi 13, nach dem Abgleich (der Plan legt keinen Schlüssel
+  // an, FeatureCopies ebenso nicht).
+  try
+    CopyIdeFeatures(mPlan.OperatingMode);
+  except
+    on E: Exception do
+    begin
+      TDpccGuard.Log('IDE-Funktionen: nicht übernommen: ' + TDpccGuard.ErrorText(E));
+    end;
   end;
   // Danach prüfen, was gilt (Betriebsart IDE: die Werte von DelphiLSP, nur Protokoll).
   mInput := TDpccIdeSettingsCheck.Read(TDpccIdeSettings.Current);

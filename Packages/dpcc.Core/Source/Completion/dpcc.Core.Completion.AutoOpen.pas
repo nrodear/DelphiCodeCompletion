@@ -6,7 +6,8 @@
 // - Strg+Leertaste (Key) fragt immer, bei jeder Länge des Worts, auch bei offener Liste: wie bisher.
 // - Auslösezeichen (Trigger: "." und "[" von der IDE, "(" hinter einem Namen, ";" bzw. Enter hinter einem
 //   übernommenen Konstruktor, "{" in einer Wertdarstellung, "'" in FieldByName, "<" in XMLDoc) behalten ihre
-//   eigenen Regeln und fragen wie bisher.
+//   eigenen Regeln und fragen wie bisher. Ausnahme seit CI-OPT: „.“ öffnet nur mit „Nach dem Punkt automatisch
+//   öffnen“ (TriggerAllowed; die IDE-Schicht meldet sonst bei GetCodeInsightType('.') keine Code Insight).
 // - Tippen (Typing) eines Bezeichners ohne Punkt davor öffnet die Liste erst, wenn das Wort vor dem Cursor
 //   AMinChars Zeichen hat (Vorgabe seit NAV 0 = nie wie vor L5; zum Einschalten etwa 5). Darunter keine Anfrage an den Server und
 //   kein Popup: Listen des Gültigkeitsbereichs haben bei kurzem Anfang oft über tausend Einträge (bis ~200 ms
@@ -63,6 +64,10 @@ type
     /// </summary>
     class function Action(ASource: TDpccCompletionSource; const ALine: string; ACharacter: Integer;
       AListOpen: Boolean; AMinChars: Integer): TDpccAutoOpenAction; static;
+    /// <summary>Darf das Zeichen AChar, das die IDE an GetCodeInsightType gibt, die Liste von selbst öffnen (CI-OPT)?
+    /// "." nur mit AOpenAfterDot („Nach dem Punkt automatisch öffnen“); alle übrigen Zeichen, auch #0
+    /// (Strg+Leertaste), wie bisher.</summary>
+    class function TriggerAllowed(AChar: Char; AOpenAfterDot: Boolean): Boolean; static;
   end;
 
   /// <summary>Letzter Stand der Zeile des Cursors, um ein getipptes Zeichen zu erkennen.</summary>
@@ -183,6 +188,11 @@ begin
     Exit;
   end;
   Result := ACharacter - mStart;
+end;
+
+class function TDpccAutoOpen.TriggerAllowed(AChar: Char; AOpenAfterDot: Boolean): Boolean;
+begin
+  Result := (AChar <> '.') or AOpenAfterDot;
 end;
 
 class function TDpccAutoOpen.Action(ASource: TDpccCompletionSource; const ALine: string; ACharacter: Integer;

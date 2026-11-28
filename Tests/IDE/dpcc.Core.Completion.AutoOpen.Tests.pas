@@ -3,7 +3,8 @@
 // Tests für das Öffnen der Vervollständigung beim Tippen (L5, completion.autoMinChars, TDpccAutoOpen): unter der
 // Schwelle keine Anfrage, ab der Schwelle genau eine; Strg+Leertaste bei jeder Länge; nach "." wie bisher; eine
 // offene Liste filtert weiter; Einstellung 3 und 7; dazu das Erkennen eines getippten Zeichens und das Verhalten
-// einer beim Tippen geöffneten Liste im Ablauf (still schließen ohne Einträge, Enter bei fertigem Wort).
+// einer beim Tippen geöffneten Liste im Ablauf (still schließen ohne Einträge, Enter bei fertigem Wort). Seit CI-OPT
+// öffnet "." nur mit „Nach dem Punkt automatisch öffnen“ (TDpccAutoOpen.TriggerAllowed).
 
 interface
 
@@ -44,6 +45,10 @@ type
     procedure CtrlSpaceCompleteWordStillCommits;
     [Test]
     procedure SettingDefaultAndRange;
+    /// <summary>CI-OPT: „.“ öffnet nur mit „Nach dem Punkt automatisch öffnen“; Strg+Leertaste (#0) und die übrigen
+    /// Auslöser bleiben, wie sie sind; Vorgabe an.</summary>
+    [Test]
+    procedure DotOpensOnlyWithSetting;
   end;
 
 implementation
@@ -549,6 +554,23 @@ begin
   mSettings.AutoMinChars := 7;
   mSettings.Normalize;
   Assert.AreEqual(7, mSettings.AutoMinChars);
+end;
+
+procedure TDpccAutoOpenTests.DotOpensOnlyWithSetting;
+const
+  cOthers = #0#1#2#3'(,<[;{''';
+var
+  mChar: Char;
+begin
+  Assert.IsTrue(TDpccPluginSettings.Defaults.OpenAfterDot, 'Vorgabe an');
+  Assert.IsTrue(TDpccAutoOpen.TriggerAllowed('.', True), 'an: nach „.“');
+  Assert.IsFalse(TDpccAutoOpen.TriggerAllowed('.', False), 'aus: nicht nach „.“');
+  // Strg+Leertaste (#0), Parameterhilfe (#1), Browse (#2), Symbolhinweis (#3) und die übrigen Auslöser bleiben.
+  for mChar in cOthers do
+  begin
+    Assert.IsTrue(TDpccAutoOpen.TriggerAllowed(mChar, False), 'aus: #' + IntToStr(Ord(mChar)));
+    Assert.IsTrue(TDpccAutoOpen.TriggerAllowed(mChar, True), 'an: #' + IntToStr(Ord(mChar)));
+  end;
 end;
 
 initialization

@@ -15,6 +15,9 @@
 // Dezent, Unscheinbar; TDpccPluginSettings.PopupLook); sie ändert nur, wie die Fenster von dpcc zeichnen.
 // Seit LOG1 steht zuletzt im Abschnitt IDE „Ablauf protokollieren (Log)“ (TDpccPluginSettings.Diagnose, derselbe
 // Registry-Wert wie das frühere Diagnose = 1); sein Hint nennt die Protokolldatei (DiagnoseFile, von der IDE-Schicht).
+// Seit CI-OPT im Abschnitt Vervollständigung zuerst „Nach dem Punkt automatisch öffnen“ (OpenAfterDot) und vor dem
+// Lernen „Reservierte Wörter in der Liste zeigen“ (ShowKeywords, completion.keywords); beide mit Hint, ab wann sie
+// wirken, und wie die übrigen Optionen außerhalb der Betriebsart Plugin grau.
 // Seit Stufe 2 von dpcc.LspServer.exe steht oben statt des Hauptschalters die Betriebsart als Dreifachwahl (Aus,
 // Plugin, Server; TDpccPluginSettings.Mode), je mit einem gedämpften Satz darunter. „Server“ ist nur wählbar, wenn die
 // IDE-Schicht den Ort von dpcc.LspServer.exe gesetzt hat (ServerExe); sonst steht darunter ein Hinweis.
@@ -101,6 +104,9 @@ type
     FModeInfos: array[TDpccOperatingMode] of TLabel;
     FServerMissing: TLabel;
     FServerExe: string;
+    /// <summary>„Nach dem Punkt automatisch öffnen“ und „Reservierte Wörter in der Liste zeigen“ (CI-OPT).</summary>
+    FOpenAfterDot: TCheckBox;
+    FKeywords: TCheckBox;
     /// <summary>Zahlen als Auswahl (0 bis 10 bzw. 5 bis 20): ohne Fenster nutzbar, ohne Tippfehler.</summary>
     FAutoMinChars: TDpccChoiceBox;
     FListMode: TDpccChoiceBox;
@@ -205,6 +211,10 @@ type
     /// <summary>Ort von dpcc.LspServer.exe; setzt die IDE-Schicht. '' = nicht installiert: „Server“ ist nicht
     /// wählbar (außer, es ist schon gewählt) und der Hinweis erscheint.</summary>
     property ServerExe: string read FServerExe write SetServerExe;
+    /// <summary>„Nach dem Punkt automatisch öffnen“ (CI-OPT, TDpccPluginSettings.OpenAfterDot).</summary>
+    property OpenAfterDot: TCheckBox read FOpenAfterDot;
+    /// <summary>„Reservierte Wörter in der Liste zeigen“ (CI-OPT, TDpccPluginSettings.ShowKeywords).</summary>
+    property Keywords: TCheckBox read FKeywords;
     property AutoWidth: TCheckBox read FAutoWidth;
     property ListModeChoice: TDpccChoiceBox read FListMode;
     property AutoMinCharsChoice: TDpccChoiceBox read FAutoMinChars;
@@ -400,6 +410,22 @@ begin
       TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsModeServerMissing));
     FModes[TDpccOperatingMode.Plugin].Checked := True;
     AddEntry(AItem, FModes[TDpccOperatingMode.Plugin], nil);
+  end
+  else if AItem.Name = TDpccPluginSettings.cOpenAfterDotName then
+  begin
+    // CI-OPT: erste Option des Abschnitts; der Hint sagt, ab wann der Schalter wirkt.
+    FOpenAfterDot := AddCheckRow(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsOpenAfterDot), cIndent);
+    FOpenAfterDot.ShowHint := True;
+    FOpenAfterDot.Hint := TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsOpenAfterDotHint);
+    AddEntry(AItem, FOpenAfterDot, nil);
+  end
+  else if AItem.Name = TDpccPluginSettings.cKeywordsName then
+  begin
+    // CI-OPT: vor dem Lernen; completion.keywords in settings.json, der Server liest die Datei neu.
+    FKeywords := AddCheckRow(TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsKeywords), cIndent);
+    FKeywords.ShowHint := True;
+    FKeywords.Hint := TDpccSettingsStrings.Text(TDpccSettingsTextId.SettingsKeywordsHint);
+    AddEntry(AItem, FKeywords, nil);
   end
   else if AItem.Name = 'AutoMinChars' then
   begin
@@ -957,6 +983,8 @@ end;
 procedure TDpccSettingsPage.LoadFrom(const ASettings: TDpccPluginSettings);
 begin
   Mode := ASettings.Mode;
+  FOpenAfterDot.Checked := ASettings.OpenAfterDot;
+  FKeywords.Checked := ASettings.ShowKeywords;
   FAutoMinChars.Choice := EnsureRange(ASettings.AutoMinChars, 0, TDpccPluginSettings.cMaxAutoMinChars) -
     FAutoMinChars.Tag;
   FListMode.Choice := Ord(TDpccListModes.ModeOf(ASettings.CompletionListMode));
@@ -980,6 +1008,8 @@ end;
 procedure TDpccSettingsPage.SaveTo(var ASettings: TDpccPluginSettings);
 begin
   ASettings.Mode := Mode;
+  ASettings.OpenAfterDot := FOpenAfterDot.Checked;
+  ASettings.ShowKeywords := FKeywords.Checked;
   if FAutoMinChars.Choice >= 0 then
   begin
     ASettings.AutoMinChars := FAutoMinChars.Tag + FAutoMinChars.Choice;

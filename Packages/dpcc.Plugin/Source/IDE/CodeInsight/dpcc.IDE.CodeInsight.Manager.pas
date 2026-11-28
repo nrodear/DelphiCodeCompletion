@@ -13,8 +13,11 @@
 // Kompositionswurzel ein (TDpccCodeInsightAdapters).
 // IOTACodeInsightManagerEnvOptions (IDECHECK, Delphi 12 und 13): Wählt der Nutzer im Code-Insight-Dialog der IDE dpcc
 // bzw. einen anderen Anbieter, ruft die IDE ManagerEnabled bzw. ManagerDisabled; der Manager reicht das an
-// OnProviderChoice weiter (Betriebsart, dpcc.IDE.Foundation.InsightSwitch). Die Is…Visible-Abfragen lassen alle
-// Elemente des Dialogs sichtbar wie bisher.
+// OnProviderChoice weiter (Betriebsart, dpcc.IDE.Foundation.InsightSwitch). Seit CI-OPT blenden die Is…Visible-Abfragen
+// aus, was dpcc auf seiner Seite regelt (Klammern, Automatisch aufrufen, Verlauf, reservierte Wörter, Code-Parameter,
+// Ausdrucksauswertung, Symbol-Insight, Help Insight), und IOTACodeInsightManagerEnvOptions270 „LSP-Konfiguration
+// generieren“. Blockvervollständigung, Umbruchstil, Vorlagen, Hinweise, „Unvollst. Eigenschaften“, „Programmierhilfe“
+// und Error Insight bleiben sichtbar.
 // Strg+Klick und Symbolhinweis der IDE ohne Einfrieren (dpcc.Core.Lsp.LateAnswers): Der Hauptthread gleicht den
 // Puffer ab und startet die Anfrage in einem Hintergrund-Thread (FThreads, Leerlauf-Signal für den Stopp); er wartet
 // höchstens TDpccLateAnswers.cWaitMs. Kommt das Sprungziel später, antwortet GotoDefinition still (True ohne Datei),
@@ -53,7 +56,7 @@ uses
 
 type
   TDpccCodeInsightManager = class(TDpccCodeInsightCrashes, IOTACodeInsightManager, IOTACodeInsightManager90,
-    IOTACodeInsightSelection, IOTACodeInsightManagerEnvOptions)
+    IOTACodeInsightSelection, IOTACodeInsightManagerEnvOptions, IOTACodeInsightManagerEnvOptions270)
   private type
     /// <summary>Was ein Sprungwunsch für Protokoll und Rückmeldung liefert.</summary>
     TGotoReport = record
@@ -203,6 +206,8 @@ type
     function GetCodeInsightUIName: string;
     procedure ManagerDisabled;
     procedure ManagerEnabled;
+    { IOTACodeInsightManagerEnvOptions270 }
+    function IsGenerateVSCodeInfo: Boolean;
   public
     /// <summary>Wahl im Code-Insight-Dialog der IDE (True = dpcc gewählt, False = ein anderer Anbieter); setzt die
     /// Kompositionswurzel. Läuft im Thread des Aufrufs der IDE (Hauptthread).</summary>
@@ -1582,59 +1587,85 @@ end;
 
 { IOTACodeInsightManagerEnvOptions }
 
+// CI-OPT: Was dpcc selbst regelt, steht auf der Seite dpcc und ist im Dialog der IDE (Editor › Sprache › Code
+// Insight, wenn dpcc als Anbieter gewählt ist) ausgeblendet. Was die IDE allein macht, bleibt sichtbar:
+// Blockvervollständigung (chkbxEnableAutoCompletion) samt Umbruchstil, Vorlagen und Hinweise (ohne Is-Abfrage),
+// „Unvollst. Eigenschaften“ (ohne Is-Abfrage, Class Completion), „Programmierhilfe“ (ohne Is-Abfrage) und Error
+// Insight (eigener Reiter, wie bisher).
+
 function TDpccCodeInsightManager.IsEnableErrorInsightVisible: Boolean;
 begin
+  // Unverändert: Error Insight bleibt Sache der IDE.
   Result := True;
 end;
 
 function TDpccCodeInsightManager.IsCodeCompleteAutoParensVisible: Boolean;
 begin
-  Result := True;
+  // „Klammern bei Methoden ergänzen“ (AutoParentheses).
+  Result := False;
 end;
 
 function TDpccCodeInsightManager.IsCodeCompleteAutoInvokeVisible: Boolean;
 begin
-  Result := True;
+  // „Nach dem Punkt automatisch öffnen“ (OpenAfterDot); die Verzögerung beim Tippen stellt dpcc selbst (-1).
+  Result := False;
 end;
 
 function TDpccCodeInsightManager.IsCodeCompleteHistoryVisible: Boolean;
 begin
-  Result := True;
+  // „Häufig und zuletzt gewählte Einträge nach oben“ (Learning).
+  Result := False;
 end;
 
 function TDpccCodeInsightManager.IsCodeCompleteShowReservedWordsVisible: Boolean;
 begin
-  Result := True;
+  // „Reservierte Wörter in der Liste zeigen“ (completion.keywords).
+  Result := False;
 end;
 
 function TDpccCodeInsightManager.IsCodeParametersVisible: Boolean;
 begin
-  Result := True;
+  // „Parameter-Hint bei „(“ und „,““ (ParameterHints).
+  Result := False;
 end;
 
 function TDpccCodeInsightManager.IsEvalHintsVisible: Boolean;
 begin
-  Result := True;
+  // „Werte beim Debuggen zeigen“ (DebugHoverValues).
+  Result := False;
 end;
 
 function TDpccCodeInsightManager.IsDeclInfoVisible: Boolean;
 begin
-  Result := True;
+  // „Eigener Tooltip beim Verweilen über Bezeichnern“ (HoverTooltip).
+  Result := False;
 end;
 
 function TDpccCodeInsightManager.IsToolTipHelpInsightVisible: Boolean;
 begin
-  Result := True;
+  // Ebenfalls der eigene Tooltip (HoverTooltip); Help Insight verbirgt dpcc zusätzlich zur Laufzeit.
+  Result := False;
 end;
 
 function TDpccCodeInsightManager.IsEnableAutoCompletionVisible: Boolean;
 begin
+  // „Blockvervollständigung“ (Auto-block Completion): macht die IDE allein, bleibt sichtbar.
   Result := True;
 end;
 
 function TDpccCodeInsightManager.IsBlockWrapStyleVisible: Boolean;
 begin
+  // Umbruchstil der Blockvervollständigung (Block Wrap Style): bleibt sichtbar.
   Result := True;
+end;
+
+{ IOTACodeInsightManagerEnvOptions270 }
+
+function TDpccCodeInsightManager.IsGenerateVSCodeInfo: Boolean;
+begin
+  // „LSP-Konfiguration generieren“ (chkbxVSCodeInfo) betrifft nur DelphiLSP; mit dpcc ohne Wirkung, ausgeblendet.
+  // Unter Delphi 12 und 13 gleich deklariert (gleiche GUID, eine Methode).
+  Result := False;
 end;
 
 function TDpccCodeInsightManager.GetCodeInsightUIName: string;
