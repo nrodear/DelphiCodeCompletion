@@ -42,7 +42,7 @@ Les trois boutons radio et leur texte sur la page :
 |---|---|
 | « Off – Delphi works without dpcc » (Off – Delphi fonctionne sans dpcc) | « Delphi uses its own Code Insight provider (DelphiLSP); dpcc shows no windows and redirects nothing. » (Delphi utilise son propre fournisseur Code Insight (DelphiLSP) ; dpcc n'affiche aucune fenêtre et ne redirige rien.) |
 | « Plugin – Code Insight by dpcc in the editor (default) » (Plugin – Code Insight de dpcc dans l'éditeur, par défaut) | « dpcc becomes the IDE's Code Insight provider, with its own list, tooltip and parameter hint. Switching to or from Plugin takes effect after restarting Delphi. » (dpcc devient le fournisseur Code Insight de l'IDE, avec sa propre liste, son infobulle et son aide aux paramètres. Le passage depuis ou vers Plugin prend effet après le redémarrage de Delphi.) |
-| « Server – dpcc.LspServer.exe instead of DelphiLSP » (Server – dpcc.LspServer.exe à la place de DelphiLSP) | « Delphi stays in LSP mode and shows its own windows; the answers come from dpcc.LspServer.exe instead of DelphiLSP.exe. The IDE's error marks (Error Insight) stay empty. Switching to or from Plugin takes effect after restarting Delphi, between Off and Server the next time a project group is opened. » (Delphi reste en fonctionnement LSP et affiche ses propres fenêtres ; les réponses viennent de dpcc.LspServer.exe au lieu de DelphiLSP.exe. Les marques d'erreur de l'IDE (Error Insight) restent vides. Le passage depuis ou vers Plugin prend effet après le redémarrage de Delphi, entre Off et Server à la prochaine ouverture d'un groupe de projets.) |
+| « Server – dpcc.LspServer.exe instead of DelphiLSP » (Server – dpcc.LspServer.exe à la place de DelphiLSP) | « Delphi stays in LSP mode and shows its own windows; the answers come from dpcc.LspServer.exe instead of DelphiLSP.exe. The IDE's error marks (Error Insight) stay empty. dpcc turns on code completion, auto invoke, code parameters and symbol insight in the IDE's Code Insight options and restores them when leaving Server; nothing needs to be turned off there for the server. Switching to or from Plugin takes effect after restarting Delphi, between Off and Server the next time a project group is opened; the IDE reads the four options only at the next start of Delphi, though. » (Delphi reste en fonctionnement LSP et affiche ses propres fenêtres ; les réponses viennent de dpcc.LspServer.exe au lieu de DelphiLSP.exe. Les marques d'erreur de l'IDE (Error Insight) restent vides. dpcc active dans les options Code Insight de l'IDE la complétion de code, l'appel automatique, les paramètres de code et Symbol Insight, et les rétablit en quittant Server ; il n'y a rien à y désactiver pour le serveur. Le passage depuis ou vers Plugin prend effet après le redémarrage de Delphi, entre Off et Server à la prochaine ouverture d'un groupe de projets ; l'IDE ne lit toutefois les quatre options qu'au prochain démarrage de Delphi.) |
 
 - **Off** (auparavant « interrupteur principal désactivé ») : Delphi travaille avec son propre fournisseur Code
   Insight (DelphiLSP, `Insight Manager` = `Borland.CodeInsight.LSP.Pascal`). dpcc n'affiche aucune fenêtre et ne
@@ -61,6 +61,11 @@ Les trois boutons radio et leur texte sur la page :
   Ctrl+Maj+Espace vont à l'IDE.
 - Les marques d'erreur de l'IDE (Error Insight) restent vides : `dpcc.LspServer.exe` ne fournit pas de diagnostics
   de code. dpcc ne règle pas `ErrorInsightLevel`.
+- Sans quatre options Code Insight de l'IDE, l'IDE n'interroge pas le serveur : complétion de code, appel
+  automatique, paramètres de code et infobulle Symbol Insight. dpcc les active lui-même dans le mode Server et les
+  remet aux valeurs antérieures lors du passage à Off (voir
+  [Options dans le mode Server](#options-dans-le-mode-server)). Dans la boîte de dialogue Code Insight de l'IDE, il n'y
+  a rien à désactiver pour le serveur. L'IDE ne lit ces options qu'au prochain démarrage de Delphi.
 - La redirection se fait depuis le plugin (hook sur `CreateProcessW` dans le module `IDELSP290.bpl` ou
   `IDELSP370.bpl`). dpcc ne modifie rien dans le dossier d'installation de Delphi et n'a pas besoin de droits
   d'administrateur. Détails, emplacements de l'EXE et lignes du journal : [Serveur LSP](lsp-server.md#mode-server).
@@ -236,7 +241,7 @@ Insight choisi pour Delphi dans les options de l'IDE (valeur `Insight Manager` s
 |---|---|---|---|
 | Off | DelphiLSP (par défaut de l'IDE) ou un autre fournisseur | aucune fenêtre, aucune redirection | Il annule ce qu'il a lui-même modifié. Il ne fait que vérifier les valeurs dont DelphiLSP a besoin et écrit le résultat dans le journal. |
 | Plugin | dpcc (`dpcc.CodeInsight`) | serveur intégré, liste, infobulle et aide aux paramètres propres | Il règle les options du tableau [Réglages dans le mode Plugin](#réglages-dans-le-mode-plugin). |
-| Server | DelphiLSP (`Borland.CodeInsight.LSP.Pascal`) | pas de serveur intégré, aucune fenêtre ; le lancement de `DelphiLSP.exe` est redirigé vers `dpcc.LspServer.exe` | Comme pour Off. Avec OK, il règle le fournisseur sur DelphiLSP. La redirection se trouve dans le processus de l'IDE, pas dans le registre. |
+| Server | DelphiLSP (`Borland.CodeInsight.LSP.Pascal`) | pas de serveur intégré, aucune fenêtre ; le lancement de `DelphiLSP.exe` est redirigé vers `dpcc.LspServer.exe` | Il règle les quatre options de [Options dans le mode Server](#options-dans-le-mode-server) et annule tout le reste comme pour Off. Avec OK, il règle le fournisseur sur DelphiLSP. La redirection se trouve dans le processus de l'IDE, pas dans le registre. |
 
 Il n'existe pas d'Open Tools API pour ces réglages : ils se trouvent dans le registre de l'IDE et sont lus au
 démarrage de l'IDE. dpcc les y lit et les y écrit, indépendamment de la version, via la clé de base de l'IDE en cours.
@@ -248,13 +253,21 @@ démarrage de l'IDE. dpcc les y lit et les y écrit, indépendamment de la versi
 - **Off** et OK, alors que Plugin s'appliquait : dpcc rétablit le fournisseur (celui mémorisé, sinon DelphiLSP) et
   annule ses autres modifications.
 - **Server** et OK : dpcc règle dans tous les cas le fournisseur sur DelphiLSP (même depuis un autre fournisseur, et
-  non sur la valeur mémorisée) et annule ses réglages Code Insight comme pour Off.
+  non sur la valeur mémorisée), active les quatre [options pour le serveur](#options-dans-le-mode-server) et annule
+  ses autres réglages Code Insight comme pour Off.
+- **Entre Plugin et Server** : une option que les deux modes veulent de la même façon (complétion de code, appel
+  automatique, paramètres de code) reste telle quelle ; dpcc ne la remet pas brièvement en arrière pour la régler de
+  nouveau, et son marqueur garde la valeur d'avant la première modification. Symbol Insight est désactivé par Plugin et
+  activé par Server. Ce que seul Plugin règle (Help Insight, évaluation d'expressions, délai pendant la saisie,
+  `AutoInvokeCompletionOnParameterInsight`, fournisseur) revient à la valeur antérieure lors du passage à Server.
 - Depuis ou vers **Plugin**, le fournisseur change ; cela ne prend effet qu'après le redémarrage de Delphi (voir plus
   bas).
 - **Entre Off et Server** (l'IDE est déjà en fonctionnement LSP), aucun redémarrage n'est nécessaire. L'IDE lance son
   serveur lorsque la première unité d'un groupe de projets est affichée, un par groupe de projets ; un serveur lancé
   reste jusqu'à la fermeture du groupe. La redirection relit le mode à chaque lancement de DelphiLSP. Donc : fermer
-  puis rouvrir le groupe de projets.
+  puis rouvrir le groupe de projets. Si dpcc doit d'abord activer les quatre options Code Insight du serveur (voir
+  [Options dans le mode Server](#options-dans-le-mode-server)), cela ne vaut qu'après le redémarrage de Delphi
+  (mesuré le 28.11.2026 dans Delphi 12 et 13).
 - **Au démarrage de Delphi**, le mode suit le fournisseur choisi : si dpcc est choisi, Plugin s'applique. Si DelphiLSP
   est choisi (ou aucun fournisseur n'est inscrit), un mode Server enregistré reste en place, sinon Off s'applique. Si
   un autre fournisseur est choisi, Off s'applique ; si Server était choisi, la fenêtre Messages le signale. Exception :
@@ -315,10 +328,42 @@ journal contient aussi une ligne « Help Insight in der Registry (…) » avec
 DelphiLSP, dans `Borland.EditOptions.Pascal` et dans `Borland.EditOptions.HTML` (les lignes du journal sont toujours
 en allemand).
 
+### Options dans le mode Server
+
+Emplacement : `HKCU\<base>\Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` (l'emplacement de
+DelphiLSP, identique sous Delphi 12 et 13). Valeurs sous forme de chaînes `True`/`False`, comme l'IDE les écrit.
+
+| Option de l'IDE | Valeur de registre | Attendu | Raison |
+|---|---|---|---|
+| Code completion (complétion de code) | `Auto Code Completions` | `True` | Désactivé : aucune liste ne s'ouvre après « . ». |
+| Auto invoke (appel automatique) | `Auto Invoke` | `True` | Désactivé : l'IDE n'appelle pas d'elle-même la complétion après « . ». |
+| Code parameters: Auto invoke (paramètres : appel automatique) | `Auto Code Parameters` | `True` | Désactivé : l'aide aux paramètres ne s'ouvre pas d'elle-même sur « ( » et « , ». |
+| Tooltip symbol insight (infobulle Symbol Insight) | `Declaration Information` | `True` | Désactivé : au survol d'un identificateur, l'IDE n'interroge pas `dpcc.LspServer.exe`. |
+
+- Le mode Server ne règle aucune autre option. `Error Insight` et `ErrorInsightLevel` restent intacts.
+- Marqueurs et retour en arrière comme dans le mode Plugin (voir
+  [Marqueurs et retour en arrière](#marqueurs-et-retour-en-arrière)). Le marqueur garde la valeur d'avant la première
+  modification par dpcc, même si dpcc avait réglé l'option auparavant dans le mode Plugin. Off rétablit cette valeur.
+- Si une valeur ou la clé manque, la valeur par défaut de l'IDE (activé) s'applique ; dpcc n'écrit alors rien et ne
+  crée rien.
+- Si l'on désactive l'une des quatre options dans la boîte de dialogue Code Insight de l'IDE alors que le mode Server
+  s'applique, la même règle vaut que pour les réglages du mode Plugin : dpcc la réactive lors de la synchronisation
+  suivante (contre-vérification après OK sur la page dpcc, fermeture ou prochain démarrage de Delphi). S'il n'y avait
+  pas encore de marqueur, dpcc note la valeur désactivée comme valeur antérieure ; Off la rétablit ensuite.
+- Quand cela prend effet : dpcc écrit les valeurs dans le registre, vérifie de nouveau après la boîte de dialogue et
+  les écrit encore une fois à la fermeture de Delphi, au cas où l'IDE les aurait écrasées depuis sa mémoire (comme
+  dans le mode Plugin). L'IDE ne les lit qu'au prochain démarrage de Delphi ; dpcc n'utilise aucun moyen de les
+  changer dans l'IDE en cours d'exécution. Si dpcc a activé des options, la fenêtre Messages le signale une fois
+  (« Für den Server hat dpcc in den Code-Insight-Optionen der IDE eingeschaltet: … » dans une IDE allemande,
+  « For the server, dpcc turned on in the IDE's Code Insight options: … » sinon).
+
 ### Vérification dans les modes Off et Server
 
-Avec DelphiLSP, dpcc vérifie au démarrage, mais ne modifie rien. Le résultat figure dans le journal et dans la section
-[IDE](#ide) de la page.
+dpcc vérifie au démarrage. Dans le mode Off, il ne modifie rien ; dans le mode Server, il vérifie les quatre
+[options pour le serveur](#options-dans-le-mode-server) qu'il règle lui-même, ainsi que `Error Insight`. Le résultat
+figure dans le journal et dans la section [IDE](#ide) de la page.
+
+Mode Off (avec DelphiLSP, vérification seule) :
 
 | Option de l'IDE | Valeur de registre | Attendu | Raison |
 |---|---|---|---|
@@ -353,6 +398,10 @@ La ligne du journal ressemble à « IDE-Einstellungen: 1 Abweichung: Auto Code 
   `IdeSet <version> <clé>\<valeur>` avec la valeur écrite et la valeur antérieure (ou le fait qu'il n'y en avait pas).
 - Seul ce qui est encore tel que dpcc l'a écrit est annulé. Si l'utilisateur ou l'IDE a modifié la valeur entre-temps,
   elle reste ; seul le marqueur disparaît. Si la valeur n'existait pas auparavant, dpcc la supprime de nouveau.
+- Un marqueur garde toujours la valeur d'avant la première modification par dpcc, y compris lors d'un passage entre
+  Plugin et Server. Si le nouveau mode a lui aussi besoin de la valeur, le marqueur reste ; s'il la règle autrement,
+  dpcc inscrit la nouvelle valeur dans le marqueur et garde la valeur antérieure. Les marqueurs des versions
+  précédentes restent valables sans changement.
 - Les anciens marqueurs (`IdeHelpInsightDisabled …`, `IdeTooltipWatchesDisabled …`) restent valables : lors de la
   synchronisation suivante, dpcc les annule ou les remplace par les nouveaux.
 - dpcc ne modifie jamais Error Insight ni la mise en évidence de structure.

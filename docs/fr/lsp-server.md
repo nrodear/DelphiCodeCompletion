@@ -59,10 +59,16 @@ modifie rien dans le dossier d’installation de Delphi et n’a pas besoin de d
    [Installation](installation.md#serveur-lsp)).
 2. **Tools › Options › Third Party › dpcc**, choisir le mode « Server – dpcc.LspServer.exe instead of DelphiLSP »
    (Server – dpcc.LspServer.exe à la place de DelphiLSP) et fermer avec **OK**. dpcc règle alors le fournisseur Code
-   Insight de l’IDE sur DelphiLSP.
+   Insight de l’IDE sur DelphiLSP et active les quatre options Code Insight sans lesquelles l’IDE n’interroge pas le
+   serveur : complétion de code (`Auto Code Completions`), appel automatique (`Auto Invoke`), paramètres de code
+   (`Auto Code Parameters`) et infobulle Symbol Insight (`Declaration Information`). Lors du passage à Off, il les
+   remet aux valeurs antérieures. Dans la boîte de dialogue Code Insight de l’IDE, il n’y a rien à désactiver pour le
+   serveur. Détails : [Réglages](settings.md#options-dans-le-mode-server).
 3. Si le changement vient du mode Plugin (ou si un autre fournisseur était choisi), redémarrer Delphi. S’il vient du
    mode Off, fermer puis rouvrir le groupe de projets : l’IDE lance son serveur lorsque la première unité d’un groupe
-   de projets est affichée, un par groupe, et un serveur lancé reste jusqu’à la fermeture du groupe.
+   de projets est affichée, un par groupe, et un serveur lancé reste jusqu’à la fermeture du groupe. Si dpcc a activé
+   à cette occasion l’une des quatre options (la fenêtre Messages les nomme), elle ne s’applique qu’après le prochain
+   démarrage de Delphi : l’IDE ne lit ces options qu’au démarrage.
 
 Le mode s’applique par version de Delphi (voir [Réglages](settings.md#mode-de-fonctionnement)). À chaque lancement de
 DelphiLSP, le hook le relit dans le registre ; on revient donc au DelphiLSP d’origine avec « Off » et une nouvelle
@@ -112,6 +118,7 @@ Le journal propre de l’EXE se trouve sous son [stockage](#stockage).
 ### Limites
 
 - Error Insight reste vide : le serveur ne fournit pas de diagnostics de code. dpcc ne règle pas `ErrorInsightLevel`.
+- Hormis les quatre options Code Insight d’[Activer](#activer), le mode Server ne modifie rien dans l’IDE.
 - Non pris en charge : l’IDE 64 bits de Delphi 13 (`bin64\bds.exe`, `Known Packages x64`). Le plugin est en 32 bits
   et ne s’y charge pas.
 - Si l’EXE manque ou si son lancement échoue, c’est le DelphiLSP d’origine qui démarre ; une ligne figure dans le

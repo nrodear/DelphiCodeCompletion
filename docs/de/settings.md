@@ -37,7 +37,7 @@ Die drei Optionsfelder und ihr Text auf der Seite:
 |---|---|
 | „Aus – Delphi arbeitet ohne dpcc“ | „Delphi nutzt seinen eigenen Code-Insight-Anbieter (DelphiLSP); dpcc zeigt keine Fenster und leitet nichts um.“ |
 | „Plugin – Code Insight von dpcc im Editor (Vorgabe)“ | „dpcc wird der Code-Insight-Anbieter der IDE, mit eigener Liste, Tooltip und Parameter-Hint. Der Wechsel von oder zu Plugin wirkt nach dem Neustart von Delphi.“ |
-| „Server – dpcc.LspServer.exe an Stelle von DelphiLSP“ | „Delphi bleibt im LSP-Betrieb und zeigt seine eigenen Fenster; die Antworten liefert dpcc.LspServer.exe statt DelphiLSP.exe. Die Fehlermarkierung der IDE (Error Insight) bleibt leer. Der Wechsel von oder zu Plugin wirkt nach dem Neustart von Delphi, zwischen Aus und Server beim nächsten Öffnen einer Projektgruppe.“ |
+| „Server – dpcc.LspServer.exe an Stelle von DelphiLSP“ | „Delphi bleibt im LSP-Betrieb und zeigt seine eigenen Fenster; die Antworten liefert dpcc.LspServer.exe statt DelphiLSP.exe. Die Fehlermarkierung der IDE (Error Insight) bleibt leer. dpcc schaltet in den Code-Insight-Optionen der IDE Programmierhilfe, Automatisch aufrufen, Code-Parameter und Symbol-Insight ein und stellt sie beim Verlassen von Server zurück; dort muss man für den Server nichts abschalten. Der Wechsel von oder zu Plugin wirkt nach dem Neustart von Delphi, zwischen Aus und Server beim nächsten Öffnen einer Projektgruppe; die vier Optionen liest die IDE aber erst beim nächsten Start von Delphi.“ |
 
 - **Aus** (früher „Hauptschalter aus“): Delphi arbeitet mit seinem eigenen Code-Insight-Anbieter (DelphiLSP,
   `Insight Manager` = `Borland.CodeInsight.LSP.Pascal`). dpcc zeigt keine Fenster und leitet nichts um.
@@ -54,6 +54,11 @@ Die drei Optionsfelder und ihr Text auf der Seite:
   Strg+Umschalt+Leertaste gehen an die IDE.
 - Die Fehlermarkierung der IDE (Error Insight) bleibt leer: `dpcc.LspServer.exe` liefert keine Code-Diagnosen. dpcc
   setzt `ErrorInsightLevel` nicht.
+- Ohne vier Code-Insight-Optionen der IDE fragt die IDE den Server nicht: Programmierhilfe, Automatisch aufrufen,
+  Code-Parameter und Kurzhinweis Symbol-Insight. dpcc schaltet sie in der Betriebsart Server selbst ein und stellt sie
+  beim Wechsel nach Aus wieder auf die Werte davor (siehe
+  [Optionen in der Betriebsart Server](#optionen-in-der-betriebsart-server)). Im Code-Insight-Dialog der IDE muss
+  für den Server nichts abgeschaltet werden. Die IDE liest die Optionen erst beim nächsten Start von Delphi.
 - Umgeleitet wird aus dem Plugin heraus (Hook auf `CreateProcessW` im Modul `IDELSP290.bpl` bzw. `IDELSP370.bpl`).
   Im Delphi-Programmordner ändert dpcc nichts, Administratorrechte braucht es nicht. Einzelheiten, Orte der EXE und
   Protokollzeilen: [LSP-Server](lsp-server.md#betriebsart-server).
@@ -218,7 +223,7 @@ IDE für Delphi gewählt ist (Wert `Insight Manager` unter
 |---|---|---|---|
 | Aus | DelphiLSP (Vorgabe der IDE) oder ein anderer Anbieter | keine Fenster, keine Umleitung | Es dreht zurück, was es selbst geändert hatte. Die Werte, die DelphiLSP braucht, prüft es nur und schreibt das Ergebnis ins Protokoll. |
 | Plugin | dpcc (`dpcc.CodeInsight`) | eingebauter Server, eigene Liste, Tooltip und Parameter-Hint | Es setzt die Schalter aus der Tabelle [Schalter in der Betriebsart Plugin](#schalter-in-der-betriebsart-plugin). |
-| Server | DelphiLSP (`Borland.CodeInsight.LSP.Pascal`) | kein eingebauter Server, keine Fenster; der Start von `DelphiLSP.exe` wird auf `dpcc.LspServer.exe` umgeleitet | Wie bei Aus. Den Anbieter stellt es mit OK auf DelphiLSP. Die Umleitung sitzt im Prozess der IDE, nicht in der Registry. |
+| Server | DelphiLSP (`Borland.CodeInsight.LSP.Pascal`) | kein eingebauter Server, keine Fenster; der Start von `DelphiLSP.exe` wird auf `dpcc.LspServer.exe` umgeleitet | Es setzt die vier Optionen aus [Optionen in der Betriebsart Server](#optionen-in-der-betriebsart-server) und dreht alles andere zurück wie bei Aus. Den Anbieter stellt es mit OK auf DelphiLSP. Die Umleitung sitzt im Prozess der IDE, nicht in der Registry. |
 
 Für diese Schalter gibt es keine Open Tools API: Sie stehen in der Registry der IDE und werden beim Start der IDE
 gelesen. dpcc liest und schreibt sie dort, versionsneutral über den Basisschlüssel der laufenden IDE.
@@ -230,12 +235,20 @@ gelesen. dpcc liest und schreibt sie dort, versionsneutral über den Basisschlü
 - **Aus** mit OK, während Plugin galt: dpcc stellt den Anbieter zurück (auf den gemerkten, sonst auf DelphiLSP) und
   dreht seine übrigen Änderungen zurück.
 - **Server** mit OK: dpcc stellt den Anbieter in jedem Fall auf DelphiLSP (auch aus einem anderen Anbieter, nicht auf
-  den gemerkten Wert) und dreht seine Code-Insight-Schalter zurück wie bei Aus.
+  den gemerkten Wert), schaltet die vier [Optionen für den Server](#optionen-in-der-betriebsart-server) ein und dreht
+  seine übrigen Code-Insight-Schalter zurück wie bei Aus.
+- **Zwischen Plugin und Server**: Eine Option, die beide Betriebsarten gleich wollen (Programmierhilfe, Automatisch
+  aufrufen, Code-Parameter), bleibt stehen; dpcc stellt sie nicht kurz zurück und wieder vor, und ihr Merker behält
+  den Wert von vor dem ersten Eingriff. Symbol-Insight schaltet Plugin aus und Server ein. Was nur Plugin stellt
+  (Help Insight, Ausdrucksauswertung, Verzögerung beim Tippen, `AutoInvokeCompletionOnParameterInsight`, Anbieter),
+  geht beim Wechsel auf Server zurück auf den Wert davor.
 - Von oder zu **Plugin** wechselt der Anbieter; das wirkt erst nach dem Neustart von Delphi (siehe unten).
 - **Zwischen Aus und Server** (die IDE ist schon im LSP-Betrieb) braucht es keinen Neustart. Die IDE startet ihren
   Server, wenn die erste Unit einer Projektgruppe angezeigt wird, einen je Projektgruppe; ein laufender Server bleibt,
   bis die Gruppe geschlossen wird. Die Umleitung liest die Betriebsart bei jedem Start von DelphiLSP neu. Also: die
-  Projektgruppe schließen und wieder öffnen.
+  Projektgruppe schließen und wieder öffnen. Muss dpcc dabei die vier Code-Insight-Optionen des Servers erst
+  einschalten (siehe [Optionen in der Betriebsart Server](#optionen-in-der-betriebsart-server)), gilt das erst
+  nach dem Neustart von Delphi (gemessen am 28.11.2026 in Delphi 12 und 13).
 - **Beim Start von Delphi** richtet sich die Betriebsart nach dem gewählten Anbieter: Ist dpcc gewählt, gilt Plugin.
   Ist DelphiLSP gewählt (oder kein Anbieter eingetragen), bleibt eine gespeicherte Betriebsart Server stehen, sonst
   gilt Aus. Ist ein anderer Anbieter gewählt, gilt Aus; war Server gewählt, sagt das Meldungsfenster es. Ausnahme ist
@@ -292,10 +305,40 @@ mit „Ablauf protokollieren (Log)“ jedes mit Grund. Beim Start steht außerde
 Registry (…)“ mit dem gelesenen Wert an den Orten von DelphiLSP, `Borland.EditOptions.Pascal` und
 `Borland.EditOptions.HTML`.
 
+### Optionen in der Betriebsart Server
+
+Ort: `HKCU\<Basis>\Code Insight\Borland.EditOptions.Borland.CodeInsight.LSP.Pascal` (der Ort von DelphiLSP, unter
+Delphi 12 und 13 gleich). Werte als Zeichenkette `True`/`False`, wie die IDE sie schreibt.
+
+| Option der IDE | Registry-Wert | Soll | Grund |
+|---|---|---|---|
+| Programmierhilfe | `Auto Code Completions` | `True` | Aus: Nach „.“ öffnet keine Liste. |
+| Automatisch aufrufen | `Auto Invoke` | `True` | Aus: Die IDE ruft die Vervollständigung nach „.“ nicht von selbst auf. |
+| Code-Parameter: Automatisch aufrufen | `Auto Code Parameters` | `True` | Aus: Der Parameter-Hint öffnet bei „(“ und „,“ nicht von selbst. |
+| Kurzhinweis Symbol-Insight | `Declaration Information` | `True` | Aus: Beim Verweilen über einem Bezeichner fragt die IDE `dpcc.LspServer.exe` nicht. |
+
+- Andere Optionen stellt die Betriebsart Server nicht. `Error Insight` und `ErrorInsightLevel` bleiben unberührt.
+- Merker und Rückweg wie in der Betriebsart Plugin (siehe [Merker und Rückweg](#merker-und-rückweg)). Gemerkt
+  bleibt der Wert von vor dem ersten Eingriff von dpcc, auch wenn dpcc die Option zuvor in der Betriebsart Plugin
+  gestellt hatte. Aus stellt diesen Wert wieder her.
+- Fehlt ein Wert oder der Schlüssel, gilt die Vorgabe der IDE (an); dpcc schreibt dann nichts und legt nichts an.
+- Schaltet man eine der vier Optionen in der Betriebsart Server im Code-Insight-Dialog der IDE aus, gilt dieselbe
+  Regel wie für die Schalter der Betriebsart Plugin: dpcc schaltet sie beim nächsten Abgleich wieder ein (Gegenprüfung
+  nach OK auf der Seite dpcc, Beenden oder nächster Start von Delphi). Gab es noch keinen Merker, merkt dpcc den
+  ausgeschalteten Wert als Wert davor; Aus stellt ihn dann wieder her.
+- Wann es wirkt: dpcc schreibt die Werte in die Registry, prüft nach dem Dialog gegen und schreibt sie beim Beenden
+  von Delphi noch einmal, falls die IDE sie aus dem Speicher überschrieben hat (wie in der Betriebsart Plugin). Die
+  IDE liest sie erst beim nächsten Start von Delphi; einen Weg, sie in der laufenden IDE umzustellen, nutzt dpcc
+  nicht. Hat dpcc Optionen eingeschaltet, sagt das Meldungsfenster es einmal („Für den Server hat dpcc in den
+  Code-Insight-Optionen der IDE eingeschaltet: …“).
+
 ### Prüfung in den Betriebsarten Aus und Server
 
-Mit DelphiLSP prüft dpcc beim Start, ändert aber nichts. Das Ergebnis steht im Protokoll und im Abschnitt
-[IDE](#ide) der Seite.
+dpcc prüft beim Start. In der Betriebsart Aus ändert es nichts; in der Betriebsart Server prüft es die vier
+[Optionen für den Server](#optionen-in-der-betriebsart-server), die es selbst setzt, und dazu `Error Insight`. Das
+Ergebnis steht im Protokoll und im Abschnitt [IDE](#ide) der Seite.
+
+Betriebsart Aus (mit DelphiLSP, nur geprüft):
 
 | Option der IDE | Registry-Wert | Soll | Grund |
 |---|---|---|---|
@@ -328,6 +371,10 @@ Protokollzeile lautet etwa
   `IdeSet <Version> <Schlüssel>\<Wert>` mit dem geschriebenen Wert und dem Wert davor (oder dass es keinen gab).
 - Zurückgedreht wird nur, was noch so steht, wie dpcc es geschrieben hat. Hat der Nutzer oder die IDE den Wert
   seither geändert, bleibt er; nur der Merker entfällt. Gab es den Wert vorher nicht, löscht dpcc ihn wieder.
+- Ein Merker behält immer den Wert von vor dem ersten Eingriff von dpcc, auch über einen Wechsel zwischen Plugin und
+  Server. Braucht die neue Betriebsart den Wert ebenfalls, bleibt der Merker stehen; stellt sie ihn anders, schreibt
+  dpcc den neuen Wert in den Merker und behält den Wert davor. Merker aus früheren Fassungen gelten unverändert
+  weiter.
 - Ältere Merker (`IdeHelpInsightDisabled …`, `IdeTooltipWatchesDisabled …`) gelten weiter: Beim nächsten Abgleich
   dreht dpcc sie zurück bzw. ersetzt sie durch die neuen.
 - Error Insight und die Strukturhervorhebung schaltet dpcc nie.

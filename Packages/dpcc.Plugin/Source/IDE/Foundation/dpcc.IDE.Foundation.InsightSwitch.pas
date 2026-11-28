@@ -31,6 +31,11 @@
 // MasterOff, Server ≙ ServerOn (wie MasterOff, der Anbieter wird aber in jedem Fall DelphiLSP; die Umleitung auf
 // dpcc.LspServer.exe macht dpcc.IDE.Foundation.LspRedirect). Beim Start bleibt Server stehen, solange DelphiLSP
 // gewählt ist; wählt der Nutzer im Dialog der IDE dpcc, gilt Plugin, einen anderen Anbieter unter Plugin: Aus.
+// In der Betriebsart Server setzt der Plan außerdem die vier Code-Insight-Optionen, ohne die die IDE den Server nicht
+// fragt (TDpccIdeContext.ServerTargets), und Aus dreht sie zurück. Der Weg ist derselbe wie für die Schalter der
+// Betriebsart Plugin: Registry und Merker (Execute), Gegenprüfung nach OK bzw. nach dem Dialog (Recheck) und erneutes
+// Schreiben beim Beenden (AtExit). Einen Laufzeitweg über IOTAEnvironmentOptions.Values gibt es hier nicht: Die IDE
+// liest die Werte beim nächsten Start von Delphi.
 // Help Insight (HI1): Die Orte der Betriebsart dpcc sind unter Delphi 12 und 13 gleich (jeder vorhandene aus
 // Borland.EditOptions.Pascal und dem Ort von DelphiLSP, TDpccIdeCheck.DpccKeys). Weil der Registry-Wert unter
 // Delphi 12 nicht sicher wirkt, verbirgt dpcc.IDE.Hover.HelpInsightHide das Fenster zusätzlich zur Laufzeit; beim

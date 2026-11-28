@@ -57,10 +57,17 @@ sie setzt. Dafür biegt das Plugin in der laufenden IDE den Aufruf von `kernel32
 1. Die EXE bereitstellen: im Setup die Komponente „LSP-Server“ wählen (Vorgabe), sie aus dem ZIP an einen der
    [Orte](#wo-dpcc-die-exe-sucht) legen oder selbst bauen (siehe [Installation](installation.md#lsp-server)).
 2. **Tools › Optionen › Drittanbieter › dpcc**, Betriebsart „Server – dpcc.LspServer.exe an Stelle von DelphiLSP“
-   wählen und mit **OK** schließen. dpcc stellt den Code-Insight-Anbieter der IDE dabei auf DelphiLSP.
+   wählen und mit **OK** schließen. dpcc stellt den Code-Insight-Anbieter der IDE dabei auf DelphiLSP und schaltet
+   die vier Code-Insight-Optionen ein, ohne die die IDE den Server nicht fragt: Programmierhilfe (`Auto Code
+   Completions`), Automatisch aufrufen (`Auto Invoke`), Code-Parameter (`Auto Code Parameters`) und Kurzhinweis
+   Symbol-Insight (`Declaration Information`). Beim Wechsel nach Aus stellt es sie auf die Werte davor zurück. Im
+   Code-Insight-Dialog der IDE muss für den Server nichts abgeschaltet werden. Einzelheiten:
+   [Einstellungen](settings.md#optionen-in-der-betriebsart-server).
 3. Kam der Wechsel aus Plugin (oder war ein anderer Anbieter gewählt), Delphi neu starten. Kam er aus Aus, die
    Projektgruppe schließen und wieder öffnen: Die IDE startet ihren Server, wenn die erste Unit einer Projektgruppe
-   angezeigt wird, einen je Gruppe, und ein laufender Server bleibt, bis die Gruppe geschlossen wird.
+   angezeigt wird, einen je Gruppe, und ein laufender Server bleibt, bis die Gruppe geschlossen wird. Hat dpcc dabei
+   eine der vier Optionen eingeschaltet (das Meldungsfenster nennt sie), gilt sie erst nach dem nächsten Start von
+   Delphi: Die IDE liest diese Optionen nur beim Start.
 
 Die Betriebsart gilt je Delphi-Version (siehe [Einstellungen](settings.md#betriebsart)). Bei jedem Start von
 DelphiLSP liest der Hook sie frisch aus der Registry; zurück auf das originale DelphiLSP geht es also mit „Aus“ und
@@ -108,6 +115,8 @@ Das eigene Protokoll der EXE liegt unter ihrer [Ablage](#ablage).
 ### Grenzen
 
 - Error Insight bleibt leer: Der Server liefert keine Code-Diagnosen. dpcc setzt `ErrorInsightLevel` nicht.
+- Außer den vier Code-Insight-Optionen aus [Einschalten](#einschalten) stellt die Betriebsart Server an der IDE nichts
+  um.
 - Nicht unterstützt: die 64-Bit-IDE von Delphi 13 (`bin64\bds.exe`, `Known Packages x64`). Das Plugin ist 32 Bit
   und lädt dort nicht.
 - Fehlt die EXE oder schlägt ihr Start fehl, startet das originale DelphiLSP; eine Zeile steht im Protokoll.

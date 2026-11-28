@@ -36,6 +36,14 @@
 //     Merker dafür (vor D12KEY) gelten dann wieder als eigene Merker der Betriebsart dpcc und werden nicht mehr
 //     gegen das neue Schreiben aufgeräumt.
 //   - InsightGlobalOptions: AutoInvokeCompletionOnParameterInsight.
+// Betriebsart Server (Mode IDE mit OperatingMode Server, Anbieter DelphiLSP): Ohne vier Code-Insight-Optionen fragt
+// die IDE dpcc.LspServer.exe nicht (Liste nach „.“, Parameter-Hint, Kurzhinweis beim Verweilen). dpcc setzt sie am
+// Ort von DelphiLSP auf True (TDpccIdeContext.ServerTargets: Auto Code Completions, Auto Invoke, Auto Code Parameters,
+// Declaration Information), mit denselben Merkern wie in der Betriebsart dpcc, und dreht sie mit Aus zurück. Sonst
+// stellt Server nichts (Error Insight und ErrorInsightLevel bleiben unberührt). Beim Wechsel zwischen den Betriebsarten
+// dpcc und Server bleibt ein Merker, dessen Wert beide brauchen, stehen (kein Hin und Her, kein Zwischenstand als Wert
+// davor); was nur die Betriebsart dpcc stellt, geht beim Wechsel auf Server zurück wie bei Aus. Ein Merker behält
+// immer den Wert vor dem ersten Eingriff von dpcc, auch über einen Wechsel der Betriebsart (Ensure).
 // Ein fehlender Wert gilt mit der Vorgabe der IDE (an bzw. -1); fehlt der geprüfte Schlüssel ganz, ist das kein
 // Fehler, sondern ein Hinweis „Schlüssel fehlt (IDE-Vorgabe)“. Evaluate prüft nur und liefert Befunde (für das
 // Protokoll und die Optionsseite); TDpccIdeContext.Plan liefert die Schreibaktionen, die die IDE-Schicht
@@ -62,7 +70,8 @@ type
 
   /// <summary>Anlass: Start von Delphi (auch Abgleich nach OK ohne Wechsel des Hauptschalters), Betriebsart mit OK
   /// gewählt: Plugin (MasterOn), Aus (MasterOff) oder Server (ServerOn; wie MasterOff, der Anbieter wird aber in
-  /// jedem Fall DelphiLSP).</summary>
+  /// jedem Fall DelphiLSP, und dpcc setzt die Code-Insight-Optionen für den Server, TDpccIdeContext.ServerTargets).
+  /// </summary>
   TDpccIdeContextTrigger = (Start, MasterOn, MasterOff, ServerOn);
 
   /// <summary>Art eines Werts für den Vergleich.</summary>
@@ -271,8 +280,8 @@ type
     /// unbekannter Version jeder vorhandene aus cPascalKey und cLspKey, ohne einen davon nur cLspKey. Nie leer.
     /// </summary>
     class function DpccKeys(const AInput: TDpccIdeCheckInput): TArray<string>; static;
-    /// <summary>Prüfen ohne zu ändern: mit Hauptschalter an gegen Targets, sonst die Regeln für DelphiLSP.
-    /// </summary>
+    /// <summary>Prüfen ohne zu ändern: mit Hauptschalter an gegen Targets, in der Betriebsart Server gegen
+    /// ServerTargets (dazu Error Insight), sonst die Regeln für DelphiLSP.</summary>
     class function Evaluate(const AInput: TDpccIdeCheckInput): TDpccIdeCheckResult; static;
   end;
 
@@ -287,6 +296,11 @@ type
     /// Tooltip Help Insight und Declaration Information = False, mit Werten beim Debuggen ToolTip Watches = False;
     /// AutoInvokeCompletionOnParameterInsight = False.</summary>
     class function Targets(const AInput: TDpccIdeCheckInput): TArray<TDpccIdeTarget>; static;
+    /// <summary>Werte, die dpcc in der Betriebsart Server setzt (unabhängig von den übrigen dpcc-Einstellungen): am
+    /// Ort von DelphiLSP (TDpccIdeCheck.cLspKey, den die IDE mit DelphiLSP als Anbieter liest) Auto Code Completions,
+    /// Auto Invoke, Auto Code Parameters und Declaration Information = True. Ohne sie fragt die IDE
+    /// dpcc.LspServer.exe nicht.</summary>
+    class function ServerTargets(const AInput: TDpccIdeCheckInput): TArray<TDpccIdeTarget>; static;
     /// <summary>Passt der Wert (fehlend: Vorgabe der IDE) zu ATarget?</summary>
     class function Matches(AExists: Boolean; const AValue: TDpccIdeRegValue; const ATarget: string;
       AKind: TDpccIdeValueKind): Boolean; static;
@@ -330,7 +344,8 @@ type
     ReportActual, ReportReason, SummaryNone, SummaryOne, SummaryMore, SummaryHintOne, SummaryHintMore, StatusModeDpcc,
     StatusModeIde, StatusPendingDpcc, StatusPendingIde, StatusSet, StatusSetNone, NoticeSwitchedToDpcc,
     NoticeSwitchedToIde, NoticeProviderLost, CaptionAutoInvoke, ReasonAutoInvoke, NoticeServerRestart,
-    NoticeServerNextStart, NoticeOffNextStart, NoticeServerOtherProvider, StatusModeServer, StatusPendingServer);
+    NoticeServerNextStart, NoticeOffNextStart, NoticeServerOtherProvider, StatusModeServer, StatusPendingServer,
+    ReasonServerDeclaration, NoticeServerOptions);
 
 const
   cTexts: array[TDpccLanguage, TIdeCheckText] of string = (
@@ -398,7 +413,10 @@ const
      'Betriebsart Server ist aus: In den Optionen der IDE ist ein anderer Code-Insight-Anbieter gewählt (%s). Zum ' +
        'Einschalten dort DelphiLSP wählen und auf der Seite dpcc „Server“.',
      'Betriebsart Server: Die IDE startet dpcc.LspServer.exe an Stelle von DelphiLSP.exe (Anbieter %s).',
-     'Der Anbieter wird beim nächsten Start von Delphi DelphiLSP; erst dann übernimmt dpcc.LspServer.exe.'),
+     'Der Anbieter wird beim nächsten Start von Delphi DelphiLSP; erst dann übernimmt dpcc.LspServer.exe.',
+     'Aus: Beim Verweilen über einem Bezeichner fragt die IDE dpcc.LspServer.exe nicht.',
+     'Für den Server hat dpcc in den Code-Insight-Optionen der IDE eingeschaltet: %s. Diese Optionen liest die IDE ' +
+       'erst beim nächsten Start von Delphi; bis dahin gelten die bisherigen.'),
     ('Code Insight provider for Delphi',
      'Code completion',
      'Code completion: Delay while typing',
@@ -462,7 +480,10 @@ const
      'Mode Server is off: another Code Insight provider is selected in the IDE options (%s). To turn it on, ' +
        'select DelphiLSP there and “Server” on the dpcc page.',
      'Mode Server: the IDE starts dpcc.LspServer.exe instead of DelphiLSP.exe (provider %s).',
-     'The provider becomes DelphiLSP at the next start of Delphi; only then dpcc.LspServer.exe takes over.'));
+     'The provider becomes DelphiLSP at the next start of Delphi; only then dpcc.LspServer.exe takes over.',
+     'Off: the IDE does not ask dpcc.LspServer.exe when hovering an identifier.',
+     'For the server, dpcc turned on in the IDE''s Code Insight options: %s. The IDE reads these options only at ' +
+       'the next start of Delphi; until then the previous ones apply.'));
 
 function Txt(AId: TIdeCheckText): string;
 begin
@@ -1095,9 +1116,24 @@ begin
       end;
     end;
   end
+  else if AInput.Dpcc.OperatingMode = TDpccOperatingMode.Server then
+  begin
+    // Betriebsart Server: genau die Werte, die dpcc für den Server setzt (am Ort von DelphiLSP); Error Insight nur
+    // geprüft (dpcc.LspServer.exe liefert ohnehin keine Diagnosen, dpcc stellt den Wert nicht).
+    Result.CheckedKeys := [cLspKey];
+    for mTarget in TDpccIdeContext.ServerTargets(AInput) do
+    begin
+      AddFinding(Result, TargetFinding(AInput, mTarget));
+    end;
+    if Result.Provider in [TDpccIdeProvider.DelphiLsp, TDpccIdeProvider.Unknown] then
+    begin
+      AddFinding(Result, TargetFinding(AInput, NewTarget(cLspKey, cErrorInsight, 'True', TDpccIdeValueKind.Flag,
+        TIdeCheckText.CaptionErrorInsight, TIdeCheckText.ReasonErrorInsight)));
+    end;
+  end
   else
   begin
-    // Betriebsart IDE: was DelphiLSP (bzw. der andere Anbieter) braucht; dpcc ändert hier nichts, nur Protokoll.
+    // Betriebsart Aus: was DelphiLSP (bzw. der andere Anbieter) braucht; dpcc ändert hier nichts, nur Protokoll.
     Result.CheckedKeys := [mKey];
     AddFinding(Result, TargetFinding(AInput, NewTarget(mKey, cAutoCodeCompletions, 'True', TDpccIdeValueKind.Flag,
       TIdeCheckText.CaptionAutoCompletions, TIdeCheckText.ReasonAutoCompletions)));
@@ -1149,6 +1185,24 @@ begin
   end;
   Result := Result + [NewTarget(TDpccIdeCheck.cGlobalKey, TDpccIdeCheck.cAutoInvokeOnParameterInsight, 'False',
     TDpccIdeValueKind.Flag, TIdeCheckText.CaptionParameterInsight, TIdeCheckText.ReasonParameterInsight)];
+end;
+
+class function TDpccIdeContext.ServerTargets(const AInput: TDpccIdeCheckInput): TArray<TDpccIdeTarget>;
+var
+  mKey: string;
+begin
+  // Nur der Ort von DelphiLSP: Den liest die IDE mit DelphiLSP als Anbieter (unter Delphi 12 und 13 gleich). Fehlt
+  // der Schlüssel, gilt die Vorgabe der IDE (an); dann ist nichts zu schreiben und nichts anzulegen.
+  mKey := TDpccIdeCheck.cLspKey;
+  Result := nil;
+  Result := Result + [NewTarget(mKey, TDpccIdeCheck.cAutoCodeCompletions, 'True', TDpccIdeValueKind.Flag,
+    TIdeCheckText.CaptionAutoCompletions, TIdeCheckText.ReasonAutoCompletions)];
+  Result := Result + [NewTarget(mKey, TDpccIdeCheck.cAutoInvoke, 'True', TDpccIdeValueKind.Flag,
+    TIdeCheckText.CaptionAutoInvoke, TIdeCheckText.ReasonAutoInvoke)];
+  Result := Result + [NewTarget(mKey, TDpccIdeCheck.cAutoCodeParameters, 'True', TDpccIdeValueKind.Flag,
+    TIdeCheckText.CaptionAutoParameters, TIdeCheckText.ReasonAutoParameters)];
+  Result := Result + [NewTarget(mKey, TDpccIdeCheck.cDeclarationInformation, 'True', TDpccIdeValueKind.Flag,
+    TIdeCheckText.CaptionDeclaration, TIdeCheckText.ReasonServerDeclaration)];
 end;
 
 class function TDpccIdeContext.Matches(AExists: Boolean; const AValue: TDpccIdeRegValue; const ATarget: string;
@@ -1288,27 +1342,49 @@ begin
   AddName(APlan.MarkerDeletes, AMarker.StoreName);
 end;
 
-/// <summary>Ziel setzen, wenn es nicht schon passt; der Merker behält den Wert vor der ersten Änderung durch dpcc.
-/// </summary>
+/// <summary>Hat dpcc laut AMarker genau den Wert von ATarget geschrieben?</summary>
+function WrittenMatches(const AMarker: TDpccIdeMarker; const ATarget: TDpccIdeTarget): Boolean;
+var
+  mWritten: TDpccIdeRegValue;
+begin
+  mWritten := Default(TDpccIdeRegValue);
+  mWritten.Key := AMarker.Key;
+  mWritten.Name := AMarker.Name;
+  mWritten.Value := AMarker.Written;
+  Result := TDpccIdeContext.Matches(True, mWritten, ATarget.Value, ATarget.Kind);
+end;
+
+/// <summary>Ziel setzen, wenn es nicht schon passt; der Merker behält den Wert vor der ersten Änderung durch dpcc,
+/// auch wenn dpcc den Wert in einer anderen Betriebsart gesetzt hatte (Wechsel zwischen dpcc und Server). Steht der
+/// Wert schon richtig, nennt aber ein Merker einen anderen geschriebenen Wert (dpcc hatte ihn in der anderen
+/// Betriebsart gesetzt, seither hat die IDE ihn so zurückgeschrieben), gilt der Merker danach für das Ziel; sonst
+/// hielte der Rückweg den Wert für fremd geändert und ließe ihn stehen.</summary>
 procedure Ensure(var APlan: TDpccIdeContextPlan; const AInput: TDpccIdeCheckInput; const ATarget: TDpccIdeTarget);
 var
   mValue: TDpccIdeRegValue;
-  mExists: Boolean;
+  mExists, mHasOld: Boolean;
   mMarker, mOld: TDpccIdeMarker;
 begin
   mExists := AInput.TryGet(ATarget.Key, ATarget.Name, mValue);
+  mHasOld := AInput.TryGetMarker(ATarget.Key, ATarget.Name, mOld);
   if TDpccIdeContext.Matches(mExists, mValue, ATarget.Value, ATarget.Kind) then
   begin
-    Exit;
+    if not mHasOld or WrittenMatches(mOld, ATarget) then
+    begin
+      Exit;
+    end;
+  end
+  else
+  begin
+    AddWrite(APlan, ATarget.Key, ATarget.Name, ATarget.Value, False);
+    AddName(APlan.SetNames, ATarget.Name);
   end;
-  AddWrite(APlan, ATarget.Key, ATarget.Name, ATarget.Value, False);
-  AddName(APlan.SetNames, ATarget.Name);
   mMarker := Default(TDpccIdeMarker);
   mMarker.Key := ATarget.Key;
   mMarker.Name := ATarget.Name;
   mMarker.Written := ATarget.Value;
   mMarker.StoreName := TDpccIdeContext.MarkerName(AInput.BaseKey, ATarget.Key, ATarget.Name);
-  if AInput.TryGetMarker(ATarget.Key, ATarget.Name, mOld) then
+  if mHasOld then
   begin
     // Schon einmal von dpcc gesetzt und seither geändert: der Wert vor der ersten Änderung bleibt der Rückweg.
     mMarker.OriginalExists := mOld.OriginalExists;
@@ -1347,7 +1423,7 @@ var
   mTargets: TArray<TDpccIdeTarget>;
   mTarget: TDpccIdeTarget;
   mMarker, mProviderMarker: TDpccIdeMarker;
-  mBack: string;
+  mBack, mOptionsNotice: string;
   mHasProviderMarker, mExplicitBack: Boolean;
   mProvider: TDpccIdeProvider;
 begin
@@ -1424,23 +1500,39 @@ begin
     end;
     Exit;
   end;
-  // Betriebsart IDE: alles zurückdrehen, was dpcc selbst geändert hat (nur, was noch so steht). Hauptschalter
+  // Betriebsart IDE: alles zurückdrehen, was dpcc selbst geändert hat (nur, was noch so steht), in der Betriebsart
+  // Server außer den Code-Insight-Optionen für den Server (ServerTargets, siehe unten). Hauptschalter
   // ausdrücklich aus, während dpcc Anbieter ist: Der Anbieter geht in jedem Fall zurück (gemerkter Wert, sonst
   // DelphiLSP), auch wenn der Nutzer dpcc in den Optionen der IDE selbst gewählt hatte.
   // Betriebsart Server mit OK: Der Anbieter wird in jedem Fall DelphiLSP (auch aus einem anderen Anbieter), nicht der
   // gemerkte Wert.
   mExplicitBack := ((ATrigger = TDpccIdeContextTrigger.MasterOff) and (mProvider = TDpccIdeProvider.Dpcc)) or
     ((ATrigger = TDpccIdeContextTrigger.ServerOn) and (mProvider in [TDpccIdeProvider.Dpcc, TDpccIdeProvider.Other]));
+  // Betriebsart Server: die Code-Insight-Optionen, ohne die die IDE dpcc.LspServer.exe nicht fragt, wie in der
+  // Betriebsart dpcc setzen (Ensure: Merker mit dem Wert vor dem ersten Eingriff, auch über den Wechsel hinweg). In
+  // der Betriebsart Aus bleibt mTargets leer: alles zurück wie bisher.
+  mTargets := nil;
+  if Result.OperatingMode = TDpccOperatingMode.Server then
+  begin
+    mTargets := ServerTargets(AInput);
+    for mTarget in mTargets do
+    begin
+      Ensure(Result, AInput, mTarget);
+    end;
+  end;
   for mMarker in AInput.Markers do
   begin
     if mExplicitBack and IsProviderValue(mMarker.Key, mMarker.Name) then
     begin
       AddName(Result.MarkerDeletes, mMarker.StoreName);
     end
-    else
+    else if not IsTarget(mTargets, mMarker.Key, mMarker.Name) then
     begin
+      // Braucht die Betriebsart nicht (mehr): zurück, soweit es noch so steht, wie dpcc es schrieb.
       Restore(Result, AInput, mMarker);
     end;
+    // Sonst ein Ziel der Betriebsart Server: Der Merker bleibt (Ensure hat ihn falls nötig angepasst); nicht erst
+    // zurückdrehen und neu setzen, sonst würde ein Zwischenstand zum Wert davor.
   end;
   if mExplicitBack then
   begin
@@ -1487,6 +1579,20 @@ begin
   begin
     // dpcc hatte den Anbieter gesetzt; beim Start ist er es nicht mehr.
     Result.Notice := Txt(TIdeCheckText.NoticeProviderLost);
+  end;
+  // Code-Insight-Optionen für den Server gesetzt: Die IDE liest sie erst beim nächsten Start von Delphi, auch wenn die
+  // Umleitung schon beim nächsten Serverstart greift.
+  if (Result.OperatingMode = TDpccOperatingMode.Server) and (Length(Result.SetNames) > 0) then
+  begin
+    mOptionsNotice := Format(Txt(TIdeCheckText.NoticeServerOptions), [string.Join(', ', Result.SetNames)]);
+    if Result.Notice = '' then
+    begin
+      Result.Notice := mOptionsNotice;
+    end
+    else
+    begin
+      Result.Notice := Result.Notice + ' ' + mOptionsNotice;
+    end;
   end;
 end;
 

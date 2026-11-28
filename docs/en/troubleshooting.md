@@ -60,7 +60,10 @@ Usually “Code completion” is off in the IDE's Code Insight options (registry
 (`Auto Invoke` = `False`); then the IDE does not invoke code completion after “.” by itself.
 
 - Plugin mode: dpcc sets both values to `True` itself when Delphi starts; takes effect after the next start.
-- Off and Server modes (DelphiLSP selected): dpcc only reports the difference, in the log (“IDE-Einstellungen: 1 Abweichung: Auto
+- Server mode: dpcc sets both values (plus `Auto Code Parameters` and `Declaration Information`) to `True` itself,
+  with OK and when Delphi starts; takes effect after the next start. Nothing to do in the IDE's Code Insight options.
+  See [Settings](settings.md#options-in-the-server-mode).
+- Off mode (DelphiLSP selected): dpcc only reports the difference, in the log (“IDE-Einstellungen: 1 Abweichung: Auto
   Code Completions”) and on the dpcc page in the **IDE** section. Switch on “Code completion” and “Auto invoke” in the
   IDE's Code Insight options.
 
@@ -189,6 +192,7 @@ server has crashed twice with the same cause within 10 minutes, and dpcc no long
 | “dpcc: The Code Insight provider is no longer dpcc …; dpcc is off. To turn it on, set the master switch on the dpcc page again.” | At startup: dpcc had set itself as the provider, but the IDE started with another one (changed in the IDE options or written back by the IDE). “Master switch” here means the operating mode: to turn dpcc on, select “Plugin” again. |
 | “dpcc: Mode Server: dpcc switched the IDE's Code Insight provider to DelphiLSP; takes effect after restarting Delphi …” | After Server mode and OK coming from Plugin or another provider. Only after the restart does the IDE start `dpcc.LspServer.exe`. |
 | “dpcc: Mode Server: the next time the IDE starts its Code Insight server (next time a project group is opened), dpcc.LspServer.exe starts …” or “dpcc: Mode Off: the next time a project group is opened, the IDE starts the original DelphiLSP again …” | After a change between Off and Server. Close the project group and open it again. |
+| “… For the server, dpcc turned on in the IDE's Code Insight options: …. The IDE reads these options only at the next start of Delphi; until then the previous ones apply.” | Follows one of the two lines above, or appears alone at startup, when dpcc turned on `Auto Code Completions`, `Auto Invoke`, `Auto Code Parameters` or `Declaration Information` for the Server mode. Restart Delphi; then the IDE also asks the server with them. |
 | “dpcc: Mode Server is off: another Code Insight provider is selected in the IDE options (…).” | At startup: Server was selected, but the provider is neither DelphiLSP nor empty. dpcc counts as Off. Select DelphiLSP there and “Server” on the dpcc page. |
 | “dpcc is selected as the Code Insight provider for Delphi in the IDE options …” | Once per session if dpcc is the selected provider: Ctrl+click goes through dpcc, Error Insight and the other DelphiLSP services are missing. See [Usage](usage.md#when-dpcc-is-selected-as-the-provider). |
 

@@ -57,7 +57,10 @@ Meist steht in den Code-Insight-Optionen der IDE „Programmierhilfe“ aus (Reg
 aufrufen“ steht aus (`Auto Invoke` = `False`); dann ruft die IDE die Vervollständigung nach „.“ nicht von selbst auf.
 
 - Betriebsart Plugin: dpcc stellt beide Werte beim Start von Delphi selbst auf `True`; wirkt nach dem nächsten Start.
-- Betriebsarten Aus und Server (DelphiLSP gewählt): dpcc meldet die Abweichung nur, im Protokoll („IDE-Einstellungen: 1 Abweichung:
+- Betriebsart Server: dpcc stellt beide Werte (dazu `Auto Code Parameters` und `Declaration Information`) selbst auf
+  `True`, mit OK und beim Start von Delphi; wirkt nach dem nächsten Start. In den Code-Insight-Optionen der IDE ist
+  nichts zu tun. Siehe [Einstellungen](settings.md#optionen-in-der-betriebsart-server).
+- Betriebsart Aus (DelphiLSP gewählt): dpcc meldet die Abweichung nur, im Protokoll („IDE-Einstellungen: 1 Abweichung:
   Auto Code Completions“) und auf der Seite dpcc im Abschnitt **IDE**. In den Code-Insight-Optionen der IDE
   „Programmierhilfe“ und „Automatisch aufrufen“ einschalten.
 
@@ -185,6 +188,7 @@ nicht mehr von selbst neu (siehe [Der Server ist abgestürzt](#der-server-ist-ab
 | „dpcc: Der Code-Insight-Anbieter ist nicht mehr dpcc …; dpcc ist aus. Zum Einschalten den Hauptschalter der Seite dpcc wieder setzen.“ | Beim Start: dpcc hatte sich als Anbieter eingetragen, die IDE startete aber mit einem anderen (in den Optionen der IDE geändert oder von der IDE zurückgeschrieben). Mit „Hauptschalter“ ist die Betriebsart gemeint: Zum Einschalten wieder „Plugin“ wählen. |
 | „dpcc: Betriebsart Server: dpcc hat den Code-Insight-Anbieter der IDE auf DelphiLSP gestellt; wirkt nach dem Neustart von Delphi …“ | Nach Betriebsart Server und OK aus Plugin oder einem anderen Anbieter. Erst nach dem Neustart startet die IDE `dpcc.LspServer.exe`. |
 | „dpcc: Betriebsart Server: Beim nächsten Start des Code-Insight-Servers der IDE (nächstes Öffnen einer Projektgruppe) startet dpcc.LspServer.exe …“ bzw. „dpcc: Betriebsart Aus: Beim nächsten Öffnen einer Projektgruppe startet die IDE wieder das originale DelphiLSP …“ | Nach einem Wechsel zwischen Aus und Server. Die Projektgruppe schließen und wieder öffnen. |
+| „… Für den Server hat dpcc in den Code-Insight-Optionen der IDE eingeschaltet: …. Diese Optionen liest die IDE erst beim nächsten Start von Delphi; bis dahin gelten die bisherigen.“ | Steht hinter einer der beiden Zeilen davor oder allein beim Start, wenn dpcc für die Betriebsart Server `Auto Code Completions`, `Auto Invoke`, `Auto Code Parameters` oder `Declaration Information` eingeschaltet hat. Delphi neu starten, dann fragt die IDE den Server auch damit. |
 | „dpcc: Betriebsart Server ist aus: In den Optionen der IDE ist ein anderer Code-Insight-Anbieter gewählt (…).“ | Beim Start: Server war gewählt, der Anbieter ist aber weder DelphiLSP noch leer. dpcc gilt als Aus. Dort DelphiLSP wählen und auf der Seite dpcc „Server“. |
 | „dpcc ist in den Optionen der IDE als Code-Insight-Anbieter für Delphi gewählt …“ | Einmal je Sitzung, wenn dpcc der gewählte Anbieter ist: Strg+Klick läuft über dpcc, Error Insight und die übrigen Dienste von DelphiLSP fehlen. Siehe [Bedienung](usage.md#wenn-dpcc-als-anbieter-gewählt-ist). |
 

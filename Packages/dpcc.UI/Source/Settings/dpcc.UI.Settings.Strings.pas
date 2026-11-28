@@ -104,8 +104,11 @@ const
      'dpcc wird der Code-Insight-Anbieter der IDE, mit eigener Liste, Tooltip und Parameter-Hint. Der Wechsel von ' +
      'oder zu Plugin wirkt nach dem Neustart von Delphi.',
      'Delphi bleibt im LSP-Betrieb und zeigt seine eigenen Fenster; die Antworten liefert dpcc.LspServer.exe statt ' +
-     'DelphiLSP.exe. Die Fehlermarkierung der IDE (Error Insight) bleibt leer. Der Wechsel von oder zu Plugin wirkt ' +
-     'nach dem Neustart von Delphi, zwischen Aus und Server beim nächsten Öffnen einer Projektgruppe.',
+     'DelphiLSP.exe. Die Fehlermarkierung der IDE (Error Insight) bleibt leer. dpcc schaltet in den ' +
+     'Code-Insight-Optionen der IDE Programmierhilfe, Automatisch aufrufen, Code-Parameter und Symbol-Insight ein ' +
+     'und stellt sie beim Verlassen von Server zurück; dort muss man für den Server nichts abschalten. Der Wechsel ' +
+     'von oder zu Plugin wirkt nach dem Neustart von Delphi, zwischen Aus und Server beim nächsten Öffnen einer ' +
+     'Projektgruppe; die vier Optionen liest die IDE aber erst beim nächsten Start von Delphi.',
      'Nicht wählbar: dpcc.LspServer.exe ist nicht installiert (im Setup die Komponente „LSP-Server“ wählen).',
      'Programm: %s'),
     ('Mode',
@@ -156,8 +159,11 @@ const
      'dpcc becomes the IDE''s Code Insight provider, with its own list, tooltip and parameter hint. Switching to or ' +
      'from Plugin takes effect after restarting Delphi.',
      'Delphi stays in LSP mode and shows its own windows; the answers come from dpcc.LspServer.exe instead of ' +
-     'DelphiLSP.exe. The IDE''s error marks (Error Insight) stay empty. Switching to or from Plugin takes effect ' +
-     'after restarting Delphi, between Off and Server the next time a project group is opened.',
+     'DelphiLSP.exe. The IDE''s error marks (Error Insight) stay empty. dpcc turns on code completion, auto ' +
+     'invoke, code parameters and symbol insight in the IDE''s Code Insight options and restores them when leaving ' +
+     'Server; nothing needs to be turned off there for the server. Switching to or from Plugin takes effect after ' +
+     'restarting Delphi, between Off and Server the next time a project group is opened; the IDE reads the four ' +
+     'options only at the next start of Delphi, though.',
      'Not available: dpcc.LspServer.exe is not installed (select the component “LSP server” in the setup).',
      'Program: %s'));
 
