@@ -89,6 +89,19 @@ redirected) or no line “LSP-Umleitung: #n …” at all. The lines are describ
 | No hook (“CreateProcessW nicht gefunden, kein Hook” or “Einbau fehlgeschlagen: …”). | Send the log with that line. Without the hook the original always starts. |
 | The 64-bit IDE of Delphi 13 is running. | Not supported; the plugin does not load there. Use the 32-bit IDE. |
 
+## Delphi 12: access violation in IDELSP290.bpl when switching to DelphiLSP
+
+Symptom: under Tools › Options › Editor › Language › Code Insight the code insight manager is set to "Delphi (Language
+Server Protocol)" and confirmed with OK while no project is open. Delphi 12 then reports "Access violation at address
+… in module 'IDELSP290.bpl'. Read of address 00000000", and the dialog stays open. This is a bug of the IDE, not of
+dpcc: it happens just the same when dpcc is not loaded at all and the classic provider was selected before (measured on
+28.11.2026 under a debugger; the exception arises in `TLSPKibitzManager.ManagerEnabled` on OK, with no dpcc on the
+stack). With a project open and in Delphi 13 it does not occur.
+
+Remedy: close the message and leave the dialog with Cancel; the choice is saved anyway and takes effect after
+restarting Delphi. Better open a project first or switch the operating mode on the dpcc page (Tools › Options ›
+Third Party › dpcc); there dpcc changes the provider itself.
+
 ## “Server” is greyed out
 
 On the dpcc page, below the radio button, it says “Not available: dpcc.LspServer.exe is not installed (select the

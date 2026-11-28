@@ -86,6 +86,20 @@ In `dpcc.log` steht dann „LSP-Umleitung: #n Start von DelphiLSP nicht umgeleit
 | Kein Hook („CreateProcessW nicht gefunden, kein Hook“ oder „Einbau fehlgeschlagen: …“). | Das Protokoll mit der Zeile schicken. Ohne Hook startet immer das Original. |
 | Die 64-Bit-IDE von Delphi 13 läuft. | Nicht unterstützt; das Plugin lädt dort nicht. Die 32-Bit-IDE verwenden. |
 
+## Delphi 12: Zugriffsverletzung in IDELSP290.bpl beim Wechsel auf DelphiLSP
+
+Erscheinung: Unter Tools › Optionen › Editor › Sprache › Code Insight wird der Code-Insight-Manager auf „Delphi
+(Sprachserverprotokoll)“ gestellt und mit OK bestätigt, während kein Projekt offen ist. Delphi 12 meldet dann
+„Zugriffsverletzung bei Adresse … in Modul 'IDELSP290.bpl'. Lesen von Adresse 00000000“, der Dialog bleibt offen.
+Das ist ein Fehler der IDE, nicht von dpcc: Er tritt genauso auf, wenn dpcc gar nicht geladen ist und vorher der
+klassische Anbieter gewählt war (gemessen am 28.11.2026 unter einem Debugger, die Ausnahme entsteht in
+`TLSPKibitzManager.ManagerEnabled` beim OK, ohne dpcc im Stapel). Mit offenem Projekt und in Delphi 13 tritt er nicht
+auf.
+
+Abhilfe: Die Meldung schließen und den Dialog mit Abbrechen verlassen; die Wahl ist trotzdem gespeichert und gilt nach
+dem Neustart von Delphi. Besser vorher ein Projekt öffnen oder die Betriebsart über die Seite dpcc wechseln
+(Tools › Optionen › Drittanbieter › dpcc); dort stellt dpcc den Anbieter selbst um.
+
 ## „Server“ ist grau
 
 Auf der Seite dpcc steht unter dem Feld „Nicht wählbar: dpcc.LspServer.exe ist nicht installiert (im Setup die

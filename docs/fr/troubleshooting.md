@@ -94,6 +94,20 @@ vient encore du fournisseur précédent (DelphiLSP). Après le redémarrage, dpc
 | Pas de hook (« CreateProcessW nicht gefunden, kein Hook » ou « Einbau fehlgeschlagen: … »). | Envoyer le journal avec cette ligne. Sans hook, c'est toujours l'original qui démarre. |
 | L'IDE 64 bits de Delphi 13 est utilisée. | Non pris en charge ; le plugin ne s'y charge pas. Utiliser l'IDE 32 bits. |
 
+## Delphi 12 : violation d'accès dans IDELSP290.bpl lors du passage à DelphiLSP
+
+Symptôme : sous Tools › Options › Editor › Language › Code Insight, le gestionnaire Code Insight est réglé sur
+« Delphi (protocole de serveur de langage) » et confirmé par OK alors qu'aucun projet n'est ouvert. Delphi 12 signale
+alors « Violation d'accès à l'adresse … dans le module 'IDELSP290.bpl'. Lecture de l'adresse 00000000 », et le
+dialogue reste ouvert. C'est une erreur de l'IDE, pas de dpcc : elle se produit de la même façon quand dpcc n'est pas
+chargé du tout et que le fournisseur classique était choisi auparavant (mesuré le 28.11.2026 sous un débogueur ;
+l'exception naît dans `TLSPKibitzManager.ManagerEnabled` lors du OK, sans dpcc dans la pile). Avec un projet ouvert et
+dans Delphi 13, elle ne se produit pas.
+
+Remède : fermer le message et quitter le dialogue avec Annuler ; le choix est tout de même enregistré et s'applique
+après le redémarrage de Delphi. Mieux vaut ouvrir d'abord un projet ou changer de mode de fonctionnement sur la page
+dpcc (Tools › Options › Third Party › dpcc) ; dpcc y change lui-même le fournisseur.
+
 ## « Server » est grisé
 
 Sur la page dpcc figure sous le bouton « Not available: dpcc.LspServer.exe is not installed (select the component “LSP
