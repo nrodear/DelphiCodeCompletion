@@ -163,8 +163,20 @@ type
     LazyLibrary: Boolean;
     /// <summary>Ordner anderer Delphi-Installationen als der des Auftrags (dpcc.LspServer.exe): Units darunter
     /// nimmt der Index vor dem Aufbau heraus und übernimmt sie aus keinem Cache, damit gleichnamige Units nie aus der
-    /// falschen Version kommen. Leer = keine Prüfung (Plugin, CLI).</summary>
+    /// falschen Version kommen. Leer = keine Prüfung (CLI).</summary>
     ForeignRoots: TArray<string>;
+    /// <summary>Ordner unter ForeignRoots, die das Projekt selbst nennt (Projektdateien, Such- und Bibliothekspfade,
+    /// zusätzliche Quellordner; TIndexForeignRoots.InUse): Ihre Units samt Unterordnern gelten nicht als fremd.</summary>
+    ForeignKept: TArray<string>;
+  end;
+
+  /// <summary>Units anderer Delphi-Installationen (TIndexRequest.ForeignRoots/ForeignKept).</summary>
+  TIndexForeignRoots = record
+    /// <summary>Liegt AFileName unter einem Ordner aus ARoots und unter keinem aus AKept?</summary>
+    class function IsForeign(const AFileName: string; const ARoots, AKept: TArray<string>): Boolean; static;
+    /// <summary>Die Ordner aus AFolders, die unter einem aus ARoots liegen (ohne Verzeichnistrenner am Ende, ohne
+    /// Doppel); leer ohne ARoots.</summary>
+    class function InUse(const ARoots, AFolders: TArray<string>): TArray<string>; static;
   end;
 
   /// <summary>Cache-Datei verworfen; AReason z. B. "Prüfsumme stimmt nicht" (#492).</summary>
@@ -172,6 +184,10 @@ type
 
   TIndexFinishedEvent = reference to procedure(const AResult: TIndexBuildResult; AElapsedMs: Int64);
   TIndexErrorEvent = reference to procedure(const AError: Exception);
+
+  /// <summary>Vor einem Aufbau mit ForeignRoots: so viele Units anderer Installationen nahm der Index heraus
+  /// (ARemoved) bzw. übernahm er nicht aus den Caches (ACacheSkipped).</summary>
+  TIndexForeignEvent = reference to procedure(ARemoved, ACacheSkipped: Integer);
 
   /// <summary>Ein Cache wurde geschrieben (Diagnoselog): ALibrary = gemeinsamer Bibliotheks-Cache.</summary>
   TIndexCacheWrittenEvent = reference to procedure(ALibrary: Boolean; AUnits: Integer; ABytes, AElapsedMs: Int64);
@@ -354,6 +370,7 @@ type
     FOnFinished: TIndexFinishedEvent;
     FOnProjectReady: TIndexFinishedEvent;
     FOnError: TIndexErrorEvent;
+    FOnForeignUnits: TIndexForeignEvent;
     FScheduler: TIndexScheduler;
     FStages: TIndexStageWatch;
     FCacheEvents: TIndexCacheEvents;
@@ -378,9 +395,9 @@ type
     function PrepareBuilder(const ARequest: TIndexRequest; const ACancelled: TFunc<Boolean>;
       ACaches: TIndexCacheWriter): TIndexBuilder;
     procedure WaitForOtherWriter(const ARequest: TIndexRequest; const ACancelled: TFunc<Boolean>);
-    /// <summary>Nimmt die Units unter ARoots (TIndexRequest.ForeignRoots) aus dem Index; ohne ARoots nichts.
-    /// </summary>
-    procedure RemoveForeignUnits(const ARoots: TArray<string>);
+    /// <summary>Nimmt die Units unter ARoots (TIndexRequest.ForeignRoots) außer denen unter AKept aus dem Index;
+    /// ohne ARoots nichts. Liefert ihre Zahl.</summary>
+    function RemoveForeignUnits(const ARoots, AKept: TArray<string>): Integer;
     function AcquireBuilder: TIndexBuilder;
     procedure ReleaseBuilder;
     procedure ReplaceBuilder(ABuilder: TIndexBuilder);
@@ -446,6 +463,9 @@ type
     /// Suchpfade und Bibliothek folgen. Im Index-Thread, nicht bei Abbruch.</summary>
     property OnProjectReady: TIndexFinishedEvent read FOnProjectReady write FOnProjectReady;
     property OnError: TIndexErrorEvent read FOnError write FOnError;
+    /// <summary>Vor jedem Aufbau mit ForeignRoots (im Index-Thread): entfernte und nicht übernommene Units anderer
+    /// Installationen.</summary>
+    property OnForeignUnits: TIndexForeignEvent read FOnForeignUnits write FOnForeignUnits;
     /// <summary>Eine Datei ließ sich nicht lesen oder parsen (L2); im Thread des Aufbaus bzw. der Anfrage.</summary>
     property OnUnreadable: TIndexUnreadableEvent read FOnUnreadable write FOnUnreadable;
     /// <summary>Für TIndexStaleGuard: Liest die Unit neu ein, wenn ihre Datei geändert ist (L2).</summary>
@@ -1306,23 +1326,81 @@ begin
   end;
 end;
 
-/// <summary>Liegt AFileName unter einem der Ordner ARoots (TIndexRequest.ForeignRoots)?</summary>
-function UnderForeignRoot(const AFileName: string; const ARoots: TArray<string>): Boolean;
+/// <summary>Liegt APath in AFolder oder darunter (ohne Groß-/Kleinschreibung)?</summary>
+function InFolder(const APath, AFolder: string): Boolean;
 var
-  mRoot: string;
+  mFolder: string;
+begin
+  mFolder := ExcludeTrailingPathDelimiter(AFolder);
+  Result := (mFolder <> '') and (SameText(ExcludeTrailingPathDelimiter(APath), mFolder) or
+    SameText(Copy(APath, 1, Length(mFolder) + 1), mFolder + PathDelim));
+end;
+
+{ TIndexForeignRoots }
+
+class function TIndexForeignRoots.IsForeign(const AFileName: string; const ARoots, AKept: TArray<string>): Boolean;
+var
+  mRoot, mKept: string;
 begin
   Result := False;
   for mRoot in ARoots do
   begin
-    if (mRoot <> '') and SameText(Copy(AFileName, 1, Length(mRoot) + 1), IncludeTrailingPathDelimiter(mRoot)) then
+    if InFolder(AFileName, mRoot) then
     begin
-      Exit(True);
+      Result := True;
+      Break;
+    end;
+  end;
+  if not Result then
+  begin
+    Exit;
+  end;
+  for mKept in AKept do
+  begin
+    if InFolder(AFileName, mKept) then
+    begin
+      Exit(False);
     end;
   end;
 end;
 
-/// <summary>AEntries ohne die Units unter ARoots; ARemoved zählt sie.</summary>
-function WithoutForeign(const AEntries: TArray<TIndexCacheEntry>; const ARoots: TArray<string>;
+class function TIndexForeignRoots.InUse(const ARoots, AFolders: TArray<string>): TArray<string>;
+var
+  mRoot, mFolder, mClean, mKey: string;
+  mSeen: TDictionary<string, Boolean>;
+begin
+  Result := nil;
+  if Length(ARoots) = 0 then
+  begin
+    Exit;
+  end;
+  mSeen := TDictionary<string, Boolean>.Create;
+  try
+    for mFolder in AFolders do
+    begin
+      mClean := ExcludeTrailingPathDelimiter(Trim(mFolder));
+      mKey := AnsiLowerCase(mClean);
+      if (mClean = '') or mSeen.ContainsKey(mKey) then
+      begin
+        Continue;
+      end;
+      mSeen.Add(mKey, True);
+      for mRoot in ARoots do
+      begin
+        if InFolder(mClean, mRoot) then
+        begin
+          Result := Result + [mClean];
+          Break;
+        end;
+      end;
+    end;
+  finally
+    mSeen.Free;
+  end;
+end;
+
+/// <summary>AEntries ohne die Units anderer Installationen (ARoots außer AKept); ARemoved zählt sie.</summary>
+function WithoutForeign(const AEntries: TArray<TIndexCacheEntry>; const ARoots, AKept: TArray<string>;
   var ARemoved: Integer): TArray<TIndexCacheEntry>;
 var
   mEntry: TIndexCacheEntry;
@@ -1334,7 +1412,7 @@ begin
   Result := nil;
   for mEntry in AEntries do
   begin
-    if UnderForeignRoot(mEntry.Header.FileName, ARoots) then
+    if TIndexForeignRoots.IsForeign(mEntry.Header.FileName, ARoots, AKept) then
     begin
       Inc(ARemoved);
     end
@@ -1686,11 +1764,11 @@ begin
   if Length(FRequest.ForeignRoots) > 0 then
   begin
     FForeignCached := 0;
-    FCached := WithoutForeign(FCached, FRequest.ForeignRoots, FForeignCached);
+    FCached := WithoutForeign(FCached, FRequest.ForeignRoots, FRequest.ForeignKept, FForeignCached);
     FProjectLibraryWritten := LibraryEntries(FCached);
-    FLibraryCached := WithoutForeign(FLibraryCached, FRequest.ForeignRoots, FForeignCached);
-    FSearchCached := WithoutForeign(FSearchCached, FRequest.ForeignRoots, FForeignCached);
-    FExtraCached := WithoutForeign(FExtraCached, FRequest.ForeignRoots, FForeignCached);
+    FLibraryCached := WithoutForeign(FLibraryCached, FRequest.ForeignRoots, FRequest.ForeignKept, FForeignCached);
+    FSearchCached := WithoutForeign(FSearchCached, FRequest.ForeignRoots, FRequest.ForeignKept, FForeignCached);
+    FExtraCached := WithoutForeign(FExtraCached, FRequest.ForeignRoots, FRequest.ForeignKept, FForeignCached);
   end;
   // Phase 3: Units, die nur im Katalog stehen, lesen ab jetzt aus dieser Fassung der Datei (hat ein anderer Prozess
   // sie ersetzt, lasen sie bisher aus der alten über deren offenes Handle).
@@ -2043,7 +2121,8 @@ begin
     // Alle Units, auch die nur im Katalog (Phase 3).
     mStored := FIndex.StoredUnits;
     SortUnits(FRequest, mStored, mProject, mSearch, mLibrary, mExtra);
-    if not ((AParsed > 0) or (Length(FCached) <> mProject.Count)) or
+    // Hielt ein Cache Units anderer Installationen (ForeignCached), wird der Projekt-Cache ohne sie neu geschrieben.
+    if not ((AParsed > 0) or (Length(FCached) <> mProject.Count) or (FForeignCached > 0)) or
       WriteCache(False, FRequest.CacheFile, mProject.ToArray) then
     begin
       FProjectLibraryWritten := LibraryCount(mProject);
@@ -2084,7 +2163,7 @@ begin
     begin
       WriteSplit(mParsed);
     end
-    else if (mParsed > 0) or (Length(FCached) <> FIndex.UnitCount) then
+    else if (mParsed > 0) or (Length(FCached) <> FIndex.UnitCount) or (FForeignCached > 0) then
     begin
       WriteCache(False, FRequest.CacheFile, ItemsOf(FIndex.StoredUnits));
     end;
@@ -2192,25 +2271,29 @@ begin
     end;
 end;
 
-procedure TIndexService.RemoveForeignUnits(const ARoots: TArray<string>);
+function TIndexService.RemoveForeignUnits(const ARoots, AKept: TArray<string>): Integer;
 var
   mUnit: TUnitIndex;
 begin
+  Result := 0;
   if Length(ARoots) = 0 then
   begin
     Exit;
   end;
   for mUnit in FIndex.Units do
   begin
-    if UnderForeignRoot(mUnit.FileName, ARoots) then
+    if TIndexForeignRoots.IsForeign(mUnit.FileName, ARoots, AKept) then
     begin
       FIndex.RemoveFile(mUnit.FileName);
+      Inc(Result);
     end;
   end;
 end;
 
 function TIndexService.PrepareBuilder(const ARequest: TIndexRequest; const ACancelled: TFunc<Boolean>;
   ACaches: TIndexCacheWriter): TIndexBuilder;
+var
+  mForeignRemoved: Integer;
 begin
   Result := TIndexBuilder.Create(FIndex, FFileSystem, ARequest.Defines, ARequest.ResolveUnit);
   try
@@ -2231,7 +2314,7 @@ begin
     end;
     // Ein abgebrochener Aufbau mit einer anderen Delphi-Version hat ihre Units schon eingelesen; der vorige Aufbau
     // ist hier zu Ende (TIndexThread.Execute).
-    RemoveForeignUnits(ARequest.ForeignRoots);
+    mForeignRemoved := RemoveForeignUnits(ARequest.ForeignRoots, ARequest.ForeignKept);
     WaitForOtherWriter(ARequest, ACancelled);
     TMonitor.Enter(FLock);
     try
@@ -2240,6 +2323,10 @@ begin
       TMonitor.Exit(FLock);
     end;
     Result.UseCache(ACaches.Load(BuilderKeeps(Result)));
+    if (Length(ARequest.ForeignRoots) > 0) and Assigned(FOnForeignUnits) then
+    begin
+      FOnForeignUnits(mForeignRemoved, ACaches.ForeignCached);
+    end;
   except
     // Noch nicht veröffentlicht: sonst bliebe der Builder als Leck zurück.
     Result.Free;

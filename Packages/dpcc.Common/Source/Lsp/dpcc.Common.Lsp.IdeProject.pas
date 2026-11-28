@@ -133,7 +133,8 @@ type
     /// IDE und wenn sie nicht zu bestimmen war. Vor dem ersten Laden setzen.</summary>
     property ClientBdsVersion: string read FClientBdsVersion write FClientBdsVersion;
     /// <summary>Units anderer Delphi-Installationen als der des Projekts weder im Index behalten noch aus Caches
-    /// übernehmen (TIndexRequest.ForeignRoots). Nur dpcc.LspServer.exe für RAD Studio; im Plugin aus.</summary>
+    /// übernehmen (TIndexRequest.ForeignRoots); was das Projekt dort selbst nennt, bleibt (ForeignKept). An im Plugin
+    /// (TShellInProcessServer.PrepareForIde) und in dpcc.LspServer.exe für RAD Studio; aus im CLI.</summary>
     property SeparateInstallations: Boolean read FSeparateInstallations write FSeparateInstallations;
     /// <summary>Nach dpcc/projectContext mit geändertem Kontext (Thread des Dispatchers).</summary>
     property OnChanged: TIdeProjectChangedEvent read FOnChanged write FOnChanged;

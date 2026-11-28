@@ -170,6 +170,18 @@ arbeitet, in der Reihenfolge des Compilers: Units des Projekts, Projektordner, S
 Quellordner. Ohne Projektbezug gilt: Projekt vor Suchpfad vor Bibliothek vor Zusatzordner. Auch die Unit-Namespaces
 (`DCC_Namespace`) gelten je Projekt.
 
+### Andere Delphi-Installationen
+
+Sind mehrere Delphi-Versionen installiert, nimmt dpcc (Plugin wie dpcc.LspServer.exe) Units aus dem Ordner einer
+anderen Installation weder in den Index noch aus einem Cache. So springt Delphi 12 bei `TStringList` nicht in die
+Quellen von Delphi 13. Ausgenommen sind Ordner, die das Projekt selbst nennt: Projektdateien, Suchpfade des Projekts,
+Bibliotheks- und Suchpfade der IDE und zusätzliche Quellordner. Wer etwa `Studio\37.0\source\rtl\BuildWinRTL.dproj`
+in Delphi 12 öffnet oder einen Ordner von Delphi 13 als Suchpfad einträgt, behält diese Units samt Cache; alle
+übrigen Units der anderen Installation bleiben draußen. Hielt ein Cache noch solche Units (frühere Fassungen), schreibt
+der nächste Aufbau ihn ohne sie neu. Das Protokoll nennt die ausgeschlossenen Ordner („Units anderer
+Delphi-Installationen bleiben draußen: …“) und die Zahlen („… aus dem Index genommen, … aus den Caches nicht
+übernommen“).
+
 ## Wann der Index entsteht
 
 - Der Server startet in der Betriebsart Plugin mit der ersten Anfrage, etwa Strg+Leertaste, oder beim Wechsel auf

@@ -160,6 +160,10 @@ type
     /// ohne Wirkung, wenn statisch gelinkt.</summary>
     class procedure KeepCodeLoaded; static;
   public
+    /// <summary>Einstellungen der Wurzel für den eingebauten Server des Plugins: Units anderer Delphi-Installationen
+    /// kommen weder in den Index noch aus einem Cache (TLspIdeProject.SeparateInstallations, wie dpcc.LspServer.exe).
+    /// </summary>
+    class procedure PrepareForIde(AServer: TShellCompletionServer); static;
     /// <summary>Verdrahtet die Wurzel und startet ihre Schleife. AHostSink (optional) bekommt Warnungen und Fehler
     /// des Servers, etwa für das Protokoll des Plugins.</summary>
     constructor Create(const AHostSink: ILogSink); overload;
@@ -723,6 +727,13 @@ begin
   end;
 end;
 
+class procedure TShellInProcessServer.PrepareForIde(AServer: TShellCompletionServer);
+begin
+  // Ein Index von Delphi 12 hielt Units aus Studio\37.0 (Plugin-Cache vom 17.11.2026); nur was das Projekt dort
+  // selbst nennt, bleibt (TIndexRequest.ForeignKept).
+  AServer.Parts.Ide.Project.SeparateInstallations := True;
+end;
+
 class procedure TShellInProcessServer.Release;
 begin
   TMonitor.Enter(StateLock);
@@ -871,6 +882,7 @@ begin
     mServer := TShellCompletionServer.Create(mTransport, mLoggerRef);
     // Wie CreateForStreams.
     mServer.Parts.Channel.Anonymizer := TLogAnonymizer.Create(TProcessInfo.IdentityNames);
+    TShellInProcessServer.PrepareForIde(mServer);
     // Der Prozess endet nicht mit dem Server: noch laufende Anfragen abwarten, statt Objekte stehen zu lassen.
     mServer.Parts.UnfinishedWaitMs := cUnfinishedWaitMs;
     mServer.Parts.OnLeftWork :=

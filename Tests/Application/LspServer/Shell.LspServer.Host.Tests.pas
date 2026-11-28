@@ -117,6 +117,22 @@ type
     /// mehr weiter; System.Classes kommt aus 23.0.</summary>
     [Test]
     procedure ForeignCacheEntriesAreIgnored;
+    /// <summary>Der eingebaute Server des Plugins trennt die Installationen wie dpcc.LspServer.exe (Plugin-Cache
+    /// von Delphi 12 vom 17.11.2026 hielt 3746 Units aus Studio\37.0).</summary>
+    [Test]
+    procedure PluginSeparatesInstallations;
+    /// <summary>Ordner der anderen Installation, die das Projekt selbst nennt, bleiben zugelassen; alles andere
+    /// darunter ist fremd.</summary>
+    [Test]
+    procedure KeptFoldersAreNotForeign;
+    /// <summary>Wie am 17.11.2026: Ein Projekt aus Studio\37.0 in Delphi 12. Seine Units sind Projektdateien
+    /// (ForeignKept) und bleiben samt Cache; nichts wird entfernt oder neu gelesen.</summary>
+    [Test]
+    procedure ProjectInForeignInstallationKeepsItsUnits;
+    /// <summary>Ein gemischter Projekt-Cache wird beim nächsten Aufbau mit ForeignRoots ohne die fremden Units neu
+    /// geschrieben, auch wenn keine Unit neu zu lesen war; das Ereignis nennt die Zahl.</summary>
+    [Test]
+    procedure PollutedCacheIsRewrittenClean;
   end;
 
 implementation
@@ -133,7 +149,8 @@ uses
   dpcc.Common.Index.Contract,
   dpcc.Common.Index.SymbolIndex,
   dpcc.Common.Index.Service,
-  dpcc.Common.Memory.Phase1.Tests;
+  dpcc.Common.Memory.Phase1.Tests,
+  Shell.Composition.CompletionServer;
 
 const
   cIndexWaitMs = 60000;
@@ -1084,6 +1101,182 @@ begin
   finally
     mService.Free;
   end;
+end;
+
+/// <summary>Unit-Suche ohne Treffer (Aufträge der Tests zu ForeignKept).</summary>
+function NoUnit: TUnitFileResolver;
+begin
+  Result :=
+    function(const AUnitName: string): string
+    begin
+      Result := '';
+    end;
+end;
+
+procedure TLspServerVersionTests.PluginSeparatesInstallations;
+var
+  mServer: TShellCompletionServer;
+  mLogger: ILogger;
+begin
+  mLogger := TLogger.Create;
+  mServer := TShellCompletionServer.CreateForStreams(TMemoryStream.Create, TMemoryStream.Create, True, mLogger);
+  try
+    Assert.IsFalse(mServer.Parts.Ide.Project.SeparateInstallations, 'Vorgabe der Wurzel (CLI): aus');
+    TShellInProcessServer.PrepareForIde(mServer);
+    Assert.IsTrue(mServer.Parts.Ide.Project.SeparateInstallations, 'eingebauter Server des Plugins: an');
+  finally
+    mServer.Free;
+  end;
+end;
+
+procedure TLspServerVersionTests.KeptFoldersAreNotForeign;
+var
+  mKept: TArray<string>;
+begin
+  mKept := TIndexForeignRoots.InUse([cRoot13], ['C:\P', cRoot13 + '\source\rtl\', cRoot12 + '\lib',
+    'c:\studio\37.0\SOURCE\RTL', '']);
+  Assert.AreEqual(1, Length(mKept), 'nur der Ordner unter 37.0, ohne Doppel');
+  Assert.AreEqual(cRoot13 + '\source\rtl', mKept[0]);
+  Assert.IsTrue(TIndexForeignRoots.IsForeign(cRoot13 + '\source\vcl\Vcl.Forms.pas', [cRoot13], mKept), 'VCL von 37.0');
+  Assert.IsFalse(TIndexForeignRoots.IsForeign(cRoot13 + '\source\rtl\common\System.Classes.pas', [cRoot13], mKept),
+    'vom Projekt genannt, mit Unterordnern');
+  Assert.IsFalse(TIndexForeignRoots.IsForeign(cRoot12 + '\source\rtl\common\System.Classes.pas', [cRoot13], mKept),
+    'eigene Installation');
+  Assert.IsFalse(TIndexForeignRoots.IsForeign('C:\Studio\37.0x\a.pas', [cRoot13], nil), 'nur ganze Ordnernamen');
+  Assert.AreEqual(0, Length(TIndexForeignRoots.InUse(nil, [cRoot13])), 'ohne ForeignRoots nichts');
+end;
+
+procedure TLspServerVersionTests.ProjectInForeignInstallationKeepsItsUnits;
+const
+  cCache = 'C:\Cache\23.0\Rtl37\index.dpccidx';
+var
+  mFiles: IIndexFileSystem;
+  mIndex: ISymbolIndex;
+  mService: TIndexService;
+  mRequest: TIndexRequest;
+  mRemoved, mSkipped, mPass: Integer;
+  mOwn: string;
+begin
+  mFiles := VersionFiles;
+  mOwn := cRoot13 + '\source\rtl\common\System.Classes.pas';
+  mRequest := Default(TIndexRequest);
+  mRequest.Defines := ['DEBUG', 'MSWINDOWS'];
+  mRequest.LibraryDefines := ['MSWINDOWS', 'WIN32'];
+  // BuildAndroidRTL.dproj aus Studio\37.0 in Delphi 12: die RTL-Units sind Projektdateien, die Bibliothek ist 23.0.
+  mRequest.Files := [mOwn];
+  mRequest.ResolveUnit := NoUnit();
+  mRequest.LibraryFiles := [cRoot12 + '\source\rtl\common\System.Classes.pas'];
+  mRequest.LibraryRoots := [cRoot12];
+  mRequest.CacheFile := cCache;
+  mRequest.ForeignRoots := [cRoot13];
+  mRequest.ForeignKept := TIndexForeignRoots.InUse(mRequest.ForeignRoots, [ExtractFileDir(mOwn)]);
+  for mPass := 1 to 2 do
+  begin
+    mRemoved := -1;
+    mSkipped := -1;
+    mIndex := TSymbolIndex.Create;
+    mService := TIndexService.Create(mIndex, mFiles);
+    try
+      mService.OnForeignUnits :=
+        procedure(ARemoved, ACacheSkipped: Integer)
+        begin
+          mRemoved := ARemoved;
+          mSkipped := ACacheSkipped;
+        end;
+      mService.Start(mRequest);
+      mService.WaitFor;
+      Assert.AreEqual(1, UnitsUnder(mIndex, cRoot13), Format('Lauf %d: die Projektdatei aus 37.0 bleibt', [mPass]));
+      Assert.AreEqual(0, mRemoved, Format('Lauf %d: nichts entfernt', [mPass]));
+      Assert.AreEqual(0, mSkipped, Format('Lauf %d: alles aus dem Cache übernommen', [mPass]));
+    finally
+      mService.Free;
+    end;
+  end;
+end;
+
+procedure TLspServerVersionTests.PollutedCacheIsRewrittenClean;
+const
+  cCache = 'C:\Cache\23.0\Gemischt2\index.dpccidx';
+var
+  mFiles: IIndexFileSystem;
+  mIndex: ISymbolIndex;
+  mService: TIndexService;
+  mRequest: TIndexRequest;
+  mSkipped: Integer;
+  mBytes: TBytes;
+  mStampBefore, mStampAfter: Int64;
+  mUnit: TUnitIndex;
+
+  // Byteweise suchen: Der Cache ist binär, als UTF-8-Text gelesen bricht er ab.
+  function CacheHolds37: Boolean;
+  var
+    mNeedle: TBytes;
+    mAt, mPos: Integer;
+  begin
+    Assert.IsTrue(mFiles.ReadBytes(cCache, mBytes), 'Cache geschrieben');
+    mNeedle := TEncoding.UTF8.GetBytes(cRoot13 + '\');
+    for mAt := 0 to Length(mBytes) - Length(mNeedle) do
+    begin
+      mPos := 0;
+      while (mPos < Length(mNeedle)) and (mBytes[mAt + mPos] = mNeedle[mPos]) do
+      begin
+        Inc(mPos);
+      end;
+      if mPos = Length(mNeedle) then
+      begin
+        Exit(True);
+      end;
+    end;
+    Result := False;
+  end;
+
+begin
+  mFiles := VersionFiles;
+  mRequest := Default(TIndexRequest);
+  mRequest.Defines := ['DEBUG', 'MSWINDOWS'];
+  mRequest.LibraryDefines := ['MSWINDOWS', 'WIN32'];
+  mRequest.Files := ['C:\P\P.dpr'];
+  mRequest.ResolveUnit := NoUnit();
+  mRequest.CacheFile := cCache;
+  // Gemischter Stand wie aus einem früheren Lauf: System.Classes von 23.0 UND 37.0 im Projekt-Cache.
+  mRequest.LibraryFiles := [cRoot12 + '\source\rtl\common\System.Classes.pas',
+    cRoot13 + '\source\rtl\common\System.Classes.pas'];
+  mRequest.LibraryRoots := [cRoot12, cRoot13];
+  mIndex := TSymbolIndex.Create;
+  mService := TIndexService.Create(mIndex, mFiles);
+  try
+    mService.Start(mRequest);
+    mService.WaitFor;
+  finally
+    mService.Free;
+  end;
+  Assert.IsTrue(CacheHolds37, 'Gegenprobe: der Cache hält 37.0');
+  Assert.IsTrue(mFiles.FileStamp(cCache, mStampBefore), 'Stand des Caches');
+  // Jetzt nur 23.0 mit ForeignRoots: nichts neu zu lesen (alles im Cache), der Cache wird trotzdem bereinigt.
+  mRequest.LibraryFiles := [cRoot12 + '\source\rtl\common\System.Classes.pas'];
+  mRequest.LibraryRoots := [cRoot12];
+  mRequest.ForeignRoots := [cRoot13];
+  mSkipped := -1;
+  mIndex := TSymbolIndex.Create;
+  mService := TIndexService.Create(mIndex, mFiles);
+  try
+    mService.OnForeignUnits :=
+      procedure(ARemoved, ACacheSkipped: Integer)
+      begin
+        mSkipped := ACacheSkipped;
+      end;
+    mService.Start(mRequest);
+    mService.WaitFor;
+    Assert.AreEqual(1, mSkipped, 'eine Unit von 37.0 nicht übernommen');
+    Assert.AreEqual(0, UnitsUnder(mIndex, cRoot13), 'nichts von 37.0 im Index');
+    Assert.IsTrue(mIndex.FindUnit('System.Classes', mUnit) and StartsText(cRoot12 + '\', mUnit.FileName),
+      'System.Classes von 23.0');
+  finally
+    mService.Free;
+  end;
+  Assert.IsTrue(mFiles.FileStamp(cCache, mStampAfter), 'Stand des Caches danach');
+  Assert.IsTrue(mStampBefore <> mStampAfter, 'Cache neu geschrieben');
+  Assert.IsFalse(CacheHolds37, 'bereinigter Cache ohne 37.0');
 end;
 
 initialization

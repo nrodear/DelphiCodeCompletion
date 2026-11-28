@@ -185,6 +185,18 @@ recherche, bibliothèque, dossiers source supplémentaires. Sans projet, l'ordre
 avant bibliothèque avant dossiers supplémentaires. Les espaces de noms d'unités (`DCC_Namespace`) s'appliquent eux
 aussi par projet.
 
+### Autres installations de Delphi
+
+Lorsque plusieurs versions de Delphi sont installées, dpcc (le plugin comme dpcc.LspServer.exe) ne prend les unités
+du dossier d'une autre installation ni dans l'index ni d'un cache. Ainsi, Delphi 12 ne saute pas dans les sources de
+Delphi 13 pour `TStringList`. Font exception les dossiers que le projet nomme lui-même : fichiers du projet, chemins
+de recherche du projet, chemins de bibliothèque et de navigation de l'IDE et dossiers source supplémentaires. Qui
+ouvre par exemple `Studio\37.0\source\rtl\BuildWinRTL.dproj` dans Delphi 12 ou saisit un dossier de Delphi 13
+comme chemin de recherche garde ces unités, cache compris ; toutes les autres unités de l'autre installation restent
+dehors. Si un cache contenait encore de telles unités (versions antérieures), la construction suivante le réécrit
+sans elles. Le journal nomme les dossiers exclus (« Units anderer Delphi-Installationen bleiben draußen: … ») et les
+nombres (« … aus dem Index genommen, … aus den Caches nicht übernommen »).
+
 ## Quand l'index est créé
 
 - Dans le mode Plugin, le serveur démarre à la première requête, par exemple Ctrl+Espace, ou au passage au mode

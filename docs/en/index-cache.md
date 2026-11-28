@@ -168,6 +168,18 @@ working in, in the order of the compiler: units of the project, project folder, 
 source folders. Without a project the order is: project before search path before library before additional folders.
 The unit namespaces (`DCC_Namespace`) also apply per project.
 
+### Other Delphi installations
+
+When several Delphi versions are installed, dpcc (the plugin as well as dpcc.LspServer.exe) neither takes units from
+the folder of another installation into the index nor from a cache. So Delphi 12 does not jump into the Delphi 13
+sources for `TStringList`. Exempt are folders the project itself names: project files, the project's search paths,
+the IDE's library and browsing paths and additional source folders. Whoever opens, say,
+`Studio\37.0\source\rtl\BuildWinRTL.dproj` in Delphi 12 or enters a Delphi 13 folder as a search path keeps those
+units including the cache; all other units of the other installation stay out. If a cache still held such units
+(earlier versions), the next build writes it again without them. The log names the excluded folders ("Units anderer
+Delphi-Installationen bleiben draußen: …") and the counts ("… aus dem Index genommen, … aus den Caches nicht
+übernommen").
+
 ## When the index is built
 
 - In the Plugin mode the server starts with the first request, for example Ctrl+Space, or when switching to Plugin.

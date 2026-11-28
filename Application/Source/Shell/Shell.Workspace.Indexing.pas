@@ -177,6 +177,44 @@ begin
 {$ENDIF}
 end;
 
+/// <summary>Die Ordner, die das Projekt selbst nennt (TIndexRequest.ForeignKept): Ordner der Projektdatei und der
+/// Projektdateien, Suchpfade des Projekts, Bibliotheks- und Suchpfade der IDE, zusätzliche Quellordner.</summary>
+function ProjectFoldersOf(const ALoaded: TShellLoadedProject; const AFiles, AExtraFolders: TArray<string>):
+  TArray<string>;
+var
+  mFile, mLast, mFolder: string;
+begin
+  Result := [ExtractFileDir(ALoaded.ProjectFile)];
+  mLast := '';
+  for mFile in AFiles do
+  begin
+    mFolder := ExtractFileDir(mFile);
+    // Projektdateien stehen meist ordnerweise beieinander; Doppel entfernt TIndexForeignRoots.InUse.
+    if not SameText(mFolder, mLast) then
+    begin
+      Result := Result + [mFolder];
+      mLast := mFolder;
+    end;
+  end;
+  Result := Result + ALoaded.Project.SearchPaths + ALoaded.LibraryPaths + AExtraFolders;
+end;
+
+/// <summary>APaths für das Protokoll, je Pfad markiert (TLogMarks.Path).</summary>
+function MarkedPaths(const APaths: TArray<string>): string;
+var
+  mPath: string;
+begin
+  Result := '';
+  for mPath in APaths do
+  begin
+    if Result <> '' then
+    begin
+      Result := Result + '; ';
+    end;
+    Result := Result + TLogMarks.Path(mPath);
+  end;
+end;
+
 /// <summary>Die Ordner neben AFolder (eine Ebene, ohne AFolder selbst, höchstens cMaxSiblingFolders): Gängig ist
 /// Packages\&lt;Name&gt;\&lt;Name&gt;.dpk, und ein requires-Package muss kein Projekt der Gruppe sein. Leer am
 /// Laufwerk oder wenn der Elternordner nicht lesbar ist.</summary>
@@ -378,6 +416,14 @@ begin
     procedure(const AFileName, AReason: string)
     begin
       CacheNotWritten(AFileName, AReason);
+    end;
+  FService.OnForeignUnits :=
+    procedure(ARemoved, ACacheSkipped: Integer)
+    begin
+      FParts.Logger.Info(Format('Units anderer Delphi-Installationen: %d aus dem Index genommen, %d aus den Caches ' +
+        'nicht übernommen', [ARemoved, ACacheSkipped]));
+      IndexEvent(Format('index project#%d foreign removed %d cacheSkipped %d', [FParts.Setup.Priority, ARemoved,
+        ACacheSkipped]));
     end;
   // b1: Der Index hielt den Stand des gemeinsamen Caches schon; nicht noch einmal gelesen.
   FService.OnCacheSkipped :=
@@ -615,7 +661,7 @@ var
   mFiles: TShellIndexFiles;
   mTarget: TShellRequestTarget;
   mRequest: TIndexRequest;
-  mKey: string;
+  mKey, mKept: string;
 begin
   mFiles := TShellIndexRequests.FilesOf(ALoaded, ASettings, FParts.Logger);
   TShellIndexRequests.AddPackageFiles(ALoaded.Project, PublishLookups(ALoaded, mFiles.ExtraRoots), mFiles,
@@ -631,11 +677,26 @@ begin
   mTarget.Priority := FParts.Setup.Priority;
   mTarget.Usages := ASettings.IndexUsages;
   mRequest := TShellIndexRequests.RequestOf(ALoaded, mFiles, mTarget);
-  // Als Ersatz für DelphiLSP (dpcc.LspServer.exe): Units anderer Installationen weder behalten noch aus Caches
-  // übernehmen (gemessen 27.11.2026: Delphi 12 sprang bei TStringList in die Quellen von Delphi 13).
+  // In der IDE (Plugin und dpcc.LspServer.exe): Units anderer Installationen weder behalten noch aus Caches
+  // übernehmen (gemessen 27.11.2026: Delphi 12 sprang bei TStringList in die Quellen von Delphi 13). Was das Projekt
+  // selbst dort nennt (Projektdateien, Such- und Bibliothekspfade, zusätzliche Quellordner), bleibt.
   if (FParts.Setup.IdeProjects <> nil) and FParts.Setup.IdeProjects.SeparateInstallations then
   begin
     mRequest.ForeignRoots := ForeignInstallationRoots(ALoaded.Version);
+    mRequest.ForeignKept := TIndexForeignRoots.InUse(mRequest.ForeignRoots, ProjectFoldersOf(ALoaded,
+      mRequest.Files, mFiles.ExtraFolders));
+    if Length(mRequest.ForeignRoots) > 0 then
+    begin
+      // Erst prüfen, dann lesen: IfThen wertet beide Zweige aus (ForeignKept[0] bei leerer Liste).
+      mKept := '';
+      if Length(mRequest.ForeignKept) > 0 then
+      begin
+        mKept := Format('; vom Projekt genannt und deshalb zugelassen: %d Ordner, z. B. %s',
+          [Length(mRequest.ForeignKept), TLogMarks.Path(mRequest.ForeignKept[0])]);
+      end;
+      FParts.Logger.Info('Units anderer Delphi-Installationen bleiben draußen: ' + MarkedPaths(mRequest.ForeignRoots) +
+        mKept);
+    end;
   end;
   mRequest.ResolveUnit := NewResolver(ALoaded, mFiles.ExtraFolders, mRequest.ResolveUnitFrom);
   TMonitor.Enter(FResolveLock);
